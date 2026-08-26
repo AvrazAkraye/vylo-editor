@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Vylo Editor">
+  <title>Vylo Editor — mark</title>
+  <defs>
+    <linearGradient id="vy" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#6D5CF0"/>
+      <stop offset="0.55" stop-color="#5B4DE0"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Container geometry matches the rest of the Vylo family: 60px square,
+       13px corner radius on a 64 viewBox. -->
+  <rect x="2" y="2" width="60" height="60" rx="13" ry="13" fill="url(#vy)"/>
+
+  <!-- The V of Vylo, drawn as a code chevron: it reads as the brand letter and
+       as an editor at the same time, which the OTP shield-and-check could not. -->
+  <path d="M17 22.5 L27 41.5 L37 22.5"
+        fill="none" stroke="#FFFFFF" stroke-width="5.2"
+        stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Text caret sitting where the next character would go. -->
+  <rect x="43.4" y="21.5" width="4.6" height="21" rx="2.3" fill="#FFFFFF" fill-opacity="0.92"/>
+</svg>
