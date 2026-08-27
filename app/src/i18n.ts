@@ -24,6 +24,12 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Explorer': 'المستكشف',
+  'Changes': 'التغييرات',
+  'Chats': 'المحادثات',
+  'Chat': 'المحادثة',
+  'No proposed changes.': 'لا توجد تغييرات مقترحة.',
+  'No saved conversations.': 'لا محادثات محفوظة.',
   'Recent': 'الأخيرة',
   'Recent folders': 'المجلدات الأخيرة',
   'New chat': 'محادثة جديدة',
@@ -70,6 +76,12 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Explorer': 'گەڕان',
+  'Changes': 'گۆڕانکارییەکان',
+  'Chats': 'گفتوگۆکان',
+  'Chat': 'گفتوگۆ',
+  'No proposed changes.': 'هیچ گۆڕانکارییەکی پێشنیارکراو نییە.',
+  'No saved conversations.': 'هیچ گفتوگۆیەکی پاشەکەوتکراو نییە.',
   'Recent': 'دواییەکان',
   'Recent folders': 'بوخچە دواییەکان',
   'New chat': 'گفتوگۆی نوێ',
@@ -116,6 +128,12 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Explorer': 'گەڕیان',
+  'Changes': 'گوهۆڕین',
+  'Chats': 'ئاخفتن',
+  'Chat': 'ئاخفتن',
+  'No proposed changes.': 'چ گوهۆڕینێن پێشنیارکری نینن.',
+  'No saved conversations.': 'چ ئاخفتنێن پاراستی نینن.',
   'Recent': 'یێن دوماهیێ',
   'Recent folders': 'بوخچێن دوماهیێ',
   'New chat': 'ئاخفتنا نوی',

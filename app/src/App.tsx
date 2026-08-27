@@ -11,6 +11,9 @@ import { LANGS, storedLang, storeLang, translator, type Lang } from './i18n';
 import { checkForUpdate, type Available } from './updates';
 import { Markdown } from './Markdown';
 import { ago, forget, load, recent, save, type Line as SavedLine } from './store';
+import { FileTree, type Entry } from './FileTree';
+import { Viewer } from './Viewer';
+import { Section } from './Sidebar';
 
 type Line = SavedLine & { shots?: Attached[] };
 
@@ -63,8 +66,12 @@ export function App() {
   const [lang, setLang] = useState<Lang>(() => storedLang());
   const [update, setUpdate] = useState<Available | null>(null);
   const [updating, setUpdating] = useState<number | null | 'done'>(null);
-  const [showRecent, setShowRecent] = useState(false);
   const [recents, setRecents] = useState(() => recent());
+  const [tree, setTree] = useState<Entry[]>([]);
+  const [tabs, setTabs] = useState<string[]>([]);          // open file paths
+  const [active, setActive] = useState<string>('chat');    // 'chat' | a path
+  const [sidebarW, setSidebarW] = useState(() => Number(localStorage.getItem('vylo.sbw')) || 248);
+  const resizing = useRef(false);
   const t = translator(lang);
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
@@ -91,6 +98,35 @@ export function App() {
   // One check on launch, deliberately silent on failure -- an update check is
   // never a good reason to greet someone with an error.
   useEffect(() => { void checkForUpdate().then(setUpdate); }, []);
+
+  // The tree is the sidebar's content and also what tells the user the folder
+  // actually opened. Reloaded after edits land so new files appear.
+  useEffect(() => {
+    if (!root) { setTree([]); return; }
+    let cancelled = false;
+    void invoke<Entry[]>('list_tree', { root, maxEntries: 4000 })
+      .then((e) => { if (!cancelled) setTree(e); })
+      .catch(() => { if (!cancelled) setTree([]); });
+    return () => { cancelled = true; };
+  }, [root, written]);
+
+  // Sidebar width, dragged from the divider.
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!resizing.current) return;
+      const w = Math.min(460, Math.max(180, e.clientX));
+      setSidebarW(w);
+    };
+    const up = () => {
+      if (!resizing.current) return;
+      resizing.current = false;
+      document.body.classList.remove('resizing');
+      try { localStorage.setItem('vylo.sbw', String(sidebarW)); } catch { /* private mode */ }
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  }, [sidebarW]);
 
   // Bring back the conversation for this folder. Runs on mount too, so
   // reopening the app lands you where you left off.
@@ -214,7 +250,8 @@ export function App() {
     // files, even for a frame.
     history.current = [];
     setLines([]);
-    setShowRecent(false);
+    setTabs([]);
+    setActive('chat');
     // Staged edits are relative to the folder they were made against; carrying
     // them into a different project would be a way to write a file somewhere
     // nobody asked for.
@@ -225,6 +262,16 @@ export function App() {
     trusted.current.clear();
     setWritten([]);
     setCommitMsg('');
+  }
+
+  function openFile(path: string) {
+    setTabs((prev) => (prev.includes(path) ? prev : [...prev, path]));
+    setActive(path);
+  }
+
+  function closeTab(path: string) {
+    setTabs((prev) => prev.filter((p) => p !== path));
+    setActive((cur) => (cur === path ? 'chat' : cur));
   }
 
   function newChat() {
@@ -334,16 +381,6 @@ export function App() {
         <button className="folder" onClick={pickFolder} title={root || 'No folder open'}>
           {folderName ? `📁 ${folderName}` : t('Open folder…')}
         </button>
-        {recents.length > 0 && (
-          <button className="ghost" onClick={() => setShowRecent((v) => !v)} title={t('Recent folders')}>
-            {t('Recent')}
-          </button>
-        )}
-        {lines.length > 0 && (
-          <button className="ghost" onClick={newChat} title={t('Clear this conversation')}>
-            {t('New chat')}
-          </button>
-        )}
         {git?.is_repo && (
           <button className="ghost br" onClick={() => void newBranch()} title="Create a branch and switch to it">
             {t('+ branch')}
@@ -383,7 +420,68 @@ export function App() {
         </div>
       )}
 
-      <div className="log" ref={log}>
+      <div className="body">
+        <aside className="sidebar" style={{ width: sidebarW }}>
+          <Section id="files" title={t('Explorer')} count={tree.filter((e) => !e.is_dir).length}>
+            {root
+              ? <FileTree entries={tree} openPath={active === 'chat' ? null : active}
+                          onOpen={openFile} changed={new Set(changes.map((c) => c.path))} />
+              : <p className="ft-empty">{t('Open a folder, or drop one here')}</p>}
+          </Section>
+
+          <Section id="changes" title={t('Changes')} count={changes.length} defaultOpen={false}>
+            {changes.length === 0
+              ? <p className="ft-empty">{t('No proposed changes.')}</p>
+              : changes.map((c) => (
+                  <button key={c.path} className="ft-row ft-file changed" onClick={() => openFile(c.path)} title={c.path}>
+                    <span className="ft-icon">±</span>
+                    <span className="ft-name">{c.path.split('/').pop()}</span>
+                    <span className="ft-dot" />
+                  </button>
+                ))}
+          </Section>
+
+          <Section id="chats" title={t('Chats')} count={recents.length} defaultOpen={false}
+                   action={lines.length > 0
+                     ? <button className="sb-act" onClick={newChat} title={t('Clear this conversation')}>+</button>
+                     : undefined}>
+            {recents.length === 0
+              ? <p className="ft-empty">{t('No saved conversations.')}</p>
+              : recents.map((r) => (
+                  <button key={r.folder} className={`ft-row ft-file ${r.folder === root ? 'on' : ''}`}
+                          onClick={() => openFolder(r.folder)} title={r.folder}>
+                    <span className="ft-icon">✦</span>
+                    <span className="ft-name">{r.name}</span>
+                    <span className="rc-meta">{ago(r.updatedAt)}</span>
+                  </button>
+                ))}
+          </Section>
+        </aside>
+
+        <div className="divider" onMouseDown={() => {
+          resizing.current = true;
+          document.body.classList.add('resizing');
+        }} role="separator" aria-orientation="vertical" />
+
+        <div className="work">
+          <div className="tabs">
+            <button className={`tab ${active === 'chat' ? 'on' : ''}`} onClick={() => setActive('chat')}>
+              {t('Chat')}
+            </button>
+            {tabs.map((path) => (
+              <span key={path} className={`tab ${active === path ? 'on' : ''}`}>
+                <button className="tab-name" onClick={() => setActive(path)} title={path}>
+                  {path.split('/').pop()}
+                </button>
+                <button className="tab-x" onClick={() => closeTab(path)} aria-label={`Close ${path}`}>×</button>
+              </span>
+            ))}
+          </div>
+
+          {active !== 'chat' ? (
+            <Viewer root={root} path={active} />
+          ) : (
+          <div className="log" ref={log}>
         {lines.length === 0 && (
           <div className="empty">
             <p><b>{t('Open a folder, then ask about the code in it.')}</b></p>
@@ -407,19 +505,10 @@ export function App() {
           </div>
         ))}
         {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
-      </div>
-
-      {showRecent && (
-        <div className="recents">
-          {recents.map((r) => (
-            <button key={r.folder} className={r.folder === root ? 'on' : ''}
-                    onClick={() => openFolder(r.folder)} title={r.folder}>
-              <span className="rc-name">{r.name}</span>
-              <span className="rc-meta">{r.turns} · {ago(r.updatedAt)}</span>
-            </button>
-          ))}
+          </div>
+          )}
         </div>
-      )}
+      </div>
 
       {update && (
         <div className="update">

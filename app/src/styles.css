@@ -20,7 +20,7 @@
 html,body,#root{ height:100%; margin:0; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:14px; }
 
-.shell{ height:100%; display:flex; flex-direction:column; }
+.shell{ height:100%; display:flex; flex-direction:column; min-height:0; }
 
 .bar{
   display:flex; align-items:center; gap:10px;
@@ -300,3 +300,107 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .recents button.on{ border-color:var(--brand); background:var(--panel-2); }
 .rc-name{ font-size:12.5px; font-weight:600; }
 .rc-meta{ font-size:10.5px; color:var(--mute); font-family:var(--mono); }
+
+/* ── IDE shell: sidebar · divider · workspace ────────────────────────── */
+.body{ flex:1; display:flex; min-height:0; }
+
+.sidebar{
+  flex:none; display:flex; flex-direction:column; min-height:0;
+  overflow-y:auto; background:var(--panel-2);
+  border-right:1px solid var(--rule);
+}
+.divider{
+  flex:none; width:4px; cursor:col-resize; background:transparent;
+  margin-left:-2px; margin-right:-2px; z-index:5;
+}
+.divider:hover{ background:var(--brand); opacity:.55; }
+body.resizing{ cursor:col-resize; user-select:none; }
+
+.work{ flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
+
+/* ── sidebar sections ────────────────────────────────────────────────── */
+.sb-sec{ border-bottom:1px solid var(--rule); }
+.sb-head{ display:flex; align-items:center; }
+.sb-toggle{
+  flex:1; display:flex; align-items:center; gap:5px; text-align:left;
+  font:inherit; font-size:10.5px; font-weight:700; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--mute);
+  padding:8px 10px; border:0; background:transparent; cursor:pointer;
+}
+.sb-toggle:hover{ color:var(--ink); }
+.sb-caret{ display:inline-block; transition:transform .12s ease; font-size:9px; }
+.sb-caret.open{ transform:rotate(90deg); }
+.sb-count{
+  margin-left:auto; font-family:var(--mono); font-size:9.5px;
+  padding:1px 6px; border-radius:999px; background:var(--panel); color:var(--mute);
+}
+.sb-act{
+  font:inherit; font-size:15px; line-height:1; width:24px; height:24px; margin-right:6px;
+  border:0; border-radius:6px; background:transparent; color:var(--mute); cursor:pointer;
+}
+.sb-act:hover{ background:var(--panel); color:var(--ink); }
+.sb-body{ padding:0 0 7px; }
+
+/* ── file tree ───────────────────────────────────────────────────────── */
+.ft{ display:flex; flex-direction:column; }
+.ft-row{
+  display:flex; align-items:center; gap:6px; width:100%; text-align:left;
+  font:inherit; font-size:12px; padding:3px 8px 3px 6px;
+  border:0; background:transparent; color:var(--ink-2); cursor:pointer;
+  white-space:nowrap; overflow:hidden;
+}
+.ft-row:hover{ background:var(--panel); color:var(--ink); }
+.ft-row.on{ background:var(--panel); color:var(--brand); }
+.ft-name{ overflow:hidden; text-overflow:ellipsis; }
+.ft-caret{ font-size:9px; width:9px; flex:none; transition:transform .12s ease; color:var(--mute); }
+.ft-caret.open{ transform:rotate(90deg); }
+.ft-dir{ font-weight:600; color:var(--ink); }
+.ft-icon{
+  flex:none; width:19px; font-family:var(--mono); font-size:8.5px; font-weight:700;
+  text-align:center; color:var(--mute); letter-spacing:-.02em;
+}
+.ft-row.changed .ft-name{ color:var(--brand); }
+.ft-dot{ flex:none; width:5px; height:5px; border-radius:50%; background:var(--brand); margin-left:auto; }
+.ft-empty{ margin:0; padding:4px 12px 10px; font-size:11.5px; color:var(--mute); }
+.ft-row .rc-meta{ margin-left:auto; padding-left:8px; }
+
+/* ── tab strip ───────────────────────────────────────────────────────── */
+.tabs{
+  display:flex; align-items:stretch; gap:1px; flex:none; overflow-x:auto;
+  background:var(--panel-2); border-bottom:1px solid var(--rule);
+}
+.tab{
+  display:flex; align-items:center; font:inherit; font-size:12px;
+  padding:0; border:0; border-right:1px solid var(--rule);
+  background:transparent; color:var(--mute); cursor:pointer; white-space:nowrap;
+}
+.tab > .tab-name, .tab:not(:has(.tab-name)){ padding:8px 12px; }
+.tab-name{ font:inherit; font-size:12px; border:0; background:transparent; color:inherit; cursor:pointer; padding:8px 4px 8px 12px; }
+.tab-x{
+  font:inherit; font-size:14px; line-height:1; border:0; background:transparent;
+  color:var(--mute); cursor:pointer; padding:0 9px 0 4px; align-self:stretch;
+}
+.tab-x:hover{ color:var(--err); }
+.tab:hover{ background:var(--panel); color:var(--ink); }
+.tab.on{ background:var(--bg); color:var(--ink); box-shadow:inset 0 -2px 0 var(--brand); }
+
+/* ── file viewer ─────────────────────────────────────────────────────── */
+.vw{ flex:1; display:flex; flex-direction:column; min-height:0; background:var(--bg); }
+.vw pre{ margin:0; flex:1; overflow:auto; padding:8px 0; font-family:var(--mono); font-size:12px; line-height:1.55; }
+.vw-line{ display:flex; white-space:pre; }
+.vw-ln{
+  flex:none; width:46px; padding-right:12px; text-align:right;
+  color:var(--mute); opacity:.55; user-select:none;
+}
+.vw-tx{ flex:1; padding-right:16px; }
+.vw-msg{ padding:16px; color:var(--mute); font-size:12.5px; }
+.vw-err{ color:var(--err); font-family:var(--mono); }
+.vw-foot{
+  flex:none; padding:6px 12px; border-top:1px solid var(--rule);
+  background:var(--panel-2); font-family:var(--mono); font-size:10.5px; color:var(--mute);
+}
+
+@media (max-width:720px){
+  .sidebar{ display:none; }
+  .divider{ display:none; }
+}
