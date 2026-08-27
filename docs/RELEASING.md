@@ -13,9 +13,24 @@ the app. That is what stops this update channel from becoming a way to push
 arbitrary code onto someone's laptop if the gateway is ever compromised: a
 tampered payload fails verification before it runs.
 
-If the key is lost, existing installs can never be updated again — they would
-have to be reinstalled by hand. Back it up somewhere durable, and add it to
-GitHub Actions as `TAURI_SIGNING_PRIVATE_KEY` when CI starts publishing.
+**Rotating it is possible, and the cost depends entirely on timing.** A new key
+means rebuilding with the new public half baked in — so every install still
+carrying the old one can never be updated again and must be reinstalled by hand.
+With one machine that is a minor annoyance. With a hundred users it is an
+outage you cannot fix remotely, because the mechanism you would fix it with is
+the one that broke.
+
+Copies that exist:
+- `~/.tauri/vylo-editor.key` on the build machine
+- GitHub Actions secret `TAURI_SIGNING_PRIVATE_KEY`, used by CI to sign
+
+GitHub secrets are **write-only** — CI can use it, nobody can read it back. So
+that is a working copy, not a recoverable backup. Keep a third copy somewhere a
+human can actually retrieve it, such as a password manager.
+
+**Deliberately not stored on the update server.** If that host were compromised,
+an attacker holding both the signing key and the distribution channel could push
+a signed malicious update, which is precisely what signing exists to prevent.
 
 ## Cutting a release
 
