@@ -9,12 +9,10 @@ import { Review } from './Review';
 import { invoke } from '@tauri-apps/api/core';
 import { LANGS, storedLang, storeLang, translator, type Lang } from './i18n';
 import { checkForUpdate, type Available } from './updates';
+import { Markdown } from './Markdown';
+import { ago, forget, load, recent, save, type Line as SavedLine } from './store';
 
-type Line = {
-  kind: 'you' | 'text' | 'tool' | 'result' | 'error';
-  text: string;
-  shots?: Attached[];
-};
+type Line = SavedLine & { shots?: Attached[] };
 
 /**
  * A list rather than a text field. Anthropic writes "Opus 4.8" in prose but
@@ -65,6 +63,8 @@ export function App() {
   const [lang, setLang] = useState<Lang>(() => storedLang());
   const [update, setUpdate] = useState<Available | null>(null);
   const [updating, setUpdating] = useState<number | null | 'done'>(null);
+  const [showRecent, setShowRecent] = useState(false);
+  const [recents, setRecents] = useState(() => recent());
   const t = translator(lang);
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
@@ -91,6 +91,27 @@ export function App() {
   // One check on launch, deliberately silent on failure -- an update check is
   // never a good reason to greet someone with an error.
   useEffect(() => { void checkForUpdate().then(setUpdate); }, []);
+
+  // Bring back the conversation for this folder. Runs on mount too, so
+  // reopening the app lands you where you left off.
+  useEffect(() => {
+    if (!root) return;
+    const prior = load(root);
+    if (prior) {
+      setLines(prior.lines);
+      history.current = prior.history;
+    }
+  }, [root]);
+
+  // Persist after the exchange settles rather than on every streamed line --
+  // writing the whole transcript on each token would be wasteful and would
+  // stutter a long reply.
+  useEffect(() => {
+    if (!root || busy) return;
+    if (!lines.length && !history.current.length) return;
+    save(root, lines.map(({ shots: _shots, ...l }) => l), history.current);
+    setRecents(recent());
+  }, [root, busy, lines]);
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [lines, changes]);
 
   // Whether git is available as an undo is worth knowing *before* approving,
@@ -135,7 +156,7 @@ export function App() {
     return () => window.removeEventListener('paste', onPaste);
   }, []);
 
-  const push = (l: Line) => setLines((p) => [...p, l]);
+  const push = (l: Line) => setLines((p) => [...p, { at: Date.now(), ...l }]);
 
   async function newBranch() {
     const suggested = `vylo/${new Date().toISOString().slice(0, 10)}`;
@@ -188,8 +209,12 @@ export function App() {
 
   function openFolder(path: string) {
     setRoot(path);
+    // Cleared here and repopulated by the restore effect above, so switching
+    // between projects never shows one project's transcript against another's
+    // files, even for a frame.
     history.current = [];
     setLines([]);
+    setShowRecent(false);
     // Staged edits are relative to the folder they were made against; carrying
     // them into a different project would be a way to write a file somewhere
     // nobody asked for.
@@ -200,6 +225,16 @@ export function App() {
     trusted.current.clear();
     setWritten([]);
     setCommitMsg('');
+  }
+
+  function newChat() {
+    if (!root) return;
+    forget(root);
+    history.current = [];
+    setLines([]);
+    setChanges([]);
+    pending.current.clear();
+    setRecents(recent());
   }
 
   async function pickFolder() {
@@ -299,6 +334,16 @@ export function App() {
         <button className="folder" onClick={pickFolder} title={root || 'No folder open'}>
           {folderName ? `📁 ${folderName}` : t('Open folder…')}
         </button>
+        {recents.length > 0 && (
+          <button className="ghost" onClick={() => setShowRecent((v) => !v)} title={t('Recent folders')}>
+            {t('Recent')}
+          </button>
+        )}
+        {lines.length > 0 && (
+          <button className="ghost" onClick={newChat} title={t('Clear this conversation')}>
+            {t('New chat')}
+          </button>
+        )}
         {git?.is_repo && (
           <button className="ghost br" onClick={() => void newBranch()} title="Create a branch and switch to it">
             {t('+ branch')}
@@ -356,11 +401,25 @@ export function App() {
             {l.kind === 'tool' && <span className="tag">tool</span>}
             {l.kind === 'result' && <span className="tag ok">result</span>}
             {l.kind === 'error' && <span className="tag err">error</span>}
-            <span className="body">{l.text}</span>
+            {l.kind === 'text'
+              ? <div className="body"><Markdown text={l.text} /></div>
+              : <span className="body">{l.text}</span>}
           </div>
         ))}
         {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
       </div>
+
+      {showRecent && (
+        <div className="recents">
+          {recents.map((r) => (
+            <button key={r.folder} className={r.folder === root ? 'on' : ''}
+                    onClick={() => openFolder(r.folder)} title={r.folder}>
+              <span className="rc-name">{r.name}</span>
+              <span className="rc-meta">{r.turns} · {ago(r.updatedAt)}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {update && (
         <div className="update">

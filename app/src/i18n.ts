@@ -24,6 +24,10 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Recent': 'الأخيرة',
+  'Recent folders': 'المجلدات الأخيرة',
+  'New chat': 'محادثة جديدة',
+  'Clear this conversation': 'مسح هذه المحادثة',
   'Update available': 'يتوفر تحديث',
   'Later': 'لاحقاً',
   'Install and restart': 'التثبيت وإعادة التشغيل',
@@ -66,6 +70,10 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Recent': 'دواییەکان',
+  'Recent folders': 'بوخچە دواییەکان',
+  'New chat': 'گفتوگۆی نوێ',
+  'Clear this conversation': 'ئەم گفتوگۆیە بسڕەوە',
   'Update available': 'نوێکردنەوە بەردەستە',
   'Later': 'دواتر',
   'Install and restart': 'دایبنێ و پێبکەرەوە',
@@ -108,6 +116,10 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Recent': 'یێن دوماهیێ',
+  'Recent folders': 'بوخچێن دوماهیێ',
+  'New chat': 'ئاخفتنا نوی',
+  'Clear this conversation': 'ڤێ ئاخفتنێ ژێبە',
   'Update available': 'نویکرن هەیە',
   'Later': 'پاشتر',
   'Install and restart': 'دابنێ و ژنوڤە بدەستپێکە',

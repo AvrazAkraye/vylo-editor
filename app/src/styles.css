@@ -260,3 +260,43 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .update .ghost:hover{ background:rgb(255 255 255 / .12); color:#fff; }
 .update .approve{ background:#fff; color:var(--brand); }
 .up-progress{ font-family:var(--mono); font-size:12px; }
+
+/* ── markdown in agent replies ───────────────────────────────────────── */
+.md{ display:flex; flex-direction:column; gap:9px; min-width:0; }
+.md-p{ margin:0; line-height:1.62; }
+.md-h{ font-weight:700; letter-spacing:-.01em; margin:2px 0 0; }
+.md-h1{ font-size:16px; } .md-h2{ font-size:15px; }
+.md-h3{ font-size:13.5px; } .md-h4{ font-size:13px; color:var(--ink-2); }
+.md-list{ margin:0; padding-left:20px; display:flex; flex-direction:column; gap:4px; }
+.md-list li{ line-height:1.55; }
+.md code{
+  font-family:var(--mono); font-size:.88em; padding:1.5px 5px; border-radius:5px;
+  background:var(--panel-2); border:1px solid var(--rule);
+}
+.md-code{
+  position:relative; margin:0; padding:11px 13px; border-radius:9px;
+  background:var(--panel-2); border:1px solid var(--rule);
+  overflow-x:auto; font-family:var(--mono); font-size:12px; line-height:1.55;
+}
+/* The fenced block owns its own styling; the inline chip rules must not also
+   apply to the code element inside it. */
+.md-code code{ background:none; border:0; padding:0; font-size:inherit; }
+.md-lang{
+  position:absolute; top:7px; right:10px; font-size:9.5px; letter-spacing:.08em;
+  text-transform:uppercase; color:var(--mute); user-select:none;
+}
+
+/* ── recent folders ──────────────────────────────────────────────────── */
+.recents{
+  display:flex; gap:7px; flex-wrap:wrap; padding:10px 14px;
+  border-bottom:1px solid var(--rule); background:var(--panel-2);
+}
+.recents button{
+  display:flex; flex-direction:column; gap:2px; align-items:flex-start;
+  font:inherit; text-align:left; padding:7px 11px; border-radius:8px;
+  border:1px solid var(--rule); background:var(--panel); color:var(--ink); cursor:pointer;
+}
+.recents button:hover{ border-color:var(--brand); }
+.recents button.on{ border-color:var(--brand); background:var(--panel-2); }
+.rc-name{ font-size:12.5px; font-weight:600; }
+.rc-meta{ font-size:10.5px; color:var(--mute); font-family:var(--mono); }
