@@ -15,6 +15,18 @@ type Line = {
   shots?: Attached[];
 };
 
+/**
+ * A list rather than a text field. Anthropic writes "Opus 4.8" in prose but
+ * `claude-opus-4-8` in the API, so a free-text box invites a dotted id and a
+ * 404 the gateway can only pass along. The gateway now repairs that too, but
+ * not offering the mistake is better than fixing it.
+ */
+const MODELS = [
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5 — fastest, cheapest' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5 — balanced' },
+  { id: 'claude-opus-4-8', label: 'Opus 4.8 — most capable' },
+];
+
 const LS = {
   base: 'vylo.baseUrl',
   key: 'vylo.apiKey',
@@ -23,10 +35,10 @@ const LS = {
 };
 
 export function App() {
-  // chat.vylo-tech.com rather than capi: only that Caddy block sets
-  // `flush_interval -1`, so it is the one that will not buffer once this starts
-  // streaming.
-  const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem(LS.base) || 'https://chat.vylo-tech.com');
+  // capi is the gateway's own PUBLIC_BASE_URL and what the other Vylo clients
+  // use. Both hosts front the same process; when streaming lands, capi needs
+  // `flush_interval -1` in its Caddy block the way chat already has.
+  const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem(LS.base) || 'https://capi.vylo-tech.com');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(LS.key) || '');
   const [model, setModel] = useState(() => localStorage.getItem(LS.model) || 'claude-haiku-4-5');
   const [root, setRoot] = useState(() => localStorage.getItem(LS.root) || '');
@@ -53,6 +65,13 @@ export function App() {
   const t = translator(lang);
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
+
+  // Repair settings saved before either fix, so an existing install is not
+  // stuck on a model id that 404s.
+  useEffect(() => {
+    const fixed = model.replace(/(\d)\.(\d)/g, '$1-$2');
+    if (fixed !== model) setModel(fixed);
+  }, [model]);
 
   useEffect(() => { localStorage.setItem(LS.base, baseUrl); }, [baseUrl]);
   useEffect(() => { localStorage.setItem(LS.key, apiKey); }, [apiKey]);
@@ -297,7 +316,11 @@ export function App() {
                    placeholder="sk-vylo-…" spellCheck={false} />
           </label>
           <label>{t('Model')}
-            <input value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} />
+            <select value={MODELS.some((m) => m.id === model) ? model : 'custom'}
+                    onChange={(e) => { if (e.target.value !== 'custom') setModel(e.target.value); }}>
+              {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
+              {!MODELS.some((m) => m.id === model) && <option value="custom">{model}</option>}
+            </select>
           </label>
           <label>{t('Language')}
             <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
