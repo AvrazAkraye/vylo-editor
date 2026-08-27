@@ -211,3 +211,21 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   .rv-body{ flex-direction:column; }
   .rv-files{ width:auto; max-height:110px; border-right:0; border-bottom:1px solid var(--rule); }
 }
+
+/* ── command approval ────────────────────────────────────────────────── */
+.ask{ border-top:1px solid var(--rule); background:var(--panel-2); }
+.ask-in{
+  display:flex; align-items:center; gap:14px; flex-wrap:wrap; padding:12px 14px;
+  border-left:3px solid var(--brand);
+}
+.ask-txt{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; min-width:0; }
+.ask-lbl{ font-size:12.5px; font-weight:600; }
+.ask-txt code{
+  font-family:var(--mono); font-size:12.5px; padding:5px 9px; border-radius:6px;
+  background:var(--panel); border:1px solid var(--rule); color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:52ch;
+}
+.ask-why{ font-size:12px; color:var(--ink-2); }
+.ask-dir{ font-size:11.5px; color:var(--mute); font-family:var(--mono); }
+.ask-btns{ margin-left:auto; display:flex; gap:7px; }
+.ask-btns .keep{ font-size:12px; border:1px solid var(--rule); }

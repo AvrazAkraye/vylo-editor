@@ -334,12 +334,136 @@ fn read_image(path: String) -> Result<Attachment, String> {
     })
 }
 
+#[derive(Serialize)]
+pub struct CommandOut {
+    code: i32,
+    stdout: String,
+    stderr: String,
+    timed_out: bool,
+    truncated: bool,
+}
+
+/// Run a shell command in the open folder. **Only the approval flow calls this.**
+///
+/// Like `apply_write`, this is absent from the tool schema. The agent's
+/// `run_command` tool suspends the loop and asks; the exact string a human sees
+/// is the exact string executed, which is the only property that makes running
+/// model-authored commands defensible.
+///
+/// It goes through a shell deliberately — `npm test -- --run`, pipes and
+/// redirects are most of why anyone wants this — so the string is powerful, and
+/// showing it verbatim before it runs is doing the work.
+#[tauri::command]
+fn run_command(root: String, command: String, timeout_secs: Option<u64>) -> Result<CommandOut, String> {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+
+    // Confirm the root before handing it to a shell as a working directory.
+    let dir = Path::new(&root)
+        .canonicalize()
+        .map_err(|e| format!("workspace root is unreadable: {e}"))?;
+
+    #[cfg(windows)]
+    let mut child = Command::new("cmd")
+        .args(["/C", &command])
+        .current_dir(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not start: {e}"))?;
+
+    #[cfg(not(windows))]
+    let mut child = Command::new("sh")
+        .args(["-c", &command])
+        .current_dir(&dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("could not start: {e}"))?;
+
+    // Drain the pipes on their own threads while waiting.
+    //
+    // This is not tidiness: a pipe buffer is about 64 KB, and a child that
+    // fills it blocks on write forever. Polling try_wait() without reading
+    // therefore hangs on any command with real output -- a build log, a test
+    // suite -- until the timeout kills it. Found by a test that produced 340 KB
+    // and timed out instead of finishing.
+    let mut out_pipe = child.stdout.take();
+    let mut err_pipe = child.stderr.take();
+    let out_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = out_pipe.as_mut() {
+            use std::io::Read;
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+    let err_thread = std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(p) = err_pipe.as_mut() {
+            use std::io::Read;
+            let _ = p.read_to_end(&mut buf);
+        }
+        buf
+    });
+
+    let limit = Duration::from_secs(timeout_secs.unwrap_or(120));
+    let started = Instant::now();
+    let mut timed_out = false;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st,
+            Ok(None) => {
+                if started.elapsed() > limit {
+                    let _ = child.kill();
+                    timed_out = true;
+                    break child.wait().map_err(|e| format!("wait failed: {e}"))?;
+                }
+                std::thread::sleep(Duration::from_millis(60));
+            }
+            Err(e) => return Err(format!("wait failed: {e}")),
+        }
+    };
+
+    // Killing the child closes the pipes, so these joins always finish.
+    let stdout_raw = out_thread.join().unwrap_or_default();
+    let stderr_raw = err_thread.join().unwrap_or_default();
+
+    // Cap what goes back: the output becomes a tool_result, and a build log can
+    // be megabytes. Keep the TAIL, because the error is nearly always at the end.
+    const MAX: usize = 60_000;
+    let cut = |b: &[u8]| -> (String, bool) {
+        let s = String::from_utf8_lossy(b).to_string();
+        if s.chars().count() <= MAX {
+            return (s, false);
+        }
+        let tail: String = {
+            let chars: Vec<char> = s.chars().collect();
+            chars[chars.len() - MAX..].iter().collect()
+        };
+        (format!("[… truncated, showing the last {MAX} characters …]\n{tail}"), true)
+    };
+    let (stdout, cut_out) = cut(&stdout_raw);
+    let (stderr, cut_err) = cut(&stderr_raw);
+    let truncated = cut_out || cut_err;
+
+    Ok(CommandOut {
+        code: status.code().unwrap_or(-1),
+        stdout,
+        stderr,
+        timed_out,
+        truncated,
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
-            list_tree, read_file, search, path_kind, read_image, apply_write, git_state
+            list_tree, read_file, search, path_kind, read_image, apply_write, git_state,
+            run_command,
+            run_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running Vylo Editor");
@@ -348,6 +472,33 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A command that never exits must not hang the app with it.
+    #[test]
+    fn kills_a_command_that_overruns_its_timeout() {
+        let root = std::env::temp_dir().to_string_lossy().to_string();
+        let started = std::time::Instant::now();
+        let out = run_command(root, "sleep 30".into(), Some(1)).expect("should return");
+        assert!(out.timed_out, "expected the timeout flag");
+        assert!(started.elapsed().as_secs() < 10, "should not have waited for the sleep");
+    }
+
+    /// Output is capped, because it becomes a tool_result and a build log can be
+    /// megabytes.
+    #[test]
+    fn truncates_enormous_output() {
+        let root = std::env::temp_dir().to_string_lossy().to_string();
+        let out = run_command(
+            root,
+            "awk 'BEGIN{for(i=0;i<20000;i++) print \"hello world line\"}'".into(),
+            Some(30),
+        )
+        .expect("should run");
+        assert!(!out.timed_out, "the producer should exit on its own");
+        assert!(out.truncated, "expected the truncation flag");
+        assert!(out.stdout.starts_with("[…"), "expected a truncation notice");
+        assert!(out.stdout.len() < 100_000, "stdout was {} bytes", out.stdout.len());
+    }
 
     /// The containment rule is the security model, so it gets the test.
     #[test]

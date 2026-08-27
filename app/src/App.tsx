@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { runAgent, type Block, type Msg } from './agent';
+import { runAgent, type Block, type CommandRequest, type Msg } from './agent';
 import {
   attachFromFile, listenForDrops, previewUrl, toImageBlock, type Attached,
 } from './attachments';
@@ -38,6 +38,12 @@ export function App() {
   const [changes, setChanges] = useState<Change[]>([]);
   const [git, setGit] = useState<{ is_repo: boolean; branch: string; dirty: number } | null>(null);
   const pending = useRef(new Pending());
+  // The command the agent is waiting on, plus the resolver that unblocks it.
+  const [askRun, setAskRun] = useState<CommandRequest | null>(null);
+  const decide = useRef<((ok: boolean) => void) | null>(null);
+  // Commands the user chose to stop being asked about. Session-only and matched
+  // exactly: "always allow npm test" should not quietly also allow "npm test && rm -rf".
+  const trusted = useRef(new Set<string>());
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
 
@@ -91,6 +97,24 @@ export function App() {
 
   const push = (l: Line) => setLines((p) => [...p, l]);
 
+  /**
+   * Suspend the agent loop until the user decides. Returning a promise the
+   * button resolves is what keeps the whole thing inside one turn, so the model
+   * can read the command's output immediately instead of the turn ending and
+   * the context being re-sent.
+   */
+  function askToRun(req: CommandRequest): Promise<boolean> {
+    if (trusted.current.has(req.command)) return Promise.resolve(true);
+    setAskRun(req);
+    return new Promise<boolean>((resolve) => {
+      decide.current = (ok) => {
+        decide.current = null;
+        setAskRun(null);
+        resolve(ok);
+      };
+    });
+  }
+
   function openFolder(path: string) {
     setRoot(path);
     history.current = [];
@@ -101,6 +125,8 @@ export function App() {
     pending.current.clear();
     setChanges([]);
     setShots([]);
+    // "Always allow" was granted against one project, not all of them.
+    trusted.current.clear();
   }
 
   async function pickFolder() {
@@ -162,6 +188,7 @@ export function App() {
         baseUrl, apiKey, model, root,
         history: history.current,
         pending: pending.current,
+        askToRun,
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
         onStaged: () => setChanges(pending.current.list()),
       });
@@ -223,7 +250,7 @@ export function App() {
           <div className="empty">
             <p><b>Open a folder, then ask about the code in it.</b></p>
             <p>The agent reads files on this machine — nothing is uploaded except your question and the snippets it chooses to read.</p>
-            <p className="muted">It can propose edits — you review every change as a diff before anything is written.</p>
+            <p className="muted">It can propose edits and run your tests — you approve every change and every command first.</p>
           </div>
         )}
         {lines.map((l, i) => (
@@ -241,6 +268,27 @@ export function App() {
         ))}
         {busy && <div className="line working"><span className="dot" />working…</div>}
       </div>
+
+      {askRun && (
+        <div className="ask" role="alertdialog" aria-label="Command approval">
+          <div className="ask-in">
+            <div className="ask-txt">
+              <span className="ask-lbl">Run this command?</span>
+              <code>{askRun.command}</code>
+              {askRun.reason && <span className="ask-why">{askRun.reason}</span>}
+              <span className="ask-dir">in {folderName}</span>
+            </div>
+            <div className="ask-btns">
+              <button className="reject" onClick={() => decide.current?.(false)}>Decline</button>
+              <button className="ghost keep" onClick={() => {
+                trusted.current.add(askRun.command);
+                decide.current?.(true);
+              }}>Always allow this</button>
+              <button className="approve" onClick={() => decide.current?.(true)}>Run</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Review changes={changes} onApprove={approve} onReject={reject} busy={busy} />
 

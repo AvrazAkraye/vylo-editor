@@ -37,10 +37,11 @@ export interface Msg {
 /**
  * The tools the model is given.
  *
- * `write_file` and `edit_file` do not write. They stage a result for human
- * review; the command that actually touches the disk is not in this list and
- * cannot be reached by a tool call however the model is prompted. Running
- * commands is still absent — that is M3, and it needs its own approval step.
+ * The two dangerous verbs are both indirect. `write_file` / `edit_file` stage a
+ * result for review, and `run_command` suspends the loop until a human approves
+ * the exact string. Neither `apply_write` nor the Rust `run_command` appear in
+ * this list, so they cannot be reached by a tool call however the model is
+ * prompted — the gate is a missing capability, not an instruction.
  */
 export const TOOLS = [
   {
@@ -92,6 +93,19 @@ export const TOOLS = [
     },
   },
   {
+    name: 'run_command',
+    description:
+      'Ask to run a shell command in the open folder — tests, a build, a linter. The user is shown the exact command and must approve it before it runs. Returns exit code, stdout and stderr. Use it to check your work; do not use it to edit files.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string', description: 'The exact command, e.g. "npm test" or "cargo check".' },
+        reason: { type: 'string', description: 'One short line on why, shown to the user with the command.' },
+      },
+      required: ['command'],
+    },
+  },
+  {
     name: 'search',
     description:
       'Find a literal substring across the open folder. Returns path, line number and the matching line. Not a regex.',
@@ -121,8 +135,14 @@ const SYSTEM = [
   'yet. Prefer edit_file over rewriting a whole file; read a file before editing',
   'it, and match old_string exactly, including indentation.',
   '',
-  'You cannot run commands yet, so you cannot check your own work by running the',
-  'tests. Say what should be run instead of implying you ran it.',
+  'You can check your work with run_command, but the user must approve each one',
+  'and may refuse. Keep commands short and obvious, say why in the reason field,',
+  'and never use a command to edit files — that is what edit_file is for, and it',
+  'is what the user is reviewing.',
+  '',
+  'Approving a command does not approve your staged edits: a test run sees what',
+  'is on disk, not what you proposed. If you need your change tested, say so and',
+  'let the user approve the diff first.',
   '',
   '',
   'The user may attach images -- a screenshot of a bug, a design, an error dialog.',
@@ -133,8 +153,11 @@ const SYSTEM = [
 ].join('\n');
 
 /** Run one tool call. Reads hit the Rust side; writes are staged, not applied. */
+export interface CommandRequest { command: string; reason: string }
+export type AskToRun = (req: CommandRequest) => Promise<boolean>;
+
 async function runTool(
-  root: string, call: ToolCall, pending: Pending,
+  root: string, call: ToolCall, pending: Pending, ask: AskToRun,
 ): Promise<{ content: string; isError: boolean }> {
   try {
     if (call.name === 'write_file') {
@@ -154,6 +177,27 @@ async function runTool(
         call.input.replace_all === true,
       );
       return { content: `Staged an edit to ${path}. Awaiting approval — not on disk yet.`, isError: false };
+    }
+    if (call.name === 'run_command') {
+      const command = String(call.input.command ?? '').trim();
+      if (!command) return { content: 'command was empty', isError: true };
+      // This awaits a human. The loop is genuinely suspended here rather than
+      // returning "pending" and ending the turn -- keeping the turn intact is
+      // what lets the model act on the output in the same breath.
+      const decision = await ask({ command, reason: String(call.input.reason ?? '') });
+      if (!decision) {
+        return { content: 'The user declined to run that command.', isError: false };
+      }
+      const r = await invoke<{
+        code: number; stdout: string; stderr: string; timed_out: boolean; truncated: boolean;
+      }>('run_command', { root, command, timeoutSecs: null });
+      const parts = [`exit code: ${r.code}${r.timed_out ? ' (timed out and was killed)' : ''}`];
+      if (r.stdout.trim()) parts.push(`stdout:\n${r.stdout}`);
+      if (r.stderr.trim()) parts.push(`stderr:\n${r.stderr}`);
+      if (!r.stdout.trim() && !r.stderr.trim()) parts.push('(no output)');
+      // A non-zero exit is information, not a tool failure -- flagging it as an
+      // error would push the model to apologise instead of reading the output.
+      return { content: parts.join('\n\n'), isError: false };
     }
     if (call.name === 'list_tree') {
       const entries = await invoke('list_tree', { root, maxEntries: call.input.max_entries ?? null });
@@ -190,6 +234,8 @@ export interface RunOptions {
   history: Msg[];
   /** Staging area. The loop routes write_file/edit_file here instead of to disk. */
   pending: Pending;
+  /** Suspends the loop until a human approves a command. Resolve false to decline. */
+  askToRun: AskToRun;
   /** Called as the loop progresses so the UI can show work in flight. */
   onEvent: (e: { kind: 'text' | 'tool' | 'result'; text: string }) => void;
   /** Fired whenever the staged set changes, so the review panel can update mid-turn. */
@@ -240,7 +286,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     const results: Block[] = [];
     for (const c of calls) {
       o.onEvent({ kind: 'tool', text: `${c.name}(${JSON.stringify(c.input)})` });
-      const r = await runTool(o.root, { id: c.id, name: c.name, input: c.input }, o.pending);
+      const r = await runTool(o.root, { id: c.id, name: c.name, input: c.input }, o.pending, o.askToRun);
       o.onEvent({ kind: 'result', text: `${c.name} → ${r.isError ? 'error: ' : ''}${r.content.slice(0, 160)}` });
       if (c.name === 'write_file' || c.name === 'edit_file') o.onStaged?.();
       results.push({ type: 'tool_result', tool_use_id: c.id, content: r.content, is_error: r.isError || undefined });
