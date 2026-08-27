@@ -1,6 +1,6 @@
 [package]
 name = "vylo-editor"
-version = "0.1.0"
+version = "0.1.1"
 description = "AI coding agent for macOS and Windows"
 edition = "2021"
 
@@ -18,6 +18,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 walkdir = "2"
 base64 = "0.22"
+tauri-plugin-updater = "2.10.1"
+tauri-plugin-process = "2.3.1"
 
 [profile.release]
 codegen-units = 1

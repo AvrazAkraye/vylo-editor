@@ -10,3 +10,5 @@ target/
 src-tauri/target/
 ios/Pods/
 .test-build/
+*.key
+*.key.pub

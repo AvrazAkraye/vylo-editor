@@ -571,6 +571,8 @@ fn git_commit(root: String, message: String, paths: Vec<String>) -> Result<Commi
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, apply_write, git_state,
             run_command, git_create_branch, git_commit,

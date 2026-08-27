@@ -24,6 +24,11 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Update available': 'يتوفر تحديث',
+  'Later': 'لاحقاً',
+  'Install and restart': 'التثبيت وإعادة التشغيل',
+  'Downloading…': 'جارٍ التنزيل…',
+  'Restarting…': 'جارٍ إعادة التشغيل…',
   'Open folder…': 'افتح مجلداً…',
   'Open a project folder': 'افتح مجلد مشروع',
   'Settings': 'الإعدادات',
@@ -61,6 +66,11 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Update available': 'نوێکردنەوە بەردەستە',
+  'Later': 'دواتر',
+  'Install and restart': 'دایبنێ و پێبکەرەوە',
+  'Downloading…': 'داگرتن…',
+  'Restarting…': 'پێکردنەوە…',
   'Open folder…': 'بوخچەیەک بکەرەوە…',
   'Open a project folder': 'بوخچەی پڕۆژەیەک بکەرەوە',
   'Settings': 'ڕێکخستن',
@@ -98,6 +108,11 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Update available': 'نویکرن هەیە',
+  'Later': 'پاشتر',
+  'Install and restart': 'دابنێ و ژنوڤە بدەستپێکە',
+  'Downloading…': 'داگرتن…',
+  'Restarting…': 'ژنوڤە دەستپێکرن…',
   'Open folder…': 'بوخچەیەکێ ڤەکە…',
   'Open a project folder': 'بوخچەیا پڕۆژەیەکێ ڤەکە',
   'Settings': 'ڕێکخستن',

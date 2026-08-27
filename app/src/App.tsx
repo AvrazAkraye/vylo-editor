@@ -8,6 +8,7 @@ import { Pending, type Change } from './pending';
 import { Review } from './Review';
 import { invoke } from '@tauri-apps/api/core';
 import { LANGS, storedLang, storeLang, translator, type Lang } from './i18n';
+import { checkForUpdate, type Available } from './updates';
 
 type Line = {
   kind: 'you' | 'text' | 'tool' | 'result' | 'error';
@@ -62,6 +63,8 @@ export function App() {
   const [written, setWritten] = useState<string[]>([]);
   const [commitMsg, setCommitMsg] = useState('');
   const [lang, setLang] = useState<Lang>(() => storedLang());
+  const [update, setUpdate] = useState<Available | null>(null);
+  const [updating, setUpdating] = useState<number | null | 'done'>(null);
   const t = translator(lang);
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
@@ -84,6 +87,10 @@ export function App() {
     // text runs right-to-left, and the browser does that on its own.
     document.documentElement.lang = lang;
   }, [lang]);
+
+  // One check on launch, deliberately silent on failure -- an update check is
+  // never a good reason to greet someone with an error.
+  useEffect(() => { void checkForUpdate().then(setUpdate); }, []);
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [lines, changes]);
 
   // Whether git is available as an undo is worth knowing *before* approving,
@@ -354,6 +361,35 @@ export function App() {
         ))}
         {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
       </div>
+
+      {update && (
+        <div className="update">
+          <span className="up-txt">
+            <b>{t('Update available')}</b> — {update.version}
+            {update.notes && <span className="up-notes">{update.notes}</span>}
+          </span>
+          <div className="up-btns">
+            {updating === null ? (
+              <>
+                <button className="ghost" onClick={() => setUpdate(null)}>{t('Later')}</button>
+                <button className="approve" onClick={() => {
+                  setUpdating(0);
+                  update.install((p) => setUpdating(p)).catch((e) => {
+                    setUpdating(null);
+                    push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+                  });
+                }}>{t('Install and restart')}</button>
+              </>
+            ) : (
+              <span className="up-progress">
+                {updating === 'done' || updating === 100
+                  ? t('Restarting…')
+                  : typeof updating === 'number' ? `${updating}%` : t('Downloading…')}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {askRun && (
         <div className="ask" role="alertdialog" aria-label="Command approval">
