@@ -1,16 +1,16 @@
 import type { Block, Msg } from './agent';
 
 /**
- * Conversation memory.
+ * Saved chats.
  *
- * Kept per folder, because a conversation is about a codebase: reopening a
- * project should bring back what you were doing in it, and opening a different
- * one should not drag the last project's context along.
+ * Several per folder, not one. A project accumulates separate threads — "why is
+ * this slow", "add the export button" — and collapsing them into a single
+ * rolling transcript means every new question drags along context that has
+ * nothing to do with it, which costs tokens and confuses the model.
  *
- * Images are dropped when saving. A screenshot is usually one-shot context —
- * "what is wrong here?" — and a few of them are megabytes of base64 that would
- * blow localStorage's quota within a session or two. The turn is kept with a
- * marker in place of the bytes, so the transcript still reads correctly and the
+ * Images are dropped when saving. A screenshot is one-shot context and a few of
+ * them are megabytes of base64 that would exhaust the storage quota within a
+ * session; the turn is kept with a marker so the transcript still reads and the
  * model still knows an image was discussed.
  */
 
@@ -20,93 +20,137 @@ export interface Line {
   at?: number;
 }
 
-export interface Saved {
+export interface Chat {
+  id: string;
   folder: string;
+  title: string;
   updatedAt: number;
   lines: Line[];
   history: Msg[];
 }
 
-const KEY = 'vylo.chats';
-const MAX_FOLDERS = 12;
-/** Well under the ~5 MB localStorage quota, leaving room for settings. */
-const MAX_BYTES = 2_500_000;
+const KEY = 'vylo.chats.v2';
+const LEGACY = 'vylo.chats';
+const MAX_CHATS = 40;
+/** Well under the ~5 MB quota, leaving room for settings. */
+const MAX_BYTES = 3_000_000;
 
-type All = Record<string, Saved>;
+type All = Record<string, Chat>;
+
+export const newChatId = (): string =>
+  `c_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
 
 function readAll(): All {
   try {
-    return JSON.parse(localStorage.getItem(KEY) || '{}') as All;
+    const v2 = localStorage.getItem(KEY);
+    if (v2) return JSON.parse(v2) as All;
+  } catch { /* fall through to the migration */ }
+
+  // One-time migration: v1 kept a single thread per folder. Carry it over as
+  // that folder's first chat rather than dropping someone's history.
+  try {
+    const old = JSON.parse(localStorage.getItem(LEGACY) || '{}') as Record<
+      string, { folder: string; updatedAt: number; lines: Line[]; history: Msg[] }
+    >;
+    const out: All = {};
+    for (const s of Object.values(old)) {
+      const id = newChatId();
+      out[id] = { id, folder: s.folder, title: titleFrom(s.lines), updatedAt: s.updatedAt, lines: s.lines, history: s.history };
+    }
+    if (Object.keys(out).length) {
+      localStorage.setItem(KEY, JSON.stringify(out));
+      localStorage.removeItem(LEGACY);
+    }
+    return out;
   } catch {
     return {};
   }
 }
 
-/** Replace image payloads with a marker; everything else passes through. */
+/** A chat's name is its opening question, which is what people recognise it by. */
+export function titleFrom(lines: Line[]): string {
+  const first = lines.find((l) => l.kind === 'you')?.text.trim();
+  if (!first) return 'New chat';
+  const oneLine = first.replace(/\s+/g, ' ');
+  return oneLine.length > 48 ? `${oneLine.slice(0, 47)}…` : oneLine;
+}
+
 function stripImages(history: Msg[]): Msg[] {
   return history.map((m) => {
     if (typeof m.content === 'string') return m;
-    const content = m.content.map((b): Block => {
-      if (b.type === 'image') return { type: 'text', text: '[an image was attached here]' };
-      return b;
-    });
-    return { ...m, content };
+    return {
+      ...m,
+      content: m.content.map((b): Block =>
+        b.type === 'image' ? { type: 'text', text: '[an image was attached here]' } : b),
+    };
   });
 }
 
-export function save(folder: string, lines: Line[], history: Msg[]): void {
-  if (!folder) return;
-  const all = readAll();
-  all[folder] = { folder, updatedAt: Date.now(), lines, history: stripImages(history) };
+function persist(all: All): void {
+  let entries = Object.values(all).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_CHATS);
+  const pack = () => JSON.stringify(Object.fromEntries(entries.map((c) => [c.id, c])));
 
-  // Newest folders win when trimming: an old project you have not opened in
-  // weeks is the cheapest thing to forget.
-  let entries = Object.values(all).sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_FOLDERS);
-
-  let payload = JSON.stringify(Object.fromEntries(entries.map((e) => [e.folder, e])));
+  let payload = pack();
+  // Oldest chats go first: a thread untouched for weeks is the cheapest thing
+  // to forget. Only then trim the newest chat's own oldest turns, because
+  // losing the thread you are in is worse than losing its beginning.
   while (payload.length > MAX_BYTES && entries.length > 1) {
     entries = entries.slice(0, -1);
-    payload = JSON.stringify(Object.fromEntries(entries.map((e) => [e.folder, e])));
+    payload = pack();
   }
-  // If ONE conversation is still too big, trim its own oldest turns rather than
-  // dropping it — losing the thread you are in is worse than losing its start.
   while (payload.length > MAX_BYTES && entries[0] && entries[0].lines.length > 6) {
-    entries[0] = {
-      ...entries[0],
-      lines: entries[0].lines.slice(-40),
-      history: entries[0].history.slice(-12),
-    };
-    payload = JSON.stringify(Object.fromEntries(entries.map((e) => [e.folder, e])));
+    entries[0] = { ...entries[0], lines: entries[0].lines.slice(-40), history: entries[0].history.slice(-12) };
+    payload = pack();
   }
-
-  try {
-    localStorage.setItem(KEY, payload);
-  } catch {
-    // Quota still exceeded, or storage disabled. Losing history is a nuisance;
-    // an exception mid-conversation would be worse.
-  }
+  try { localStorage.setItem(KEY, payload); } catch { /* quota or storage disabled */ }
 }
 
-export function load(folder: string): Saved | null {
-  return readAll()[folder] ?? null;
-}
-
-export function forget(folder: string): void {
+export function saveChat(chat: Chat): void {
+  if (!chat.folder) return;
   const all = readAll();
-  delete all[folder];
-  try { localStorage.setItem(KEY, JSON.stringify(all)); } catch { /* nothing to do */ }
+  all[chat.id] = {
+    ...chat,
+    title: chat.title === 'New chat' ? titleFrom(chat.lines) : chat.title,
+    updatedAt: Date.now(),
+    history: stripImages(chat.history),
+  };
+  persist(all);
 }
 
-/** Recent folders, newest first, for the switcher. */
-export function recent(): { folder: string; name: string; updatedAt: number; turns: number }[] {
+export function loadChat(id: string): Chat | null {
+  return readAll()[id] ?? null;
+}
+
+export function deleteChat(id: string): void {
+  const all = readAll();
+  delete all[id];
+  persist(all);
+}
+
+/** Chats for one folder, newest first. */
+export function chatsIn(folder: string): Chat[] {
   return Object.values(readAll())
-    .sort((a, b) => b.updatedAt - a.updatedAt)
-    .map((s) => ({
-      folder: s.folder,
-      name: s.folder.split(/[/\\]/).filter(Boolean).pop() || s.folder,
-      updatedAt: s.updatedAt,
-      turns: s.lines.filter((l) => l.kind === 'you').length,
-    }));
+    .filter((c) => c.folder === folder)
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+/** Folders that have any saved chat, newest activity first. */
+export function folders(): { folder: string; name: string; updatedAt: number; chats: number }[] {
+  const byFolder = new Map<string, { updatedAt: number; chats: number }>();
+  for (const c of Object.values(readAll())) {
+    const cur = byFolder.get(c.folder);
+    byFolder.set(c.folder, {
+      updatedAt: Math.max(cur?.updatedAt ?? 0, c.updatedAt),
+      chats: (cur?.chats ?? 0) + 1,
+    });
+  }
+  return [...byFolder.entries()]
+    .map(([folder, v]) => ({
+      folder,
+      name: folder.split(/[/\\]/).filter(Boolean).pop() || folder,
+      ...v,
+    }))
+    .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
 export function ago(ts: number): string {

@@ -10,7 +10,11 @@ import { invoke } from '@tauri-apps/api/core';
 import { LANGS, storedLang, storeLang, translator, type Lang } from './i18n';
 import { checkForUpdate, type Available } from './updates';
 import { Markdown } from './Markdown';
-import { ago, forget, load, recent, save, type Line as SavedLine } from './store';
+import {
+  ago, chatsIn, deleteChat, folders, newChatId, saveChat, titleFrom,
+  type Chat, type Line as SavedLine,
+} from './store';
+import { memoryPrompt, readMemory, type Memory } from './memory';
 import { FileTree, type Entry } from './FileTree';
 import { Viewer } from './Viewer';
 import { Section } from './Sidebar';
@@ -66,7 +70,10 @@ export function App() {
   const [lang, setLang] = useState<Lang>(() => storedLang());
   const [update, setUpdate] = useState<Available | null>(null);
   const [updating, setUpdating] = useState<number | null | 'done'>(null);
-  const [recents, setRecents] = useState(() => recent());
+  const [recents, setRecents] = useState(() => folders());
+  const [chatId, setChatId] = useState<string>(() => newChatId());
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [memory, setMemory] = useState<Memory>({ file: null, text: '' });
   const [tree, setTree] = useState<Entry[]>([]);
   const [tabs, setTabs] = useState<string[]>([]);          // open file paths
   const [active, setActive] = useState<string>('chat');    // 'chat' | a path
@@ -128,14 +135,33 @@ export function App() {
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, [sidebarW]);
 
+  // Memory is a file in the project, so it is re-read whenever the folder
+  // changes or an edit lands -- approving a `remember` should take effect on
+  // the very next turn, not the next launch.
+  useEffect(() => {
+    if (!root) { setMemory({ file: null, text: '' }); return; }
+    let cancelled = false;
+    void readMemory(root).then((m) => { if (!cancelled) setMemory(m); });
+    return () => { cancelled = true; };
+  }, [root, written]);
+
   // Bring back the conversation for this folder. Runs on mount too, so
   // reopening the app lands you where you left off.
   useEffect(() => {
     if (!root) return;
-    const prior = load(root);
-    if (prior) {
-      setLines(prior.lines);
-      history.current = prior.history;
+    const found = chatsIn(root);
+    setChats(found);
+    // Reopen the thread that was last touched here; a folder with no history
+    // starts a fresh one rather than showing another project's chat.
+    const latest = found[0];
+    if (latest) {
+      setChatId(latest.id);
+      setLines(latest.lines);
+      history.current = latest.history;
+    } else {
+      setChatId(newChatId());
+      setLines([]);
+      history.current = [];
     }
   }, [root]);
 
@@ -145,9 +171,17 @@ export function App() {
   useEffect(() => {
     if (!root || busy) return;
     if (!lines.length && !history.current.length) return;
-    save(root, lines.map(({ shots: _shots, ...l }) => l), history.current);
-    setRecents(recent());
-  }, [root, busy, lines]);
+    saveChat({
+      id: chatId,
+      folder: root,
+      title: titleFrom(lines),
+      updatedAt: Date.now(),
+      lines: lines.map(({ shots: _shots, ...l }) => l),
+      history: history.current,
+    });
+    setChats(chatsIn(root));
+    setRecents(folders());
+  }, [root, busy, lines, chatId]);
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [lines, changes]);
 
   // Whether git is available as an undo is worth knowing *before* approving,
@@ -276,12 +310,33 @@ export function App() {
 
   function newChat() {
     if (!root) return;
-    forget(root);
+    setChatId(newChatId());
     history.current = [];
     setLines([]);
     setChanges([]);
     pending.current.clear();
-    setRecents(recent());
+    setActive('chat');
+  }
+
+  function openChat(c: Chat) {
+    setChatId(c.id);
+    setLines(c.lines);
+    history.current = c.history;
+    // Staged edits belong to the thread that proposed them; carrying them into
+    // another conversation would offer changes with no visible reason.
+    pending.current.clear();
+    setChanges([]);
+    setActive('chat');
+  }
+
+  function removeChat(id: string) {
+    deleteChat(id);
+    const left = chatsIn(root);
+    setChats(left);
+    setRecents(folders());
+    if (id === chatId) {
+      if (left[0]) openChat(left[0]); else newChat();
+    }
   }
 
   async function pickFolder() {
@@ -350,6 +405,7 @@ export function App() {
         history: history.current,
         pending: pending.current,
         askToRun,
+        memory: memoryPrompt(memory),
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
         onStaged: () => setChanges(pending.current.list()),
       });
@@ -441,20 +497,45 @@ export function App() {
                 ))}
           </Section>
 
-          <Section id="chats" title={t('Chats')} count={recents.length} defaultOpen={false}
-                   action={lines.length > 0
-                     ? <button className="sb-act" onClick={newChat} title={t('Clear this conversation')}>+</button>
-                     : undefined}>
-            {recents.length === 0
-              ? <p className="ft-empty">{t('No saved conversations.')}</p>
-              : recents.map((r) => (
-                  <button key={r.folder} className={`ft-row ft-file ${r.folder === root ? 'on' : ''}`}
-                          onClick={() => openFolder(r.folder)} title={r.folder}>
-                    <span className="ft-icon">✦</span>
-                    <span className="ft-name">{r.name}</span>
-                    <span className="rc-meta">{ago(r.updatedAt)}</span>
+          <Section id="memory" title={t('Memory')} count={memory.file ? memory.file : undefined}
+                   defaultOpen={false}>
+            {memory.file
+              ? <>
+                  <button className="ft-row ft-file" onClick={() => openFile(memory.file!)} title={memory.file}>
+                    <span className="ft-icon">M</span>
+                    <span className="ft-name">{memory.file}</span>
                   </button>
+                  <p className="ft-empty">{t('Carried into every chat in this project.')}</p>
+                </>
+              : <p className="ft-empty">{t('Nothing remembered yet. Ask the agent to remember something about this project.')}</p>}
+          </Section>
+
+          <Section id="chats" title={t('Chats')} count={chats.length}
+                   action={<button className="sb-act" onClick={newChat} title={t('New chat')}>+</button>}>
+            {chats.length === 0
+              ? <p className="ft-empty">{t('No saved conversations.')}</p>
+              : chats.map((c) => (
+                  <div key={c.id} className={`ft-row ft-file chat-row ${c.id === chatId ? 'on' : ''}`}>
+                    <button className="chat-open" onClick={() => openChat(c)} title={c.title}>
+                      <span className="ft-icon">✦</span>
+                      <span className="ft-name">{c.title}</span>
+                      <span className="rc-meta">{ago(c.updatedAt)}</span>
+                    </button>
+                    <button className="chat-x" onClick={() => removeChat(c.id)}
+                            aria-label={`Delete ${c.title}`}>×</button>
+                  </div>
                 ))}
+          </Section>
+
+          <Section id="folders" title={t('Projects')} count={recents.length} defaultOpen={false}>
+            {recents.map((r) => (
+              <button key={r.folder} className={`ft-row ft-file ${r.folder === root ? 'on' : ''}`}
+                      onClick={() => openFolder(r.folder)} title={r.folder}>
+                <span className="ft-icon">▤</span>
+                <span className="ft-name">{r.name}</span>
+                <span className="rc-meta">{r.chats}</span>
+              </button>
+            ))}
           </Section>
         </aside>
 

@@ -404,3 +404,17 @@ body.resizing{ cursor:col-resize; user-select:none; }
   .sidebar{ display:none; }
   .divider{ display:none; }
 }
+
+/* ── chat rows: open + delete ────────────────────────────────────────── */
+.chat-row{ padding:0; }
+.chat-open{
+  flex:1; display:flex; align-items:center; gap:6px; min-width:0;
+  font:inherit; font-size:12px; text-align:left; padding:3px 4px 3px 6px;
+  border:0; background:transparent; color:inherit; cursor:pointer;
+}
+.chat-x{
+  flex:none; font:inherit; font-size:14px; line-height:1; padding:0 8px;
+  border:0; background:transparent; color:transparent; cursor:pointer;
+}
+.chat-row:hover .chat-x{ color:var(--mute); }
+.chat-x:hover{ color:var(--err); }

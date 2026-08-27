@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Pending } from './pending';
+import { appendFact, MEMORY_FILE } from './memory';
 
 /**
  * The agent loop.
@@ -106,6 +107,18 @@ export const TOOLS = [
     },
   },
   {
+    name: 'remember',
+    description:
+      `Save a durable fact about this project to ${MEMORY_FILE} so it survives between sessions — a convention, a command that works here, a decision and its reason. STAGED for the user to approve like any other edit. Do not use it for one-off details or anything you can simply read from the code.`,
+    input_schema: {
+      type: 'object',
+      properties: {
+        fact: { type: 'string', description: 'One sentence, self-contained, useful weeks from now.' },
+      },
+      required: ['fact'],
+    },
+  },
+  {
     name: 'search',
     description:
       'Find a literal substring across the open folder. Returns path, line number and the matching line. Not a regex.',
@@ -120,7 +133,7 @@ export const TOOLS = [
   },
 ] as const;
 
-const SYSTEM = [
+const BASE_SYSTEM = [
   'You are Vylo Editor, a coding agent working on a folder on the user\'s own machine.',
   '',
   'Ground every claim in what you actually read. Use list_tree to orient yourself,',
@@ -148,6 +161,12 @@ const SYSTEM = [
   'The user may attach images -- a screenshot of a bug, a design, an error dialog.',
   'Treat them as part of the question, and connect what you see to the actual code',
   'by going and reading it rather than describing the picture back to them.',
+  '',
+  '',
+  `If you learn something durable about this project — a convention, a command`,
+  `that works here, a decision and why — offer to remember it. Memory lives in`,
+  `${MEMORY_FILE} in the repository, so it is reviewable and shared with the team`,
+  `rather than hidden in this app.`,
   '',
   'Be concise. Cite paths as path:line when you can.',
 ].join('\n');
@@ -199,6 +218,20 @@ async function runTool(
       // error would push the model to apologise instead of reading the output.
       return { content: parts.join('\n\n'), isError: false };
     }
+    if (call.name === 'remember') {
+      const fact = String(call.input.fact ?? '').trim();
+      if (!fact) return { content: 'fact was empty', isError: true };
+      // Memory is a file, so remembering is an edit -- same staging, same diff,
+      // same approval. A fact the user has not seen is not memory, it is the
+      // agent talking to itself.
+      let current = '';
+      try { current = await pending.currentContent(root, MEMORY_FILE); } catch { current = ''; }
+      await pending.stageWrite(root, MEMORY_FILE, appendFact(current, fact));
+      return {
+        content: `Staged an addition to ${MEMORY_FILE}. It becomes memory once the user approves it.`,
+        isError: false,
+      };
+    }
     if (call.name === 'list_tree') {
       const entries = await invoke('list_tree', { root, maxEntries: call.input.max_entries ?? null });
       return { content: JSON.stringify(entries), isError: false };
@@ -236,6 +269,8 @@ export interface RunOptions {
   pending: Pending;
   /** Suspends the loop until a human approves a command. Resolve false to decline. */
   askToRun: AskToRun;
+  /** Project memory block, appended to the system prompt. Empty when there is none. */
+  memory?: string;
   /** Called as the loop progresses so the UI can show work in flight. */
   onEvent: (e: { kind: 'text' | 'tool' | 'result'; text: string }) => void;
   /** Fired whenever the staged set changes, so the review panel can update mid-turn. */
@@ -261,7 +296,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
         body: JSON.stringify({
           model: o.model,
           max_tokens: 4096,
-          system: SYSTEM,
+          system: o.memory ? `${BASE_SYSTEM}\n\n${o.memory}` : BASE_SYSTEM,
           tools: TOOLS,
           messages,
         }),

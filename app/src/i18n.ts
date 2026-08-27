@@ -24,6 +24,10 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Memory': 'الذاكرة',
+  'Projects': 'المشاريع',
+  'Carried into every chat in this project.': 'تُستخدم في كل محادثة بهذا المشروع.',
+  'Nothing remembered yet. Ask the agent to remember something about this project.': 'لا شيء محفوظ بعد. اطلب من الوكيل أن يتذكر شيئاً عن هذا المشروع.',
   'Explorer': 'المستكشف',
   'Changes': 'التغييرات',
   'Chats': 'المحادثات',
@@ -76,6 +80,10 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Memory': 'یادگە',
+  'Projects': 'پڕۆژەکان',
+  'Carried into every chat in this project.': 'لە هەموو گفتوگۆیەکی ئەم پڕۆژەیەدا بەکاردێت.',
+  'Nothing remembered yet. Ask the agent to remember something about this project.': 'هێشتا هیچ نەپاراستراوە. داوا لە ئەیجەنت بکە شتێک لەبارەی ئەم پڕۆژەیە بیربهێنێتەوە.',
   'Explorer': 'گەڕان',
   'Changes': 'گۆڕانکارییەکان',
   'Chats': 'گفتوگۆکان',
@@ -128,6 +136,10 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Memory': 'بیرگە',
+  'Projects': 'پڕۆژە',
+  'Carried into every chat in this project.': 'د هەر ئاخفتنەکا ڤێ پڕۆژەیێ دا تێت بکارئینان.',
+  'Nothing remembered yet. Ask the agent to remember something about this project.': 'هێشتا تشتەک نەهاتیە پاراستن. ژ ئەیجەنتی بخوازە تشتەکێ ل دەر ڤێ پڕۆژەیێ بینیتەڤە.',
   'Explorer': 'گەڕیان',
   'Changes': 'گوهۆڕین',
   'Chats': 'ئاخفتن',
