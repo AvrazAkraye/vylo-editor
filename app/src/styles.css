@@ -1,0 +1,89 @@
+/* Vylo Editor — desktop chrome. Follows the OS theme; no toggle, because a
+   developer tool should look like it belongs next to the editor beside it. */
+:root{
+  --bg:#FBFAFD; --panel:#FFFFFF; --panel-2:#F3F1F9;
+  --ink:#16151D; --ink-2:#46435A; --mute:#6B6880;
+  --rule:#E4E1EF; --brand:#5B4DE0; --brand-2:#8B5CF6;
+  --ok:#17694C; --err:#A8332A;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#121118; --panel:#1A1922; --panel-2:#22202D;
+    --ink:#ECEAF5; --ink-2:#B6B2C8; --mute:#8B87A0;
+    --rule:#2C2A39; --brand:#A99AFF; --brand-2:#C4A9FF;
+    --ok:#6BD6AE; --err:#F0897C;
+  }
+}
+*{ box-sizing:border-box; }
+html,body,#root{ height:100%; margin:0; }
+body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:14px; }
+
+.shell{ height:100%; display:flex; flex-direction:column; }
+
+.bar{
+  display:flex; align-items:center; gap:10px;
+  padding:10px 14px; border-bottom:1px solid var(--rule); background:var(--panel);
+}
+.brand{ display:flex; align-items:center; gap:8px; font-size:13px; }
+.brand svg{ width:22px; height:22px; border-radius:5px; display:block; }
+.folder{
+  margin-left:auto; font:inherit; font-size:12.5px; padding:5px 11px;
+  border-radius:7px; border:1px solid var(--rule); background:var(--panel-2);
+  color:var(--ink); cursor:pointer; max-width:46ch; overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap;
+}
+.ghost{
+  font:inherit; font-size:12.5px; padding:5px 11px; border-radius:7px;
+  border:1px solid transparent; background:transparent; color:var(--mute); cursor:pointer;
+}
+.folder:hover,.ghost:hover{ border-color:var(--rule); color:var(--ink); }
+
+.settings{
+  display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px;
+  padding:14px; border-bottom:1px solid var(--rule); background:var(--panel-2);
+}
+.settings label{ display:grid; gap:5px; font-size:11px; color:var(--mute); text-transform:uppercase; letter-spacing:.07em; }
+.settings input{
+  font:inherit; font-family:var(--mono); font-size:12.5px; padding:7px 9px;
+  border-radius:7px; border:1px solid var(--rule); background:var(--panel); color:var(--ink);
+}
+.settings .hint{ grid-column:1/-1; margin:0; font-size:11.5px; color:var(--mute); text-transform:none; letter-spacing:0; }
+
+.log{ flex:1; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:9px; }
+.empty{ margin:auto; max-width:46ch; text-align:center; color:var(--ink-2); line-height:1.6; }
+.empty p{ margin:0 0 10px; }
+.empty .muted{ color:var(--mute); font-size:12.5px; }
+
+.line{ display:flex; gap:8px; align-items:flex-start; line-height:1.55; }
+.line .body{ white-space:pre-wrap; word-break:break-word; min-width:0; }
+.line.you{
+  align-self:flex-end; max-width:76%; background:var(--brand); color:#fff;
+  padding:8px 12px; border-radius:12px 12px 3px 12px;
+}
+.line.you .body{ color:#fff; }
+.line.text{ max-width:82%; }
+.line.tool,.line.result{ font-family:var(--mono); font-size:12px; color:var(--mute); }
+.line.error{ color:var(--err); }
+.tag{
+  font-family:var(--mono); font-size:9.5px; letter-spacing:.08em; text-transform:uppercase;
+  padding:2px 6px; border-radius:5px; background:var(--panel-2); color:var(--mute); flex:none; margin-top:2px;
+}
+.tag.ok{ color:var(--ok); } .tag.err{ color:var(--err); }
+.working{ color:var(--mute); font-size:12.5px; align-items:center; }
+.dot{ width:7px; height:7px; border-radius:50%; background:var(--brand); animation:p 1s ease-in-out infinite; }
+@keyframes p{ 50%{ opacity:.25; } }
+@media (prefers-reduced-motion: reduce){ .dot{ animation:none; } }
+
+.composer{ display:flex; gap:9px; padding:12px 14px; border-top:1px solid var(--rule); background:var(--panel); }
+.composer textarea{
+  flex:1; resize:none; font:inherit; padding:9px 11px; border-radius:9px;
+  border:1px solid var(--rule); background:var(--bg); color:var(--ink);
+}
+.composer textarea:focus{ outline:2px solid var(--brand); outline-offset:-1px; }
+.send{
+  font:inherit; font-weight:600; padding:0 18px; border-radius:9px; border:0;
+  background:var(--brand); color:#fff; cursor:pointer;
+}
+.send:disabled{ opacity:.45; cursor:default; }

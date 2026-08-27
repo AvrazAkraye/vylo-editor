@@ -1,6 +1,9 @@
 # ADR 0001 — The workspace lives on the server
 
-**Status:** accepted · 2026-08-19
+**Status:** superseded by [ADR 0002](0002-desktop-local-agent.md) · 2026-08-19
+
+> Superseded the same day: iOS was dropped from the targets, and iOS was this
+> decision's entire justification. Kept for the reasoning, not as guidance.
 
 ## Context
 Vylo Editor targets iOS and Windows. On iOS an app cannot open arbitrary user
