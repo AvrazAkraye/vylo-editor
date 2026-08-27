@@ -243,3 +243,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .commit input:focus{ outline:2px solid var(--brand); outline-offset:-1px; }
 .commit .ghost{ border:1px solid var(--rule); font-size:12px; }
+.settings select{
+  font:inherit; font-size:12.5px; padding:7px 9px; border-radius:7px;
+  border:1px solid var(--rule); background:var(--panel); color:var(--ink);
+}

@@ -7,6 +7,7 @@ import {
 import { Pending, type Change } from './pending';
 import { Review } from './Review';
 import { invoke } from '@tauri-apps/api/core';
+import { LANGS, storedLang, storeLang, translator, type Lang } from './i18n';
 
 type Line = {
   kind: 'you' | 'text' | 'tool' | 'result' | 'error';
@@ -48,6 +49,8 @@ export function App() {
   // rather than whatever else is dirty in the tree.
   const [written, setWritten] = useState<string[]>([]);
   const [commitMsg, setCommitMsg] = useState('');
+  const [lang, setLang] = useState<Lang>(() => storedLang());
+  const t = translator(lang);
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
 
@@ -55,6 +58,13 @@ export function App() {
   useEffect(() => { localStorage.setItem(LS.key, apiKey); }, [apiKey]);
   useEffect(() => { localStorage.setItem(LS.model, model); }, [model]);
   useEffect(() => { if (root) localStorage.setItem(LS.root, root); }, [root]);
+  useEffect(() => {
+    storeLang(lang);
+    // Tells the OS text stack which script to shape and which fonts to prefer.
+    // dir stays ltr in every language, matching the OTP dashboard: only the
+    // text runs right-to-left, and the browser does that on its own.
+    document.documentElement.lang = lang;
+  }, [lang]);
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [lines, changes]);
 
   // Whether git is available as an undo is worth knowing *before* approving,
@@ -103,7 +113,7 @@ export function App() {
 
   async function newBranch() {
     const suggested = `vylo/${new Date().toISOString().slice(0, 10)}`;
-    const name = window.prompt('New branch name', suggested);
+    const name = window.prompt(t('New branch name'), suggested);
     if (!name) return;
     try {
       await invoke('git_create_branch', { root, name });
@@ -167,7 +177,7 @@ export function App() {
   }
 
   async function pickFolder() {
-    const picked = await open({ directory: true, multiple: false, title: 'Open a project folder' });
+    const picked = await open({ directory: true, multiple: false, title: t('Open a project folder') });
     if (typeof picked === 'string') openFolder(picked);
   }
 
@@ -211,8 +221,8 @@ export function App() {
     // An image on its own is a legitimate message -- "what is wrong here?"
     // with a screenshot needs no words.
     if ((!text && shots.length === 0) || busy) return;
-    if (!root) { push({ kind: 'error', text: 'Open a folder first.' }); return; }
-    if (!apiKey) { push({ kind: 'error', text: 'Add your gateway API key in Settings.' }); setShowSettings(true); return; }
+    if (!root) { push({ kind: 'error', text: t('Open a folder first.') }); return; }
+    if (!apiKey) { push({ kind: 'error', text: t('Add your gateway API key in Settings.') }); setShowSettings(true); return; }
 
     setPrompt('');
     push({ kind: 'you', text, shots: shots.length ? [...shots] : undefined });
@@ -261,11 +271,11 @@ export function App() {
           <b>Vylo Editor</b>
         </div>
         <button className="folder" onClick={pickFolder} title={root || 'No folder open'}>
-          {folderName ? `📁 ${folderName}` : 'Open folder…'}
+          {folderName ? `📁 ${folderName}` : t('Open folder…')}
         </button>
         {git?.is_repo && (
           <button className="ghost br" onClick={() => void newBranch()} title="Create a branch and switch to it">
-            + branch
+            {t('+ branch')}
           </button>
         )}
         {git?.is_repo && (
@@ -274,31 +284,36 @@ export function App() {
             {git.branch}{git.dirty ? ` · ${git.dirty} modified` : ''}
           </span>
         )}
-        <button className="ghost" onClick={() => setShowSettings((s) => !s)}>Settings</button>
+        <button className="ghost" onClick={() => setShowSettings((s) => !s)}>{t('Settings')}</button>
       </header>
 
       {showSettings && (
         <div className="settings">
-          <label>Gateway
+          <label>{t('Gateway')}
             <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} spellCheck={false} />
           </label>
-          <label>API key
+          <label>{t('API key')}
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
                    placeholder="sk-vylo-…" spellCheck={false} />
           </label>
-          <label>Model
+          <label>{t('Model')}
             <input value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} />
           </label>
-          <p className="hint">Stored in this app only, on this machine.</p>
+          <label>{t('Language')}
+            <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
+              {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+            </select>
+          </label>
+          <p className="hint">{t('Stored in this app only, on this machine.')}</p>
         </div>
       )}
 
       <div className="log" ref={log}>
         {lines.length === 0 && (
           <div className="empty">
-            <p><b>Open a folder, then ask about the code in it.</b></p>
-            <p>The agent reads files on this machine — nothing is uploaded except your question and the snippets it chooses to read.</p>
-            <p className="muted">It can propose edits and run your tests — you approve every change and every command first.</p>
+            <p><b>{t('Open a folder, then ask about the code in it.')}</b></p>
+            <p>{t('The agent reads files on this machine — nothing is uploaded except your question and the snippets it chooses to read.')}</p>
+            <p className="muted">{t('It can propose edits and run your tests — you approve every change and every command first.')}</p>
           </div>
         )}
         {lines.map((l, i) => (
@@ -314,31 +329,31 @@ export function App() {
             <span className="body">{l.text}</span>
           </div>
         ))}
-        {busy && <div className="line working"><span className="dot" />working…</div>}
+        {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
       </div>
 
       {askRun && (
         <div className="ask" role="alertdialog" aria-label="Command approval">
           <div className="ask-in">
             <div className="ask-txt">
-              <span className="ask-lbl">Run this command?</span>
+              <span className="ask-lbl">{t('Run this command?')}</span>
               <code>{askRun.command}</code>
               {askRun.reason && <span className="ask-why">{askRun.reason}</span>}
-              <span className="ask-dir">in {folderName}</span>
+              <span className="ask-dir">{t('in')} {folderName}</span>
             </div>
             <div className="ask-btns">
-              <button className="reject" onClick={() => decide.current?.(false)}>Decline</button>
+              <button className="reject" onClick={() => decide.current?.(false)}>{t('Decline')}</button>
               <button className="ghost keep" onClick={() => {
                 trusted.current.add(askRun.command);
                 decide.current?.(true);
-              }}>Always allow this</button>
-              <button className="approve" onClick={() => decide.current?.(true)}>Run</button>
+              }}>{t('Always allow this')}</button>
+              <button className="approve" onClick={() => decide.current?.(true)}>{t('Run')}</button>
             </div>
           </div>
         </div>
       )}
 
-      <Review changes={changes} onApprove={approve} onReject={reject} busy={busy} />
+      <Review changes={changes} onApprove={approve} onReject={reject} busy={busy} t={t} />
 
       {git?.is_repo && written.length > 0 && (
         <div className="commit">
@@ -349,10 +364,10 @@ export function App() {
             value={commitMsg}
             onChange={(e) => setCommitMsg(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void commit(); }}
-            placeholder="Commit message"
+            placeholder={t('Commit message')}
             aria-label="Commit message"
           />
-          <button className="ghost" onClick={() => setWritten([])} disabled={busy}>Not now</button>
+          <button className="ghost" onClick={() => setWritten([])} disabled={busy}>{t('Not now')}</button>
           <button className="approve" onClick={() => void commit()} disabled={busy || !commitMsg.trim()}>
             Commit to {git.branch}
           </button>
@@ -372,7 +387,7 @@ export function App() {
         </div>
       )}
 
-      {dragging && <div className="dropzone"><span>Drop a folder to open it, or images to attach</span></div>}
+      {dragging && <div className="dropzone"><span>{t('Drop a folder to open it, or images to attach')}</span></div>}
 
       <div className="composer">
         <textarea
@@ -386,7 +401,7 @@ export function App() {
           disabled={busy}
         />
         <button className="send" onClick={() => void send()}
-                disabled={busy || (!prompt.trim() && shots.length === 0)}>Send</button>
+                disabled={busy || (!prompt.trim() && shots.length === 0)}>{t('Send')}</button>
       </div>
     </div>
   );

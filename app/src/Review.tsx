@@ -6,6 +6,7 @@ interface Props {
   onApprove: (paths: string[]) => void;
   onReject: (paths: string[]) => void;
   busy: boolean;
+  t: (s: string) => string;
 }
 
 /**
@@ -16,7 +17,7 @@ interface Props {
  * approval flow that is tedious gets click-throughed, and a click-throughed
  * gate is the same as no gate.
  */
-export function Review({ changes, onApprove, onReject, busy }: Props) {
+export function Review({ changes, onApprove, onReject, busy, t }: Props) {
   const [openPath, setOpenPath] = useState<string | null>(changes[0]?.path ?? null);
 
   const diffs = useMemo(() => {
@@ -47,16 +48,16 @@ export function Review({ changes, onApprove, onReject, busy }: Props) {
             <span className="add">+{total.added}</span>
             <span className="del">−{total.removed}</span>
           </span>
-          <span className="note">Nothing is written until you approve.</span>
+          <span className="note">{t('Nothing is written until you approve.')}</span>
         </div>
         <div className="rv-actions">
           <button className="reject" disabled={busy}
                   onClick={() => onReject(changes.map((c) => c.path))}>
-            Discard all
+            {t('Discard all')}
           </button>
           <button className="approve" disabled={busy}
                   onClick={() => onApprove(changes.map((c) => c.path))}>
-            Approve all
+            {t('Approve all')}
           </button>
         </div>
       </header>
@@ -69,7 +70,7 @@ export function Review({ changes, onApprove, onReject, busy }: Props) {
               <li key={c.path}>
                 <button className={c.path === open.path ? 'on' : ''} onClick={() => setOpenPath(c.path)}>
                   <span className="fp">{c.path}</span>
-                  {c.isNew && <span className="new">new</span>}
+                  {c.isNew && <span className="new">{t('new')}</span>}
                   <span className="mini">
                     <span className="add">+{n.added}</span><span className="del">−{n.removed}</span>
                   </span>
@@ -83,8 +84,8 @@ export function Review({ changes, onApprove, onReject, busy }: Props) {
           <div className="rv-diff-bar">
             <code>{open.path}</code>
             <div className="rv-one">
-              <button className="reject" disabled={busy} onClick={() => onReject([open.path])}>Discard</button>
-              <button className="approve" disabled={busy} onClick={() => onApprove([open.path])}>Approve</button>
+              <button className="reject" disabled={busy} onClick={() => onReject([open.path])}>{t('Discard')}</button>
+              <button className="approve" disabled={busy} onClick={() => onApprove([open.path])}>{t('Approve')}</button>
             </div>
           </div>
           <pre>
