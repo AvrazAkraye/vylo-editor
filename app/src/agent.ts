@@ -17,8 +17,14 @@ export interface ToolCall {
   input: Record<string, unknown>;
 }
 
+export interface ImageBlock {
+  type: 'image';
+  source: { type: 'base64'; media_type: string; data: string };
+}
+
 export type Block =
   | { type: 'text'; text: string }
+  | ImageBlock
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 
@@ -80,6 +86,11 @@ const SYSTEM = [
   'You currently have read-only tools. You cannot edit files or run commands yet, so',
   'when a change is wanted, say precisely what you would change and where, rather',
   'than pretending to have done it.',
+  '',
+  '',
+  'The user may attach images -- a screenshot of a bug, a design, an error dialog.',
+  'Treat them as part of the question, and connect what you see to the actual code',
+  'by going and reading it rather than describing the picture back to them.',
   '',
   'Be concise. Cite paths as path:line when you can.',
 ].join('\n');

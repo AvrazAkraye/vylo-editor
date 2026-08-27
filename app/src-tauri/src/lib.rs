@@ -20,6 +20,8 @@
 //!    safety model, and it is much easier to keep if the dangerous verbs simply
 //!    do not exist yet.
 
+use base64::engine::general_purpose::STANDARD as BASE64;
+use base64::Engine as _;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -199,11 +201,87 @@ fn search(root: String, query: String, max_hits: Option<usize>) -> Result<Vec<Hi
     Ok(hits)
 }
 
+/// What a dropped path is, so the UI can decide whether to open a folder or
+/// attach a file.
+#[tauri::command]
+fn path_kind(path: String) -> String {
+    let p = Path::new(&path);
+    if p.is_dir() {
+        "dir".into()
+    } else if p.is_file() {
+        "file".into()
+    } else {
+        "missing".into()
+    }
+}
+
+#[derive(Serialize)]
+pub struct Attachment {
+    media_type: String,
+    data: String,
+    name: String,
+    bytes: u64,
+}
+
+/// Read an image the **user** dragged in or pasted, as base64.
+///
+/// Note this does NOT go through `resolve()`, and that asymmetry is deliberate:
+/// containment exists because the *model* picks those paths and can be talked
+/// into picking a bad one. A human dropping a file on the window has chosen it
+/// explicitly — constraining them to the open folder would break the obvious
+/// case of dragging in a screenshot from the Desktop, and would protect nobody.
+#[tauri::command]
+fn read_image(path: String) -> Result<Attachment, String> {
+    let p = Path::new(&path);
+    let md = fs::metadata(p).map_err(|e| format!("{path}: {e}"))?;
+    if md.is_dir() {
+        return Err(format!("{path}: is a directory"));
+    }
+    // The API rejects images above ~5 MB, and a rejection after a slow upload is
+    // a worse experience than refusing here.
+    const MAX: u64 = 5 * 1024 * 1024;
+    if md.len() > MAX {
+        return Err(format!(
+            "{}: {:.1} MB is over the 5 MB image limit",
+            p.file_name().unwrap_or_default().to_string_lossy(),
+            md.len() as f64 / 1_048_576.0
+        ));
+    }
+
+    let bytes = fs::read(p).map_err(|e| format!("{path}: {e}"))?;
+    // Sniff the magic bytes rather than trusting the extension: a mislabelled
+    // file would otherwise fail upstream with an opaque "could not process
+    // image", which is a miserable thing to debug from the UI.
+    let media_type = if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        "image/png"
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        "image/jpeg"
+    } else if bytes.starts_with(b"GIF8") {
+        "image/gif"
+    } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        "image/webp"
+    } else {
+        return Err(format!(
+            "{}: not a PNG, JPEG, GIF or WebP",
+            p.file_name().unwrap_or_default().to_string_lossy()
+        ));
+    };
+
+    Ok(Attachment {
+        media_type: media_type.into(),
+        data: BASE64.encode(&bytes),
+        name: p.file_name().unwrap_or_default().to_string_lossy().to_string(),
+        bytes: md.len(),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![list_tree, read_file, search])
+        .invoke_handler(tauri::generate_handler![
+            list_tree, read_file, search, path_kind, read_image
+        ])
         .run(tauri::generate_context!())
         .expect("error while running Vylo Editor");
 }

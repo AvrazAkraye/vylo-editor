@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { runAgent, type Msg } from './agent';
+import { runAgent, type Block, type Msg } from './agent';
+import {
+  attachFromFile, listenForDrops, previewUrl, toImageBlock, type Attached,
+} from './attachments';
 
-type Line = { kind: 'you' | 'text' | 'tool' | 'result' | 'error'; text: string };
+type Line = {
+  kind: 'you' | 'text' | 'tool' | 'result' | 'error';
+  text: string;
+  shots?: Attached[];
+};
 
 const LS = {
   base: 'vylo.baseUrl',
@@ -23,6 +30,8 @@ export function App() {
   const [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [shots, setShots] = useState<Attached[]>([]);
+  const [dragging, setDragging] = useState(false);
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
 
@@ -31,6 +40,40 @@ export function App() {
   useEffect(() => { localStorage.setItem(LS.model, model); }, [model]);
   useEffect(() => { if (root) localStorage.setItem(LS.root, root); }, [root]);
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [lines]);
+
+  // Drag-and-drop is a window-level OS event, not an HTML5 one: Tauri
+  // intercepts the drop before the webview sees it.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void listenForDrops({
+      onFolder: (path) => { setRoot(path); history.current = []; setLines([]); },
+      onImages: (imgs) => setShots((p) => [...p, ...imgs]),
+      onHover: setDragging,
+      onError: (m) => push({ kind: 'error', text: m }),
+    }).then((un) => { stop = un; });
+    return () => stop?.();
+  }, []);
+
+  // Pasting a screenshot is the common case and it has no path at all, so it
+  // never reaches the Rust side -- the blob is read here instead.
+  useEffect(() => {
+    const onPaste = async (e: ClipboardEvent) => {
+      const files = Array.from(e.clipboardData?.files || []);
+      const imgs = files.filter((f) => f.type.startsWith('image/'));
+      if (!imgs.length) return;
+      e.preventDefault();
+      for (const f of imgs) {
+        try {
+          const a = await attachFromFile(f);
+          setShots((p) => [...p, a]);
+        } catch (err) {
+          push({ kind: 'error', text: String(err instanceof Error ? err.message : err) });
+        }
+      }
+    };
+    window.addEventListener('paste', onPaste);
+    return () => window.removeEventListener('paste', onPaste);
+  }, []);
 
   const push = (l: Line) => setLines((p) => [...p, l]);
 
@@ -45,14 +88,23 @@ export function App() {
 
   async function send() {
     const text = prompt.trim();
-    if (!text || busy) return;
+    // An image on its own is a legitimate message -- "what is wrong here?"
+    // with a screenshot needs no words.
+    if ((!text && shots.length === 0) || busy) return;
     if (!root) { push({ kind: 'error', text: 'Open a folder first.' }); return; }
     if (!apiKey) { push({ kind: 'error', text: 'Add your gateway API key in Settings.' }); setShowSettings(true); return; }
 
     setPrompt('');
-    push({ kind: 'you', text });
+    push({ kind: 'you', text, shots: shots.length ? [...shots] : undefined });
     setBusy(true);
-    history.current.push({ role: 'user', content: text });
+
+    // Images ride in the same user turn as the question, before the text, so
+    // the model reads the picture and then what is being asked about it.
+    const content: Block[] | string = shots.length
+      ? [...shots.map(toImageBlock), { type: 'text' as const, text }]
+      : text;
+    history.current.push({ role: 'user', content });
+    setShots([]);
 
     try {
       history.current = await runAgent({
@@ -117,6 +169,11 @@ export function App() {
         )}
         {lines.map((l, i) => (
           <div key={i} className={`line ${l.kind}`}>
+            {l.shots && (
+              <div className="shots sent">
+                {l.shots.map((a) => <img key={a.id} src={previewUrl(a)} alt={a.name} />)}
+              </div>
+            )}
             {l.kind === 'tool' && <span className="tag">tool</span>}
             {l.kind === 'result' && <span className="tag ok">result</span>}
             {l.kind === 'error' && <span className="tag err">error</span>}
@@ -126,16 +183,34 @@ export function App() {
         {busy && <div className="line working"><span className="dot" />working…</div>}
       </div>
 
+      {shots.length > 0 && (
+        <div className="tray">
+          {shots.map((a) => (
+            <div className="chip" key={a.id}>
+              <img src={previewUrl(a)} alt="" />
+              <span className="nm">{a.name}</span>
+              <button onClick={() => setShots((p) => p.filter((x) => x.id !== a.id))}
+                      aria-label={`Remove ${a.name}`}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {dragging && <div className="dropzone"><span>Drop a folder to open it, or images to attach</span></div>}
+
       <div className="composer">
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
-          placeholder={root ? 'Ask about this codebase…   (⌘/Ctrl + Enter)' : 'Open a folder to begin'}
+          placeholder={root
+            ? 'Ask about this codebase…   ⌘/Ctrl+Enter to send · drop or paste images'
+            : 'Open a folder, or drop one here'}
           rows={3}
           disabled={busy}
         />
-        <button className="send" onClick={() => void send()} disabled={busy || !prompt.trim()}>Send</button>
+        <button className="send" onClick={() => void send()}
+                disabled={busy || (!prompt.trim() && shots.length === 0)}>Send</button>
       </div>
     </div>
   );
