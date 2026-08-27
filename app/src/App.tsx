@@ -44,6 +44,10 @@ export function App() {
   // Commands the user chose to stop being asked about. Session-only and matched
   // exactly: "always allow npm test" should not quietly also allow "npm test && rm -rf".
   const trusted = useRef(new Set<string>());
+  // Files this session actually wrote, so the commit bar offers exactly those
+  // rather than whatever else is dirty in the tree.
+  const [written, setWritten] = useState<string[]>([]);
+  const [commitMsg, setCommitMsg] = useState('');
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
 
@@ -97,6 +101,37 @@ export function App() {
 
   const push = (l: Line) => setLines((p) => [...p, l]);
 
+  async function newBranch() {
+    const suggested = `vylo/${new Date().toISOString().slice(0, 10)}`;
+    const name = window.prompt('New branch name', suggested);
+    if (!name) return;
+    try {
+      await invoke('git_create_branch', { root, name });
+      setGit(await invoke('git_state', { root }));
+      push({ kind: 'result', text: `Switched to branch ${name}` });
+    } catch (e) {
+      push({ kind: 'error', text: String(e) });
+    }
+  }
+
+  async function commit() {
+    if (!written.length || !commitMsg.trim()) return;
+    setBusy(true);
+    try {
+      const r = await invoke<{ sha: string; summary: string }>('git_commit', {
+        root, message: commitMsg.trim(), paths: written,
+      });
+      push({ kind: 'result', text: `Committed ${r.sha} — ${r.summary}` });
+      setWritten([]);
+      setCommitMsg('');
+      setGit(await invoke('git_state', { root }));
+    } catch (e) {
+      push({ kind: 'error', text: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   /**
    * Suspend the agent loop until the user decides. Returning a promise the
    * button resolves is what keeps the whole thing inside one turn, so the model
@@ -127,6 +162,8 @@ export function App() {
     setShots([]);
     // "Always allow" was granted against one project, not all of them.
     trusted.current.clear();
+    setWritten([]);
+    setCommitMsg('');
   }
 
   async function pickFolder() {
@@ -139,6 +176,12 @@ export function App() {
     try {
       const done = await pending.current.apply(root, paths);
       setChanges(pending.current.list());
+      setWritten((prev) => [...new Set([...prev, ...done])]);
+      if (!commitMsg && done.length) {
+        // A starting point, not a decision — the user edits it before committing.
+        const name = done[0].split('/').pop() || done[0];
+        setCommitMsg(done.length === 1 ? `Update ${name}` : `Update ${name} and ${done.length - 1} more`);
+      }
       push({ kind: 'result', text: `Wrote ${done.length} file${done.length === 1 ? '' : 's'}: ${done.join(', ')}` });
       // Tell the agent what landed, so a follow-up turn knows the state of the
       // disk rather than assuming its proposal is still pending.
@@ -221,6 +264,11 @@ export function App() {
           {folderName ? `📁 ${folderName}` : 'Open folder…'}
         </button>
         {git?.is_repo && (
+          <button className="ghost br" onClick={() => void newBranch()} title="Create a branch and switch to it">
+            + branch
+          </button>
+        )}
+        {git?.is_repo && (
           <span className={`git ${git.dirty ? 'dirty' : ''}`}
                 title={git.dirty ? `${git.dirty} file(s) already modified before the agent touched anything` : 'Working tree is clean'}>
             {git.branch}{git.dirty ? ` · ${git.dirty} modified` : ''}
@@ -291,6 +339,25 @@ export function App() {
       )}
 
       <Review changes={changes} onApprove={approve} onReject={reject} busy={busy} />
+
+      {git?.is_repo && written.length > 0 && (
+        <div className="commit">
+          <span className="cm-lbl">
+            {written.length} file{written.length > 1 ? 's' : ''} written
+          </span>
+          <input
+            value={commitMsg}
+            onChange={(e) => setCommitMsg(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void commit(); }}
+            placeholder="Commit message"
+            aria-label="Commit message"
+          />
+          <button className="ghost" onClick={() => setWritten([])} disabled={busy}>Not now</button>
+          <button className="approve" onClick={() => void commit()} disabled={busy || !commitMsg.trim()}>
+            Commit to {git.branch}
+          </button>
+        </div>
+      )}
 
       {shots.length > 0 && (
         <div className="tray">

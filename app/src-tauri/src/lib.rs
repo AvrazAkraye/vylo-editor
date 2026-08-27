@@ -456,13 +456,93 @@ fn run_command(root: String, command: String, timeout_secs: Option<u64>) -> Resu
     })
 }
 
+/// Run git with fixed arguments in the workspace.
+///
+/// Note the arguments are passed as a list, never through a shell. Branch names
+/// and commit messages are typed by a human, but they still arrive as data:
+/// a message containing `; rm -rf .` is a message, not a command.
+fn git(root: &str, args: &[&str]) -> Result<String, String> {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .output()
+        .map_err(|e| format!("git not available: {e}"))?;
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        return Err(if err.is_empty() { "git failed".into() } else { err });
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+}
+
+/// Create a branch and switch to it, so the work lands somewhere discardable.
+#[tauri::command]
+fn git_create_branch(root: String, name: String) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("branch name is empty".into());
+    }
+    // git's own rules, rather than a guess at them.
+    git(&root, &["check-ref-format", "--branch", name])
+        .map_err(|_| format!("'{name}' is not a valid branch name"))?;
+    git(&root, &["checkout", "-b", name])?;
+    Ok(name.to_string())
+}
+
+#[derive(Serialize)]
+pub struct Committed {
+    sha: String,
+    summary: String,
+}
+
+/// Stage the given paths and commit them.
+///
+/// Only the paths passed in — never `git add -A`. The user may well have their
+/// own unrelated work in the tree, and sweeping it into the agent's commit
+/// would be taking a decision that is not ours to take.
+#[tauri::command]
+fn git_commit(root: String, message: String, paths: Vec<String>) -> Result<Committed, String> {
+    let message = message.trim();
+    if message.is_empty() {
+        return Err("commit message is empty".into());
+    }
+    if paths.is_empty() {
+        return Err("nothing to commit".into());
+    }
+
+    for path in &paths {
+        // Containment still applies: these came from the staged set, but a bug
+        // upstream should not be able to stage a file outside the folder.
+        resolve(&root, path)?;
+        git(&root, &["add", "--", path])?;
+    }
+
+    match git(&root, &["commit", "-m", message]) {
+        Ok(_) => {}
+        Err(e) => {
+            // The overwhelmingly common first-run failure, and git's own wording
+            // for it is a wall of text.
+            if e.contains("Please tell me who you are") || e.contains("user.email") {
+                return Err(
+                    "git has no identity configured. Run:\n  git config user.name \"Your Name\"\n  git config user.email you@example.com".into(),
+                );
+            }
+            return Err(e);
+        }
+    }
+
+    Ok(Committed {
+        sha: git(&root, &["rev-parse", "--short", "HEAD"]).unwrap_or_default(),
+        summary: git(&root, &["log", "-1", "--pretty=%s"]).unwrap_or_default(),
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, apply_write, git_state,
-            run_command,
+            run_command, git_create_branch, git_commit,
             run_command
         ])
         .run(tauri::generate_context!())
@@ -498,6 +578,38 @@ mod tests {
         assert!(out.truncated, "expected the truncation flag");
         assert!(out.stdout.starts_with("[…"), "expected a truncation notice");
         assert!(out.stdout.len() < 100_000, "stdout was {} bytes", out.stdout.len());
+    }
+
+    /// Committing must take only the paths given -- never the user's own
+    /// unrelated work that happened to be sitting in the tree.
+    #[test]
+    fn commit_stages_only_the_paths_it_was_given() {
+        let tmp = std::env::temp_dir().join(format!("vylo_git_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "t@example.com"],
+            vec!["config", "user.name", "T"],
+        ] {
+            git(&root, &args).expect("git setup");
+        }
+        fs::write(tmp.join("mine.txt"), "the user's own work").unwrap();
+        fs::write(tmp.join("agent.txt"), "the agent's change").unwrap();
+
+        git_commit(root.clone(), "agent change".into(), vec!["agent.txt".into()])
+            .expect("commit should succeed");
+
+        let staged = git(&root, &["show", "--name-only", "--pretty=", "HEAD"]).unwrap();
+        assert!(staged.contains("agent.txt"), "committed: {staged}");
+        assert!(!staged.contains("mine.txt"), "swept in the user's file: {staged}");
+
+        let still_dirty = git(&root, &["status", "--porcelain"]).unwrap();
+        assert!(still_dirty.contains("mine.txt"), "user's file should be untouched");
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     /// The containment rule is the security model, so it gets the test.
