@@ -388,24 +388,40 @@ fn run_command(root: String, command: String, timeout_secs: Option<u64>) -> Resu
     // therefore hangs on any command with real output -- a build log, a test
     // suite -- until the timeout kills it. Found by a test that produced 340 KB
     // and timed out instead of finishing.
-    let mut out_pipe = child.stdout.take();
-    let mut err_pipe = child.stderr.take();
-    let out_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(p) = out_pipe.as_mut() {
-            use std::io::Read;
-            let _ = p.read_to_end(&mut buf);
-        }
-        buf
-    });
-    let err_thread = std::thread::spawn(move || {
-        let mut buf = Vec::new();
-        if let Some(p) = err_pipe.as_mut() {
-            use std::io::Read;
-            let _ = p.read_to_end(&mut buf);
-        }
-        buf
-    });
+    // Readers append into shared buffers rather than returning them, so the
+    // output can be taken WITHOUT joining. That matters on a timeout: killing
+    // the shell does not necessarily kill what it spawned, and a surviving
+    // grandchild keeps the pipe open, so a join would block for exactly as long
+    // as the runaway command we just tried to escape. CI found this on Windows,
+    // where `cmd /c ping` leaves ping running after cmd is killed.
+    use std::sync::{Arc, Mutex};
+    let out_buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let err_buf = Arc::new(Mutex::new(Vec::<u8>::new()));
+    let drain = |pipe: Option<Box<dyn std::io::Read + Send>>, sink: Arc<Mutex<Vec<u8>>>| {
+        std::thread::spawn(move || {
+            if let Some(mut p) = pipe {
+                let mut chunk = [0u8; 8192];
+                loop {
+                    match p.read(&mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => {
+                            if let Ok(mut g) = sink.lock() {
+                                g.extend_from_slice(&chunk[..n]);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    };
+    drain(
+        child.stdout.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+        Arc::clone(&out_buf),
+    );
+    drain(
+        child.stderr.take().map(|p| Box::new(p) as Box<dyn std::io::Read + Send>),
+        Arc::clone(&err_buf),
+    );
 
     let limit = Duration::from_secs(timeout_secs.unwrap_or(120));
     let started = Instant::now();
@@ -415,6 +431,15 @@ fn run_command(root: String, command: String, timeout_secs: Option<u64>) -> Resu
             Ok(Some(st)) => break st,
             Ok(None) => {
                 if started.elapsed() > limit {
+                    // cmd.exe does not take its children with it, so kill the
+                    // tree. Without /T a timed-out `ping` or test runner keeps
+                    // going after the app has moved on.
+                    #[cfg(windows)]
+                    {
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/T", "/F", "/PID", &child.id().to_string()])
+                            .output();
+                    }
                     let _ = child.kill();
                     timed_out = true;
                     break child.wait().map_err(|e| format!("wait failed: {e}"))?;
@@ -425,9 +450,15 @@ fn run_command(root: String, command: String, timeout_secs: Option<u64>) -> Resu
         }
     };
 
-    // Killing the child closes the pipes, so these joins always finish.
-    let stdout_raw = out_thread.join().unwrap_or_default();
-    let stderr_raw = err_thread.join().unwrap_or_default();
+    // On a clean exit the pipes are already closed and the readers have
+    // finished; give them a moment to flush the tail. On a timeout we take
+    // whatever arrived and leave the reader to end on its own — deliberately
+    // not joining, so a surviving grandchild cannot hold the app hostage.
+    if !timed_out {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let stdout_raw = out_buf.lock().map(|g| g.clone()).unwrap_or_default();
+    let stderr_raw = err_buf.lock().map(|g| g.clone()).unwrap_or_default();
 
     // Cap what goes back: the output becomes a tool_result, and a build log can
     // be megabytes. Keep the TAIL, because the error is nearly always at the end.
