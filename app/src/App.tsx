@@ -4,6 +4,9 @@ import { runAgent, type Block, type Msg } from './agent';
 import {
   attachFromFile, listenForDrops, previewUrl, toImageBlock, type Attached,
 } from './attachments';
+import { Pending, type Change } from './pending';
+import { Review } from './Review';
+import { invoke } from '@tauri-apps/api/core';
 
 type Line = {
   kind: 'you' | 'text' | 'tool' | 'result' | 'error';
@@ -32,6 +35,9 @@ export function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [shots, setShots] = useState<Attached[]>([]);
   const [dragging, setDragging] = useState(false);
+  const [changes, setChanges] = useState<Change[]>([]);
+  const [git, setGit] = useState<{ is_repo: boolean; branch: string; dirty: number } | null>(null);
+  const pending = useRef(new Pending());
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
 
@@ -39,14 +45,22 @@ export function App() {
   useEffect(() => { localStorage.setItem(LS.key, apiKey); }, [apiKey]);
   useEffect(() => { localStorage.setItem(LS.model, model); }, [model]);
   useEffect(() => { if (root) localStorage.setItem(LS.root, root); }, [root]);
-  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [lines]);
+  useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [lines, changes]);
+
+  // Whether git is available as an undo is worth knowing *before* approving,
+  // not after.
+  useEffect(() => {
+    if (!root) { setGit(null); return; }
+    void invoke<{ is_repo: boolean; branch: string; dirty: number }>('git_state', { root })
+      .then(setGit).catch(() => setGit(null));
+  }, [root, changes]);
 
   // Drag-and-drop is a window-level OS event, not an HTML5 one: Tauri
   // intercepts the drop before the webview sees it.
   useEffect(() => {
     let stop: (() => void) | undefined;
     void listenForDrops({
-      onFolder: (path) => { setRoot(path); history.current = []; setLines([]); },
+      onFolder: (path) => { openFolder(path); },
       onImages: (imgs) => setShots((p) => [...p, ...imgs]),
       onHover: setDragging,
       onError: (m) => push({ kind: 'error', text: m }),
@@ -77,13 +91,50 @@ export function App() {
 
   const push = (l: Line) => setLines((p) => [...p, l]);
 
+  function openFolder(path: string) {
+    setRoot(path);
+    history.current = [];
+    setLines([]);
+    // Staged edits are relative to the folder they were made against; carrying
+    // them into a different project would be a way to write a file somewhere
+    // nobody asked for.
+    pending.current.clear();
+    setChanges([]);
+    setShots([]);
+  }
+
   async function pickFolder() {
     const picked = await open({ directory: true, multiple: false, title: 'Open a project folder' });
-    if (typeof picked === 'string') {
-      setRoot(picked);
-      history.current = [];
-      setLines([]);
+    if (typeof picked === 'string') openFolder(picked);
+  }
+
+  async function approve(paths: string[]) {
+    setBusy(true);
+    try {
+      const done = await pending.current.apply(root, paths);
+      setChanges(pending.current.list());
+      push({ kind: 'result', text: `Wrote ${done.length} file${done.length === 1 ? '' : 's'}: ${done.join(', ')}` });
+      // Tell the agent what landed, so a follow-up turn knows the state of the
+      // disk rather than assuming its proposal is still pending.
+      history.current.push({
+        role: 'user',
+        content: `[The user approved and wrote: ${done.join(', ')}. These changes are now on disk.]`,
+      });
+    } catch (e) {
+      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+    } finally {
+      setBusy(false);
     }
+  }
+
+  function reject(paths: string[]) {
+    paths.forEach((p) => pending.current.drop(p));
+    setChanges(pending.current.list());
+    push({ kind: 'result', text: `Discarded ${paths.length} proposed change${paths.length === 1 ? '' : 's'}.` });
+    history.current.push({
+      role: 'user',
+      content: `[The user discarded your proposed changes to: ${paths.join(', ')}. Do not re-apply them unless asked.]`,
+    });
   }
 
   async function send() {
@@ -110,7 +161,9 @@ export function App() {
       history.current = await runAgent({
         baseUrl, apiKey, model, root,
         history: history.current,
+        pending: pending.current,
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
+        onStaged: () => setChanges(pending.current.list()),
       });
     } catch (e) {
       push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
@@ -140,6 +193,12 @@ export function App() {
         <button className="folder" onClick={pickFolder} title={root || 'No folder open'}>
           {folderName ? `📁 ${folderName}` : 'Open folder…'}
         </button>
+        {git?.is_repo && (
+          <span className={`git ${git.dirty ? 'dirty' : ''}`}
+                title={git.dirty ? `${git.dirty} file(s) already modified before the agent touched anything` : 'Working tree is clean'}>
+            {git.branch}{git.dirty ? ` · ${git.dirty} modified` : ''}
+          </span>
+        )}
         <button className="ghost" onClick={() => setShowSettings((s) => !s)}>Settings</button>
       </header>
 
@@ -164,7 +223,7 @@ export function App() {
           <div className="empty">
             <p><b>Open a folder, then ask about the code in it.</b></p>
             <p>The agent reads files on this machine — nothing is uploaded except your question and the snippets it chooses to read.</p>
-            <p className="muted">Read-only for now: it can explore and explain, but not edit or run commands.</p>
+            <p className="muted">It can propose edits — you review every change as a diff before anything is written.</p>
           </div>
         )}
         {lines.map((l, i) => (
@@ -182,6 +241,8 @@ export function App() {
         ))}
         {busy && <div className="line working"><span className="dot" />working…</div>}
       </div>
+
+      <Review changes={changes} onApprove={approve} onReject={reject} busy={busy} />
 
       {shots.length > 0 && (
         <div className="tray">

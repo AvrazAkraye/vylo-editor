@@ -9,3 +9,4 @@ target/
 !.env.example
 src-tauri/target/
 ios/Pods/
+.test-build/
