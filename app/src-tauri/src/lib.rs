@@ -553,31 +553,55 @@ pub fn run() {
 mod tests {
     use super::*;
 
+    /// The shell `run_command` uses differs by platform, so the fixtures do
+    /// too. `sleep` and `awk` do not exist in cmd.exe — CI caught that the hard
+    /// way, with two green tests on macOS and two red ones on Windows.
+    #[cfg(windows)]
+    const SLEEP_LONG: &str = "ping -n 31 127.0.0.1 >nul";
+    #[cfg(not(windows))]
+    const SLEEP_LONG: &str = "sleep 30";
+
+    #[cfg(windows)]
+    const CAT: &str = "type";
+    #[cfg(not(windows))]
+    const CAT: &str = "cat";
+
     /// A command that never exits must not hang the app with it.
     #[test]
     fn kills_a_command_that_overruns_its_timeout() {
         let root = std::env::temp_dir().to_string_lossy().to_string();
         let started = std::time::Instant::now();
-        let out = run_command(root, "sleep 30".into(), Some(1)).expect("should return");
+        let out = run_command(root, SLEEP_LONG.into(), Some(1)).expect("should return");
         assert!(out.timed_out, "expected the timeout flag");
         assert!(started.elapsed().as_secs() < 10, "should not have waited for the sleep");
     }
 
-    /// Output is capped, because it becomes a tool_result and a build log can be
-    /// megabytes.
+    /// Output is capped, because it becomes a tool_result and a build log can
+    /// be megabytes.
+    ///
+    /// The producer is a file we write and then cat, rather than a shell loop:
+    /// generating bulk text portably in both sh and cmd is more trouble than it
+    /// is worth, and this also proves the pipe is drained while we wait.
     #[test]
     fn truncates_enormous_output() {
-        let root = std::env::temp_dir().to_string_lossy().to_string();
+        let dir = std::env::temp_dir().join(format!("vylo_big_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let big = dir.join("big.txt");
+        fs::write(&big, "hello world line\n".repeat(20_000)).unwrap();
+
         let out = run_command(
-            root,
-            "awk 'BEGIN{for(i=0;i<20000;i++) print \"hello world line\"}'".into(),
+            dir.to_string_lossy().to_string(),
+            format!("{CAT} big.txt"),
             Some(30),
         )
         .expect("should run");
+
         assert!(!out.timed_out, "the producer should exit on its own");
         assert!(out.truncated, "expected the truncation flag");
         assert!(out.stdout.starts_with("[…"), "expected a truncation notice");
-        assert!(out.stdout.len() < 100_000, "stdout was {} bytes", out.stdout.len());
+        assert!(out.stdout.len() < 200_000, "stdout was {} bytes", out.stdout.len());
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// Committing must take only the paths given -- never the user's own
