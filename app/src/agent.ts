@@ -249,25 +249,44 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
   const maxHops = o.maxHops ?? 12;
 
   for (let hop = 0; hop < maxHops; hop++) {
-    const res = await fetch(`${o.baseUrl}/v1/messages`, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': o.apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: o.model,
-        max_tokens: 4096,
-        system: SYSTEM,
-        tools: TOOLS,
-        messages,
-      }),
-    });
+    let res: Response;
+    try {
+      res = await fetch(`${o.baseUrl}/v1/messages`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          'x-api-key': o.apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: o.model,
+          max_tokens: 4096,
+          system: SYSTEM,
+          tools: TOOLS,
+          messages,
+        }),
+      });
+    } catch (e) {
+      // A webview reports every network-layer failure as "Load failed", which
+      // reads like a broken key or a dead server and is neither. Name the three
+      // things it actually is, in the order they are worth checking.
+      throw new Error(
+        `Could not reach the gateway at ${o.baseUrl}. `
+        + 'Check the address in Settings, that you are online, and that the gateway allows this app '
+        + `(the underlying error was: ${e instanceof Error ? e.message : String(e)}).`,
+      );
+    }
 
     if (!res.ok) {
       const body = await res.text().catch(() => '');
-      throw new Error(`Gateway ${res.status}: ${body.slice(0, 300)}`);
+      let detail = body.slice(0, 300);
+      try {
+        const j = JSON.parse(body);
+        if (j?.error?.message) detail = j.error.message;
+      } catch { /* not JSON; the raw body is the best we have */ }
+      if (res.status === 401) throw new Error(`The gateway rejected the API key. Check it in Settings. (${detail})`);
+      if (res.status === 429) throw new Error(`Rate limited by the gateway — wait a moment. (${detail})`);
+      throw new Error(`Gateway ${res.status}: ${detail}`);
     }
     const reply = await res.json();
     const blocks: Block[] = Array.isArray(reply.content) ? reply.content : [];
