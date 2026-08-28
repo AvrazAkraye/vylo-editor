@@ -1,21 +1,91 @@
-/* Vylo Editor — desktop chrome. Follows the OS theme; no toggle, because a
-   developer tool should look like it belongs next to the editor beside it. */
+/* Vylo Editor — desktop chrome.
+ *
+ * Three theme states, not two. An explicit choice stamps data-theme on the root;
+ * "system" stamps nothing, so the media query below governs and keeps governing
+ * when the OS flips at sunset. Every colour is defined at :root first, so a
+ * token can never exist only inside a media query — that is the bug that renders
+ * one theme's text on the other theme's background.
+ *
+ * Neutrals carry a slight violet bias toward the brand rather than being pure
+ * grey, which is what stops a dark UI reading as washed-out charcoal.
+ */
 :root{
-  --bg:#FBFAFD; --panel:#FFFFFF; --panel-2:#F3F1F9;
-  --ink:#16151D; --ink-2:#46435A; --mute:#6B6880;
-  --rule:#E4E1EF; --brand:#5B4DE0; --brand-2:#8B5CF6;
-  --ok:#17694C; --err:#A8332A;
+  --bg:#FBFAFD;          /* app canvas */
+  --panel:#FFFFFF;       /* raised surfaces: header, cards */
+  --panel-2:#F3F1F9;     /* sunken surfaces: sidebar, tabs */
+  --panel-3:#EAE7F3;     /* hover on sunken */
+  --ink:#16151D;
+  --ink-2:#46435A;
+  --mute:#6F6C84;
+  --rule:#E4E1EF;
+  --rule-2:#D6D2E6;
+  --brand:#5B4DE0;
+  --brand-2:#8B5CF6;
+  --brand-wash:#EEEBFD;
+  --fill:#5B4DE0;
+  --on-fill:#FFFFFF;
+  --on-fill-line:rgb(255 255 255 / .35);
+  --on-fill-wash:rgb(255 255 255 / .14);
+  --ok:#17694C;
+  --warn:#96620F;
+  --err:#A8332A;
+  --shadow:0 1px 2px rgb(22 21 29 / .06), 0 8px 24px -14px rgb(22 21 29 / .18);
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Height of the macOS traffic-light strip our header sits behind. */
+  --titlebar: 28px;
 }
+
+/* System-following dark. Guarded so an explicit light choice still wins. */
 @media (prefers-color-scheme: dark){
-  :root{
-    --bg:#121118; --panel:#1A1922; --panel-2:#22202D;
-    --ink:#ECEAF5; --ink-2:#B6B2C8; --mute:#8B87A0;
-    --rule:#2C2A39; --brand:#A99AFF; --brand-2:#C4A9FF;
-    --ok:#6BD6AE; --err:#F0897C;
+  :root:not([data-theme="light"]){
+    --bg:#121118;
+    --panel:#1A1922;
+    --panel-2:#201F2A;
+    --panel-3:#2A2836;
+    --ink:#ECEAF5;
+    --ink-2:#B6B2C8;
+    --mute:#8B87A0;
+    --rule:#2C2A39;
+    --rule-2:#3A3749;
+    --brand:#A99AFF;
+    --brand-2:#C4A9FF;
+    --brand-wash:#241F3C;
+    --fill:#5A46C8;
+    --on-fill:#F4F1FF;
+    --on-fill-line:rgb(244 241 255 / .34);
+    --on-fill-wash:rgb(244 241 255 / .13);
+    --ok:#6BD6AE;
+    --warn:#E0AE5C;
+    --err:#F0897C;
+    --shadow:0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -14px rgb(0 0 0 / .6);
   }
 }
+
+/* Explicit dark, so the toggle wins in the other direction too. */
+:root[data-theme="dark"]{
+  --bg:#121118;
+  --panel:#1A1922;
+  --panel-2:#201F2A;
+  --panel-3:#2A2836;
+  --ink:#ECEAF5;
+  --ink-2:#B6B2C8;
+  --mute:#8B87A0;
+  --rule:#2C2A39;
+  --rule-2:#3A3749;
+  --brand:#A99AFF;
+  --brand-2:#C4A9FF;
+  --brand-wash:#241F3C;
+  --fill:#5A46C8;
+  --on-fill:#F4F1FF;
+  --on-fill-line:rgb(244 241 255 / .34);
+  --on-fill-wash:rgb(244 241 255 / .13);
+  --ok:#6BD6AE;
+  --warn:#E0AE5C;
+  --err:#F0897C;
+  --shadow:0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -14px rgb(0 0 0 / .6);
+}
+
 *{ box-sizing:border-box; }
 html,body,#root{ height:100%; margin:0; }
 body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size:14px; }
@@ -59,10 +129,10 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .line{ display:flex; gap:8px; align-items:flex-start; line-height:1.55; }
 .line .body{ white-space:pre-wrap; word-break:break-word; min-width:0; }
 .line.you{
-  align-self:flex-end; max-width:76%; background:var(--brand); color:#fff;
+  align-self:flex-end; max-width:76%; background:var(--fill); color:var(--on-fill);
   padding:8px 12px; border-radius:12px 12px 3px 12px;
 }
-.line.you .body{ color:#fff; }
+.line.you .body{ color:var(--on-fill); }
 .line.text{ max-width:82%; }
 .line.tool,.line.result{ font-family:var(--mono); font-size:12px; color:var(--mute); }
 .line.error{ color:var(--err); }
@@ -84,7 +154,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .composer textarea:focus{ outline:2px solid var(--brand); outline-offset:-1px; }
 .send{
   font:inherit; font-weight:600; padding:0 18px; border-radius:9px; border:0;
-  background:var(--brand); color:#fff; cursor:pointer;
+  background:var(--fill); color:var(--on-fill); cursor:pointer;
 }
 .send:disabled{ opacity:.45; cursor:default; }
 
@@ -136,8 +206,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   background:var(--panel-2); color:var(--mute); border:1px solid var(--rule);
   white-space:nowrap;
 }
-.git.dirty{ color:var(--amber, #96620F); }
-@media (prefers-color-scheme: dark){ .git.dirty{ color:#E0AE5C; } }
+.git.dirty{ color:var(--warn); }
 
 /* ── review / approval gate ──────────────────────────────────────────── */
 .review{
@@ -158,7 +227,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   font:inherit; font-size:12.5px; font-weight:600; padding:6px 13px;
   border-radius:7px; border:1px solid var(--rule); cursor:pointer;
 }
-.approve{ background:var(--brand); color:#fff; border-color:transparent; }
+.approve{ background:var(--fill); color:var(--on-fill); border-color:transparent; }
 .reject{ background:transparent; color:var(--mute); }
 .reject:hover{ color:var(--err); border-color:var(--err); }
 .approve:disabled,.reject:disabled{ opacity:.5; cursor:default; }
@@ -181,7 +250,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .rv-files .new{
   font-size:9px; letter-spacing:.06em; text-transform:uppercase; flex:none;
-  padding:2px 5px; border-radius:4px; background:var(--brand); color:#fff;
+  padding:2px 5px; border-radius:4px; background:var(--fill); color:var(--on-fill);
 }
 .rv-files .mini{ margin-left:auto; font-family:var(--mono); font-size:10.5px; display:flex; gap:5px; flex:none; }
 
@@ -251,14 +320,14 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 /* ── update banner ───────────────────────────────────────────────────── */
 .update{
   display:flex; align-items:center; gap:12px; flex-wrap:wrap;
-  padding:9px 14px; background:var(--brand); color:#fff;
+  padding:9px 14px; background:var(--fill); color:var(--on-fill);
 }
 .up-txt{ font-size:12.5px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .up-notes{ opacity:.85; }
 .up-btns{ margin-left:auto; display:flex; gap:7px; align-items:center; }
-.update .ghost{ color:#fff; border:1px solid rgb(255 255 255 / .35); font-size:12px; }
-.update .ghost:hover{ background:rgb(255 255 255 / .12); color:#fff; }
-.update .approve{ background:#fff; color:var(--brand); }
+.update .ghost{ color:var(--on-fill); border:1px solid var(--on-fill-line); font-size:12px; }
+.update .ghost:hover{ background:var(--on-fill-wash); color:var(--on-fill); }
+.update .approve{ background:var(--on-fill); color:var(--fill); }
 .up-progress{ font-family:var(--mono); font-size:12px; }
 
 /* ── markdown in agent replies ───────────────────────────────────────── */
@@ -433,4 +502,82 @@ body.resizing{ cursor:col-resize; user-select:none; }
   flex:1; resize:none; border:0; outline:none; padding:14px 16px;
   font-family:var(--mono); font-size:12.5px; line-height:1.6;
   background:var(--bg); color:var(--ink);
+}
+
+/* ── native window chrome ────────────────────────────────────────────── */
+/* The titlebar is transparent and the traffic lights float over our header,
+   so the header reserves room for them on macOS. Windows keeps its own
+   decorations and needs no offset. */
+.mac .bar{ padding-left:82px; }
+.mac .shell.fullscreen .bar{ padding-left:14px; }   /* traffic lights leave the frame */
+.bar{ -webkit-app-region:drag; }
+.bar button, .bar select, .bar .git, .bar .seg{ -webkit-app-region:no-drag; }
+.bar-sp{ flex:1; min-width:12px; }
+.ghost.icon{ font-size:14px; line-height:1; padding:5px 9px; }
+
+/* ── status bar ──────────────────────────────────────────────────────── */
+.status{
+  flex:none; display:flex; align-items:center; gap:14px;
+  padding:4px 12px; border-top:1px solid var(--rule);
+  background:var(--panel-2); font-family:var(--mono);
+  font-size:10.5px; color:var(--mute); white-space:nowrap; overflow-x:auto;
+}
+.status b{ font-weight:600; color:var(--ink-2); }
+.status .sp{ margin-left:auto; }
+.status .dotm{ width:6px; height:6px; border-radius:50%; background:var(--ok); display:inline-block; }
+.status .dotm.off{ background:var(--mute); }
+
+/* ── theme + fullscreen controls ─────────────────────────────────────── */
+.seg{
+  display:inline-flex; padding:2px; gap:2px; border-radius:8px;
+  background:var(--panel-2); border:1px solid var(--rule);
+}
+.seg button{
+  font:inherit; font-size:11.5px; padding:4px 9px; border:0; border-radius:6px;
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.seg button:hover{ color:var(--ink); }
+.seg button.on{ background:var(--panel); color:var(--brand); box-shadow:0 1px 2px rgb(0 0 0 / .07); }
+
+/* ── collapsed tool runs ─────────────────────────────────────────────── */
+.toolrun{
+  align-self:flex-start; max-width:82%; border:1px solid var(--rule);
+  border-radius:9px; background:var(--panel-2); overflow:hidden;
+}
+.toolrun > button{
+  display:flex; align-items:center; gap:8px; width:100%; text-align:left;
+  font:inherit; font-family:var(--mono); font-size:11px; color:var(--mute);
+  padding:6px 11px; border:0; background:transparent; cursor:pointer;
+}
+.toolrun > button:hover{ background:var(--panel-3); color:var(--ink-2); }
+.toolrun .tr-caret{ font-size:9px; transition:transform .12s ease; }
+.toolrun.open .tr-caret{ transform:rotate(90deg); }
+.toolrun .tr-list{ padding:2px 11px 9px; display:flex; flex-direction:column; gap:4px; }
+.toolrun .tr-item{
+  font-family:var(--mono); font-size:11px; color:var(--mute);
+  white-space:pre-wrap; word-break:break-word;
+}
+.toolrun .tr-item.err{ color:var(--err); }
+
+/* ── scrollbars, so they belong to the app rather than the OS default ── */
+*::-webkit-scrollbar{ width:11px; height:11px; }
+*::-webkit-scrollbar-track{ background:transparent; }
+*::-webkit-scrollbar-thumb{
+  background:var(--rule-2); border-radius:8px;
+  border:3px solid transparent; background-clip:content-box;
+}
+*::-webkit-scrollbar-thumb:hover{ background:var(--mute); background-clip:content-box; }
+
+/* ── motion, kept subtle and opt-out ─────────────────────────────────── */
+.line, .toolrun{ animation:rise .18s ease-out; }
+@keyframes rise{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
+@media (prefers-reduced-motion: reduce){
+  .line, .toolrun{ animation:none; }
+  *{ transition-duration:.001ms !important; }
+}
+
+.toolrun .tr-n{ color:var(--ink-2); font-weight:600; }
+.toolrun .tr-names{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.toolrun .tr-bad{
+  margin-left:auto; flex:none; color:var(--err); font-weight:700;
 }

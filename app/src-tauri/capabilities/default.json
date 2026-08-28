@@ -9,6 +9,10 @@
     "core:default",
     "dialog:allow-open",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "core:window:allow-set-fullscreen",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-theme",
+    "core:window:allow-start-dragging"
   ]
 }

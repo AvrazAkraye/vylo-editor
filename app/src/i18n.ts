@@ -24,6 +24,18 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Theme': 'المظهر',
+  'Light': 'فاتح',
+  'Dark': 'داكن',
+  'Match system': 'حسب النظام',
+  'Full screen': 'ملء الشاشة',
+  'Leave full screen': 'إنهاء ملء الشاشة',
+  'Ready': 'جاهز',
+  'No API key': 'لا يوجد مفتاح',
+  'No folder': 'لا مجلد',
+  'to review': 'للمراجعة',
+  '1 step': 'خطوة واحدة',
+  'steps': 'خطوات',
   'Create memory file': 'إنشاء ملف الذاكرة',
   'Not created yet.': 'لم يُنشأ بعد.',
   'Save': 'حفظ',
@@ -86,6 +98,18 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Theme': 'ڕووکار',
+  'Light': 'ڕووناک',
+  'Dark': 'تاریک',
+  'Match system': 'وەک سیستەم',
+  'Full screen': 'پڕ بە شاشە',
+  'Leave full screen': 'دەرچوون لە پڕ بە شاشە',
+  'Ready': 'ئامادە',
+  'No API key': 'کلیل نییە',
+  'No folder': 'بوخچە نییە',
+  'to review': 'بۆ پێداچوونەوە',
+  '1 step': 'یەک هەنگاو',
+  'steps': 'هەنگاو',
   'Create memory file': 'دروستکردنی فایلی یادگە',
   'Not created yet.': 'هێشتا دروست نەکراوە.',
   'Save': 'پاشەکەوت',
@@ -148,6 +172,18 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Theme': 'ڕەنگ و رووکار',
+  'Light': 'ڕۆنی',
+  'Dark': 'تاری',
+  'Match system': 'وەکی سیستەمێ',
+  'Full screen': 'دەستێ تەمام',
+  'Leave full screen': 'دەرکەفتن ژ دەستێ تەمام',
+  'Ready': 'ئامادە',
+  'No API key': 'کلیل نینە',
+  'No folder': 'فولدەر نینە',
+  'to review': 'بۆ بەرچاڤکرنێ',
+  '1 step': 'ئێک گاڤ',
+  'steps': 'گاڤ',
   'Create memory file': 'فایلا بیرگەیێ دروست بکە',
   'Not created yet.': 'هێشتا نەهاتیە دروستکرن.',
   'Save': 'پاراستن',

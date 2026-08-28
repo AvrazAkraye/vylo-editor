@@ -19,6 +19,11 @@ import { MemoryEditor } from './MemoryEditor';
 import { FileTree, type Entry } from './FileTree';
 import { Viewer } from './Viewer';
 import { Section } from './Sidebar';
+import { groupLines, ToolRun } from './ToolRun';
+import {
+  applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
+  watchSystem, type Theme,
+} from './theme';
 
 type Line = SavedLine & { shots?: Attached[] };
 
@@ -79,6 +84,8 @@ export function App() {
   const [tabs, setTabs] = useState<string[]>([]);          // open file paths
   const [active, setActive] = useState<string>('chat');    // 'chat' | a path
   const [sidebarW, setSidebarW] = useState(() => Number(localStorage.getItem('vylo.sbw')) || 248);
+  const [theme, setTheme] = useState<Theme>(() => storedTheme());
+  const [full, setFull] = useState(false);
   const resizing = useRef(false);
   const t = translator(lang);
   const history = useRef<Msg[]>([]);
@@ -102,6 +109,32 @@ export function App() {
     // text runs right-to-left, and the browser does that on its own.
     document.documentElement.lang = lang;
   }, [lang]);
+
+  // Applying on every change rather than only on click also covers the first
+  // paint, so the window never flashes the wrong theme on launch.
+  useEffect(() => { applyTheme(theme); storeTheme(theme); }, [theme]);
+
+  // Following the OS means following it *afterwards* too. The ref keeps the
+  // listener reading the current choice without being torn down on each change.
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
+  useEffect(() => watchSystem(() => themeRef.current, () => applyTheme('system')), []);
+
+  // Fullscreen can also be entered from the OS (green button, Ctrl+Cmd+F), so
+  // the header reflects the window rather than only our own toggle.
+  useEffect(() => {
+    void isFullscreen().then(setFull);
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); void toggleFullscreen().then(setFull); }
+      else if (e.key === 'F11') { e.preventDefault(); void toggleFullscreen().then(setFull); }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 'd') { e.preventDefault(); setTheme((t0) => t0 === 'dark' ? 'light' : 'dark'); }
+    };
+    const onResize = () => { void isFullscreen().then(setFull); };
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('resize', onResize);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
+  }, []);
 
   // One check on launch, deliberately silent on failure -- an update check is
   // never a good reason to greet someone with an error.
@@ -420,8 +453,8 @@ export function App() {
   const folderName = root ? root.split(/[/\\]/).filter(Boolean).pop() : null;
 
   return (
-    <div className="shell">
-      <header className="bar">
+    <div className={`shell ${full ? 'fullscreen' : ''}`}>
+      <header className="bar" data-tauri-drag-region>
         <div className="brand">
           <svg viewBox="0 0 64 64" aria-hidden="true">
             <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#g)" />
@@ -449,6 +482,19 @@ export function App() {
             {git.branch}{git.dirty ? ` · ${git.dirty} modified` : ''}
           </span>
         )}
+        <span className="bar-sp" />
+        <div className="seg" role="group" aria-label={t('Theme')}>
+          {(['light', 'system', 'dark'] as Theme[]).map((v) => (
+            <button key={v} className={theme === v ? 'on' : ''} onClick={() => setTheme(v)}
+                    title={t(v === 'light' ? 'Light' : v === 'dark' ? 'Dark' : 'Match system')}>
+              {v === 'light' ? '☀' : v === 'dark' ? '☾' : '◐'}
+            </button>
+          ))}
+        </div>
+        <button className="ghost icon" onClick={() => void toggleFullscreen().then(setFull)}
+                title={t(full ? 'Leave full screen' : 'Full screen')} aria-pressed={full}>
+          {full ? '⤡' : '⤢'}
+        </button>
         <button className="ghost" onClick={() => setShowSettings((s) => !s)}>{t('Settings')}</button>
       </header>
 
@@ -471,6 +517,13 @@ export function App() {
           <label>{t('Language')}
             <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
               {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+            </select>
+          </label>
+          <label>{t('Theme')}
+            <select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
+              <option value="system">{t('Match system')}</option>
+              <option value="light">{t('Light')}</option>
+              <option value="dark">{t('Dark')}</option>
             </select>
           </label>
           <p className="hint">{t('Stored in this app only, on this machine.')}</p>
@@ -574,19 +627,19 @@ export function App() {
             <p className="muted">{t('It can propose edits and run your tests — you approve every change and every command first.')}</p>
           </div>
         )}
-        {lines.map((l, i) => (
-          <div key={i} className={`line ${l.kind}`}>
-            {l.shots && (
+        {groupLines(lines).map((item, i) => Array.isArray(item) ? (
+          <ToolRun key={i} run={item} t={t} />
+        ) : (
+          <div key={i} className={`line ${item.kind}`}>
+            {item.shots && (
               <div className="shots sent">
-                {l.shots.map((a) => <img key={a.id} src={previewUrl(a)} alt={a.name} />)}
+                {item.shots.map((a) => <img key={a.id} src={previewUrl(a)} alt={a.name} />)}
               </div>
             )}
-            {l.kind === 'tool' && <span className="tag">tool</span>}
-            {l.kind === 'result' && <span className="tag ok">result</span>}
-            {l.kind === 'error' && <span className="tag err">error</span>}
-            {l.kind === 'text'
-              ? <div className="body"><Markdown text={l.text} /></div>
-              : <span className="body">{l.text}</span>}
+            {item.kind === 'error' && <span className="tag err">error</span>}
+            {item.kind === 'text'
+              ? <div className="body"><Markdown text={item.text} /></div>
+              : <span className="body">{item.text}</span>}
           </div>
         ))}
         {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
@@ -695,6 +748,17 @@ export function App() {
         <button className="send" onClick={() => void send()}
                 disabled={busy || (!prompt.trim() && shots.length === 0)}>{t('Send')}</button>
       </div>
+
+      <footer className="status">
+        <span><span className={`dotm ${apiKey ? '' : 'off'}`} />{busy ? t('working…') : apiKey ? t('Ready') : t('No API key')}</span>
+        {git?.is_repo && <span><b>{git.branch}</b>{git.dirty ? ` ${git.dirty}±` : ''}</span>}
+        <span>{root ? folderName : t('No folder')}</span>
+        {changes.length > 0 && <span><b>{changes.length}</b> {t('to review')}</span>}
+        <span className="sp" />
+        {active !== 'chat' && active !== '__memory__' && <span>{active}</span>}
+        <span>{model}</span>
+        <span>{resolved(theme)}</span>
+      </footer>
     </div>
   );
 }

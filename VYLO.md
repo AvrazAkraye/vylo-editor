@@ -39,6 +39,19 @@ a file in has chosen it explicitly.
 Releases and the signing key are documented in `docs/RELEASING.md`. Windows
 binaries cannot be built on a Mac; they come from CI.
 
+## Theming
+
+Three states, not two. `system` stores `system` and stamps **no** `data-theme`,
+so CSS resolves through `prefers-color-scheme` and keeps following the OS after
+launch. Every token is defined on bare `:root` first; the dark values are
+repeated in `@media (prefers-color-scheme: dark){ :root:not([data-theme=light]) }`
+and again in `:root[data-theme="dark"]` so the toggle wins in both directions.
+
+`--brand` is the accent for *text* and flips light/dark for legibility on its
+own ground. `--fill` is the solid accent *behind* text and stays saturated in
+both themes — one token cannot do both jobs without putting white text on pale
+lavender.
+
 ## Gotchas that have already cost time
 
 - The gateway's CORS allow-list must include `anthropic-version`, or every
