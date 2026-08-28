@@ -125,15 +125,32 @@ export function App() {
   useEffect(() => {
     void isFullscreen().then(setFull);
     const onKey = (e: KeyboardEvent) => {
-      const mod = e.metaKey || e.ctrlKey;
-      if (mod && e.ctrlKey && e.key.toLowerCase() === 'f') { e.preventDefault(); void toggleFullscreen().then(setFull); }
-      else if (e.key === 'F11') { e.preventDefault(); void toggleFullscreen().then(setFull); }
-      else if (mod && e.shiftKey && e.key.toLowerCase() === 'd') { e.preventDefault(); setTheme((t0) => t0 === 'dark' ? 'light' : 'dark'); }
+      const k = e.key.toLowerCase();
+      // macOS is Ctrl+Cmd+F -- both modifiers, deliberately. Accepting either
+      // one would swallow Ctrl+F, which is Find on Windows and cursor-forward
+      // in every text field on a Mac.
+      if (e.key === 'F11' || (e.metaKey && e.ctrlKey && k === 'f')) {
+        e.preventDefault();
+        void toggleFullscreen().then(setFull);
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'd') {
+        e.preventDefault();
+        setTheme((t0) => t0 === 'dark' ? 'light' : 'dark');
+      }
     };
-    const onResize = () => { void isFullscreen().then(setFull); };
+    // resize fires continuously while a window is dragged; each check is an IPC
+    // round-trip, so coalesce them rather than firing one per frame.
+    let pend: number | undefined;
+    const onResize = () => {
+      window.clearTimeout(pend);
+      pend = window.setTimeout(() => void isFullscreen().then(setFull), 150);
+    };
     window.addEventListener('keydown', onKey);
     window.addEventListener('resize', onResize);
-    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('resize', onResize); };
+    return () => {
+      window.clearTimeout(pend);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', onResize);
+    };
   }, []);
 
   // One check on launch, deliberately silent on failure -- an update check is
