@@ -24,6 +24,12 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Create memory file': 'إنشاء ملف الذاكرة',
+  'Not created yet.': 'لم يُنشأ بعد.',
+  'Save': 'حفظ',
+  'Create': 'إنشاء',
+  'Saved. It applies from your next message.': 'تم الحفظ. يسري من رسالتك التالية.',
+  'Nothing remembered yet — write it yourself, or ask the agent to remember something.': 'لا شيء محفوظ بعد — اكتبه بنفسك، أو اطلب من الوكيل أن يتذكر شيئاً.',
   'Memory': 'الذاكرة',
   'Projects': 'المشاريع',
   'Carried into every chat in this project.': 'تُستخدم في كل محادثة بهذا المشروع.',
@@ -80,6 +86,12 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Create memory file': 'دروستکردنی فایلی یادگە',
+  'Not created yet.': 'هێشتا دروست نەکراوە.',
+  'Save': 'پاشەکەوت',
+  'Create': 'دروستکردن',
+  'Saved. It applies from your next message.': 'پاشەکەوتکرا. لە نامەی داهاتووتەوە کاردەکات.',
+  'Nothing remembered yet — write it yourself, or ask the agent to remember something.': 'هێشتا هیچ نەپاراستراوە — خۆت بینووسە، یان داوا لە ئەیجەنت بکە.',
   'Memory': 'یادگە',
   'Projects': 'پڕۆژەکان',
   'Carried into every chat in this project.': 'لە هەموو گفتوگۆیەکی ئەم پڕۆژەیەدا بەکاردێت.',
@@ -136,6 +148,12 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Create memory file': 'فایلا بیرگەیێ دروست بکە',
+  'Not created yet.': 'هێشتا نەهاتیە دروستکرن.',
+  'Save': 'پاراستن',
+  'Create': 'دروستکرن',
+  'Saved. It applies from your next message.': 'هاتە پاراستن. ژ پەیاما تە یا بێت ڤە کار دکەت.',
+  'Nothing remembered yet — write it yourself, or ask the agent to remember something.': 'هێشتا تشتەک نەهاتیە پاراستن — بخۆ بنڤیسە، یان ژ ئەیجەنتی بخوازە.',
   'Memory': 'بیرگە',
   'Projects': 'پڕۆژە',
   'Carried into every chat in this project.': 'د هەر ئاخفتنەکا ڤێ پڕۆژەیێ دا تێت بکارئینان.',

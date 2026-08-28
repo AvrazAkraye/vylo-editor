@@ -418,3 +418,19 @@ body.resizing{ cursor:col-resize; user-select:none; }
 }
 .chat-row:hover .chat-x{ color:var(--mute); }
 .chat-x:hover{ color:var(--err); }
+
+/* ── memory editor ───────────────────────────────────────────────────── */
+.mem{ flex:1; display:flex; flex-direction:column; min-height:0; background:var(--bg); }
+.mem-bar{
+  display:flex; align-items:center; gap:10px; flex-wrap:wrap; flex:none;
+  padding:9px 13px; border-bottom:1px solid var(--rule); background:var(--panel-2);
+}
+.mem-bar code{ font-family:var(--mono); font-size:12px; color:var(--ink); }
+.mem-hint{ font-size:11.5px; color:var(--mute); }
+.mem-btns{ margin-left:auto; display:flex; align-items:center; gap:9px; }
+.mem-note{ font-size:11.5px; color:var(--ok); }
+.mem-text{
+  flex:1; resize:none; border:0; outline:none; padding:14px 16px;
+  font-family:var(--mono); font-size:12.5px; line-height:1.6;
+  background:var(--bg); color:var(--ink);
+}

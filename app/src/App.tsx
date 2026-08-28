@@ -15,6 +15,7 @@ import {
   type Chat, type Line as SavedLine,
 } from './store';
 import { memoryPrompt, readMemory, type Memory } from './memory';
+import { MemoryEditor } from './MemoryEditor';
 import { FileTree, type Entry } from './FileTree';
 import { Viewer } from './Viewer';
 import { Section } from './Sidebar';
@@ -499,15 +500,16 @@ export function App() {
 
           <Section id="memory" title={t('Memory')} count={memory.file ? memory.file : undefined}
                    defaultOpen={false}>
-            {memory.file
-              ? <>
-                  <button className="ft-row ft-file" onClick={() => openFile(memory.file!)} title={memory.file}>
-                    <span className="ft-icon">M</span>
-                    <span className="ft-name">{memory.file}</span>
-                  </button>
-                  <p className="ft-empty">{t('Carried into every chat in this project.')}</p>
-                </>
-              : <p className="ft-empty">{t('Nothing remembered yet. Ask the agent to remember something about this project.')}</p>}
+            <button className={`ft-row ft-file ${active === '__memory__' ? 'on' : ''}`}
+                    onClick={() => { setTabs((p) => p.includes('__memory__') ? p : [...p, '__memory__']); setActive('__memory__'); }}>
+              <span className="ft-icon">M</span>
+              <span className="ft-name">{memory.file ?? t('Create memory file')}</span>
+            </button>
+            <p className="ft-empty">
+              {memory.file
+                ? t('Carried into every chat in this project.')
+                : t('Nothing remembered yet — write it yourself, or ask the agent to remember something.')}
+            </p>
           </Section>
 
           <Section id="chats" title={t('Chats')} count={chats.length}
@@ -552,14 +554,16 @@ export function App() {
             {tabs.map((path) => (
               <span key={path} className={`tab ${active === path ? 'on' : ''}`}>
                 <button className="tab-name" onClick={() => setActive(path)} title={path}>
-                  {path.split('/').pop()}
+                  {path === '__memory__' ? (memory.file ?? t('Memory')) : path.split('/').pop()}
                 </button>
                 <button className="tab-x" onClick={() => closeTab(path)} aria-label={`Close ${path}`}>×</button>
               </span>
             ))}
           </div>
 
-          {active !== 'chat' ? (
+          {active === '__memory__' ? (
+            <MemoryEditor root={root} memory={memory} onSaved={setMemory} t={t} />
+          ) : active !== 'chat' ? (
             <Viewer root={root} path={active} />
           ) : (
           <div className="log" ref={log}>
