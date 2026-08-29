@@ -16,11 +16,23 @@ const ok = (name, cond, detail = '') => {
   cond ? pass++ : fail++;
 };
 
-const src = readFileSync('src/i18n.ts', 'utf8');
+// Line endings are normalised on the way in, and that is not housekeeping.
+// ENTRY below spans two lines for the long entries, and its `\n?` cannot
+// consume a `\r`. GitHub's Windows runners check out with CRLF, so every
+// multi-line entry vanished from the catalogue there while every single-line
+// one matched — which the key-parity checks could not see, because all three
+// languages lost the same entries. Only the forward check below caught it, on
+// CI, after it was green on a Mac.
+const nl = (t) => t.replace(/\r\n/g, '\n');
+const src = nl(readFileSync('src/i18n.ts', 'utf8'));
 const LANGS = ['ar', 'ckb', 'kmr'];
 
 /** Entries whose key and value may sit on separate lines when the key is long. */
-const ENTRY = /^ {2}'((?:[^'\\]|\\.)+)':[ \t]*\n?[ \t]*'((?:[^'\\]|\\.)*)',[ \t]*$/gm;
+// `\r?` twice, and both are load-bearing on Windows. A long entry puts its value
+// on the next line, so the pattern spans one; and in multiline mode `$` matches
+// *before* the `\n`, which puts it after the `\r` that CRLF leaves behind.
+// Without either, every multi-line entry silently vanishes from the catalogue.
+const ENTRY = /^ {2}'((?:[^'\\]|\\.)+)':[ \t]*\r?\n?[ \t]*'((?:[^'\\]|\\.)*)',[ \t]*\r?$/gm;
 
 const dicts = {};
 for (const lang of LANGS) {
@@ -50,7 +62,7 @@ for (const lang of LANGS.slice(1)) {
 // updated by someone who does not know it is dead.
 const code = readdirSync('src')
   .filter((f) => (f.endsWith('.ts') || f.endsWith('.tsx')) && f !== 'i18n.ts')
-  .map((f) => readFileSync(`src/${f}`, 'utf8'))
+  .map((f) => nl(readFileSync(`src/${f}`, 'utf8')))
   .join('\n');
 const dead = [...base].filter((k) => !code.includes(k.replace(/\\'/g, "'")));
 ok('no catalogue entry has lost its UI', dead.length === 0, dead.join(' | '));
@@ -61,6 +73,20 @@ ok('no catalogue entry has lost its UI', dead.length === 0, dead.join(' | '));
 // RTL interface. Two of them had.
 const used = new Set([...code.matchAll(/\bt\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)].map((m) => m[1]));
 const untranslated = [...used].filter((k) => !base.has(k));
+// A long entry puts its value on the next line, and that is the shape that
+// broke on Windows. Parse the file again with CRLF and assert the catalogue is
+// identical, so nobody has to discover this from a red build a second time.
+{
+  const crlf = [...readFileSync('src/i18n.ts', 'utf8').replace(/\r\n/g, '\n').replace(/\n/g, '\r\n')
+    .slice(src.indexOf("  '"), undefined).matchAll(ENTRY)];
+  const asLf = [...src.slice(src.indexOf("  '")).matchAll(ENTRY)];
+  ok('the catalogue parses the same with CRLF line endings',
+     crlf.length === asLf.length, `lf ${asLf.length} vs crlf ${crlf.length}`);
+  const multi = [...base].filter((k) => k.length > 60);
+  ok('and the long entries, whose value sits on the next line, are among them',
+     multi.length > 0 && multi.every((k) => base.has(k)), `${multi.length} long keys`);
+}
+
 ok('every string the UI hands to t() is in the catalogues',
    untranslated.length === 0, untranslated.join(' | '));
 
