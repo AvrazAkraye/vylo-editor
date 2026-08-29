@@ -24,6 +24,13 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Working tree': 'شجرة العمل',
+  'Proposed': 'مقترحة',
+  'Nothing changed since the last commit.': 'لا تغييرات منذ آخر التزام.',
+  'Select': 'تحديد',
+  'Commit': 'التزام',
+  'opened; the committed version differs': 'فُتح؛ النسخة الملتزمة مختلفة',
+  'read the committed': 'قراءة النسخة الملتزمة من',
   'Replace': 'استبدال',
   'Replace with…': 'الاستبدال بـ…',
   'Replace in': 'استبدال في',
@@ -244,6 +251,13 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Working tree': 'دارە کارییەکە',
+  'Proposed': 'پێشنیارکراو',
+  'Nothing changed since the last commit.': 'هیچ نەگۆڕاوە لە دوایین تۆمارەوە.',
+  'Select': 'هەڵبژاردن',
+  'Commit': 'تۆمارکردن',
+  'opened; the committed version differs': 'کرایەوە؛ وەشانی تۆمارکراو جیاوازە',
+  'read the committed': 'خوێندنەوەی وەشانی تۆمارکراوی',
   'Replace': 'جێگرەوە',
   'Replace with…': 'جێگرەوە بە…',
   'Replace in': 'جێگرەوە لە',
@@ -464,6 +478,13 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Working tree': 'دارا کاری',
+  'Proposed': 'پێشنیارکری',
+  'Nothing changed since the last commit.': 'چو نەهاتییە گوهۆڕین ژ دویماهی تۆمارێ ڤە.',
+  'Select': 'هەلبژارتن',
+  'Commit': 'تۆمارکرن',
+  'opened; the committed version differs': 'هاتە ڤەکرن؛ گەلالەیا تۆمارکری جودایە',
+  'read the committed': 'خواندنا گەلالەیا تۆمارکری یا',
   'Replace': 'جهگر',
   'Replace with…': 'جهگر ب…',
   'Replace in': 'جهگر د',

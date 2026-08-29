@@ -175,6 +175,9 @@ export function App() {
   const [drafts, setDrafts] = useState<{ path: string; base: string; at: number }[]>([]);
   /** Files the user chose to recover; the editor reads its draft on mount. */
   const [recovering, setRecovering] = useState<Set<string>>(new Set());
+  /** Everything git considers changed, whoever changed it. */
+  const [tracked, setTracked] = useState<{ path: string; status: string; staged: boolean; untracked: boolean; from: string | null }[]>([]);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('vylo.mode') as Mode) || 'agent');
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
@@ -463,6 +466,62 @@ export function App() {
       }
     }
     quitNow();
+  }
+
+  /**
+   * The working tree, reloaded whenever anything might have touched it.
+   *
+   * `written` covers approvals and saves; `git` covers a commit or a branch
+   * change. Hand edits land through `written` too, because the editor reports
+   * every save.
+   */
+  useEffect(() => {
+    if (!root || !git?.is_repo) { setTracked([]); return; }
+    let cancelled = false;
+    void invoke<typeof tracked>('git_status', { root })
+      .then((c) => { if (!cancelled) setTracked(c); })
+      .catch(() => { if (!cancelled) setTracked([]); });
+    return () => { cancelled = true; };
+  }, [root, git?.is_repo, git?.branch, written, changes]);
+
+  /**
+   * Open a working-tree change as a diff against its committed version.
+   *
+   * Staged through `Pending` with `after` equal to what is already on disk, so
+   * the review pane renders it with the machinery the agent's proposals use and
+   * approving it is a no-op write. It is a viewer, not an edit.
+   */
+  async function viewTracked(path: string) {
+    try {
+      const head = await invoke<string | null>('git_file_head', { root, path });
+      if (head === null) { openFile(path); return; }
+      const now = await pending.current.currentContent(root, path);
+      if (head === now) { openFile(path); return; }
+      openFile(path);
+      push({ kind: 'result', text: `${path}: ${t('opened; the committed version differs')}` });
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, `${t('read the committed')} ${path}`) });
+    }
+  }
+
+  async function commitPicked() {
+    const paths = [...picked];
+    if (!paths.length || !commitMsg.trim()) return;
+    setBusy(true);
+    try {
+      const r = await invoke<{ sha: string; summary: string }>('git_commit', {
+        root, message: commitMsg.trim(), paths,
+      });
+      push({ kind: 'result', text: `Committed ${r.sha} — ${r.summary}` });
+      setPicked(new Set());
+      setCommitMsg('');
+      setWritten([]);
+      setGit(await invoke('git_state', { root }));
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, t('commit')) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   // The agent reads what you are looking at. Without this it reads the file
@@ -1296,7 +1355,7 @@ export function App() {
           items={[
             { id: 'files', icon: 'folder', label: t('Explorer') },
             { id: 'search', icon: 'search', label: t('Search') },
-            { id: 'changes', icon: 'diff', label: t('Changes'), badge: changes.length },
+            { id: 'changes', icon: 'diff', label: t('Changes'), badge: changes.length + tracked.length },
             { id: 'chats', icon: 'chat', label: t('Chats') },
             { id: 'memory', icon: 'memory', label: t('Memory') },
           ]}
@@ -1355,15 +1414,58 @@ export function App() {
               </div>
             )}
 
-            {rail === 'changes' && (changes.length === 0
-              ? <p className="ft-empty">{t('No proposed changes.')}</p>
-              : changes.map((c) => (
-                  <button key={c.path} className="ft-row ft-file changed" onClick={() => openFile(c.path)} title={c.path}>
-                    <span className="ft-icon"><Icon name="diff" size={13} /></span>
-                    <span className="ft-name">{c.path.split('/').pop()}</span>
-                    <span className="ft-dot" />
-                  </button>
-                )))}
+            {rail === 'changes' && (
+              <>
+                <div className="sb-sub">{t('Proposed')}</div>
+                {changes.length === 0
+                  ? <p className="ft-empty">{t('No proposed changes.')}</p>
+                  : changes.map((c) => (
+                      <button key={c.path} className="ft-row ft-file changed" onClick={() => openFile(c.path)} title={c.path}>
+                        <span className="ft-icon"><Icon name="diff" size={13} /></span>
+                        <span className="ft-name">{c.path.split('/').pop()}</span>
+                        <span className="ft-dot" />
+                      </button>
+                    ))}
+
+                {git?.is_repo && (
+                  <>
+                    <div className="sb-sub">{t('Working tree')}</div>
+                    {tracked.length === 0
+                      ? <p className="ft-empty">{t('Nothing changed since the last commit.')}</p>
+                      : tracked.map((c) => (
+                          <div key={c.path} className="ft-row ft-file wt-row" title={c.from ? `${c.from} → ${c.path}` : c.path}>
+                            <button className="wt-tick" aria-pressed={picked.has(c.path)}
+                                    aria-label={`${t('Select')} ${c.path}`}
+                                    onClick={() => setPicked((p) => {
+                                      const n = new Set(p);
+                                      n.has(c.path) ? n.delete(c.path) : n.add(c.path);
+                                      return n;
+                                    })}>
+                              {picked.has(c.path) && <Icon name="check" size={11} />}
+                            </button>
+                            <button className="ft-hit" onClick={() => void viewTracked(c.path)}>
+                              <span className={`wt-code ${c.untracked ? 'new' : c.staged ? 'staged' : ''}`}>
+                                {c.status.trim() || '·'}
+                              </span>
+                              <span className="ft-name">{c.path.split('/').pop()}</span>
+                            </button>
+                          </div>
+                        ))}
+                    {tracked.length > 0 && (
+                      <div className="wt-commit">
+                        <input value={commitMsg} onChange={(e) => setCommitMsg(e.target.value)}
+                               onKeyDown={(e) => { if (e.key === 'Enter') void commitPicked(); }}
+                               placeholder={t('Commit message')} aria-label={t('Commit message')} />
+                        <button className="approve" disabled={busy || !picked.size || !commitMsg.trim()}
+                                onClick={() => void commitPicked()}>
+                          {t('Commit')} {picked.size || ''}
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
+            )}
 
             {rail === 'memory' && (
               <>

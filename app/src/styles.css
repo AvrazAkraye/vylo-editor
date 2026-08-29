@@ -1200,3 +1200,29 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    the rarer half and would otherwise widen the panel for everyone. */
 .pal-replace{ border-bottom:1px solid var(--rule); padding-bottom:var(--sp-2); }
 .pal-replace .approve{ flex:none; font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); white-space:nowrap; }
+
+/* ── working tree ────────────────────────────────────────────────────── */
+.wt-row{ gap:var(--sp-2); }
+.wt-tick{
+  flex:none; width:15px; height:15px; margin-left:var(--sp-4);
+  display:flex; align-items:center; justify-content:center;
+  border:1px solid var(--rule-2); border-radius:var(--r-1);
+  background:var(--panel); color:var(--on-fill); padding:0; cursor:pointer;
+}
+.wt-tick[aria-pressed="true"]{ background:var(--fill); border-color:var(--fill); }
+/* The porcelain letters, coloured by what they mean rather than decorated:
+   green for new, amber for staged, plain for a working-tree edit. */
+.wt-code{
+  flex:none; width:20px; text-align:center; font-family:var(--mono);
+  font-size:var(--fs-1); font-weight:600; color:var(--mute);
+}
+.wt-code.new{ color:var(--ok); }
+.wt-code.staged{ color:var(--warn); }
+
+.wt-commit{ display:flex; gap:var(--sp-3); padding:var(--sp-4) var(--sp-4) var(--sp-5); }
+.wt-commit input{
+  flex:1; min-width:0; font:inherit; font-size:var(--fs-3);
+  padding:var(--sp-3) var(--sp-4); border-radius:var(--r-2);
+  border:1px solid var(--rule); background:var(--panel); color:var(--ink);
+}
+.wt-commit .approve{ flex:none; font-size:var(--fs-3); padding:var(--sp-3) var(--sp-5); }

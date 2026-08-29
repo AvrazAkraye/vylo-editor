@@ -850,6 +850,86 @@ fn git(root: &str, args: &[&str]) -> Result<String, String> {
 }
 
 /// Create a branch and switch to it, so the work lands somewhere discardable.
+#[derive(Serialize)]
+pub struct GitChange {
+    path: String,
+    /// The two porcelain letters, index then working tree, e.g. " M", "A ", "??".
+    status: String,
+    /// True when the index already holds this change.
+    staged: bool,
+    untracked: bool,
+    /// Set for a rename, so the UI can say where it came from.
+    from: Option<String>,
+}
+
+/// Parse `git status --porcelain=v1 -z`.
+///
+/// `-z` rather than plain porcelain, and this is not a detail: without it git
+/// quotes and escapes any path containing a space, a quote or a non-ASCII
+/// character, so the obvious `split_whitespace` parse silently mangles exactly
+/// the filenames people complain about. With `-z` the records are NUL-separated
+/// and the paths are literal.
+///
+/// A rename record is followed by a second NUL-terminated field holding the old
+/// path, so the reader has to consume it or every entry after a rename is
+/// shifted by one.
+fn parse_status(raw: &str) -> Vec<GitChange> {
+    let mut out = Vec::new();
+    let mut fields = raw.split('\0').filter(|f| !f.is_empty());
+    while let Some(entry) = fields.next() {
+        if entry.len() < 4 {
+            continue;
+        }
+        let code: String = entry.chars().take(2).collect();
+        let path = entry[3..].to_string();
+        let x = code.chars().next().unwrap_or(' ');
+        let y = code.chars().nth(1).unwrap_or(' ');
+
+        let untracked = code == "??";
+        let from = if x == 'R' || y == 'R' {
+            // The old path is its own field, and must be consumed either way.
+            fields.next().map(str::to_string)
+        } else {
+            None
+        };
+
+        out.push(GitChange {
+            path,
+            status: code,
+            staged: !untracked && x != ' ',
+            untracked,
+            from,
+        });
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    out
+}
+
+/// Everything git considers changed, whoever changed it.
+///
+/// The app could already commit what the *agent* wrote, because it tracked
+/// those paths itself. Anything edited by hand was invisible, which made the
+/// git support useful only for half the work done in the editor.
+#[tauri::command]
+fn git_status(root: String) -> Result<Vec<GitChange>, String> {
+    let raw = git(&root, &["status", "--porcelain=v1", "-z"])?;
+    Ok(parse_status(&raw))
+}
+
+/// The committed version of a file, or None when it is new.
+///
+/// Lets the working tree be reviewed with the same diff the agent's proposals
+/// use, rather than a second way of showing a change.
+#[tauri::command]
+fn git_file_head(root: String, path: String) -> Result<Option<String>, String> {
+    match git(&root, &["show", &format!("HEAD:{path}")]) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.contains("exists on disk, but not in") || e.contains("does not exist") => Ok(None),
+        Err(e) if e.contains("unknown revision") || e.contains("path") => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
 #[tauri::command]
 fn git_create_branch(root: String, name: String) -> Result<String, String> {
     let name = name.trim();
@@ -1102,6 +1182,7 @@ pub fn run() {
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
             apply_write, file_hash, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             create_file, create_dir, rename_path, delete_path,
+            git_status, git_file_head,
             checkpoint_save, checkpoint_list, checkpoint_restore, find_symbol,
             mcp_servers, mcp_start, mcp_call, mcp_stop,
             draft_save, draft_list, draft_read, draft_clear,
@@ -1351,6 +1432,38 @@ mod tests {
         assert!(!tmp.join("sub").exists(), "a folder goes with its contents");
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The parser is the fiddly half, and every case here is one that a
+    /// whitespace-splitting parse gets wrong.
+    #[test]
+    fn porcelain_parses_the_paths_people_actually_have() {
+        // NUL-separated, exactly as `-z` emits it.
+        let raw = " M src/a.ts\0?? a file with spaces.txt\0A  added.ts\0MM both.ts\0\
+                   R  new name.ts\0old name.ts\0?? emoji \u{1f642}.ts\0D  gone.ts\0";
+        let c = parse_status(raw);
+        let by = |p: &str| c.iter().find(|x| x.path == p).unwrap_or_else(|| panic!("missing {p}"));
+
+        assert_eq!(c.len(), 7, "{:?}", c.iter().map(|x| &x.path).collect::<Vec<_>>());
+        assert!(!by("src/a.ts").staged, "a worktree-only edit is not staged");
+        assert!(by("added.ts").staged);
+        assert!(by("both.ts").staged, "staged and modified again is still staged");
+
+        // The cases plain porcelain would quote and a naive split would break.
+        assert!(by("a file with spaces.txt").untracked);
+        assert!(by("emoji \u{1f642}.ts").untracked);
+
+        // A rename carries a second field; if it is not consumed, everything
+        // after it shifts and `old name.ts` becomes a bogus entry.
+        assert_eq!(by("new name.ts").from.as_deref(), Some("old name.ts"));
+        assert!(c.iter().all(|x| x.path != "old name.ts"), "the old path is not its own entry");
+        assert_eq!(by("gone.ts").status, "D ");
+    }
+
+    #[test]
+    fn a_clean_tree_parses_to_nothing() {
+        assert!(parse_status("").is_empty());
+        assert!(parse_status("\0\0").is_empty());
     }
 
     #[test]
