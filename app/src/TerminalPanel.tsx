@@ -18,13 +18,15 @@ interface Props {
   onSendToChat: (text: string) => void;
   /** Hide the panel. `drop` also means there is nothing left to keep alive. */
   onClose: (drop?: boolean) => void;
+  full: boolean;
+  onToggleFull: () => void;
   onError: (message: string) => void;
 }
 
 let seq = 0;
 const newTab = (n: number): Tab => ({ id: `t${++seq}`, n, born: Date.now(), dead: false });
 
-export function TerminalPanel({ root, dark, t, onSendToChat, onClose, onError }: Props) {
+export function TerminalPanel({ root, dark, t, onSendToChat, onClose, onError, full, onToggleFull }: Props) {
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
   const handles = useRef(new Map<string, TermHandle>());
@@ -92,6 +94,9 @@ export function TerminalPanel({ root, dark, t, onSendToChat, onClose, onError }:
           <button className="ghost" onClick={() => handles.current.get(active)?.clear()} disabled={dead}>
             {t('Clear')}
           </button>
+          <button className="ghost icon" onClick={onToggleFull} aria-pressed={full}
+                  title={t(full ? 'Restore the panel' : 'Fill the window')}
+                  aria-label={t(full ? 'Restore the panel' : 'Fill the window')}>{full ? '⤡' : '⤢'}</button>
           <button className="ghost icon" onClick={() => onClose()} title={t('Hide the panel')} aria-label={t('Hide the panel')}>▾</button>
         </div>
       </div>

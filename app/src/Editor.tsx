@@ -20,6 +20,7 @@ import { json } from '@codemirror/lang-json';
 import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
 import { markdown } from '@codemirror/lang-markdown';
+import { inlineComplete, type CompleteConfig } from './complete';
 
 /**
  * A real editor, replacing the read-only viewer.
@@ -47,6 +48,19 @@ export interface EditorHandle {
 export async function sha256Hex(text: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+export function languageName(path: string): string {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+  const map: Record<string, string> = {
+    ts: 'typescript', tsx: 'tsx', js: 'javascript', jsx: 'jsx', mjs: 'javascript',
+    cjs: 'javascript', py: 'python', rs: 'rust', json: 'json', html: 'html',
+    htm: 'html', vue: 'vue', svelte: 'svelte', css: 'css', scss: 'scss',
+    less: 'less', md: 'markdown', markdown: 'markdown', go: 'go', java: 'java',
+    rb: 'ruby', php: 'php', sh: 'shell', sql: 'sql', yml: 'yaml', yaml: 'yaml',
+    toml: 'toml', c: 'c', h: 'c', cpp: 'c++', cs: 'c#', swift: 'swift', kt: 'kotlin',
+  };
+  return map[ext] || ext || 'text';
 }
 
 function language(path: string): Extension[] {
@@ -122,6 +136,8 @@ interface Props {
   dark: boolean;
   /** Scroll here on open, when arriving from a search hit. */
   line?: number;
+  /** Gateway settings for inline completion, read fresh on every request. */
+  complete: () => Omit<CompleteConfig, 'path' | 'language'>;
   onReady: (h: EditorHandle | null) => void;
   /** Fires whenever the dirty state changes, so tabs and the agent stay honest. */
   onDirty: (path: string, dirty: boolean) => void;
@@ -129,7 +145,7 @@ interface Props {
   onError: (message: string) => void;
 }
 
-export function Editor({ root, path, visible, dark, line, onReady, onDirty, onSaved, onError }: Props) {
+export function Editor({ root, path, visible, dark, line, complete, onReady, onDirty, onSaved, onError }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   /** sha-256 of what was last read from or written to disk. */
@@ -137,8 +153,8 @@ export function Editor({ root, path, visible, dark, line, onReady, onDirty, onSa
   const clean = useRef<string>('');
   const dirtyNow = useRef(false);
   const themeC = useRef(new Compartment());
-  const cb = useRef({ onDirty, onSaved, onError });
-  cb.current = { onDirty, onSaved, onError };
+  const cb = useRef({ onDirty, onSaved, onError, complete });
+  cb.current = { onDirty, onSaved, onError, complete };
 
   useEffect(() => {
     const el = host.current;
@@ -157,6 +173,13 @@ export function Editor({ root, path, visible, dark, line, onReady, onDirty, onSa
       ]),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       ...language(path),
+      // Read through the ref so toggling completion in Settings takes effect on
+      // files that are already open, without rebuilding the editor.
+      inlineComplete(() => ({
+        ...cb.current.complete(),
+        path,
+        language: languageName(path),
+      })),
       themeC.current.of([theme(dark), syntaxHighlighting(highlight(dark))]),
       EditorView.updateListener.of((u) => {
         if (!u.docChanged) return;

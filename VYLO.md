@@ -73,7 +73,9 @@ a file in has chosen it explicitly.
 - `cd src-tauri && cargo test` — 9, including the stale-write guard
 - `npx tauri build` — produces the `.app` and `.dmg`
 
-Releases and the signing key are documented in `docs/RELEASING.md`. Windows
+Release macOS with `scripts/publish-macos.sh`, which carries the checks a plain
+build does not. Releases and the signing key are documented in
+`docs/RELEASING.md`. Windows
 binaries cannot be built on a Mac; they come from CI.
 
 ## Theming
@@ -112,6 +114,11 @@ pieces. Two rules live there:
 - Model ids use hyphens (`claude-opus-4-8`); the dotted form 404s upstream.
 - Killing a child process does not kill what it spawned. Drain its pipes on
   threads rather than joining, or a timed-out command holds the app open.
+- `bundle_dmg.sh` runs BEFORE the updater tarball. When it fails — a stale
+  `/Volumes/dmg.*` mount is the usual cause — the build stops with the `.app`
+  rebuilt and the tarball left over from the *previous* version, so uploading
+  publishes the old build under the new number and nothing looks wrong. Always
+  check the version inside the served tarball, not just the manifest.
 - ConPTY opens by asking the terminal where the cursor is (`ESC [ 6 n`) and
   runs nothing until something answers. xterm.js does that for us in the app;
   anything headless must reply itself or the shell never starts.

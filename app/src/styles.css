@@ -723,3 +723,13 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   display:inline-block; width:6px; height:6px; margin-left:7px; border-radius:50%;
   background:var(--brand); vertical-align:middle;
 }
+
+/* Terminal mode: the panel takes the whole work area. */
+.panel-wrap.full{ flex:1; height:auto !important; min-height:0; }
+
+/* inline-completion indicator in the status bar */
+.ac{ font-size:11px; }
+.ac-idle{ color:var(--ok); }
+.ac-thinking{ color:var(--brand); }
+.ac-cooldown, .ac-off{ color:var(--mute); }
+.ac-error{ color:var(--err); }

@@ -24,6 +24,11 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Inline completion': 'الإكمال التلقائي',
+  'On — suggest as I type, Tab to accept': 'تشغيل — اقترح أثناء الكتابة، Tab للقبول',
+  'Off': 'إيقاف',
+  'Fill the window': 'ملء النافذة',
+  'Restore the panel': 'استعادة اللوحة',
   'Close without saving?': 'الإغلاق دون حفظ؟',
   'Opening…': 'جارٍ الفتح…',
   'Unsaved': 'غير محفوظ',
@@ -122,6 +127,11 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Inline completion': 'تەواوکردنی ناوهێڵ',
+  'On — suggest as I type, Tab to accept': 'کارا — لە کاتی نووسیندا پێشنیار بکە، Tab بۆ پەسەندکردن',
+  'Off': 'ناکارا',
+  'Fill the window': 'پڕکردنەوەی پەنجەرە',
+  'Restore the panel': 'گەڕاندنەوەی پانێڵ',
   'Close without saving?': 'بەبێ پاشەکەوت دابخرێت؟',
   'Opening…': 'کردنەوە…',
   'Unsaved': 'پاشەکەوتنەکراو',
@@ -220,6 +230,11 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Inline completion': 'تەمامکرنا د رێزێ دا',
+  'On — suggest as I type, Tab to accept': 'ڤەکری — دەمێ ئەز دنڤیسم پێشنیاران بکە، Tab بۆ پەسەندکرنێ',
+  'Off': 'گرتی',
+  'Fill the window': 'پڕکرنا پەنجەرێ',
+  'Restore the panel': 'ڤەگەڕاندنا پانێلی',
   'Close without saving?': 'بێ پاراستن بێتە دادان؟',
   'Opening…': 'ڤەکرن…',
   'Unsaved': 'نەپاراستی',

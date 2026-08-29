@@ -22,6 +22,7 @@ import { FileTree, type Entry } from './FileTree';
 // editor loads the first time a file is opened.
 const Editor = lazy(() => import('./Editor'));
 import type { EditorHandle } from './Editor';
+import type { CompleteStatus } from './complete';
 import { FindInFiles, QuickOpen } from './Palette';
 import { Section } from './Sidebar';
 import { groupLines, ToolRun } from './ToolRun';
@@ -107,11 +108,16 @@ export function App() {
   const [jump, setJump] = useState<{ path: string; line: number } | null>(null);
   const editors = useRef(new Map<string, EditorHandle>());
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const [autocomplete, setAutocomplete] = useState(() => localStorage.getItem('vylo.autocomplete') !== '0');
+  const [acStatus, setAcStatus] = useState<CompleteStatus>('idle');
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
   const [termMounted, setTermMounted] = useState(false);
   const [termH, setTermH] = useState(() => Number(localStorage.getItem('vylo.termh')) || 260);
+  // Terminal mode: the panel takes the whole work area. Some work is all
+  // terminal for a while, and a 260px drawer is the wrong shape for it.
+  const [termFull, setTermFull] = useState(() => localStorage.getItem('vylo.termfull') === '1');
   const sizingTerm = useRef(false);
   const work = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -130,6 +136,8 @@ export function App() {
   useEffect(() => { localStorage.setItem(LS.base, baseUrl); }, [baseUrl]);
   useEffect(() => { localStorage.setItem(LS.key, apiKey); }, [apiKey]);
   useEffect(() => { localStorage.setItem(LS.model, model); }, [model]);
+  useEffect(() => { localStorage.setItem('vylo.autocomplete', autocomplete ? '1' : '0'); }, [autocomplete]);
+  useEffect(() => { localStorage.setItem('vylo.termfull', termFull ? '1' : '0'); }, [termFull]);
   useEffect(() => { if (root) localStorage.setItem(LS.root, root); }, [root]);
   useEffect(() => {
     storeLang(lang);
@@ -166,7 +174,8 @@ export function App() {
         setTheme((t0) => t0 === 'dark' ? 'light' : 'dark');
       } else if (e.ctrlKey && !e.metaKey && (e.key === '`' || e.key === '~')) {
         e.preventDefault();
-        toggleTerm();
+        if (e.shiftKey) { setTermMounted(true); setShowTerm(true); setTermFull((v) => !v); }
+        else toggleTerm();
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'p') {
         e.preventDefault();
         setPalette('open');
@@ -698,6 +707,13 @@ export function App() {
               {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
             </select>
           </label>
+          <label>{t('Inline completion')}
+            <select value={autocomplete ? 'on' : 'off'}
+                    onChange={(e) => setAutocomplete(e.target.value === 'on')}>
+              <option value="on">{t('On — suggest as I type, Tab to accept')}</option>
+              <option value="off">{t('Off')}</option>
+            </select>
+          </label>
           <label>{t('Theme')}
             <select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
               <option value="system">{t('Match system')}</option>
@@ -779,7 +795,7 @@ export function App() {
         }} role="separator" aria-orientation="vertical" />
 
         <div className="work" ref={work}>
-          <div className="tabs">
+          <div className={`tabs ${showTerm && termFull ? 'gone' : ''}`}>
             <button className={`tab ${active === 'chat' ? 'on' : ''}`} onClick={() => setActive('chat')}>
               {t('Chat')}
             </button>
@@ -797,7 +813,7 @@ export function App() {
           {active === '__memory__' ? (
             <MemoryEditor root={root} memory={memory} onSaved={setMemory} t={t} />
           ) : active !== 'chat' ? null : (
-          <div className="log" ref={log}>
+          <div className={`log ${showTerm && termFull ? 'gone' : ''}`} ref={log}>
         {lines.length === 0 && (
           <div className="empty">
             <p><b>{t('Open a folder, then ask about the code in it.')}</b></p>
@@ -829,7 +845,7 @@ export function App() {
 
           {/* Every open file stays mounted. Unmounting on tab switch would
               throw away unsaved edits and the undo history with them. */}
-          {files.length > 0 && (
+          {files.length > 0 && !(showTerm && termFull) && (
             <Suspense fallback={<div className="vw-msg">{t('Opening…')}</div>}>
               {files.map((p) => (
                 <Editor
@@ -839,6 +855,12 @@ export function App() {
                   visible={active === p}
                   dark={resolved(theme) === 'dark'}
                   line={jump?.path === p ? jump.line : undefined}
+                  complete={() => ({
+                    enabled: autocomplete,
+                    baseUrl,
+                    apiKey,
+                    onStatus: setAcStatus,
+                  })}
                   onReady={(h) => { if (h) editors.current.set(p, h); else editors.current.delete(p); }}
                   onDirty={(path, isDirty) => setDirty((prev) => {
                     const next = new Set(prev);
@@ -854,15 +876,18 @@ export function App() {
 
           {termMounted && (
             <>
-              <div className={`hdiv ${showTerm ? '' : 'gone'}`} role="separator" aria-orientation="horizontal"
+              <div className={`hdiv ${showTerm && !termFull ? '' : 'gone'}`} role="separator" aria-orientation="horizontal"
                    onMouseDown={() => { sizingTerm.current = true; document.body.classList.add('resizing-v'); }} />
-              <div className={`panel-wrap ${showTerm ? '' : 'gone'}`} style={{ height: termH }}>
+              <div className={`panel-wrap ${showTerm ? '' : 'gone'} ${termFull ? 'full' : ''}`}
+                   style={termFull ? undefined : { height: termH }}>
                 <Suspense fallback={<div className="panel-load">{t('Starting a shell…')}</div>}>
                 <TerminalPanel
                   root={root}
                   dark={resolved(theme) === 'dark'}
                   t={t}
                   onSendToChat={fromTerminal}
+                  full={termFull}
+                  onToggleFull={() => setTermFull((v) => !v)}
                   onClose={(drop) => { setShowTerm(false); if (drop) setTermMounted(false); }}
                   onError={(m) => push({ kind: 'error', text: m })}
                 />
@@ -994,6 +1019,11 @@ export function App() {
         <span>{root ? folderName : t('No folder')}</span>
         {changes.length > 0 && <span><b>{changes.length}</b> {t('to review')}</span>}
         <span className="sp" />
+        {active !== 'chat' && active !== '__memory__' && (
+          <span className={`ac ac-${acStatus}`} title={t('Inline completion')}>
+            {acStatus === 'thinking' ? '⋯' : acStatus === 'cooldown' ? '⏸' : acStatus === 'error' ? '!' : '⌁'}
+          </span>
+        )}
         <button className="st-btn" onClick={() => setPalette('find')}>⌕ {t('Search')}</button>
         <button className="st-btn" onClick={toggleTerm}>▤ {t('Terminal')}</button>
         {active !== 'chat' && active !== '__memory__' && (
