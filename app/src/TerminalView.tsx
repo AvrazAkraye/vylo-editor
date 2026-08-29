@@ -51,8 +51,8 @@ function palette(dark: boolean) {
         brightCyan: '#8CEAEE', brightWhite: '#FFFFFF',
       }
     : {
-        background: '#FFFFFF', foreground: '#16151D',
-        cursor: '#5B4DE0', cursorAccent: '#FFFFFF',
+        background: '#FBFAFD', foreground: '#16151D',
+        cursor: '#5B4DE0', cursorAccent: '#FBFAFD',
         selectionBackground: 'rgba(91,77,224,.20)',
         black: '#16151D', red: '#A8332A', green: '#17694C', yellow: '#96620F',
         blue: '#23458F', magenta: '#6D3FA8', cyan: '#0F6A72', white: '#D6D2E6',
@@ -101,6 +101,9 @@ export function TerminalView({ cwd, dark, visible, onReady, onExit, onError }: P
     let closed = false;
     const channel = new Channel<PtyEvent>();
     channel.onmessage = (m) => {
+      // The reader thread can have a frame in flight when the pane goes away,
+      // and writing to a disposed terminal throws.
+      if (disposed) return;
       if (m.kind === 'data') t.write(m.data);
       else if (!closed) { closed = true; cb.current.onExit(); }
     };
@@ -116,6 +119,9 @@ export function TerminalView({ cwd, dark, visible, onReady, onExit, onError }: P
         // the session is orphaned with nothing left holding its id.
         if (disposed) { void invoke('pty_close', { id: n }); return; }
         ptyId = n;
+        // The pane may have been laid out while the shell was starting, in
+        // which case the size it was opened with is already stale.
+        void invoke('pty_resize', { id: n, cols: t.cols, rows: t.rows }).catch(() => {});
         t.focus();
       })
       .catch((e) => cb.current.onError(String(e instanceof Error ? e.message : e)));
