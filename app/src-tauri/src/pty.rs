@@ -282,6 +282,12 @@ mod tests {
     /// ConPTY does not close the master when the child exits, so the read
     /// blocks for ever. Same lesson as `run_command`'s pipe draining — never
     /// wait on a handle a dead process can hold open.
+    ///
+    /// And it answers the cursor-position query. ConPTY opens by asking the
+    /// terminal where the cursor is and will not run anything until something
+    /// replies; xterm.js does that for us in the app, so a headless test has to
+    /// do it by hand. Without it Windows CI saw the escape sequences and
+    /// nothing else.
     #[test]
     fn a_command_run_in_a_pty_comes_back_through_the_reader() {
         let pair = native_pty_system()
@@ -306,11 +312,14 @@ mod tests {
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().expect("reader");
 
+        let mut writer = pair.master.take_writer().expect("writer");
         let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         let sink = std::sync::Arc::clone(&seen);
         std::thread::spawn(move || {
+            use std::io::Write as _;
             let mut carry = Vec::new();
             let mut chunk = [0u8; 1024];
+            let mut answered = false;
             while let Ok(n) = reader.read(&mut chunk) {
                 if n == 0 {
                     break;
@@ -319,6 +328,13 @@ mod tests {
                 let text = take_utf8(&mut carry);
                 if let Ok(mut g) = sink.lock() {
                     g.push_str(&text);
+                }
+                // Device Status Report: "where is the cursor?". Answer "row 1,
+                // column 1" so ConPTY stops waiting and lets the shell run.
+                if !answered && text.contains("\u{1b}[6n") {
+                    answered = true;
+                    let _ = writer.write_all(b"\x1b[1;1R");
+                    let _ = writer.flush();
                 }
             }
         });
@@ -337,7 +353,11 @@ mod tests {
         let _ = child.wait();
         drop(pair.master);   // unblocks the reader on ConPTY
 
-        assert!(found, "pty produced: {:?}", seen.lock().map(|g| g.clone()));
+        assert!(
+            found,
+            "pty produced: {:?}",
+            seen.lock().map(|g| g.clone()),
+        );
     }
 
     #[test]
