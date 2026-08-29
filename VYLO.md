@@ -11,7 +11,15 @@ side is the UI and the agent loop. Model calls go to the Vylo gateway at
 
 ## The rule the whole design rests on
 
-**The model has no tool that writes or executes.** `write_file`, `edit_file` and
+**No model output reaches disk or a shell without a human having read and
+approved that exact content or string.**
+
+That is the precise form. It is about who *authors* a change, not about routing
+every write through review — which is why the memory editor, the terminal and
+(since 0.7.0) the code editor are all consistent with it: in each, the human is
+the author, and approving your own keystrokes is theatre.
+
+The mechanism: `write_file`, `edit_file` and
 `remember` stage a result for human review; `run_command` suspends the loop
 until a human approves the exact string. The Rust commands that actually touch
 the disk (`apply_write`) or run a shell (`run_command`) are **absent from the
@@ -20,6 +28,23 @@ prompted.
 
 Keep it that way. If you add a capability, add it as a staged proposal, not as a
 direct action.
+
+### Where the editor sits inside that rule
+
+`app/src/Editor.tsx` lets a person edit and save directly, and `Viewer.tsx` —
+which argued editing would be "a second, silent way for files to change" — is
+gone. What editing genuinely creates is a *collision*: a human changing the same
+file the agent has a diff staged against.
+
+That is handled, not avoided. `apply_write` takes `expect_sha256` and refuses a
+write when the file has moved since the change was prepared; `Pending.apply()`
+passes the hash of `before`, and the review pane re-bases the diff on the
+current file so the conflict is visible rather than resolved behind your back.
+`Pending.currentContent` resolves staged → unsaved buffer → disk, so the agent
+reads what you are looking at instead of a stale copy.
+
+Open files stay mounted while their tab is hidden. Unmounting would throw away
+unsaved edits and the undo history with them.
 
 ### Where the terminal sits inside that rule
 
@@ -45,9 +70,7 @@ a file in has chosen it explicitly.
 
 - `npm run build` — typecheck and bundle the frontend
 - `npm test` — diff, SSE assembly and fuzzy ranking (37)
-- `cd src-tauri && cargo test` — containment, command timeout, output truncation,
-  commit scope, search flags, and the terminal — pty round-trip and UTF-8
-  chunk boundaries (8)
+- `cd src-tauri && cargo test` — 9, including the stale-write guard
 - `npx tauri build` — produces the `.app` and `.dmg`
 
 Releases and the signing key are documented in `docs/RELEASING.md`. Windows

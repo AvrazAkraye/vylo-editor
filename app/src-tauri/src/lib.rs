@@ -257,9 +257,61 @@ fn search(
 /// a human. This is the difference between "the agent is not allowed to write"
 /// and "the agent cannot write", and only the second one survives a determined
 /// prompt injection.
+/// Lowercase hex sha-256, the form the frontend compares against.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    let mut h = Sha256::new();
+    h.update(bytes);
+    h.finalize().iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// Hash of a file as it is on disk right now, or `None` if it is not there.
 #[tauri::command]
-fn apply_write(root: String, path: String, content: String) -> Result<(), String> {
+fn file_hash(root: String, path: String) -> Result<Option<String>, String> {
     let p = resolve(&root, &path)?;
+    match fs::read(&p) {
+        Ok(bytes) => Ok(Some(sha256_hex(&bytes))),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("{path}: {e}")),
+    }
+}
+
+#[tauri::command]
+fn apply_write(
+    root: String,
+    path: String,
+    content: String,
+    expect_sha256: Option<String>,
+) -> Result<(), String> {
+    let p = resolve(&root, &path)?;
+
+    // Refuse to write over a file that changed under us.
+    //
+    // Before there was an editor only the agent wrote, so a staged change could
+    // not go stale. Now a person can edit the same file the agent proposed a
+    // diff for, and approving that diff would silently destroy their work. The
+    // caller passes the hash of the content its proposal was built on; a
+    // mismatch is reported rather than resolved, because only a human knows
+    // which version they meant.
+    if let Some(expected) = expect_sha256 {
+        let actual = match fs::read(&p) {
+            Ok(b) => Some(sha256_hex(&b)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(format!("{path}: {e}")),
+        };
+        let matches = match &actual {
+            Some(a) => *a == expected,
+            // An empty expectation means "this file should not exist yet".
+            None => expected.is_empty(),
+        };
+        if !matches {
+            return Err(format!(
+                "{path} changed on disk since this was prepared, so it was not written. \
+                 Reload the file and try again."
+            ));
+        }
+    }
+
     if p.is_dir() {
         return Err(format!("{path}: is a directory"));
     }
@@ -681,7 +733,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
-            apply_write, git_state, run_command, git_create_branch, git_commit,
+            apply_write, file_hash, git_state, run_command, git_create_branch, git_commit,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
         ])
         .run(tauri::generate_context!())
@@ -798,6 +850,49 @@ mod tests {
         assert_eq!(find("TODO", Some(true), None), 4, "folding finds every line");
         assert_eq!(find("todo", Some(true), Some(true)), 3, "whole word drops bare autodoc only");
         assert_eq!(find("utodo", Some(true), Some(true)), 0, "a fragment is never a whole word");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The guard that makes an editor safe to have at all: once a person can
+    /// change a file, approving a diff prepared against an older version has to
+    /// fail loudly rather than write over their work.
+    #[test]
+    fn apply_write_refuses_a_file_that_moved_since_the_change_was_prepared() {
+        let tmp = std::env::temp_dir().join(format!("vylo_write_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+        fs::write(tmp.join("a.txt"), "original\n").unwrap();
+
+        let prepared = file_hash(root.clone(), "a.txt".into()).unwrap().unwrap();
+
+        // Nothing has changed: the write lands.
+        apply_write(root.clone(), "a.txt".into(), "agent edit\n".into(), Some(prepared.clone()))
+            .expect("write against a current hash");
+        assert_eq!(fs::read_to_string(tmp.join("a.txt")).unwrap(), "agent edit\n");
+
+        // Someone edits the file; the stale proposal must now be refused.
+        fs::write(tmp.join("a.txt"), "human edit\n").unwrap();
+        let err = apply_write(root.clone(), "a.txt".into(), "agent edit again\n".into(), Some(prepared))
+            .expect_err("a stale hash must not write");
+        assert!(err.contains("changed on disk"), "{err}");
+        assert_eq!(
+            fs::read_to_string(tmp.join("a.txt")).unwrap(), "human edit\n",
+            "the refused write must not have touched the file",
+        );
+
+        // No expectation at all keeps the old behaviour, for callers like the
+        // memory editor where the human is the author of both sides.
+        apply_write(root.clone(), "a.txt".into(), "unguarded\n".into(), None).unwrap();
+        assert_eq!(fs::read_to_string(tmp.join("a.txt")).unwrap(), "unguarded\n");
+
+        // An empty expectation means "this file should not exist yet".
+        apply_write(root.clone(), "new.txt".into(), "created\n".into(), Some(String::new()))
+            .expect("creating a genuinely new file");
+        let err = apply_write(root.clone(), "new.txt".into(), "again\n".into(), Some(String::new()))
+            .expect_err("a create must not silently overwrite");
+        assert!(err.contains("changed on disk"), "{err}");
 
         let _ = fs::remove_dir_all(&tmp);
     }

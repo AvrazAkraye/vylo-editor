@@ -24,6 +24,10 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Close without saving?': 'الإغلاق دون حفظ؟',
+  'Opening…': 'جارٍ الفتح…',
+  'Unsaved': 'غير محفوظ',
+  'The diff now shows the current file — check it before approving again.': 'يعرض الفرق الآن الملف الحالي — راجعه قبل الموافقة مرة أخرى.',
   'Stop': 'إيقاف',
   'Stopped.': 'تم الإيقاف.',
   'Go to file…': 'الانتقال إلى ملف…',
@@ -118,6 +122,10 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Close without saving?': 'بەبێ پاشەکەوت دابخرێت؟',
+  'Opening…': 'کردنەوە…',
+  'Unsaved': 'پاشەکەوتنەکراو',
+  'The diff now shows the current file — check it before approving again.': 'ئێستا جیاوازییەکە فایلی ئێستا پیشان دەدات — پێش پەسەندکردنەوە بیپشکنە.',
   'Stop': 'وەستان',
   'Stopped.': 'وەستێنرا.',
   'Go to file…': 'بڕۆ بۆ فایل…',
@@ -212,6 +220,10 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Close without saving?': 'بێ پاراستن بێتە دادان؟',
+  'Opening…': 'ڤەکرن…',
+  'Unsaved': 'نەپاراستی',
+  'The diff now shows the current file — check it before approving again.': 'نوکە جودایی دەفتەرا نوکە نیشان دەدەت — بەری پەسەندکرنێ بپشکنە.',
   'Stop': 'راوەستان',
   'Stopped.': 'هاتە راوەستاندن.',
   'Go to file…': 'بچە بۆ دەفتەرەکێ…',

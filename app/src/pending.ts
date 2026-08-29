@@ -22,8 +22,23 @@ export interface Change {
   isNew: boolean;
 }
 
+/** Lowercase hex sha-256, matching what the Rust side computes. */
+export async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 export class Pending {
   private map = new Map<string, Change>();
+
+  /**
+   * Unsaved editor buffers, injected by the app.
+   *
+   * Without this the agent reads the file from disk while the person it is
+   * talking to is looking at something different on screen — so it reasons
+   * about code that no longer exists, and its edits fight theirs.
+   */
+  dirty: (path: string) => string | undefined = () => undefined;
 
   get size(): number { return this.map.size; }
   list(): Change[] { return [...this.map.values()].sort((a, b) => a.path.localeCompare(b.path)); }
@@ -31,10 +46,12 @@ export class Pending {
   clear(): void { this.map.clear(); }
   drop(path: string): void { this.map.delete(path); }
 
-  /** The staged content if there is any, otherwise whatever is on disk. */
+  /** Staged content, then an unsaved buffer, then disk — most recent first. */
   async currentContent(root: string, path: string): Promise<string> {
     const staged = this.map.get(path);
     if (staged) return staged.after;
+    const open = this.dirty(path);
+    if (open !== undefined) return open;
     return await invoke<string>('read_file', { root, path });
   }
 
@@ -93,17 +110,46 @@ export class Pending {
     return change;
   }
 
-  /** Write approved changes to disk. Returns the paths that landed. */
+  /**
+   * Write approved changes to disk. Returns the paths that landed.
+   *
+   * Each write states the version it was built on. Before there was an editor
+   * this could not go stale, because only the agent wrote; now a person can
+   * have changed the same file since the diff was proposed, and writing
+   * `after` regardless would silently destroy their work. A mismatch throws
+   * with the path named, and the already-written paths are still returned so
+   * the caller knows exactly how far it got.
+   */
   async apply(root: string, paths: string[]): Promise<string[]> {
     const done: string[] = [];
     for (const path of paths) {
       const c = this.map.get(path);
       if (!c) continue;
-      await invoke('apply_write', { root, path, content: c.after });
+      // '' means "this file should not exist yet", which is distinct from the
+      // hash of an empty file that does.
+      const expectSha256 = c.isNew ? '' : await sha256Hex(c.before);
+      try {
+        await invoke('apply_write', { root, path, content: c.after, expectSha256 });
+      } catch (e) {
+        if (done.length) {
+          throw new Error(`${String(e)} (${done.length} other file(s) were written)`);
+        }
+        throw e;
+      }
       this.map.delete(path);
       done.push(path);
     }
     return done;
+  }
+
+  /** Rebuild a staged change on top of the file as it is now. */
+  async restage(root: string, path: string): Promise<Change | null> {
+    const c = this.map.get(path);
+    if (!c) return null;
+    const before = await invoke<string>('read_file', { root, path }).catch(() => '');
+    const next: Change = { path, before, after: c.after, isNew: false };
+    this.map.set(path, next);
+    return next;
   }
 }
 

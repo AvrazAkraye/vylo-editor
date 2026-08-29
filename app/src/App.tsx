@@ -18,7 +18,10 @@ import {
 import { memoryPrompt, readMemory, type Memory } from './memory';
 import { MemoryEditor } from './MemoryEditor';
 import { FileTree, type Entry } from './FileTree';
-import { Viewer } from './Viewer';
+// CodeMirror is a few hundred KB and the chat tab needs none of it, so the
+// editor loads the first time a file is opened.
+const Editor = lazy(() => import('./Editor'));
+import type { EditorHandle } from './Editor';
 import { FindInFiles, QuickOpen } from './Palette';
 import { Section } from './Sidebar';
 import { groupLines, ToolRun } from './ToolRun';
@@ -102,6 +105,8 @@ export function App() {
   // The line a search result asked for, cleared once the file is showing so
   // reopening the same file later does not jump again.
   const [jump, setJump] = useState<{ path: string; line: number } | null>(null);
+  const editors = useRef(new Map<string, EditorHandle>());
+  const [dirty, setDirty] = useState<Set<string>>(new Set());
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
@@ -168,6 +173,9 @@ export function App() {
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'f') {
         e.preventDefault();
         setPalette('find');
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 's') {
+        e.preventDefault();
+        void saveActive();
       }
     };
     // resize fires continuously while a window is dragged; each check is an IPC
@@ -238,6 +246,16 @@ export function App() {
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, [termH]);
+
+  // The agent reads what you are looking at. Without this it reads the file
+  // from disk while your unsaved edits are on screen, reasons about code that
+  // no longer exists, and proposes changes that fight yours.
+  useEffect(() => {
+    pending.current.dirty = (path) => {
+      const h = editors.current.get(path);
+      return h?.isDirty() ? h.text() : undefined;
+    };
+  }, []);
 
   // Memory is a file in the project, so it is re-read whenever the folder
   // changes or an edit lands -- approving a `remember` should take effect on
@@ -351,6 +369,11 @@ export function App() {
   function openAt(path: string, line?: number) {
     openFile(path);
     setJump(line ? { path, line } : null);
+    // A file already open ignores the mount-time line, so tell it directly.
+    if (line) {
+      const h = editors.current.get(path);
+      if (h) window.setTimeout(() => h.goto(line), 0);
+    }
   }
 
   function toggleTerm() {
@@ -449,8 +472,24 @@ export function App() {
   }
 
   function closeTab(path: string) {
+    // Closing a tab destroys its buffer, so unsaved work needs a decision
+    // rather than a shrug.
+    if (editors.current.get(path)?.isDirty()
+        && !window.confirm(t('Close without saving?') + `\n\n${path}`)) return;
+    editors.current.delete(path);
+    setDirty((p) => { const n = new Set(p); n.delete(path); return n; });
     setTabs((prev) => prev.filter((p) => p !== path));
     setActive((cur) => (cur === path ? 'chat' : cur));
+  }
+
+  async function saveActive() {
+    const h = editors.current.get(active);
+    if (!h || !h.isDirty()) return;
+    try {
+      await h.save();
+    } catch (e) {
+      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+    }
   }
 
   function newChat() {
@@ -508,7 +547,18 @@ export function App() {
         content: `[The user approved and wrote: ${done.join(', ')}. These changes are now on disk.]`,
       });
     } catch (e) {
-      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+      const msg = String(e instanceof Error ? e.message : e);
+      // The write was refused because the file moved under the proposal. Re-base
+      // the staged change on what is there now, so the review pane shows the
+      // real conflict instead of a diff against a version that no longer exists.
+      const stale = paths.find((p) => msg.includes(p));
+      if (stale && msg.includes('changed on disk')) {
+        await pending.current.restage(root, stale);
+        setChanges(pending.current.list());
+        push({ kind: 'error', text: `${msg} ${t('The diff now shows the current file — check it before approving again.')}` });
+      } else {
+        push({ kind: 'error', text: msg });
+      }
     } finally {
       setBusy(false);
     }
@@ -576,6 +626,8 @@ export function App() {
   }
 
   const folderName = root ? root.split(/[/\\]/).filter(Boolean).pop() : null;
+  // '__memory__' is a tab but not a file on the editor stack.
+  const files = tabs.filter((p) => p !== '__memory__');
 
   return (
     <div className={`shell ${full ? 'fullscreen' : ''}`}>
@@ -732,9 +784,10 @@ export function App() {
               {t('Chat')}
             </button>
             {tabs.map((path) => (
-              <span key={path} className={`tab ${active === path ? 'on' : ''}`}>
+              <span key={path} className={`tab ${active === path ? 'on' : ''} ${dirty.has(path) ? 'dirty' : ''}`}>
                 <button className="tab-name" onClick={() => setActive(path)} title={path}>
                   {path === '__memory__' ? (memory.file ?? t('Memory')) : path.split('/').pop()}
+                  {dirty.has(path) && <i className="tab-dot" aria-label={t('Unsaved')} />}
                 </button>
                 <button className="tab-x" onClick={() => closeTab(path)} aria-label={`Close ${path}`}>×</button>
               </span>
@@ -743,9 +796,7 @@ export function App() {
 
           {active === '__memory__' ? (
             <MemoryEditor root={root} memory={memory} onSaved={setMemory} t={t} />
-          ) : active !== 'chat' ? (
-            <Viewer root={root} path={active} line={jump?.path === active ? jump.line : undefined} />
-          ) : (
+          ) : active !== 'chat' ? null : (
           <div className="log" ref={log}>
         {lines.length === 0 && (
           <div className="empty">
@@ -774,6 +825,31 @@ export function App() {
         ))}
         {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
           </div>
+          )}
+
+          {/* Every open file stays mounted. Unmounting on tab switch would
+              throw away unsaved edits and the undo history with them. */}
+          {files.length > 0 && (
+            <Suspense fallback={<div className="vw-msg">{t('Opening…')}</div>}>
+              {files.map((p) => (
+                <Editor
+                  key={p}
+                  root={root}
+                  path={p}
+                  visible={active === p}
+                  dark={resolved(theme) === 'dark'}
+                  line={jump?.path === p ? jump.line : undefined}
+                  onReady={(h) => { if (h) editors.current.set(p, h); else editors.current.delete(p); }}
+                  onDirty={(path, isDirty) => setDirty((prev) => {
+                    const next = new Set(prev);
+                    if (isDirty) next.add(path); else next.delete(path);
+                    return next;
+                  })}
+                  onSaved={(path) => setWritten((prev) => [...new Set([...prev, path])])}
+                  onError={(m) => push({ kind: 'error', text: m })}
+                />
+              ))}
+            </Suspense>
           )}
 
           {termMounted && (
@@ -920,7 +996,9 @@ export function App() {
         <span className="sp" />
         <button className="st-btn" onClick={() => setPalette('find')}>⌕ {t('Search')}</button>
         <button className="st-btn" onClick={toggleTerm}>▤ {t('Terminal')}</button>
-        {active !== 'chat' && active !== '__memory__' && <span>{active}</span>}
+        {active !== 'chat' && active !== '__memory__' && (
+          <span>{active}{dirty.has(active) ? ' ●' : ''}</span>
+        )}
         <span>{model}</span>
         <span>{resolved(theme)}</span>
       </footer>

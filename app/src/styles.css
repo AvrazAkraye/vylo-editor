@@ -712,3 +712,14 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 
 /* the line a search result pointed at */
 .vw-line.hit{ background:var(--brand-wash); }
+
+/* ── editor ──────────────────────────────────────────────────────────── */
+.ed{ flex:1; min-height:0; overflow:hidden; background:var(--bg); }
+.ed .cm-editor{ height:100%; }
+.ed .cm-editor.cm-focused{ outline:none; }
+
+.tab.dirty .tab-name{ font-style:italic; }
+.tab-dot{
+  display:inline-block; width:6px; height:6px; margin-left:7px; border-radius:50%;
+  background:var(--brand); vertical-align:middle;
+}
