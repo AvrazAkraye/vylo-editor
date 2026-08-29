@@ -38,6 +38,8 @@
   --brand:#5B4DE0;
   --brand-2:#8B5CF6;
   --brand-wash:#EEEBFD;
+  --ok-wash:#E4F4EC;
+  --err-wash:#FBE9E7;
   --fill:#5B4DE0;
   --on-fill:#FFFFFF;
   --on-fill-line:rgb(255 255 255 / .35);
@@ -95,6 +97,8 @@
     --brand:#A99AFF;
     --brand-2:#C4A9FF;
     --brand-wash:#241F3C;
+    --ok-wash:#12261F;
+    --err-wash:#2E1815;
     --fill:#5A46C8;
     --on-fill:#F4F1FF;
     --on-fill-line:rgb(244 241 255 / .34);
@@ -120,6 +124,8 @@
   --brand:#A99AFF;
   --brand-2:#C4A9FF;
   --brand-wash:#241F3C;
+  --ok-wash:#12261F;
+  --err-wash:#2E1815;
   --fill:#5A46C8;
   --on-fill:#F4F1FF;
   --on-fill-line:rgb(244 241 255 / .34);
@@ -966,4 +972,53 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* A ring the same colour as the fill it sits on is not a ring. */
 .send:focus-visible, .approve:focus-visible, .wc-open:focus-visible{
   outline-color:var(--ink);
+}
+
+/* ── inline edit (⌘K) ────────────────────────────────────────────────── */
+.ed-wrap{ position:relative; flex:1; min-height:0; flex-direction:column; }
+.ed-wrap > .ed{ flex:1; min-height:0; }
+
+/* Anchored at the selection, inside the scroller, so it travels with the code
+   it is about rather than sitting in a corner referring to it. */
+.kbar{
+  position:absolute; left:var(--sp-8); right:var(--sp-8); z-index:5;
+  border:1px solid var(--brand); border-radius:var(--r-3);
+  background:var(--panel); box-shadow:var(--shadow);
+}
+.kbar-in{ display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-3) var(--sp-4); }
+.kbar-in > .ic{ color:var(--brand); flex:none; }
+.kbar input{
+  flex:1; min-width:0; font:inherit; font-size:var(--fs-4);
+  border:0; background:transparent; color:var(--ink);
+}
+.kbar input:focus{ outline:none; }
+.kbar .approve, .kbar .ghost{ flex:none; font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); }
+.kbar-note{
+  padding:0 var(--sp-4) var(--sp-3); font-family:var(--mono);
+  font-size:var(--fs-2); color:var(--mute);
+}
+.kbar-note.err{ color:var(--err); }
+
+/* The verdict bar sits at the foot of the editor, not over the code, so it
+   never covers the change it is asking about. */
+.kdone{
+  position:absolute; left:var(--sp-8); right:var(--sp-8); bottom:var(--sp-6); z-index:5;
+  display:flex; align-items:center; gap:var(--sp-5);
+  padding:var(--sp-3) var(--sp-5); border:1px solid var(--rule-2);
+  border-radius:var(--r-3); background:var(--panel); box-shadow:var(--shadow);
+}
+.kd-stat{ display:flex; gap:var(--sp-3); font-family:var(--mono); font-size:var(--fs-3); }
+.kd-note{ margin-right:auto; font-size:var(--fs-3); color:var(--mute); }
+.kdone kbd{
+  font-family:var(--mono); font-size:var(--fs-1); padding:0 var(--sp-2);
+  border:1px solid var(--rule-2); border-radius:var(--r-1); margin-left:var(--sp-2);
+}
+
+/* The preview colours come from the app's semantic tokens rather than the
+   editor theme, so an accepted edit reads the same green as an approved diff. */
+.ed .cm-now{ background:var(--ok-wash, rgb(23 105 76 / .10)); }
+.ed .cm-was{
+  background:var(--err-wash, rgb(168 51 42 / .09)); color:var(--mute);
+  text-decoration:line-through; padding:var(--sp-1) 0;
+  font-family:var(--mono); font-size:var(--fs-4); line-height:1.55;
 }

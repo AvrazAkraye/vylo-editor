@@ -24,6 +24,17 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Describe the change…': 'صف التغيير…',
+  'Describe what to write here…': 'صف ما يُكتب هنا…',
+  'Rewrite': 'إعادة كتابة',
+  'Writing…': 'جارٍ الكتابة…',
+  'characters': 'حرفاً',
+  'Not saved yet.': 'لم يُحفظ بعد.',
+  'Undo': 'تراجع',
+  'Keep': 'إبقاء',
+  'The model returned nothing to insert.': 'لم يُعِد النموذج شيئاً لإدراجه.',
+  'That would not change anything.': 'لن يغيّر ذلك شيئاً.',
+  'Edit the selection': 'تعديل المحدد',
   'Conversation': 'المحادثة',
   'Status': 'الحالة',
   'Sections': 'الأقسام',
@@ -148,6 +159,17 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Describe the change…': 'گۆڕانکارییەکە باس بکە…',
+  'Describe what to write here…': 'باسی ئەوە بکە کە لێرە بنووسرێت…',
+  'Rewrite': 'نووسینەوە',
+  'Writing…': 'نووسین…',
+  'characters': 'پیت',
+  'Not saved yet.': 'هێشتا پاشەکەوت نەکراوە.',
+  'Undo': 'گەڕانەوە',
+  'Keep': 'هێشتنەوە',
+  'The model returned nothing to insert.': 'مۆدێلەکە هیچی نەگەڕاندەوە بۆ دانان.',
+  'That would not change anything.': 'ئەوە هیچ ناگۆڕێت.',
+  'Edit the selection': 'دەستکاری دیاریکراو',
   'Conversation': 'گفتوگۆ',
   'Status': 'دۆخ',
   'Sections': 'بەشەکان',
@@ -272,6 +294,17 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Describe the change…': 'گوهۆڕینێ شرۆڤە بکە…',
+  'Describe what to write here…': 'شرۆڤە بکە چ ل ڤێرێ بێتە نڤیسین…',
+  'Rewrite': 'ژنویڤە نڤیسین',
+  'Writing…': 'نڤیسین…',
+  'characters': 'تیپ',
+  'Not saved yet.': 'هێشتا نەهاتییە پاراستن.',
+  'Undo': 'ڤەگەڕاندن',
+  'Keep': 'هێلان',
+  'The model returned nothing to insert.': 'مۆدێلی چو ڤەنەگەڕاند بۆ دانانێ.',
+  'That would not change anything.': 'ئەو دێ چو نەگوهۆڕیت.',
+  'Edit the selection': 'دەستکاریا دیارکری',
   'Conversation': 'ئاخڤتن',
   'Status': 'رەوش',
   'Sections': 'بەش',

@@ -20,13 +20,17 @@ export const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.
 const MOD = IS_MAC ? '⌘' : 'Ctrl';
 const ALT = IS_MAC ? '⌃' : 'Ctrl';
 
-/** Only shortcuts that actually work. An unbuilt one advertised here is a bug. */
+/**
+ * Only shortcuts that actually work. An unbuilt one advertised here is a bug —
+ * ⌘K was deliberately absent until E1 shipped, and was added the day it did.
+ */
 export function shortcuts(t: (s: string) => string): { keys: string; what: string }[] {
   return [
     { keys: `${MOD}P`, what: t('Go to file') },
     { keys: `${MOD}⇧F`, what: t('Search the project') },
     { keys: `${ALT}\``, what: t('Terminal') },
     { keys: `${ALT}⇧\``, what: t('Terminal fills the window') },
+    { keys: `${MOD}K`, what: t('Edit the selection') },
     { keys: `${MOD}S`, what: t('Save the open file') },
     { keys: `${MOD}↵`, what: t('Send a message') },
     { keys: `${MOD}⇧D`, what: t('Switch theme') },

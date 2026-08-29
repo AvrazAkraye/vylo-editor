@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
-import { EditorState, type Extension, Compartment } from '@codemirror/state';
+import { EditorState, Prec, type Extension, Compartment } from '@codemirror/state';
 import {
   EditorView, keymap, lineNumbers, highlightActiveLine, highlightActiveLineGutter,
   drawSelection, dropCursor, rectangularSelection, crosshairCursor,
@@ -21,6 +21,11 @@ import { html } from '@codemirror/lang-html';
 import { css } from '@codemirror/lang-css';
 import { markdown } from '@codemirror/lang-markdown';
 import { inlineComplete, type CompleteConfig } from './complete';
+import {
+  askEdit, cleanEdit, contextAround, editSize, fromInlineEdit, inlineEditState,
+  pendingEdit, setPendingEdit, type Gateway,
+} from './inline';
+import { Icon } from './Icon';
 
 /**
  * A real editor, replacing the read-only viewer.
@@ -138,6 +143,9 @@ interface Props {
   line?: number;
   /** Gateway settings for inline completion, read fresh on every request. */
   complete: () => Omit<CompleteConfig, 'path' | 'language'>;
+  /** Gateway settings and project memory for ⌘K. */
+  edit: () => Gateway & { memory: string };
+  t: (s: string) => string;
   onReady: (h: EditorHandle | null) => void;
   /** Fires whenever the dirty state changes, so tabs and the agent stay honest. */
   onDirty: (path: string, dirty: boolean) => void;
@@ -145,7 +153,23 @@ interface Props {
   onError: (message: string) => void;
 }
 
-export function Editor({ root, path, visible, dark, line, complete, onReady, onDirty, onSaved, onError }: Props) {
+export function Editor({
+  root, path, visible, dark, line, complete, edit, t, onReady, onDirty, onSaved, onError,
+}: Props) {
+  /** The ⌘K bar: where it sits, what was selected, and what came back. */
+  const [ask, setAsk] = useState<{ from: number; to: number; top: number } | null>(null);
+  const [instruction, setInstruction] = useState('');
+  const [running, setRunning] = useState(false);
+  const [streamed, setStreamed] = useState('');
+  const [askError, setAskError] = useState<string | null>(null);
+  const [applied, setApplied] = useState<{ added: number; removed: number } | null>(null);
+  const abort = useRef<AbortController | null>(null);
+  const prompt = useRef<HTMLInputElement>(null);
+  const cfg = useRef({ edit, t });
+  cfg.current = { edit, t };
+  // The keymap is built once at mount, so it reaches the handlers through a ref
+  // rather than closing over the first render's versions of them.
+  const acts = useRef<{ keep: () => void; undo: () => void }>({ keep: () => {}, undo: () => {} });
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   /** sha-256 of what was last read from or written to disk. */
@@ -167,11 +191,50 @@ export function Editor({ root, path, visible, dark, line, complete, onReady, onD
       indentOnInput(), bracketMatching(), closeBrackets(), autocompletion(),
       rectangularSelection(), crosshairCursor(), highlightActiveLine(),
       highlightSelectionMatches(),
+      Prec.high(keymap.of([
+        {
+          // Escape and Mod-Enter only mean anything while a preview is up, and
+          // return false otherwise so they keep their usual behaviour.
+          key: 'Escape',
+          run: (view) => {
+            if (!view.state.field(pendingEdit, false)) return false;
+            acts.current.undo();
+            return true;
+          },
+        },
+        {
+          key: 'Mod-Enter',
+          run: (view) => {
+            if (!view.state.field(pendingEdit, false)) return false;
+            acts.current.keep();
+            return true;
+          },
+        },
+        {
+          key: 'Mod-k',
+          run: (view) => {
+            const sel = view.state.selection.main;
+            // coordsAtPos is viewport-relative; the bar is positioned inside the
+            // scroller, so the scroll offset has to come back out.
+            const at = view.coordsAtPos(sel.from);
+            const box = view.scrollDOM.getBoundingClientRect();
+            const top = at ? at.top - box.top + view.scrollDOM.scrollTop : 0;
+            setAsk({ from: sel.from, to: sel.to, top: Math.max(0, top) });
+            setInstruction('');
+            setStreamed('');
+            setAskError(null);
+            setApplied(null);
+            window.setTimeout(() => prompt.current?.focus(), 0);
+            return true;
+          },
+        },
+      ])),
       keymap.of([
         ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap,
         ...historyKeymap, ...foldKeymap, ...completionKeymap, indentWithTab,
       ]),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
+      inlineEditState,
       ...language(path),
       // Read through the ref so toggling completion in Settings takes effect on
       // files that are already open, without rebuilding the editor.
@@ -254,7 +317,139 @@ export function Editor({ root, path, visible, dark, line, complete, onReady, onD
 
   useEffect(() => { if (visible) view.current?.focus(); }, [visible]);
 
-  return <div className="ed" ref={host} style={{ display: visible ? 'block' : 'none' }} />;
+  /** Send the region and its surroundings, then apply the result in one go. */
+  async function run() {
+    const v = view.current;
+    if (!v || !ask || !instruction.trim()) return;
+    const gw = cfg.current.edit();
+    if (!gw.apiKey) { setAskError(cfg.current.t('Add your gateway API key in Settings.')); return; }
+
+    const doc = v.state.doc.toString();
+    const selection = doc.slice(ask.from, ask.to);
+    const { before, after } = contextAround(doc, ask.from, ask.to);
+    const controller = new AbortController();
+    abort.current = controller;
+    setRunning(true);
+    setStreamed('');
+    setAskError(null);
+
+    try {
+      const result = await askEdit(
+        gw,
+        { path, language: languageName(path), before, selection, after, instruction: instruction.trim(), memory: gw.memory },
+        (chunk) => setStreamed((p) => p + chunk),
+        controller.signal,
+      );
+      const text = cleanEdit(result, { before, after });
+      if (!text) { setAskError(cfg.current.t('The model returned nothing to insert.')); return; }
+      if (text === selection) { setAskError(cfg.current.t('That would not change anything.')); return; }
+
+      // One transaction, so undo is a single step rather than one per token,
+      // and so the preview state and the text land together.
+      v.dispatch({
+        changes: { from: ask.from, to: ask.to, insert: text },
+        selection: { anchor: ask.from + text.length },
+        effects: setPendingEdit.of({ from: ask.from, to: ask.from + text.length, original: selection }),
+        annotations: fromInlineEdit.of(true),
+      });
+      setApplied(editSize(selection, text));
+      setAsk(null);
+      v.focus();
+    } catch (e) {
+      if (!controller.signal.aborted) {
+        setAskError(String(e instanceof Error ? e.message : e));
+      }
+    } finally {
+      abort.current = null;
+      setRunning(false);
+    }
+  }
+
+  /** Keep it. The preview text is already the buffer, so this only clears state. */
+  function keep() {
+    const v = view.current;
+    v?.dispatch({ effects: setPendingEdit.of(null), annotations: fromInlineEdit.of(true) });
+    setApplied(null);
+    v?.focus();
+  }
+
+  /** Put the original back, exactly. */
+  function undo() {
+    const v = view.current;
+    const p = v?.state.field(pendingEdit, false);
+    if (!v || !p) { setApplied(null); return; }
+    v.dispatch({
+      changes: { from: p.from, to: Math.min(p.to, v.state.doc.length), insert: p.original },
+      selection: { anchor: p.from },
+      effects: setPendingEdit.of(null),
+      annotations: fromInlineEdit.of(true),
+    });
+    setApplied(null);
+    v.focus();
+  }
+
+  function cancel() {
+    abort.current?.abort();
+    setAsk(null);
+    setRunning(false);
+    view.current?.focus();
+  }
+
+  acts.current = { keep, undo };
+  const T = cfg.current.t;
+
+  return (
+    <div className="ed-wrap" style={{ display: visible ? 'flex' : 'none' }}>
+      <div className="ed" ref={host} />
+
+      {ask && (
+        <div className="kbar" style={{ top: ask.top }}>
+          <div className="kbar-in">
+            <Icon name="sparkle" size={14} />
+            <input
+              ref={prompt}
+              value={instruction}
+              onChange={(e) => setInstruction(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+                else if (e.key === 'Enter') { e.preventDefault(); void run(); }
+              }}
+              placeholder={ask.from === ask.to ? T('Describe what to write here…') : T('Describe the change…')}
+              disabled={running}
+              spellCheck={false}
+            />
+            {running ? (
+              <button className="ghost" onClick={cancel}>{T('Stop')}</button>
+            ) : (
+              <button className="approve" onClick={() => void run()} disabled={!instruction.trim()}>
+                {T('Rewrite')}
+              </button>
+            )}
+          </div>
+          {running && (
+            <div className="kbar-note">
+              {/* The token count is honest progress: a line count would jump
+                  around as the model rewrites its own indentation mid-stream. */}
+              {T('Writing…')} {streamed.length > 0 && `${streamed.length} ${T('characters')}`}
+            </div>
+          )}
+          {askError && <div className="kbar-note err">{askError}</div>}
+        </div>
+      )}
+
+      {applied && (
+        <div className="kdone">
+          <span className="kd-stat">
+            <span className="add">+{applied.added}</span>
+            <span className="del">−{applied.removed}</span>
+          </span>
+          <span className="kd-note">{T('Not saved yet.')}</span>
+          <button className="ghost" onClick={undo}>{T('Undo')} <kbd>Esc</kbd></button>
+          <button className="approve" onClick={keep}>{T('Keep')}</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default Editor;

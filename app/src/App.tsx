@@ -962,6 +962,8 @@ export function App() {
                     apiKey,
                     onStatus: setAcStatus,
                   })}
+                  edit={() => ({ baseUrl, apiKey, model, memory: memoryPrompt(memory) })}
+                  t={t}
                   onReady={(h) => { if (h) editors.current.set(p, h); else editors.current.delete(p); }}
                   onDirty={(path, isDirty) => setDirty((prev) => {
                     const next = new Set(prev);
