@@ -154,6 +154,117 @@ fn read_file(root: String, path: String) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| format!("{path}: not valid UTF-8 (binary?)"))
 }
 
+/// Where a path *would* be, proved to be inside the workspace.
+///
+/// `resolve()` canonicalizes the parent, so it cannot verify a path whose parent
+/// does not exist yet — which is exactly the case when creating `sub/deep`.
+/// Creating the directories first and checking afterwards is backwards: that
+/// makes directories at a path nobody has verified.
+///
+/// So containment is proved against the nearest ancestor that *does* exist. If
+/// that ancestor is inside the root and no component of the remainder is `..`,
+/// the final path is inside the root too. The `..` check is what makes that
+/// second clause true, so it is not optional.
+fn resolve_new(root: &str, rel: &str) -> Result<PathBuf, String> {
+    let base = Path::new(root)
+        .canonicalize()
+        .map_err(|e| format!("workspace root is unreadable: {e}"))?;
+    let candidate = Path::new(rel);
+    if candidate.is_absolute() {
+        return Err(format!("{rel}: must be a path inside the open folder"));
+    }
+    if candidate.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+        return Err(format!("{rel}: must not climb out of the open folder"));
+    }
+
+    let joined = base.join(candidate);
+    let mut probe = joined.as_path();
+    let existing = loop {
+        match probe.parent() {
+            Some(parent) => {
+                if parent.exists() {
+                    break parent.to_path_buf();
+                }
+                probe = parent;
+            }
+            None => return Err(format!("{rel}: has no reachable parent")),
+        }
+    };
+    let real = existing
+        .canonicalize()
+        .map_err(|e| format!("{rel}: {e}"))?;
+    if !real.starts_with(&base) {
+        return Err(format!("{rel}: escapes the open folder"));
+    }
+    Ok(joined)
+}
+
+/// Create an empty file. **Human action only**, like every other write: absent
+/// from the tool schema, reachable from the explorer's button.
+///
+/// Refuses to overwrite. The explorer offers this as "new file", and a "new
+/// file" that silently empties an existing one is a way to lose work by
+/// mistyping a name.
+#[tauri::command]
+fn create_file(root: String, path: String) -> Result<(), String> {
+    let p = resolve_new(&root, &path)?;
+    if p.exists() {
+        return Err(format!("{path}: already exists"));
+    }
+    if let Some(parent) = p.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("{path}: {e}"))?;
+    }
+    fs::write(&p, "").map_err(|e| format!("{path}: {e}"))
+}
+
+#[tauri::command]
+fn create_dir(root: String, path: String) -> Result<(), String> {
+    let p = resolve_new(&root, &path)?;
+    if p.exists() {
+        return Err(format!("{path}: already exists"));
+    }
+    fs::create_dir_all(&p).map_err(|e| format!("{path}: {e}"))
+}
+
+/// Move a file or folder within the workspace.
+///
+/// Both ends go through `resolve()`. Checking only the source would let a
+/// rename write anywhere on the disk, which is the same hole containment exists
+/// to close — a move is a write to its destination.
+#[tauri::command]
+fn rename_path(root: String, from: String, to: String) -> Result<(), String> {
+    let src = resolve(&root, &from)?;
+    // The destination usually does not exist yet, which is what `resolve_new`
+    // is for. It is still checked: a move is a write to wherever it lands.
+    let dst = resolve_new(&root, &to)?;
+    if !src.exists() {
+        return Err(format!("{from}: not found"));
+    }
+    if dst.exists() {
+        return Err(format!("{to}: already exists"));
+    }
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("{to}: {e}"))?;
+    }
+    fs::rename(&src, &dst).map_err(|e| format!("{from} -> {to}: {e}"))
+}
+
+/// Delete a file, or a folder and everything in it.
+///
+/// The UI names what will go before calling this. There is no trash: `remove_*`
+/// is permanent, which is why the confirmation lists the contents rather than
+/// asking about "this folder".
+#[tauri::command]
+fn delete_path(root: String, path: String) -> Result<(), String> {
+    let p = resolve(&root, &path)?;
+    let md = fs::symlink_metadata(&p).map_err(|e| format!("{path}: {e}"))?;
+    if md.is_dir() {
+        fs::remove_dir_all(&p).map_err(|e| format!("{path}: {e}"))
+    } else {
+        fs::remove_file(&p).map_err(|e| format!("{path}: {e}"))
+    }
+}
+
 /// How much of a file the editor will load. Four times the agent's limit: a
 /// person can usefully scroll a large file, a model reading one is nearly always
 /// a mistake and always expensive.
@@ -953,6 +1064,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
             apply_write, file_hash, read_for_editor, git_state, run_command, git_create_branch, git_commit,
+            create_file, create_dir, rename_path, delete_path,
             checkpoint_save, checkpoint_list, checkpoint_restore, find_symbol,
             mcp_servers, mcp_start, mcp_call, mcp_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
@@ -1151,6 +1263,54 @@ mod tests {
 
         // The agent's own limit is unchanged: it must not start receiving 2 MB.
         assert!(read_file(root, "big.txt".into()).is_err(), "read_file keeps its 512 KB cap");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// File operations are writes, so they are held to the same containment as
+    /// every other write — and a rename is a write to its *destination*, which
+    /// is the end that is easy to forget to check.
+    #[test]
+    fn file_operations_stay_inside_the_workspace() {
+        let tmp = std::env::temp_dir().join(format!("vylo_fileops_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        create_file(root.clone(), "a.txt".into()).unwrap();
+        assert!(tmp.join("a.txt").exists());
+        assert!(
+            create_file(root.clone(), "a.txt".into()).is_err(),
+            "a new file must not silently empty an existing one",
+        );
+
+        create_dir(root.clone(), "sub/deep".into()).unwrap();
+        assert!(tmp.join("sub/deep").is_dir());
+
+        // A nested destination is created on the way.
+        rename_path(root.clone(), "a.txt".into(), "sub/deep/b.txt".into()).unwrap();
+        assert!(!tmp.join("a.txt").exists() && tmp.join("sub/deep/b.txt").exists());
+        assert!(
+            rename_path(root.clone(), "sub/deep/b.txt".into(), "sub".into()).is_err(),
+            "renaming onto something that exists must refuse",
+        );
+
+        // Both ends are contained. Checking only the source would let a rename
+        // write anywhere on the disk.
+        for bad in ["../escaped.txt", "sub/../../escaped.txt", "/tmp/escaped.txt"] {
+            assert!(
+                rename_path(root.clone(), "sub/deep/b.txt".into(), bad.into()).is_err(),
+                "a rename must not land outside the workspace: {bad}",
+            );
+            assert!(create_file(root.clone(), bad.into()).is_err(), "create: {bad}");
+            assert!(create_dir(root.clone(), bad.into()).is_err(), "mkdir: {bad}");
+        }
+        assert!(delete_path(root.clone(), "../..".into()).is_err());
+
+        delete_path(root.clone(), "sub/deep/b.txt".into()).unwrap();
+        assert!(!tmp.join("sub/deep/b.txt").exists());
+        delete_path(root.clone(), "sub".into()).unwrap();
+        assert!(!tmp.join("sub").exists(), "a folder goes with its contents");
 
         let _ = fs::remove_dir_all(&tmp);
     }

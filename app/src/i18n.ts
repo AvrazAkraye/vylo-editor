@@ -24,6 +24,15 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'New file': 'ملف جديد',
+  'New folder': 'مجلد جديد',
+  'Rename to': 'إعادة التسمية إلى',
+  'Delete permanently?': 'حذف نهائي؟',
+  'entry': 'عنصر',
+  'entries': 'عناصر',
+  'create': 'إنشاء',
+  'rename': 'إعادة تسمية',
+  'delete': 'حذف',
   'attach that image': 'إرفاق هذه الصورة',
   'attach that file': 'إرفاق هذا الملف',
   'apply that to': 'تطبيق ذلك على',
@@ -215,6 +224,15 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'New file': 'فایلی نوێ',
+  'New folder': 'بوخچەی نوێ',
+  'Rename to': 'ناوی بگۆڕە بۆ',
+  'Delete permanently?': 'بۆ هەمیشە بسڕدرێتەوە؟',
+  'entry': 'بڕگە',
+  'entries': 'بڕگە',
+  'create': 'دروستکردنی',
+  'rename': 'ناوگۆڕینی',
+  'delete': 'سڕینەوەی',
   'attach that image': 'هاوپێچکردنی ئەم وێنەیە',
   'attach that file': 'هاوپێچکردنی ئەم فایلە',
   'apply that to': 'جێبەجێکردنی ئەوە لەسەر',
@@ -406,6 +424,15 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'New file': 'دەفتەرەکێ نوی',
+  'New folder': 'فولدەرەکێ نوی',
+  'Rename to': 'ناڤی بگوهۆڕە بۆ',
+  'Delete permanently?': 'بۆ هەمیشە بێتە ژێبرن؟',
+  'entry': 'بڕگە',
+  'entries': 'بڕگە',
+  'create': 'چێکرنا',
+  'rename': 'ناڤگوهۆڕینا',
+  'delete': 'ژێبرنا',
   'attach that image': 'پێڤەکرنا ڤێ وێنەیێ',
   'attach that file': 'پێڤەکرنا ڤێ دەفتەرێ',
   'apply that to': 'جهبجهکرنا وێ ل سەر',

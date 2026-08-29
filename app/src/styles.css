@@ -1145,3 +1145,21 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* The quit dialog reuses the approval overlay; only the emphasis differs. */
 .ask.quit .ask-lbl{ color:var(--ink); }
 .ask.quit .ask-why.err{ color:var(--err); font-family:var(--mono); }
+
+/* ── explorer row actions ────────────────────────────────────────────── */
+/* The row was a button; it is now a row containing one. `.ft-hit` takes the
+   click target so the actions beside it are reachable. */
+.ft-hit{
+  flex:1; min-width:0; display:flex; align-items:center; gap:var(--sp-3);
+  font:inherit; font-size:inherit; color:inherit; text-align:left;
+  border:0; background:transparent; cursor:pointer; padding:0; overflow:hidden;
+}
+.ft-acts{ display:flex; gap:var(--sp-1); flex:none; opacity:0; padding-right:var(--sp-3); }
+.ft-row:hover .ft-acts, .ft-acts:focus-within{ opacity:1; }
+.ft-act{
+  display:inline-flex; align-items:center; justify-content:center;
+  width:18px; height:18px; padding:0; border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.ft-act:hover{ background:var(--panel); color:var(--ink); }
+.ft-act.danger:hover{ color:var(--err); }

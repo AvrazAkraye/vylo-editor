@@ -70,9 +70,13 @@ interface Props {
   onOpen: (path: string) => void;
   /** Paths with staged edits, marked so pending work is visible in context. */
   changed: Set<string>;
+  onRename: (path: string) => void;
+  onDelete: (path: string, isDir: boolean) => void;
+  /** New file inside a folder, so the path is prefilled with where you clicked. */
+  onNewIn: (dir: string) => void;
 }
 
-export function FileTree({ entries, openPath, onOpen, changed }: Props) {
+export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelete, onNewIn }: Props) {
   const tree = useMemo(() => build(entries), [entries]);
   // Top level starts open; everything deeper starts closed, so a big repo does
   // not unfold into thousands of rows on first sight.
@@ -87,28 +91,59 @@ export function FileTree({ entries, openPath, onOpen, changed }: Props) {
       return next;
     });
 
+  /**
+   * The row actions appear on hover and on keyboard focus.
+   *
+   * They are their own buttons rather than a context menu: a right-click menu
+   * is invisible until you know it is there, and these are the operations a
+   * person coming from any other editor will look for first.
+   */
+  const actions = (path: string, isDir: boolean) => (
+    <span className="ft-acts">
+      {isDir && (
+        <button className="ft-act" title={`${'New file'} in ${path}`} aria-label={`New file in ${path}`}
+                onClick={(e) => { e.stopPropagation(); onNewIn(path); }}>
+          <Icon name="plus" size={11} />
+        </button>
+      )}
+      <button className="ft-act" title={`Rename ${path}`} aria-label={`Rename ${path}`}
+              onClick={(e) => { e.stopPropagation(); onRename(path); }}>
+        <Icon name="chevron" size={11} />
+      </button>
+      <button className="ft-act danger" title={`Delete ${path}`} aria-label={`Delete ${path}`}
+              onClick={(e) => { e.stopPropagation(); onDelete(path, isDir); }}>
+        <Icon name="close" size={11} />
+      </button>
+    </span>
+  );
+
   const render = (nodes: Node[], depth: number): JSX.Element[] =>
     nodes.flatMap((n) => {
       const pad = { paddingLeft: `${6 + depth * 12}px` };
       if (n.isDir) {
         const open = expanded.has(n.path);
         return [
-          <button key={n.path} className="ft-row ft-dir" style={pad}
-                  onClick={() => toggle(n.path)} title={n.path}>
-            <span className={`ft-caret ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>
-            <span className="ft-name">{n.name}</span>
-          </button>,
+          <div key={n.path} className="ft-row ft-dir" style={pad}>
+            <button className="ft-hit" onClick={() => toggle(n.path)} title={n.path}>
+              <span className={`ft-caret ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>
+              <span className="ft-name">{n.name}</span>
+            </button>
+            {actions(n.path, true)}
+          </div>,
           ...(open ? render(n.children, depth + 1) : []),
         ];
       }
       return [
-        <button key={n.path}
-                className={`ft-row ft-file ${n.path === openPath ? 'on' : ''} ${changed.has(n.path) ? 'changed' : ''}`}
-                style={pad} onClick={() => onOpen(n.path)} title={n.path}>
-          <span className="ft-icon">{iconFor(n.name)}</span>
-          <span className="ft-name">{n.name}</span>
-          {changed.has(n.path) && <span className="ft-dot" aria-label="has staged changes" />}
-        </button>,
+        <div key={n.path}
+             className={`ft-row ft-file ${n.path === openPath ? 'on' : ''} ${changed.has(n.path) ? 'changed' : ''}`}
+             style={pad}>
+          <button className="ft-hit" onClick={() => onOpen(n.path)} title={n.path}>
+            <span className="ft-icon">{iconFor(n.name)}</span>
+            <span className="ft-name">{n.name}</span>
+            {changed.has(n.path) && <span className="ft-dot" aria-label="has staged changes" />}
+          </button>
+          {actions(n.path, false)}
+        </div>,
       ];
     });
 

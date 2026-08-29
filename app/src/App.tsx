@@ -650,6 +650,76 @@ export function App() {
     setRailOpen(true);
   }
 
+  /**
+   * Create, rename and delete, from the explorer.
+   *
+   * These are human actions and are absent from the tool schema, like every
+   * other write. `window.prompt` rather than an inline field: the explorer is a
+   * tree with no room for one, and a modal that cannot be mistyped past is the
+   * right shape for something that touches the filesystem.
+   */
+  async function newFile(dir = '') {
+    const name = window.prompt(t('New file'), dir ? `${dir}/` : '');
+    if (!name?.trim()) return;
+    try {
+      await invoke('create_file', { root, path: name.trim() });
+      setWritten((p) => [...p, name.trim()]);   // nudges the tree to reload
+      openFile(name.trim());
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, `${t('create')} ${name.trim()}`) });
+    }
+  }
+
+  async function newFolder(dir = '') {
+    const name = window.prompt(t('New folder'), dir ? `${dir}/` : '');
+    if (!name?.trim()) return;
+    try {
+      await invoke('create_dir', { root, path: name.trim() });
+      setWritten((p) => [...p, name.trim()]);
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, `${t('create')} ${name.trim()}`) });
+    }
+  }
+
+  async function renameEntry(from: string) {
+    const to = window.prompt(t('Rename to'), from);
+    if (!to?.trim() || to.trim() === from) return;
+    const dest = to.trim();
+    try {
+      await invoke('rename_path', { root, from, to: dest });
+      // An open tab still points at the old path, and would save a file that no
+      // longer exists there. Move the tab with the file.
+      setTabs((p) => p.map((x) => (x === from ? dest : x)));
+      setActive((a) => (a === from ? dest : a));
+      setDirty((p) => { const n = new Set(p); if (n.delete(from)) n.add(dest); return n; });
+      const h = editors.current.get(from);
+      if (h) { editors.current.delete(from); editors.current.set(dest, h); }
+      setWritten((p) => [...p, dest]);
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, `${t('rename')} ${from}`) });
+    }
+  }
+
+  async function deleteEntry(path: string, isDir: boolean) {
+    // Permanent — there is no trash — so the confirmation says how much goes.
+    const inside = isDir ? tree.filter((e) => e.path.startsWith(`${path}/`)).length : 0;
+    const what = isDir
+      ? `${path}/ — ${inside} ${inside === 1 ? t('entry') : t('entries')}`
+      : path;
+    if (!window.confirm(`${t('Delete permanently?')}\n\n${what}`)) return;
+    try {
+      await invoke('delete_path', { root, path });
+      const gone = (x: string) => x === path || x.startsWith(`${path}/`);
+      setTabs((p) => p.filter((x) => !gone(x)));
+      setActive((a) => (gone(a) ? 'chat' : a));
+      setDirty((p) => new Set([...p].filter((x) => !gone(x))));
+      for (const key of [...editors.current.keys()]) if (gone(key)) editors.current.delete(key);
+      setWritten((p) => [...p, path]);
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, `${t('delete')} ${path}`) });
+    }
+  }
+
   function toggleTerm() {
     setShowTerm((v) => { if (!v) setTermMounted(true); return !v; });
   }
@@ -1149,16 +1219,26 @@ export function App() {
               </button>
             )}
             {rail === 'files' && root && (
-              <button className="sb-act" onClick={pickFolder} title={t('Open folder…')} aria-label={t('Open folder…')}>
-                <Icon name="folder" size={14} />
-              </button>
+              <>
+                <button className="sb-act" onClick={() => void newFile()}
+                        title={t('New file')} aria-label={t('New file')}>
+                  <Icon name="file" size={14} />
+                </button>
+                <button className="sb-act" onClick={() => void newFolder()}
+                        title={t('New folder')} aria-label={t('New folder')}>
+                  <Icon name="folder" size={14} />
+                </button>
+              </>
             )}
           </div>
 
           <div className="sb-panel">
             {rail === 'files' && (root
               ? <FileTree entries={tree} openPath={active === 'chat' ? null : active}
-                          onOpen={openFile} changed={new Set(changes.map((c) => c.path))} />
+                          onOpen={openFile} changed={new Set(changes.map((c) => c.path))}
+                          onRename={(p) => void renameEntry(p)}
+                          onDelete={(p, d) => void deleteEntry(p, d)}
+                          onNewIn={(d) => void newFile(d)} />
               : <p className="ft-empty">{t('Open a folder, or drop one here')}</p>)}
 
             {rail === 'search' && (
