@@ -5,6 +5,7 @@ import { callTool, splitTool } from './mcp';
 import { SSEDecoder, TurnAssembler } from './sse';
 import { add, fold, NO_USAGE, type Usage } from './usage';
 import { fit, limitsFor, estimateText, summaryBlock, type Fitted } from './budget';
+import { learn, learnedFor, parseLimitError, type Learned, type LimitKind } from './limits';
 import { MAX_ATTEMPTS, backoffMs, pause, retryable, retryableMessage } from './retry';
 
 /**
@@ -408,6 +409,11 @@ export interface RunOptions {
   /** A request is being sent again after a failure worth retrying. */
   onRetry?: (attempt: number, of: number) => void;
   /**
+   * The gateway named this model's real limit and the request was corrected and
+   * sent again. Reports a correction, not a failure — the turn carries on.
+   */
+  onLimit?: (kind: LimitKind, value: number) => void;
+  /**
    * Discard whatever this hop has streamed so far — it is about to be asked
    * for again. Without this an automatic retry appends a second copy of a
    * half-written reply beneath the first.
@@ -425,6 +431,42 @@ export interface RunOptions {
  */
 export class Stopped extends Error {
   constructor(readonly messages: Msg[]) { super('stopped'); this.name = 'Stopped'; }
+}
+
+/**
+ * Raised when a turn uses up its hops. Everything it did travels on it.
+ *
+ * The cap is a spending control and has to stop the loop, but the work up to it
+ * is work already paid for: every file read, every search, every tool result.
+ * Throwing without the conversation discarded all of it — `history.current =
+ * await runAgent(...)` never runs on a throw — and left the user a Try again
+ * button that bought the same twelve hops to reach the same wall. On a metered
+ * plan that was the most expensive failure in the app, and it fired on exactly
+ * the expensive turns. Second instance of a lesson already written down:
+ * `throw` discards everything the function built.
+ *
+ * ## Resuming needs nothing added to the conversation
+ *
+ * The loop's last act before the cap is `messages.push({ role: 'user', content:
+ * results })` — tool results for calls the model made. That is a complete,
+ * valid request exactly as it stands, so continuing is *calling `runAgent`
+ * again with these messages* and nothing else.
+ *
+ * Do **not** append a synthetic "please continue" message. It would be a second
+ * consecutive user message, and it puts words in the user's mouth: the model
+ * can see where it got to, and what it has in front of it is its own tool
+ * results, which is what it asked for.
+ *
+ * ## And it stays a human press
+ *
+ * Nothing here re-enters the loop on its own. A cap that continues
+ * automatically is not a cap; it is a pause with extra steps.
+ */
+export class HopLimit extends Error {
+  constructor(readonly messages: Msg[], readonly hops: number) {
+    super(`Stopped after ${hops} hops without finishing.`);
+    this.name = 'HopLimit';
+  }
 }
 
 /**
@@ -494,7 +536,11 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
   // understate a turn that read six files before answering.
   let spent: Usage = NO_USAGE;
   const report = () => o.onUsage?.(spent);
-  const limits = limitsFor(o.model);
+  // The table in budget.ts is the opening guess. A model that has already
+  // corrected us — by refusing a request and saying what its real limit is —
+  // has its own numbers, and they win.
+  let learned: Learned = learnedFor(o.model);
+  let limits = limitsFor(o.model, learned);
   // Announced once per turn, not once per hop: a long turn compacts on every
   // request after the first, and saying so nine times is noise.
   let toldAboutCompaction = false;
@@ -502,15 +548,26 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
   for (let hop = 0; hop < maxHops; hop++) {
     // Fit before every request, not once per turn — a turn that reads six files
     // can cross the line partway through, and the hop that crosses it is the
-    // one that would fail.
-    const fitted: Fitted = fit(messages, limits, overheadOf(o, limits.maxOutput));
-    o.onContext?.(fitted.tokens + overheadOf(o, limits.maxOutput), limits.context);
-    if (!toldAboutCompaction && (fitted.dropped || fitted.trimmed)) {
-      toldAboutCompaction = true;
-      o.onCompact?.({
-        dropped: fitted.dropped, trimmed: fitted.trimmed, kept: fitted.messages.length,
-      });
-    }
+    // one that would fail. It is a function because a corrected context window
+    // means fitting again against the new number before sending.
+    const refit = (): Fitted => {
+      const f = fit(messages, limits, overheadOf(o, limits.maxOutput));
+      o.onContext?.(f.tokens + overheadOf(o, limits.maxOutput), limits.context);
+      if (!toldAboutCompaction && (f.dropped || f.trimmed)) {
+        toldAboutCompaction = true;
+        o.onCompact?.({ dropped: f.dropped, trimmed: f.trimmed, kept: f.messages.length });
+      }
+      return f;
+    };
+    let fitted: Fitted = refit();
+    /**
+     * Limit kinds already corrected on this request.
+     *
+     * One corrective retry per kind, so a gateway that keeps naming the same
+     * number cannot turn a failure into a loop. `learned` is the second guard:
+     * a value already held is not worth sending the request again for.
+     */
+    const corrected = new Set<LimitKind>();
     /**
      * One hop, with retries.
      *
@@ -574,6 +631,30 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
           const j = JSON.parse(body);
           if (j?.error?.message) detail = j.error.message;
         } catch { /* not JSON; the raw body is the best we have */ }
+
+        // A 400 that names the model's real limit is worth more than the
+        // failure: it is the only authoritative statement of that number
+        // anywhere — it came from the API, not from a table someone maintains.
+        // Record it, correct this request, and send it again, so the failure
+        // becomes the last time it happens for this model rather than the first
+        // of many. Only on 400: a 429 talks about a minute, not about a model.
+        const named = res.status === 400 ? parseLimitError(detail) : null;
+        if (named && !corrected.has(named.kind) && learned[named.kind] !== named.value) {
+          corrected.add(named.kind);
+          // Persisting can fail (quota, storage off) and this turn does not
+          // care: what corrects the request is `learned`, held here.
+          learn(o.model, named);
+          learned = { ...learned, [named.kind]: named.value };
+          limits = limitsFor(o.model, learned);
+          fitted = refit();
+          o.onLimit?.(named.kind, named.value);
+          // Not a failed attempt. The request was well formed and one number in
+          // it was wrong; charging it to the retry budget would leave the
+          // corrected request with one fewer try at a dropped connection.
+          attempt -= 1;
+          continue;
+        }
+
         const wait = again(retryable(res.status, detail), res.headers.get('retry-after'));
         if (wait >= 0) {
           o.onRetry?.(attempt + 1, MAX_ATTEMPTS);
@@ -675,6 +756,12 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     messages.push({ role: 'user', content: results });
   }
 
+  // The cap, reached. Everything this turn did travels on the exception rather
+  // than being discarded with it — see `HopLimit`, which is also where the
+  // reason a resume needs no extra message is written down. `keepText` is a
+  // formality here, since the loop only arrives with tool results just pushed,
+  // but it keeps the rule in one place: nothing leaves this function carrying a
+  // `tool_use` with no `tool_result`.
   report();
-  throw new Error(`Stopped after ${maxHops} hops without finishing.`);
+  throw new HopLimit(keepText(messages), maxHops);
 }

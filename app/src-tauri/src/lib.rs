@@ -1338,6 +1338,13 @@ pub fn run() {
         // until someone sets a binding in Settings. See `summon.rs` for why an
         // unasked-for system-wide chord is worse than no shortcut at all.
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // T2.1. The banner raised while the window is in the background. It is
+        // a summons and nothing else: `capabilities/default.json` grants the
+        // three permissions it needs and withholds `register-action-types`, so
+        // no button can ever appear on it. `src/notify.ts` says why an Approve
+        // button in the notification centre would be a shell command approved
+        // without the string on screen.
+        .plugin(tauri_plugin_notification::init())
         .manage(pty::Terminals::default())
         .manage(index::Indexes::default())
         .manage(mcp::Servers::default())

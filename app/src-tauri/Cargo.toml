@@ -25,6 +25,11 @@ sha2 = "0.11.0"
 # I5. The one binding is registered only when the user has set one; see the
 # global-shortcut section of lib.rs for why there is no default.
 tauri-plugin-global-shortcut = "2.3.2"
+# T2.1. A summons while the window is in the background, and nothing more than
+# that: no actions on the banner, and no model-authored text in it. See the
+# header of `src/notify.ts` for why a notification that could approve a command
+# would be the security invariant broken by convenience.
+tauri-plugin-notification = "2.3.3"
 
 [profile.release]
 codegen-units = 1

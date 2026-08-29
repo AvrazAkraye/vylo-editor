@@ -43,7 +43,15 @@ jobs:
             label: Windows
 
     name: ${{ matrix.label }}
-    runs-on: ${{ matrix.os }}
+    # A repository variable named WINDOWS_RUNNER overrides the hosted runner, so
+    # a Windows machine you own can do this instead and cost nothing. Register it
+    # once (Settings -> Actions -> Runners -> New self-hosted runner), then set
+    # the variable to `self-hosted`. Nothing else in this file changes: the same
+    # steps, the same secrets, the same artifacts.
+    #
+    # Hosted minutes are the only part of this that was ever billed. The build
+    # itself is a compiler on a machine, and you have a machine.
+    runs-on: ${{ vars.WINDOWS_RUNNER || matrix.os }}
 
     steps:
       - uses: actions/checkout@v4

@@ -42,6 +42,30 @@ ok('an unknown model is the documented default', limitsFor('nonsense') === DEFAU
 ok('every known model fits its output inside its context',
    Object.values(LIMITS).every((l) => l.maxOutput * 4 <= l.context));
 
+// ── the table is only the opening guess ───────────────────────────────────
+// What a model said about itself, in the error that refused a request, beats
+// what this file guessed. It wins in both directions: a model that accepts more
+// than 200k was being compacted early on the turns that cost the most, and one
+// that accepts less was failing outright.
+ok('a learned context replaces the guess',
+   limitsFor('claude-opus-5', { context: 500_000 }).context === 500_000);
+ok('a learned output cap replaces the guess',
+   limitsFor('claude-opus-5', { maxOutput: 32_000 }).maxOutput === 32_000);
+ok('a learned output cap lower than the guess is taken too — that is the 400',
+   limitsFor('claude-opus-5', { maxOutput: 8_192 }).maxOutput === 8_192);
+ok('learning one limit leaves the other as it was', (() => {
+  const l = limitsFor('claude-opus-5', { context: 400_000 });
+  return l.maxOutput === LIMITS['claude-opus-5'].maxOutput;
+})(), limitsFor('claude-opus-5', { context: 400_000 }));
+ok('an unknown model can be learned about like any other',
+   limitsFor('somebody-elses-model', { maxOutput: 64_000 }).maxOutput === 64_000);
+ok('knowing nothing about a model is the same as not asking',
+   limitsFor('claude-opus-5', {}) === limitsFor('claude-opus-5'));
+ok('a reply may not claim more than half the window — there would be nowhere '
+   + 'left to ask the question',
+   limitsFor('claude-opus-5', { context: 20_000, maxOutput: 20_000 }).maxOutput === 10_000,
+   limitsFor('claude-opus-5', { context: 20_000, maxOutput: 20_000 }));
+
 // ── estimating ────────────────────────────────────────────────────────────
 ok('an empty string costs nothing', estimateText('') === 0);
 ok('estimation is not wildly low', estimateText('x'.repeat(3500)) >= 1000);

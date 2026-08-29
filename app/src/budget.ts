@@ -60,13 +60,19 @@ export interface Limits {
 }
 
 /**
- * Per-model limits.
+ * Per-model limits — the **opening guess**, not the answer.
+ *
+ * Every number here was established without being able to ask anyone, and both
+ * of them cost money when wrong: too small a context compacts a conversation
+ * early on the models with the most room, and too large a `max_tokens` fails
+ * the request outright. `limits.ts` corrects them from the errors that state
+ * the real figures, which is the only authoritative source there is; this table
+ * is what is used until one of those errors has been seen.
  *
  * Only ids that are *known* get a raised output cap. An unknown id — someone
  * typed a custom model into Settings — gets 4096, which is exactly what every
- * request used before this file existed, because a `max_tokens` above what a
- * model accepts fails the request outright. Guessing high on an unfamiliar
- * model would break the one case where the user is doing something deliberate.
+ * request used before this file existed. Guessing high on an unfamiliar model
+ * would break the one case where the user is doing something deliberate.
  */
 export const LIMITS: Record<string, Limits> = {
   'claude-haiku-4-5': { context: 200_000, maxOutput: 16_384 },
@@ -78,8 +84,27 @@ export const LIMITS: Record<string, Limits> = {
 /** 4096 is what the app sent before this file, so it is the safe unknown. */
 export const DEFAULT_LIMITS: Limits = { context: 200_000, maxOutput: 4096 };
 
-export function limitsFor(model: string): Limits {
-  return LIMITS[model] ?? DEFAULT_LIMITS;
+/**
+ * What to send for this model, given anything already learned about it.
+ *
+ * `learned` is a plain pair of numbers rather than a store, for the same reason
+ * `fit` takes `overhead` rather than a system prompt: this file has no business
+ * knowing where those numbers were kept. A learned value wins in **both**
+ * directions — it is the model's own statement about itself, so it raises a cap
+ * that was too cautious as readily as it lowers one that was too hopeful.
+ */
+export function limitsFor(model: string, learned?: Partial<Limits>): Limits {
+  const base = LIMITS[model] ?? DEFAULT_LIMITS;
+  if (learned?.context === undefined && learned?.maxOutput === undefined) return base;
+
+  const context = learned.context ?? base.context;
+  // Half the window is already an extreme reply, and `max_tokens` is charged
+  // against the same window as the input: letting it claim more than half
+  // leaves nowhere to ask the question, `fit` trims the conversation to its
+  // floor, and the request fails anyway. Clamping turns an unanswerable request
+  // into a shorter answer.
+  const maxOutput = Math.min(learned.maxOutput ?? base.maxOutput, Math.floor(context / 2));
+  return { context, maxOutput };
 }
 
 /**

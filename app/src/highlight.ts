@@ -109,6 +109,22 @@ let loading: Promise<void> | null = null;
 export const grammarsReady = () => parsers !== null;
 
 /**
+ * The loaded grammar for a language, or null while there is none.
+ *
+ * `parses.ts` walks the same tree this file walks for colour, looking for error
+ * nodes instead of tags. Handing over the parser rather than letting a second
+ * module resolve its own keeps one answer to "what is a `.mts` file" — the
+ * drift `kindOf` exists to prevent, one surface further along.
+ *
+ * Null covers both "the grammars have not arrived" and "the download failed",
+ * which is why a caller that has to tell those apart asks `grammarsReady`
+ * first.
+ */
+export function parserFor(kind: Kind): Parser | null {
+  return parsers?.[kind] ?? null;
+}
+
+/**
  * Load the grammars, once.
  *
  * Every caller shares the one promise, so ten code blocks arriving together
@@ -176,8 +192,12 @@ export interface Span {
  * A reply should not contain a ten-thousand-line block, and if one does, the
  * cost of parsing it lands on every keystroke of the reply still streaming
  * below it. Plain text is the right answer for something that large.
+ *
+ * Exported because `parses.ts` parses the same documents for error nodes and
+ * has to stop where this does; two caps would mean a file that is coloured and
+ * not checked, or checked and not coloured.
  */
-const MAX_CHARS = 100_000;
+export const MAX_CHARS = 100_000;
 
 /**
  * Results are cached because the transcript re-renders on every streamed token.
