@@ -105,6 +105,84 @@ export function QuickOpen({ entries, onOpen, onClose, t }: QuickOpenProps) {
   );
 }
 
+export interface Symbol {
+  name: string;
+  kind: string;
+  path: string;
+  line: number;
+}
+
+interface SymbolProps {
+  /** Symbols to choose from. Already fetched, so the overlay opens instantly. */
+  symbols: Symbol[];
+  /** Set when the list is one file's, which changes what is worth showing. */
+  scope: string | null;
+  onOpen: (path: string, line: number) => void;
+  onClose: () => void;
+  t: (s: string) => string;
+}
+
+/**
+ * ⌘T across the project, ⌘⇧O within the open file.
+ *
+ * One component for both, because they differ only in where the list came from
+ * and whether the path is worth repeating on every row. Ranked with the same
+ * matcher as ⌘P — two palettes that ranked differently would feel like two
+ * different applications.
+ */
+export function Symbols({ symbols, scope, onOpen, onClose, t }: SymbolProps) {
+  const [q, setQ] = useState('');
+  const [active, setActive] = useState(0);
+  const list = useScrollIntoView(active);
+
+  const shown = useMemo(() => {
+    if (!q.trim()) {
+      // No query: within a file, declaration order is the file's own structure
+      // and is more use than any ranking. Across a project it is arbitrary, so
+      // the first fifty are just the first fifty.
+      return symbols.slice(0, 200);
+    }
+    return rank(q, symbols, (s) => s.name, 200);
+  }, [q, symbols]);
+
+  useEffect(() => { setActive(0); }, [q]);
+
+  function key(e: React.KeyboardEvent) {
+    if (e.key === 'Escape') { onClose(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(shown.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(0, i - 1)); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      const s = shown[active];
+      if (s) { onOpen(s.path, s.line); onClose(); }
+    }
+  }
+
+  const label = scope ? t('Go to symbol in file…') : t('Go to symbol in project…');
+  return (
+    <Shell onClose={onClose} label={label}>
+      <input className="pal-in" autoFocus value={q} placeholder={label}
+             onChange={(e) => setQ(e.target.value)} onKeyDown={key} spellCheck={false} />
+      <div className="pal-list" ref={list}>
+        {shown.length === 0 && (
+          <p className="pal-none">
+            {symbols.length ? t('No matching symbol.') : t('No symbols found here.')}
+          </p>
+        )}
+        {shown.map((s, i) => (
+          <button key={`${s.path}:${s.line}:${s.name}`} className={`pal-row ${i === active ? 'on' : ''}`}
+                  onMouseEnter={() => setActive(i)}
+                  onClick={() => { onOpen(s.path, s.line); onClose(); }}>
+            <span className="pal-kind">{s.kind}</span>
+            <span className="pal-name"><Marked text={s.name} query={q} /></span>
+            <span className="pal-dir">{scope ? `:${s.line}` : `${s.path}:${s.line}`}</span>
+          </button>
+        ))}
+      </div>
+    </Shell>
+  );
+}
+
 interface Hit { path: string; line: number; text: string }
 
 interface FindProps {

@@ -26,7 +26,8 @@ import { FileTree, type Entry } from './FileTree';
 const Editor = lazy(() => import('./Editor'));
 import type { EditorHandle } from './Editor';
 import type { CompleteStatus } from './complete';
-import { FindInFiles, QuickOpen } from './Palette';
+import { FindInFiles, QuickOpen, Symbols, type Symbol as Sym } from './Palette';
+import { NO_NAV, back, canBack, canForward, forget, forward, visit, type Nav } from './nav';
 import { groupLines, ToolRun } from './ToolRun';
 // xterm is the largest thing in the bundle and the panel starts closed, so it
 // is fetched the first time someone actually opens a terminal.
@@ -130,12 +131,22 @@ export function App() {
   const [theme, setTheme] = useState<Theme>(() => storedTheme());
   const [full, setFull] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
-  const [palette, setPalette] = useState<'open' | 'find' | null>(null);
+  const [palette, setPalette] = useState<'open' | 'find' | 'symbols' | 'fileSymbols' | 'defs' | null>(null);
   const [rail, setRail] = useState<RailId>(() => (localStorage.getItem('vylo.rail') as RailId) || 'files');
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem('vylo.railopen') !== '0');
   // The line a search result asked for, cleared once the file is showing so
   // reopening the same file later does not jump again.
   const [jump, setJump] = useState<{ path: string; line: number } | null>(null);
+  // Where go-to-definition has been, so there is a way back. Without the back
+  // half the jump makes navigating worse, not better.
+  const [trail, setTrail] = useState<Nav>(NO_NAV);
+  const [symbols, setSymbols] = useState<Sym[]>([]);
+  /**
+   * The window-level key listener is registered once and would otherwise hold
+   * the first render's closures — the same trap F3's quit guard fell into.
+   * Everything it needs is read through here instead.
+   */
+  const keys = useRef({ back: () => {}, fwd: () => {}, sym: () => {}, fileSym: () => {} });
   const editors = useRef(new Map<string, EditorHandle>());
   const [dirty, setDirty] = useState<Set<string>>(new Set());
   // The box grows with the text up to a point, then scrolls. A fixed three
@@ -260,6 +271,23 @@ export function App() {
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 's') {
         e.preventDefault();
         void saveActive();
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 't') {
+        e.preventDefault();
+        keys.current.sym();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'o') {
+        e.preventDefault();
+        keys.current.fileSym();
+      } else if (IS_MAC && e.ctrlKey && !e.metaKey && (e.key === '-' || e.key === '_')) {
+        // Back and forward, bound the way VS Code binds them on each platform
+        // rather than one invention used on both. ⌥⌘← / ⌥⌘→ — the obvious
+        // choice — is previous/next tab everywhere on macOS, and Ctrl+- is zoom
+        // out on Windows, so neither works in both places.
+        e.preventDefault();
+        if (e.shiftKey) keys.current.fwd(); else keys.current.back();
+      } else if (!IS_MAC && e.altKey && !e.ctrlKey && !e.metaKey
+                 && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        if (e.key === 'ArrowRight') keys.current.fwd(); else keys.current.back();
       }
     };
     // resize fires continuously while a window is dragged; each check is an IPC
@@ -281,6 +309,36 @@ export function App() {
   // One check on launch, deliberately silent on failure -- an update check is
   // never a good reason to greet someone with an error.
   useEffect(() => { void checkForUpdate().then(setUpdate); }, []);
+
+  /**
+   * Fill the symbol palette when it opens.
+   *
+   * `defs` is deliberately absent: its list is the candidates for one
+   * identifier, set by go-to-definition, and refetching would throw them away.
+   *
+   * The in-file list comes from the *buffer*, not the index. The index is built
+   * from disk, so it would be missing the function you just typed and would
+   * still list the one you just deleted — in the palette you opened to jump to
+   * it.
+   */
+  useEffect(() => {
+    if (palette === 'symbols' && root) {
+      let off = false;
+      void invoke<Sym[]>('list_symbols', { root })
+        .then((list) => { if (!off) setSymbols(list); })
+        .catch(() => { if (!off) setSymbols([]); });
+      return () => { off = true; };
+    }
+    if (palette === 'fileSymbols') {
+      const h = active !== 'chat' && active !== '__memory__' ? editors.current.get(active) : null;
+      if (!h) { setSymbols([]); return; }
+      let off = false;
+      void invoke<Sym[]>('symbols_in_text', { path: active, text: h.text() })
+        .then((list) => { if (!off) setSymbols(list); })
+        .catch(() => { if (!off) setSymbols([]); });
+      return () => { off = true; };
+    }
+  }, [palette, root, active]);
 
   // The tree is the sidebar's content and also what tells the user the folder
   // actually opened. Reloaded after edits land so new files appear.
@@ -764,6 +822,72 @@ export function App() {
     }
   }
 
+  /**
+   * Where the caret is now, for the navigation trail.
+   *
+   * Read from the editor rather than from `jump`, because `jump` is where the
+   * file was *opened*, and going back should return you to the line you were
+   * reading when you jumped away — not to wherever you arrived twenty minutes
+   * ago.
+   */
+  function here(): { path: string; line: number } | null {
+    if (!active || active === 'chat' || active === '__memory__') return null;
+    return { path: active, line: editors.current.get(active)?.line() ?? 1 };
+  }
+
+  /** Go somewhere and remember where we were, so back means something. */
+  function navigateTo(path: string, line: number) {
+    const from = here();
+    setTrail((n) => visit(from ? visit(n, from) : n, { path, line }));
+    openAt(path, line);
+  }
+
+  /** Walk the trail. The cursor moves; nothing new is recorded. */
+  function step(dir: 'back' | 'forward') {
+    const r = dir === 'back' ? back(trail) : forward(trail);
+    if (!r.place) return;
+    setTrail(r.nav);
+    openAt(r.place.path, r.place.line);
+  }
+
+  /**
+   * F12 or ⌘-click on an identifier.
+   *
+   * The index knows declarations, not references, so this is "where is this
+   * declared" rather than a resolver — no scopes, no imports, no shadowing. It
+   * is right almost always and honest about the rest: several candidates open
+   * the picker rather than guessing, and none says so rather than doing
+   * nothing, which would read as the key being broken.
+   */
+  async function goToDefinition(name: string) {
+    const needle = name.trim();
+    if (!root || !needle) return;
+    try {
+      const hits = await invoke<Sym[]>('find_symbol', { root, name: needle, limit: 40 });
+      // find_symbol matches substrings, which is right for the agent asking a
+      // vague question and wrong for a person who clicked on an exact word.
+      const exact = hits.filter((h) => h.name === needle);
+      const pick = exact.length ? exact : hits;
+      if (!pick.length) {
+        push({ kind: 'result', text: `${t('No definition found for')} ${needle}.` });
+        return;
+      }
+      if (pick.length === 1) { navigateTo(pick[0].path, pick[0].line); return; }
+      setSymbols(pick);
+      setPalette('defs');
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, `${t('find')} ${needle}`) });
+    }
+  }
+
+  // Read through the ref, because the window key listener was registered once.
+  keys.current = {
+    back: () => step('back'),
+    fwd: () => step('forward'),
+    sym: () => { if (root) setPalette('symbols'); },
+    fileSym: () => { if (here()) setPalette('fileSymbols'); },
+  };
+
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
   function pickRail(id: RailId) {
     if (id === rail && railOpen) { setRailOpen(false); return; }
@@ -815,6 +939,9 @@ export function App() {
       setDirty((p) => { const n = new Set(p); if (n.delete(from)) n.add(dest); return n; });
       const h = editors.current.get(from);
       if (h) { editors.current.delete(from); editors.current.set(dest, h); }
+      // A trail entry pointing at the old name would take you to a file that
+      // no longer exists, and blame you for asking.
+      setTrail((n) => forget(n, from));
       setWritten((p) => [...p, dest]);
     } catch (e) {
       push({ kind: 'error', text: explain(e, `${t('rename')} ${from}`) });
@@ -835,6 +962,7 @@ export function App() {
       setActive((a) => (gone(a) ? 'chat' : a));
       setDirty((p) => new Set([...p].filter((x) => !gone(x))));
       for (const key of [...editors.current.keys()]) if (gone(key)) editors.current.delete(key);
+      setTrail((n) => [...n.list].reduce((acc, pl) => (gone(pl.path) ? forget(acc, pl.path) : acc), n));
       setWritten((p) => [...p, path]);
     } catch (e) {
       push({ kind: 'error', text: explain(e, `${t('delete')} ${path}`) });
@@ -1548,6 +1676,21 @@ export function App() {
           )}
 
           <div className={`tabs ${!root || (showTerm && termFull) ? 'gone' : ''}`}>
+            {/* Shown only once there is a trail. A pair of permanently greyed
+                arrows is chrome; a pair that appears when it can do something
+                is an answer to "how do I get back". */}
+            {(canBack(trail) || canForward(trail)) && (
+              <span className="navb">
+                <button disabled={!canBack(trail)} onClick={() => step('back')}
+                        title={`${t('Back')} ${IS_MAC ? '⌃-' : 'Alt+←'}`} aria-label={t('Back')}>
+                  <Icon name="chevron" size={13} />
+                </button>
+                <button disabled={!canForward(trail)} onClick={() => step('forward')}
+                        title={`${t('Forward')} ${IS_MAC ? '⌃⇧-' : 'Alt+→'}`} aria-label={t('Forward')}>
+                  <Icon name="chevron" size={13} />
+                </button>
+              </span>
+            )}
             <button className={`tab ${active === 'chat' ? 'on' : ''}`} onClick={() => setActive('chat')}>
               {t('Chat')}
             </button>
@@ -1634,6 +1777,7 @@ export function App() {
                   recover={recovering.has(p)}
                   t={t}
                   onReady={(h) => { if (h) editors.current.set(p, h); else editors.current.delete(p); }}
+                  onDefinition={(name) => void goToDefinition(name)}
                   onDirty={(path, isDirty) => setDirty((prev) => {
                     const next = new Set(prev);
                     if (isDirty) next.add(path); else next.delete(path);
@@ -1807,6 +1951,10 @@ export function App() {
 
       {palette === 'open' && (
         <QuickOpen entries={tree} onOpen={(p) => openAt(p)} onClose={() => setPalette(null)} t={t} />
+      )}
+      {(palette === 'symbols' || palette === 'fileSymbols' || palette === 'defs') && (
+        <Symbols symbols={symbols} scope={palette === 'fileSymbols' ? active : null}
+                 onOpen={navigateTo} onClose={() => setPalette(null)} t={t} />
       )}
       {palette === 'find' && (
         <FindInFiles root={root} onOpen={openAt} onClose={() => setPalette(null)}

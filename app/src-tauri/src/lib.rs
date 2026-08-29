@@ -1075,6 +1075,34 @@ fn find_symbol(
     })
 }
 
+/// Every declaration in the project, for the symbol palette.
+///
+/// `find_symbol` answers "where is X", which is what the agent asks. A person
+/// opening ⌘T is asking "what is in here" and will narrow it by typing, so the
+/// whole set comes back and the ranking happens in the UI with the same fuzzy
+/// matcher ⌘P uses. Two palettes that rank differently would feel like two
+/// different applications.
+#[tauri::command]
+fn list_symbols(
+    state: tauri::State<'_, index::Indexes>,
+    root: String,
+) -> Result<Vec<index::Symbol>, String> {
+    index::with_index(&state, &root, |i| i.symbols.clone())
+}
+
+/// Declarations in a buffer the editor is holding.
+///
+/// Deliberately takes the text rather than a path. The index is built from what
+/// is on disk, so a symbol list for the open file would be missing the function
+/// you have just typed and would still list the one you have just deleted —
+/// which is worse than useless in the palette you opened to jump to it. Nothing
+/// here touches the filesystem, so there is no path to contain; the path is
+/// only read for its extension.
+#[tauri::command]
+fn symbols_in_text(path: String, text: String) -> Vec<index::Symbol> {
+    index::symbols_in(&path, &text)
+}
+
 /// Keep an unsaved buffer outside the process holding it.
 ///
 /// Called as you type, debounced. **Not** a write to the project: autosaving
@@ -1184,6 +1212,7 @@ pub fn run() {
             create_file, create_dir, rename_path, delete_path,
             git_status, git_file_head,
             checkpoint_save, checkpoint_list, checkpoint_restore, find_symbol,
+            list_symbols, symbols_in_text,
             mcp_servers, mcp_start, mcp_call, mcp_stop,
             draft_save, draft_list, draft_read, draft_clear,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close

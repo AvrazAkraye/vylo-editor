@@ -51,6 +51,8 @@ export interface EditorHandle {
   reload(): Promise<void>;
   /** Jump to a line in a file that is already open. */
   goto(line: number): void;
+  /** Where the caret is, 1-based. What the navigation trail records. */
+  line(): number;
 }
 
 export async function sha256Hex(text: string): Promise<string> {
@@ -115,6 +117,20 @@ const SYNTAX = HighlightStyle.define([
   { tag: t.invalid, color: 'var(--syn-bad)' },
 ]);
 
+/**
+ * The identifier under the caret, or the selection when there is one.
+ *
+ * A selection wins because selecting the thing you mean is the unambiguous
+ * gesture, and `wordAt` on the caret inside a selection would silently look up
+ * something else.
+ */
+function wordAtCaret(view: EditorView): string | null {
+  const sel = view.state.selection.main;
+  if (!sel.empty) return view.state.sliceDoc(sel.from, sel.to).trim() || null;
+  const w = view.state.wordAt(sel.head);
+  return w ? view.state.sliceDoc(w.from, w.to) : null;
+}
+
 function theme(dark: boolean) {
   return EditorView.theme({
     '&': { height: '100%', fontSize: '12.5px', backgroundColor: 'var(--bg)', color: 'var(--ink)' },
@@ -165,11 +181,17 @@ interface Props {
   onDirty: (path: string, dirty: boolean) => void;
   onSaved: (path: string) => void;
   onError: (message: string) => void;
+  /**
+   * F12, or ⌘-click, on an identifier. The editor knows the word; where that
+   * word is declared is a question for the project index, which lives up in
+   * App — so this hands over the name and nothing else.
+   */
+  onDefinition: (name: string) => void;
 }
 
 export function Editor({
   root, path, visible, dark, line, complete, edit, staged, recover, t,
-  onReady, onDirty, onSaved, onError,
+  onReady, onDirty, onSaved, onError, onDefinition,
 }: Props) {
   /** The ⌘K bar: where it sits, what was selected, and what came back. */
   const [ask, setAsk] = useState<{ from: number; to: number; top: number } | null>(null);
@@ -209,8 +231,8 @@ export function Editor({
   const dirtyNow = useRef(false);
   const themeC = useRef(new Compartment());
   const readOnlyC = useRef(new Compartment());
-  const cb = useRef({ onDirty, onSaved, onError, complete });
-  cb.current = { onDirty, onSaved, onError, complete };
+  const cb = useRef({ onDirty, onSaved, onError, complete, onDefinition });
+  cb.current = { onDirty, onSaved, onError, complete, onDefinition };
 
   useEffect(() => {
     const el = host.current;
@@ -243,6 +265,18 @@ export function Editor({
           },
         },
         {
+          // F12 is the binding every editor has for this, and it collides with
+          // nothing here. `wordAt` is CodeMirror's own idea of a word, so what
+          // counts as an identifier follows the language rather than a regex.
+          key: 'F12',
+          run: (view) => {
+            const word = wordAtCaret(view);
+            if (!word) return false;
+            cb.current.onDefinition(word);
+            return true;
+          },
+        },
+        {
           key: 'Mod-k',
           run: (view) => {
             const sel = view.state.selection.main;
@@ -265,6 +299,24 @@ export function Editor({
         ...closeBracketsKeymap, ...defaultKeymap, ...searchKeymap,
         ...historyKeymap, ...foldKeymap, ...completionKeymap, indentWithTab,
       ]),
+      // ⌘-click, the other half of the same gesture. `mousedown` rather than
+      // `click`: by the time a click fires the selection has already moved, and
+      // a modifier-click in CodeMirror starts a second cursor — which is what
+      // rectangularSelection and multiple selections are for, and not what was
+      // meant here.
+      EditorView.domEventHandlers({
+        mousedown: (event, view) => {
+          if (!(event.metaKey || event.ctrlKey) || event.altKey || event.shiftKey) return false;
+          if (event.button !== 0) return false;
+          const pos = view.posAtCoords({ x: event.clientX, y: event.clientY });
+          if (pos === null) return false;
+          const w = view.state.wordAt(pos);
+          if (!w) return false;
+          event.preventDefault();
+          cb.current.onDefinition(view.state.sliceDoc(w.from, w.to));
+          return true;
+        },
+      }),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       inlineEditState,
       stagedPreview,
@@ -362,6 +414,7 @@ export function Editor({
         void invoke('draft_clear', { root, path }).catch(() => {});
         cb.current.onSaved(path);
       },
+      line: () => v.state.doc.lineAt(v.state.selection.main.head).number,
       goto: (n) => {
         const l = v.state.doc.line(Math.min(Math.max(1, n), v.state.doc.lines));
         v.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: 'center' }) });

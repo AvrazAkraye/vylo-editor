@@ -595,6 +595,17 @@ body.resizing{ cursor:col-resize; user-select:none; }
   padding:0; border:0; border-right:1px solid var(--rule);
   background:transparent; color:var(--mute); cursor:pointer; white-space:nowrap;
 }
+/* Back and forward, at the head of the tab strip. The chevron points forward,
+   so it is the *back* one that is flipped -- and the flip lives on the button
+   rather than the svg, because the icon is shared. */
+.navb{ display:flex; align-items:stretch; flex:none; border-right:1px solid var(--rule); }
+.navb button{
+  display:flex; align-items:center; padding:0 var(--sp-3); border:0;
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.navb button:first-child{ transform:scaleX(-1); }
+.navb button:hover:not(:disabled){ background:var(--panel); color:var(--ink); }
+.navb button:disabled{ opacity:.35; cursor:default; }
 .tab > .tab-name, .tab:not(:has(.tab-name)){ padding:var(--sp-4) var(--sp-6); }
 .tab-name{ font:inherit; font-size:var(--fs-4); border:0; background:transparent; color:inherit; cursor:pointer; padding:var(--sp-4) var(--sp-2) var(--sp-4) var(--sp-6); }
 .tab-x{
@@ -823,6 +834,12 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .pal-row.on{ background:var(--brand-wash); color:var(--ink); }
 .pal-name{ flex:none; white-space:nowrap; }
+/* The kind of declaration -- fn, class, struct. Fixed width so the names line
+   up into a column instead of stepping in and out with each row. */
+.pal-kind{
+  flex:none; width:52px; font-size:var(--fs-2); letter-spacing:.06em;
+  text-transform:uppercase; color:var(--mute); overflow:hidden; text-overflow:ellipsis;
+}
 .pal-name b{ color:var(--brand); font-weight:700; }
 .pal-dir{
   flex:1; min-width:0; font-size:var(--fs-3); color:var(--mute); direction:rtl; text-align:left;
