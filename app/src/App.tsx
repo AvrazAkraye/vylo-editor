@@ -589,6 +589,29 @@ export function App() {
     }
   }
 
+  /**
+   * Write part of a file's proposal. The rest stays staged, so the review pane
+   * redraws showing exactly what was left behind rather than losing it.
+   */
+  async function approvePart(path: string, content: string) {
+    setBusy(true);
+    try {
+      await pending.current.applyPartial(root, path, content);
+      setChanges(pending.current.list());
+      setWritten((prev) => [...new Set([...prev, path])]);
+      if (!commitMsg) setCommitMsg(`Update ${path.split('/').pop() || path}`);
+      push({ kind: 'result', text: `Wrote part of ${path}.` });
+      history.current.push({
+        role: 'user',
+        content: `[The user approved part of your change to ${path} and wrote it. The rest of that change is still staged and NOT on disk. Re-read the file before editing it again.]`,
+      });
+    } catch (e) {
+      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function reject(paths: string[]) {
     paths.forEach((p) => pending.current.drop(p));
     setChanges(pending.current.list());
@@ -1018,7 +1041,8 @@ export function App() {
         </div>
       )}
 
-      <Review changes={changes} onApprove={approve} onReject={reject} busy={busy} t={t} />
+      <Review changes={changes} onApprove={approve} onApproveHunks={approvePart}
+              onReject={reject} busy={busy} t={t} />
 
       {git?.is_repo && written.length > 0 && (
         <div className="commit">

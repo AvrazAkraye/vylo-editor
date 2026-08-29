@@ -24,6 +24,16 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Proposed changes': 'التغييرات المقترحة',
+  '1 file proposed': 'ملف واحد مقترح',
+  'files proposed': 'ملفات مقترحة',
+  'Change': 'تغيير',
+  'not included': 'غير مُضمَّن',
+  'Write': 'كتابة',
+  'move': 'تنقّل',
+  'toggle': 'تبديل',
+  'write': 'كتابة',
+  'No changes left in this file.': 'لم تبقَ تغييرات في هذا الملف.',
   'An agent that works on a folder on this machine. Your code stays here — only your question and the snippets it chooses to read are sent.': 'وكيل يعمل على مجلد في هذا الجهاز. تبقى شيفرتك هنا — لا يُرسل سوى سؤالك والمقاطع التي يختار قراءتها.',
   'Open a folder': 'افتح مجلداً',
   'or drop one onto this window': 'أو أفلت مجلداً على هذه النافذة',
@@ -134,6 +144,16 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Proposed changes': 'گۆڕانکارییە پێشنیارکراوەکان',
+  '1 file proposed': 'یەک فایل پێشنیارکراوە',
+  'files proposed': 'فایل پێشنیارکراون',
+  'Change': 'گۆڕانکاری',
+  'not included': 'نەخراوەتە ناو',
+  'Write': 'نووسین',
+  'move': 'جوڵان',
+  'toggle': 'گۆڕین',
+  'write': 'نووسین',
+  'No changes left in this file.': 'هیچ گۆڕانکارییەک نەماوە لەم فایلەدا.',
   'An agent that works on a folder on this machine. Your code stays here — only your question and the snippets it chooses to read are sent.': 'وەکیلێک کە لەسەر بوخچەیەک لەم ئامێرەدا کار دەکات. کۆدەکەت لێرە دەمێنێتەوە — تەنها پرسیارەکەت و ئەو بەشانە دەنێردرێن کە هەڵیدەبژێرێت بۆ خوێندنەوە.',
   'Open a folder': 'بوخچەیەک بکەرەوە',
   'or drop one onto this window': 'یان یەکێک فڕێبدە سەر ئەم پەنجەرەیە',
@@ -244,6 +264,16 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Proposed changes': 'گوهۆڕینێن پێشنیارکری',
+  '1 file proposed': 'ئێک دەفتەر پێشنیارکری',
+  'files proposed': 'دەفتەر پێشنیارکرین',
+  'Change': 'گوهۆڕین',
+  'not included': 'نەهاتییە دناڤدا',
+  'Write': 'نڤیسین',
+  'move': 'جڤین',
+  'toggle': 'گوهۆڕین',
+  'write': 'نڤیسین',
+  'No changes left in this file.': 'چو گوهۆڕین نەمان د ڤێ دەفتەرێ دا.',
   'An agent that works on a folder on this machine. Your code stays here — only your question and the snippets it chooses to read are sent.': 'وەکیلەک کو ل سەر فولدەرەکێ ل ڤێ ئامێرێ کار دکەت. کۆدێ تە ل ڤێرێ دمینیت — تنێ پرسیارا تە و ئەو پارچەیێن کو ئەو هەلدبژێریت بۆ خواندنێ دهێنە هنارتن.',
   'Open a folder': 'فولدەرەکێ ڤەکە',
   'or drop one onto this window': 'یان ئێکێ بئاڤێژە سەر ڤێ پەنجەرێ',

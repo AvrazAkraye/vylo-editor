@@ -142,6 +142,23 @@ export class Pending {
     return done;
   }
 
+  /**
+   * Write part of a staged change, keeping the rest staged.
+   *
+   * After writing, `before` becomes what is now on disk and `after` stays the
+   * full proposal, so the remaining diff is exactly the hunks that were not
+   * taken — no bookkeeping, it falls out of the two strings. When everything
+   * was taken the two are equal, the diff is empty, and the change is dropped.
+   */
+  async applyPartial(root: string, path: string, content: string): Promise<void> {
+    const c = this.map.get(path);
+    if (!c) return;
+    const expectSha256 = c.isNew ? '' : await sha256Hex(c.before);
+    await invoke('apply_write', { root, path, content, expectSha256 });
+    if (content === c.after) this.map.delete(path);
+    else this.map.set(path, { path, before: content, after: c.after, isNew: false });
+  }
+
   /** Rebuild a staged change on top of the file as it is now. */
   async restage(root: string, path: string): Promise<Change | null> {
     const c = this.map.get(path);
@@ -167,6 +184,18 @@ export type Row = { kind: ' ' | '+' | '-'; text: string; a?: number; b?: number 
  * worth building.
  */
 export function diffLines(before: string, after: string, context = 3): Row[] {
+  return collapse(diffRows(before, after), context);
+}
+
+/**
+ * The same diff, with every unchanged line still in it.
+ *
+ * `diffLines` collapses long untouched runs into a `⋯` marker, which is right
+ * for reading and useless for rebuilding: the marker has no line numbers and no
+ * text, so a file cannot be reconstructed from it. Anything that has to produce
+ * content — accepting part of a change, for instance — needs these rows.
+ */
+export function diffRows(before: string, after: string): Row[] {
   const a = before.length ? before.split('\n') : [];
   const b = after.length ? after.split('\n') : [];
 
@@ -195,7 +224,75 @@ export function diffLines(before: string, after: string, context = 3): Row[] {
   while (i < a.length) rows.push({ kind: '-', text: a[i], a: ++i });
   while (j < b.length) rows.push({ kind: '+', text: b[j], b: ++j });
 
-  return collapse(rows, context);
+  return rows;
+}
+
+/**
+ * One reviewable change: a run of added and removed lines.
+ *
+ * Runs separated by only a few unchanged lines are merged, because they read as
+ * one edit and offering two checkboxes for what a person thinks of as a single
+ * change is worse than offering one. `gap` is that threshold, and defaults to
+ * twice the context shown either side so displayed hunks never overlap.
+ */
+export interface Hunk {
+  index: number;
+  /** Row indices of the first and last changed line, inclusive. */
+  from: number;
+  to: number;
+  added: number;
+  removed: number;
+}
+
+export function hunks(rows: Row[], gap = 6): Hunk[] {
+  const runs: { from: number; to: number }[] = [];
+  let i = 0;
+  while (i < rows.length) {
+    if (rows[i].kind === ' ') { i++; continue; }
+    const from = i;
+    while (i < rows.length && rows[i].kind !== ' ') i++;
+    runs.push({ from, to: i - 1 });
+  }
+
+  const merged: { from: number; to: number }[] = [];
+  for (const r of runs) {
+    const last = merged[merged.length - 1];
+    if (last && r.from - last.to - 1 <= gap) last.to = r.to;
+    else merged.push({ ...r });
+  }
+
+  return merged.map((r, index) => {
+    let added = 0, removed = 0;
+    for (let k = r.from; k <= r.to; k++) {
+      if (rows[k].kind === '+') added++;
+      else if (rows[k].kind === '-') removed++;
+    }
+    return { index, from: r.from, to: r.to, added, removed };
+  });
+}
+
+/**
+ * The file that results from accepting some hunks and not others.
+ *
+ * A rejected hunk keeps what was there: its removals stay and its additions are
+ * dropped. An accepted hunk does the opposite. Context lines are always kept,
+ * which is what makes the two cases compose — accepting every hunk reproduces
+ * `after` exactly, accepting none reproduces `before`.
+ *
+ * Takes the hunk list rather than recomputing it, so the boundaries the person
+ * ticked are provably the boundaries applied.
+ */
+export function buildPartial(rows: Row[], list: Hunk[], accepted: Set<number>): string {
+  const owner = new Map<number, number>();
+  for (const h of list) for (let i = h.from; i <= h.to; i++) owner.set(i, h.index);
+
+  const out: string[] = [];
+  rows.forEach((r, i) => {
+    if (r.kind === ' ') { out.push(r.text); return; }
+    const on = accepted.has(owner.get(i) ?? -1);
+    if (r.kind === '+' ? on : !on) out.push(r.text);
+  });
+  return out.join('\n');
 }
 
 /** Hide long runs of untouched lines, so a one-line change in a big file reads as one change. */
