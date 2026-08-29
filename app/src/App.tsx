@@ -140,6 +140,9 @@ export function App() {
   // The active terminal's output, for `@terminal`. The panel hands this over
   // when it mounts so the composer can pull rather than the panel having to push.
   const termText = useRef<(() => string) | null>(null);
+  // Monotonic within a chat. Restoring drops this checkpoint and every later
+  // one, so ids are never reused within a run.
+  const cpSeq = useRef(0);
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
@@ -634,6 +637,9 @@ export function App() {
   async function approve(paths: string[]) {
     setBusy(true);
     try {
+      // Snapshot before writing, not after: once apply() has run the previous
+      // contents only exist in the staged change, which it then discards.
+      const cp = await snapshot(paths);
       const done = await pending.current.apply(root, paths);
       setChanges(pending.current.list());
       setWritten((prev) => [...new Set([...prev, ...done])]);
@@ -642,7 +648,11 @@ export function App() {
         const name = done[0].split('/').pop() || done[0];
         setCommitMsg(done.length === 1 ? `Update ${name}` : `Update ${name} and ${done.length - 1} more`);
       }
-      push({ kind: 'result', text: `Wrote ${done.length} file${done.length === 1 ? '' : 's'}: ${done.join(', ')}` });
+      push({
+        kind: 'result',
+        text: `Wrote ${done.length} file${done.length === 1 ? '' : 's'}: ${done.join(', ')}`,
+        cp: cp ?? undefined,
+      });
       // Tell the agent what landed, so a follow-up turn knows the state of the
       // disk rather than assuming its proposal is still pending.
       history.current.push({
@@ -683,6 +693,65 @@ export function App() {
         role: 'user',
         content: `[The user approved part of your change to ${path} and wrote it. The rest of that change is still staged and NOT on disk. Re-read the file before editing it again.]`,
       });
+    } catch (e) {
+      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Record what the files about to be written look like now.
+   *
+   * Returns null when there is nothing to record or the store is unavailable —
+   * a checkpoint failing is not a reason to refuse a write the user asked for,
+   * it just means that particular turn has no undo, and the missing button
+   * says so by its absence.
+   */
+  async function snapshot(paths: string[]): Promise<{ seq: number; hist: number } | null> {
+    const staged = pending.current.list().filter((c) => paths.includes(c.path));
+    if (!staged.length) return null;
+    const seq = ++cpSeq.current;
+    try {
+      await invoke('checkpoint_save', {
+        chatId: chatId.replace(/[^A-Za-z0-9_-]/g, ''),
+        seq,
+        files: staged.map((c) => ({ path: c.path, content: c.before, existed: !c.isNew })),
+      });
+      return { seq, hist: history.current.length };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Put the files back, and the conversation with them. */
+  async function restore(index: number, cp: { seq: number; hist: number }) {
+    const meta = await invoke<{ seq: number; paths: string[] }[]>('checkpoint_list', {
+      chatId: chatId.replace(/[^A-Za-z0-9_-]/g, ''),
+    }).catch(() => []);
+    const affected = [...new Set(meta.filter((m) => m.seq >= cp.seq).flatMap((m) => m.paths))].sort();
+    const ok = window.confirm(
+      `${t('Undo this change and everything after it?')}\n\n${affected.join('\n')}\n\n`
+      + t('These files go back to how they were, losing any edits made since. The conversation is cut back to this point.'),
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      const done = await invoke<string[]>('checkpoint_restore', {
+        chatId: chatId.replace(/[^A-Za-z0-9_-]/g, ''), seq: cp.seq, root,
+      });
+      // Staged changes were proposed against files that no longer look like
+      // that, so keeping them would offer a diff against a version that is gone.
+      pending.current.clear();
+      setChanges([]);
+      history.current = history.current.slice(0, cp.hist);
+      setLines((p) => p.slice(0, index));
+      setWritten([]);
+      // Reload every open buffer, or the editor keeps showing the version that
+      // was just rolled back and would write it straight over the restore.
+      for (const h of editors.current.values()) await h.reload().catch(() => {});
+      push({ kind: 'result', text: `${t('Restored')} ${done.length} ${done.length === 1 ? t('file') : t('files')}.` });
     } catch (e) {
       push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
     } finally {
@@ -1010,6 +1079,13 @@ export function App() {
             {item.kind === 'text'
               ? <div className="body"><Markdown text={item.text} /></div>
               : <span className="body">{item.text}</span>}
+            {item.cp && (
+              <button className="undo-cp" disabled={busy}
+                      onClick={() => void restore(i, item.cp!)}
+                      title={t('Undo this change and everything after it?')}>
+                <Icon name="restore" size={12} />{t('Undo this write')}
+              </button>
+            )}
           </div>
         ))}
         {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}

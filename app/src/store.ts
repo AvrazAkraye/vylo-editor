@@ -18,6 +18,12 @@ export interface Line {
   kind: 'you' | 'text' | 'tool' | 'result' | 'error';
   text: string;
   at?: number;
+  /**
+   * Set on the line reporting an approved write, so that turn can be undone.
+   * `hist` is how long the conversation was before the write, which is where
+   * restoring truncates it back to.
+   */
+  cp?: { seq: number; hist: number };
 }
 
 export interface Chat {

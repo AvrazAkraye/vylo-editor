@@ -20,6 +20,7 @@
 //!    shows a diff; nothing touches the disk until a human clicks. That is why
 //!    the dangerous verb can exist at all — it is not wired to the model.
 
+mod checkpoint;
 mod pty;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -58,7 +59,7 @@ pub struct Hit {
 /// `canonicalize` is what makes this real: it resolves `..` and symlinks, so a
 /// path that *looks* contained but escapes through a link is caught. The root
 /// is canonicalized too, otherwise the prefix comparison is meaningless.
-fn resolve(root: &str, rel: &str) -> Result<PathBuf, String> {
+pub(crate) fn resolve(root: &str, rel: &str) -> Result<PathBuf, String> {
     let root = Path::new(root)
         .canonicalize()
         .map_err(|e| format!("workspace root is unreadable: {e}"))?;
@@ -713,6 +714,48 @@ fn git_commit(root: String, message: String, paths: Vec<String>) -> Result<Commi
     })
 }
 
+/// Where snapshots live. The app data directory, never the repository — undo
+/// history for a change showing up as another change would be absurd.
+fn store(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager as _;
+    app.path()
+        .app_data_dir()
+        .map_err(|e| format!("no app data directory: {e}"))
+}
+
+/// Record what these files looked like before an approved change is written.
+///
+/// **Only the approval flow calls this**, like `apply_write`, and like it this
+/// is absent from the tool schema.
+#[tauri::command]
+fn checkpoint_save(
+    app: tauri::AppHandle,
+    chat_id: String,
+    seq: u64,
+    files: Vec<checkpoint::Snapshot>,
+) -> Result<(), String> {
+    checkpoint::save_at(&store(&app)?, &chat_id, seq, files)
+}
+
+#[tauri::command]
+fn checkpoint_list(app: tauri::AppHandle, chat_id: String) -> Result<Vec<checkpoint::Meta>, String> {
+    checkpoint::list_at(&store(&app)?, &chat_id)
+}
+
+/// Put the workspace back to how it was before `seq`. Destructive by design;
+/// the confirmation in the UI names every file first.
+#[tauri::command]
+fn checkpoint_restore(
+    app: tauri::AppHandle,
+    chat_id: String,
+    seq: u64,
+    root: String,
+) -> Result<Vec<String>, String> {
+    // Paths came from our own store, but they are still paths being written to
+    // a user's disk, so they go through the same containment as everything else.
+    checkpoint::restore_at(&store(&app)?, &chat_id, seq, |rel| resolve(&root, rel))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -734,6 +777,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
             apply_write, file_hash, git_state, run_command, git_create_branch, git_commit,
+            checkpoint_save, checkpoint_list, checkpoint_restore,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
         ])
         .run(tauri::generate_context!())

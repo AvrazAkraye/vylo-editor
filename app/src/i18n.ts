@@ -24,6 +24,12 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'files': 'ملفات',
+  'Undo this write': 'تراجع عن هذه الكتابة',
+  'Undo this change and everything after it?': 'التراجع عن هذا التغيير وكل ما بعده؟',
+  'These files go back to how they were, losing any edits made since. The conversation is cut back to this point.': 'ستعود هذه الملفات إلى ما كانت عليه، وتُفقد أي تعديلات لاحقة. وتُقتطع المحادثة إلى هذه النقطة.',
+  'Restored': 'تمت الاستعادة',
+  'file': 'ملف',
   'Mention a file': 'ذكر ملفاً',
   'Describe the change…': 'صف التغيير…',
   'Describe what to write here…': 'صف ما يُكتب هنا…',
@@ -82,7 +88,6 @@ const ar: Dict = {
   'Match case': 'مطابقة حالة الأحرف',
   'Whole word': 'كلمة كاملة',
   'Search': 'بحث',
-  'files': 'ملفات',
   'Terminal': 'الطرفية',
   'New terminal': 'طرفية جديدة',
   'Close': 'إغلاق',
@@ -160,6 +165,11 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Undo this write': 'گەڕانەوە لەم نووسینە',
+  'Undo this change and everything after it?': 'ئەم گۆڕانکارییە و هەموو ئەوەی دوای بگەڕێندرێتەوە؟',
+  'These files go back to how they were, losing any edits made since. The conversation is cut back to this point.': 'ئەم فایلانە دەگەڕێنەوە بۆ دۆخی پێشوو، هەر دەستکارییەکی دوایی لەدەست دەچێت. گفتوگۆکەش تا ئێرە کورت دەکرێتەوە.',
+  'Restored': 'گەڕێندرایەوە',
+  'file': 'فایل',
   'Mention a file': 'ئاماژە بە فایلێک',
   'Describe the change…': 'گۆڕانکارییەکە باس بکە…',
   'Describe what to write here…': 'باسی ئەوە بکە کە لێرە بنووسرێت…',
@@ -296,6 +306,12 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Undo this write': 'ڤەگەڕاندنا ڤێ نڤیسینێ',
+  'Undo this change and everything after it?': 'ئەڤ گوهۆڕین و هەمی یێن پشتی وێ بێنە ڤەگەڕاندن؟',
+  'These files go back to how they were, losing any edits made since. The conversation is cut back to this point.': 'ئەڤ دەفتەر دێ ڤەگەڕن سەر دۆخێ خۆ یێ بەری، هەر دەستکارییەکا پشتی وێ دێ وندا بیت. ئاخڤتن ژی دێ هێتە قرتاندن هەتا ڤێرێ.',
+  'Restored': 'هاتە ڤەگەڕاندن',
+  'file': 'دەفتەر',
+  'files': 'دەفتەر',
   'Mention a file': 'ئاماژە ب دەفتەرەکێ',
   'Describe the change…': 'گوهۆڕینێ شرۆڤە بکە…',
   'Describe what to write here…': 'شرۆڤە بکە چ ل ڤێرێ بێتە نڤیسین…',
@@ -354,7 +370,6 @@ const kmr: Dict = {
   'Match case': 'جودایا تیپێن مەزن و بچویک',
   'Whole word': 'پەیڤا تەمام',
   'Search': 'لێگەریان',
-  'files': 'دەفتەران',
   'Terminal': 'تێرمینال',
   'New terminal': 'تێرمینالەکێ نوی',
   'Close': 'دادان',

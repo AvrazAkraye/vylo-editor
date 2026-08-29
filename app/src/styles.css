@@ -1054,3 +1054,15 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   color:var(--ink-2);
 }
 .chip.mention .ic{ color:var(--brand); }
+
+/* ── checkpoint undo ─────────────────────────────────────────────────── */
+/* On the line that reported the write, because that is where someone looks
+   when they decide they did not want it. */
+.undo-cp{
+  display:inline-flex; align-items:center; gap:var(--sp-2); margin-left:var(--sp-4);
+  padding:var(--sp-1) var(--sp-3); font:inherit; font-size:var(--fs-2);
+  border:1px solid var(--rule); border-radius:var(--r-1);
+  background:var(--panel); color:var(--mute); cursor:pointer; vertical-align:middle;
+}
+.undo-cp:hover:not(:disabled){ color:var(--err); border-color:var(--err); }
+.undo-cp:disabled{ opacity:.45; cursor:default; }
