@@ -2,6 +2,7 @@ import { Annotation, StateEffect, StateField, type Extension } from '@codemirror
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { SSEDecoder, TurnAssembler } from './sse';
 import { diffRows } from './pending';
+import { limitsFor } from './budget';
 
 /**
  * ⌘K — rewrite a selection in place.
@@ -234,7 +235,10 @@ export async function askRaw(
     },
     body: JSON.stringify({
       model: gw.model,
-      max_tokens: 4096,
+      // A selection rewrite is bounded by the selection, but a 300-line one
+      // needs more than 4096 tokens to come back, and a reply cut off
+      // mid-function is applied as if it were the whole answer.
+      max_tokens: limitsFor(gw.model).maxOutput,
       system,
       messages: [{ role: 'user', content: user }],
       stream: true,

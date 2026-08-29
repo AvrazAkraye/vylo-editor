@@ -86,8 +86,8 @@ a file in has chosen it explicitly.
 ## Commands
 
 - `npm run build` — typecheck and bundle the frontend
-- `npm test` — diff, SSE assembly and fuzzy ranking (37)
-- `cd src-tauri && cargo test` — 9, including the stale-write guard
+- `npm test` — the pure logic: diffs, SSE assembly, ranking, context fitting (389)
+- `cd src-tauri && cargo test` — 37, including the stale-write guard
 - `npx tauri build` — produces the `.app` and `.dmg`
 
 Release with `scripts/publish-macos.sh`, then `scripts/publish-windows.sh`
@@ -124,6 +124,21 @@ pieces. Two rules live there:
 - Stopping mid-turn keeps **text only**. A `tool_use` block with no matching
   `tool_result` makes the *next* request fail, so half a tool call would poison
   the conversation rather than end it.
+
+## Context
+
+`app/src/budget.ts` fits the conversation into the model's window before every
+request. It matters that the cut is only ever made at a **turn start** — a user
+message that is a real question rather than a carrier for `tool_result` blocks.
+Cutting anywhere else separates a `tool_use` from its result, and the next
+request then fails for being malformed, which never recovers on its own; the
+context error at least does. Order of loss: trim old tool results, then
+summarise older turns into the system prompt, then keep fewer turns.
+
+`max_tokens` comes from the same table. Unknown model ids get 4096 — the value
+the app always sent — because a `max_tokens` above what a model accepts fails
+the request outright, and guessing high on an unfamiliar id breaks the one case
+where someone is doing something deliberate.
 
 ## Gotchas that have already cost time
 

@@ -52,6 +52,12 @@ ok('a binary file says so',
    advises('a.png: not valid UTF-8 (binary?)', 'binary file'));
 ok('a containment refusal explains the boundary',
    advises('/etc/passwd escapes the workspace', 'inside the open folder'));
+ok('a conversation past the context window says what to do',
+   advises('prompt is too long: 249890 tokens > 200000 maximum', 'start a new chat'));
+ok('and is not mistaken for a file that is too large',
+   !advises('prompt is too long: 249890 tokens > 200000 maximum', 'read part of it'));
+ok('a rejected max_tokens points at the model picker',
+   advises('max_tokens: 16384 > 8192, which is the maximum allowed', 'choose another model'));
 
 // ── not saying it twice ───────────────────────────────────────────────────
 {

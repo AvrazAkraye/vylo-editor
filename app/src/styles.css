@@ -841,6 +841,10 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .send{ gap:var(--sp-4); }
 .status .ac{ display:inline-flex; align-items:center; }
 .status span{ display:inline-flex; align-items:center; gap:var(--sp-3); }
+/* Context meter. Tabular figures so the percentage does not shuffle the items
+   to its right as it climbs. */
+.status .ctxm{ font-variant-numeric:tabular-nums; }
+.status .ctxm.hot{ color:var(--warn); font-weight:600; }
 .ft-icon{ display:inline-flex; align-items:center; justify-content:center; }
 .chip .doc{ display:inline-flex; align-items:center; }
 

@@ -171,6 +171,9 @@ export function App() {
   const [quitError, setQuitError] = useState<string | null>(null);
   const [lastTurn, setLastTurn] = useState<Usage>(NO_USAGE);
   const [chatTokens, setChatTokens] = useState<Usage>(NO_USAGE);
+  // How much of the model's context the next request would use. Set before
+  // every hop, so it reflects the conversation as it actually stands.
+  const [ctx, setCtx] = useState<{ used: number; limit: number } | null>(null);
   /** Unsaved buffers from a session that did not end cleanly. */
   const [drafts, setDrafts] = useState<{ path: string; base: string; at: number }[]>([]);
   /** Files the user chose to recover; the editor reads its draft on mount. */
@@ -559,12 +562,16 @@ export function App() {
       history.current = latest.history;
       setChatTokens(latest.tokens ?? NO_USAGE);
       setLastTurn(NO_USAGE);
+      setCtx(null);
+    setCtx(null);
     } else {
       setChatId(newChatId());
       setLines([]);
       history.current = [];
       setChatTokens(NO_USAGE);
       setLastTurn(NO_USAGE);
+      setCtx(null);
+    setCtx(null);
     }
   }, [root]);
 
@@ -1001,6 +1008,7 @@ export function App() {
     pending.current.clear();
     setChatTokens(NO_USAGE);
     setLastTurn(NO_USAGE);
+    setCtx(null);
     setActive('chat');
   }
 
@@ -1010,6 +1018,7 @@ export function App() {
     history.current = c.history;
     setChatTokens(c.tokens ?? NO_USAGE);
     setLastTurn(NO_USAGE);
+    setCtx(null);
     // Staged edits belong to the thread that proposed them; carrying them into
     // another conversation would offer changes with no visible reason.
     pending.current.clear();
@@ -1210,6 +1219,15 @@ export function App() {
         askToRun,
         mode,
         onUsage: (u) => { setLastTurn(u); setChatTokens((p) => add(p, u)); },
+        onContext: (used, limit) => setCtx({ used, limit }),
+        // Silent compaction is how a tool loses trust: the model forgets
+        // something, the answer gets worse, and nothing said why. Say it once.
+        onCompact: ({ dropped }) => push({
+          kind: 'result',
+          text: dropped
+            ? `${t('Summarised')} ${dropped} ${t('earlier messages to stay inside the context window.')}`
+            : t('Trimmed older tool output to stay inside the context window.'),
+        }),
         extraTools: Object.entries(mcpTools)
           .flatMap(([server, tools]) => tools.map((t) => toSchema(server, t))),
         runInTerminal: (command) => {
@@ -1919,6 +1937,14 @@ export function App() {
         {total(chatTokens) > 0 && (
           <span title={t('Tokens used by this conversation')}>
             <Icon name="bolt" size={11} />{compact(total(chatTokens))}
+          </span>
+        )}
+        {/* Only once it is worth knowing. A fresh chat sits near a tenth of the
+            window on the tool schemas alone, and reporting that is noise. */}
+        {ctx && ctx.used / ctx.limit >= 0.5 && (
+          <span className={`ctxm ${ctx.used / ctx.limit >= 0.85 ? 'hot' : ''}`}
+                title={t('How full the model context is')}>
+            {Math.round((ctx.used / ctx.limit) * 100)}% {t('context')}
           </span>
         )}
         <span className="sp" />

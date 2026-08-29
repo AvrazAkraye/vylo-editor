@@ -4,6 +4,7 @@ import { appendFact, MEMORY_FILE } from './memory';
 import { callTool, splitTool } from './mcp';
 import { SSEDecoder, TurnAssembler } from './sse';
 import { add, fold, NO_USAGE, type Usage } from './usage';
+import { fit, limitsFor, estimateText, summaryBlock, type Fitted } from './budget';
 
 /**
  * The agent loop.
@@ -396,6 +397,13 @@ export interface RunOptions {
   mode?: Mode;
   /** Tokens for the whole turn, once it ends. Hops are summed. */
   onUsage?: (u: Usage) => void;
+  /**
+   * How full the context is, before each request. Lets the status bar show the
+   * wall coming rather than announcing it after impact.
+   */
+  onContext?: (used: number, limit: number) => void;
+  /** Called once, the first time a turn has to drop history to fit. */
+  onCompact?: (info: { dropped: number; trimmed: number; kept: number }) => void;
 }
 
 /** Raised when the user stops a turn. Not an error to report as a failure. */
@@ -415,9 +423,33 @@ function toolsFor(o: RunOptions): unknown[] {
   return [...TOOLS, ...(o.extraTools ?? [])];
 }
 
-function system(o: RunOptions): string {
+function system(o: RunOptions, summary = ''): string {
   const base = o.mode === 'ask' ? `${BASE_SYSTEM}\n${ASK_NOTE}` : BASE_SYSTEM;
-  return o.memory ? `${base}\n\n${o.memory}` : base;
+  const parts = [base];
+  if (o.memory) parts.push(o.memory);
+  // After the memory: what the model was just told about the project outranks
+  // an account of a conversation it can no longer see.
+  const cut = summaryBlock(summary);
+  if (cut) parts.push(cut);
+  return parts.join('\n\n');
+}
+
+/**
+ * Everything in a request that is not `messages`, in tokens.
+ *
+ * The reply is counted too. Anthropic requires the input and `max_tokens`
+ * together to fit inside the context window, so room for the answer has to be
+ * reserved before deciding how much of the conversation to send — otherwise a
+ * request that fits perfectly is rejected for having nowhere to put its reply.
+ */
+function overheadOf(o: RunOptions, maxOutput: number): number {
+  return estimateText(system(o))
+    + estimateText(JSON.stringify(toolsFor(o)))
+    + maxOutput
+    // The estimate is a character count, not a tokeniser. A margin costs a
+    // little of a 200k window and covers being wrong in the direction that
+    // fails the request.
+    + 2000;
 }
 
 export async function runAgent(o: RunOptions): Promise<Msg[]> {
@@ -427,8 +459,23 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
   // understate a turn that read six files before answering.
   let spent: Usage = NO_USAGE;
   const report = () => o.onUsage?.(spent);
+  const limits = limitsFor(o.model);
+  // Announced once per turn, not once per hop: a long turn compacts on every
+  // request after the first, and saying so nine times is noise.
+  let toldAboutCompaction = false;
 
   for (let hop = 0; hop < maxHops; hop++) {
+    // Fit before every request, not once per turn — a turn that reads six files
+    // can cross the line partway through, and the hop that crosses it is the
+    // one that would fail.
+    const fitted: Fitted = fit(messages, limits, overheadOf(o, limits.maxOutput));
+    o.onContext?.(fitted.tokens + overheadOf(o, limits.maxOutput), limits.context);
+    if (!toldAboutCompaction && (fitted.dropped || fitted.trimmed)) {
+      toldAboutCompaction = true;
+      o.onCompact?.({
+        dropped: fitted.dropped, trimmed: fitted.trimmed, kept: fitted.messages.length,
+      });
+    }
     let res: Response;
     try {
       res = await fetch(`${o.baseUrl}/v1/messages`, {
@@ -441,10 +488,10 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
         },
         body: JSON.stringify({
           model: o.model,
-          max_tokens: 4096,
-          system: system(o),
+          max_tokens: limits.maxOutput,
+          system: system(o, fitted.summary),
           tools: toolsFor(o),
-          messages,
+          messages: fitted.messages,
           stream: true,
         }),
       });

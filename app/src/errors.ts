@@ -18,6 +18,11 @@ const ADVICE: { when: RegExp; then: string }[] = [
   { when: /workspace root is unreadable/i, then: 'The folder may have been moved or deleted — open it again.' },
   { when: /escapes the (workspace|open folder)|outside the open folder/i, then: 'Only files inside the open folder can be reached.' },
   { when: /not valid UTF-8|binary/i, then: 'This looks like a binary file rather than text.' },
+  // Reached only when the estimate in budget.ts was optimistic, or the model
+  // has a smaller window than the table says. Compaction is automatic, so the
+  // remaining fix is a different conversation or a different model.
+  { when: /prompt is too long|context length|context window/i, then: 'This conversation no longer fits the model — start a new chat, or choose a model with a larger context.' },
+  { when: /max_tokens/i, then: 'That model accepts shorter replies than the app asked for — choose another model in the composer.' },
   { when: /exceeds the .* read limit|too large/i, then: 'Ask the agent to read part of it, or open it in the editor.' },
   { when: /rejected the API key|authentication_error|invalid api key/i, then: 'Check the key in Settings.' },
   { when: /rate limit/i, then: 'Wait a moment, or check your plan at chat.vylo-tech.com.' },
