@@ -44,9 +44,10 @@ a file in has chosen it explicitly.
 ## Commands
 
 - `npm run build` — typecheck and bundle the frontend
-- `npm test` — the diff tests (11)
+- `npm test` — diff, SSE assembly and fuzzy ranking (37)
 - `cd src-tauri && cargo test` — containment, command timeout, output truncation,
-  commit scope, and the terminal — pty round-trip and UTF-8 chunk boundaries (7)
+  commit scope, search flags, and the terminal — pty round-trip and UTF-8
+  chunk boundaries (8)
 - `npx tauri build` — produces the `.app` and `.dmg`
 
 Releases and the signing key are documented in `docs/RELEASING.md`. Windows
@@ -64,6 +65,20 @@ and again in `:root[data-theme="dark"]` so the toggle wins in both directions.
 own ground. `--fill` is the solid accent *behind* text and stays saturated in
 both themes — one token cannot do both jobs without putting white text on pale
 lavender.
+
+## Streaming
+
+`app/src/sse.ts` assembles a turn from the event stream and is tested against
+fragmentation a live connection only produces by luck — chunk boundaries at
+every offset, and a tool call's arguments split into individually-invalid JSON
+pieces. Two rules live there:
+
+- A tool's arguments arrive as `input_json_delta` fragments and are parsed only
+  at `content_block_stop`. A tool with no arguments sends nothing at all, not
+  `{}`.
+- Stopping mid-turn keeps **text only**. A `tool_use` block with no matching
+  `tool_result` makes the *next* request fail, so half a tool call would poison
+  the conversation rather than end it.
 
 ## Gotchas that have already cost time
 

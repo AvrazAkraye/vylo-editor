@@ -151,14 +151,35 @@ fn read_file(root: String, path: String) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| format!("{path}: not valid UTF-8 (binary?)"))
 }
 
+/// True when `at..at+len` in `hay` is not butted against another word character.
+fn word_bounded(hay: &str, at: usize, len: usize) -> bool {
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let before = hay[..at].chars().next_back().map(word).unwrap_or(false);
+    let after = hay[at + len..].chars().next().map(word).unwrap_or(false);
+    !before && !after
+}
+
 /// Plain substring search across the tree. Deliberately not a regex engine --
 /// the agent asks for literals far more often, and a bad regex from a model can
 /// pin a core.
+///
+/// The flags exist for the human find-in-files panel and both default to the
+/// agent's original behaviour, so the tool call is unchanged: a person typing
+/// "todo" means any case, a model asking for `TODO` means exactly that.
 #[tauri::command]
-fn search(root: String, query: String, max_hits: Option<usize>) -> Result<Vec<Hit>, String> {
+fn search(
+    root: String,
+    query: String,
+    max_hits: Option<usize>,
+    case_insensitive: Option<bool>,
+    whole_word: Option<bool>,
+) -> Result<Vec<Hit>, String> {
     if query.trim().is_empty() {
         return Err("search query is empty".into());
     }
+    let fold = case_insensitive.unwrap_or(false);
+    let words = whole_word.unwrap_or(false);
+    let needle = if fold { query.to_lowercase() } else { query.clone() };
     let cap = max_hits.unwrap_or(200);
     let base = Path::new(&root)
         .canonicalize()
@@ -188,7 +209,32 @@ fn search(root: String, query: String, max_hits: Option<usize>) -> Result<Vec<Hi
             Err(_) => continue,
         };
         for (i, line) in text.lines().enumerate() {
-            if line.contains(&query) {
+            // Case folding changes byte offsets in general, so word boundaries
+            // are checked against whichever string the offset came from.
+            let hay = if fold { line.to_lowercase() } else { line.to_string() };
+            // Every occurrence has to be considered, not just the first: in
+            // `autodoc todo` the leading hit is not word-bounded and the real
+            // one is, and stopping at the first would miss the line entirely.
+            let matched = if words {
+                let mut from = 0;
+                loop {
+                    match hay[from..].find(&needle) {
+                        None => break false,
+                        Some(rel) => {
+                            let at = from + rel;
+                            if word_bounded(&hay, at, needle.len()) {
+                                break true;
+                            }
+                            // Advancing by the needle keeps `from` on a char
+                            // boundary, which slicing a &str requires.
+                            from = at + needle.len();
+                        }
+                    }
+                }
+            } else {
+                hay.contains(&needle)
+            };
+            if matched {
                 hits.push(Hit {
                     path: rel.clone(),
                     line: i + 1,
@@ -730,6 +776,32 @@ mod tests {
     }
 
     /// The containment rule is the security model, so it gets the test.
+    /// The two flags exist for the human panel and must not change what the
+    /// agent's tool call already does, so this pins both behaviours at once.
+    #[test]
+    fn search_flags_fold_case_and_bound_words_without_changing_the_default() {
+        let tmp = std::env::temp_dir().join(format!("vylo_search_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        // `autodoc` contains `todo` without being it -- the whole-word case.
+        // The last line puts a bounded match *after* an unbounded one.
+        fs::write(tmp.join("a.txt"), "TODO: one\ntodo: two\nautodoc\nautodoc todo\n").unwrap();
+        let root = tmp.to_string_lossy().to_string();
+        let find = |q: &str, fold: Option<bool>, words: Option<bool>| {
+            search(root.clone(), q.into(), None, fold, words).unwrap().len()
+        };
+
+        // Default: exactly what the model asked for, as before.
+        assert_eq!(find("TODO", None, None), 1, "default stays case-sensitive");
+        assert_eq!(find("todo", None, None), 3, "lowercase also hits both autodoc lines");
+
+        assert_eq!(find("TODO", Some(true), None), 4, "folding finds every line");
+        assert_eq!(find("todo", Some(true), Some(true)), 3, "whole word drops bare autodoc only");
+        assert_eq!(find("utodo", Some(true), Some(true)), 0, "a fragment is never a whole word");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
     #[test]
     fn refuses_paths_that_escape_the_root() {
         let tmp = std::env::temp_dir().join("vylo_editor_test_root");

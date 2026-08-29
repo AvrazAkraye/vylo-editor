@@ -1,13 +1,13 @@
 {
   "name": "vylo-editor",
   "private": true,
-  "version": "0.5.1",
+  "version": "0.6.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
-    "test": "esbuild src/pending.ts --bundle --format=esm --outfile=.test-build/pending.js --external:@tauri-apps/api/core --log-level=error && node test/diff.test.mjs",
+    "test": "esbuild src/pending.ts src/sse.ts src/fuzzy.ts --bundle --format=esm --outdir=.test-build --external:@tauri-apps/api/core --log-level=error && node test/diff.test.mjs && node test/sse.test.mjs && node test/fuzzy.test.mjs",
     "test:rust": "cd src-tauri && cargo test"
   },
   "dependencies": {

@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Pending } from './pending';
 import { appendFact, MEMORY_FILE } from './memory';
+import { SSEDecoder, TurnAssembler } from './sse';
 
 /**
  * The agent loop.
@@ -272,11 +273,24 @@ export interface RunOptions {
   /** Project memory block, appended to the system prompt. Empty when there is none. */
   memory?: string;
   /** Called as the loop progresses so the UI can show work in flight. */
-  onEvent: (e: { kind: 'text' | 'tool' | 'result'; text: string }) => void;
+  onEvent: (e: { kind: 'tool' | 'result'; text: string }) => void;
+  /**
+   * A piece of the reply, as it is written. Called once per delta when
+   * streaming and once per block when not, so the caller has one path either
+   * way and never has to know which transport ran.
+   */
+  onDelta: (text: string) => void;
+  /** Aborts the turn. The partial reply is kept; incomplete tool calls are not. */
+  signal?: AbortSignal;
   /** Fired whenever the staged set changes, so the review panel can update mid-turn. */
   onStaged?: () => void;
   /** Stop after this many model round-trips. A loop that will not terminate is a bill. */
   maxHops?: number;
+}
+
+/** Raised when the user stops a turn. Not an error to report as a failure. */
+export class Stopped extends Error {
+  constructor() { super('stopped'); this.name = 'Stopped'; }
 }
 
 export async function runAgent(o: RunOptions): Promise<Msg[]> {
@@ -288,6 +302,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     try {
       res = await fetch(`${o.baseUrl}/v1/messages`, {
         method: 'POST',
+        signal: o.signal,
         headers: {
           'content-type': 'application/json',
           'x-api-key': o.apiKey,
@@ -299,9 +314,11 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
           system: o.memory ? `${BASE_SYSTEM}\n\n${o.memory}` : BASE_SYSTEM,
           tools: TOOLS,
           messages,
+          stream: true,
         }),
       });
     } catch (e) {
+      if (o.signal?.aborted) throw new Stopped();
       // A webview reports every network-layer failure as "Load failed", which
       // reads like a broken key or a dead server and is neither. Name the three
       // things it actually is, in the order they are worth checking.
@@ -323,22 +340,62 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
       if (res.status === 429) throw new Error(`Rate limited by the gateway — wait a moment. (${detail})`);
       throw new Error(`Gateway ${res.status}: ${detail}`);
     }
-    const reply = await res.json();
-    const blocks: Block[] = Array.isArray(reply.content) ? reply.content : [];
+    let blocks: Block[];
+    let stopReason: string | null;
 
-    for (const b of blocks) {
-      if (b.type === 'text' && b.text.trim()) o.onEvent({ kind: 'text', text: b.text });
+    if (res.headers.get('content-type')?.includes('text/event-stream') && res.body) {
+      const assembler = new TurnAssembler();
+      const decoder = new SSEDecoder();
+      const reader = res.body.getReader();
+      const utf8 = new TextDecoder();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          // stream:true keeps a multi-byte character intact across chunks.
+          for (const ev of decoder.decode(utf8.decode(value, { stream: true }))) {
+            assembler.push(ev, (t) => o.onDelta(t));
+          }
+        }
+      } catch (e) {
+        // Stopping mid-stream keeps the text and drops everything else. A
+        // tool_use block with no matching tool_result makes the very NEXT
+        // request fail, so half a tool call would poison the conversation
+        // rather than end the turn.
+        if (o.signal?.aborted) {
+          const partial = assembler.partialText();
+          if (partial.trim()) messages.push({ role: 'assistant', content: partial });
+          throw new Stopped();
+        }
+        throw e;
+      } finally {
+        reader.releaseLock();
+      }
+      if (assembler.error) throw new Error(assembler.error);
+      blocks = assembler.blocks();
+      stopReason = assembler.stopReason;
+    } else {
+      // A gateway that does not stream still answers, and an app that only
+      // works against the newest server is a support problem.
+      const reply = await res.json();
+      blocks = Array.isArray(reply.content) ? reply.content : [];
+      stopReason = reply.stop_reason ?? null;
+      for (const b of blocks) {
+        if (b.type === 'text' && b.text.trim()) o.onDelta(b.text);
+      }
     }
+
     messages.push({ role: 'assistant', content: blocks });
 
     const calls = blocks.filter((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use');
-    if (reply.stop_reason !== 'tool_use' || calls.length === 0) return messages;
+    if (stopReason !== 'tool_use' || calls.length === 0) return messages;
 
     // Every tool_result for a turn goes back in ONE user message. Splitting them
     // across several would break the alternation the API expects, and trains the
     // model out of asking for calls in parallel.
     const results: Block[] = [];
     for (const c of calls) {
+      if (o.signal?.aborted) throw new Stopped();
       o.onEvent({ kind: 'tool', text: `${c.name}(${JSON.stringify(c.input)})` });
       const r = await runTool(o.root, { id: c.id, name: c.name, input: c.input }, o.pending, o.askToRun);
       o.onEvent({ kind: 'result', text: `${c.name} → ${r.isError ? 'error: ' : ''}${r.content.slice(0, 160)}` });

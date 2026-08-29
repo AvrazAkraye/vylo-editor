@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { runAgent, type Block, type CommandRequest, type Msg } from './agent';
+import { runAgent, Stopped, type Block, type CommandRequest, type Msg } from './agent';
 import {
   attachFromFile, describe, isImage, isText, listenForDrops, pickAttachments,
   previewUrl, textBlock, toImageBlock, type Attached,
@@ -19,6 +19,7 @@ import { memoryPrompt, readMemory, type Memory } from './memory';
 import { MemoryEditor } from './MemoryEditor';
 import { FileTree, type Entry } from './FileTree';
 import { Viewer } from './Viewer';
+import { FindInFiles, QuickOpen } from './Palette';
 import { Section } from './Sidebar';
 import { groupLines, ToolRun } from './ToolRun';
 // xterm is the largest thing in the bundle and the panel starts closed, so it
@@ -61,6 +62,12 @@ export function App() {
   const [prompt, setPrompt] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState(false);
+  // The turn in flight, so it can be stopped. Streaming makes a long turn
+  // visible, which makes not being able to interrupt one obvious.
+  const abort = useRef<AbortController | null>(null);
+  // Index of the reply currently being written to, so deltas append to it
+  // instead of each one becoming its own line.
+  const openLine = useRef<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [shots, setShots] = useState<Attached[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -91,6 +98,10 @@ export function App() {
   const [theme, setTheme] = useState<Theme>(() => storedTheme());
   const [full, setFull] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
+  const [palette, setPalette] = useState<'open' | 'find' | null>(null);
+  // The line a search result asked for, cleared once the file is showing so
+  // reopening the same file later does not jump again.
+  const [jump, setJump] = useState<{ path: string; line: number } | null>(null);
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
@@ -151,6 +162,12 @@ export function App() {
       } else if (e.ctrlKey && !e.metaKey && (e.key === '`' || e.key === '~')) {
         e.preventDefault();
         toggleTerm();
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'p') {
+        e.preventDefault();
+        setPalette('open');
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'f') {
+        e.preventDefault();
+        setPalette('find');
       }
     };
     // resize fires continuously while a window is dragged; each check is an IPC
@@ -313,7 +330,28 @@ export function App() {
     return () => window.removeEventListener('paste', onPaste);
   }, []);
 
-  const push = (l: Line) => setLines((p) => [...p, { at: Date.now(), ...l }]);
+  const push = (l: Line) => {
+    openLine.current = null;
+    setLines((p) => [...p, { at: Date.now(), ...l }]);
+  };
+
+  /** A piece of the reply as it is written. Opens a line, then extends it. */
+  const stream = (text: string) => setLines((p) => {
+    const i = openLine.current;
+    if (i !== null && p[i]?.kind === 'text') {
+      const next = [...p];
+      next[i] = { ...next[i], text: next[i].text + text };
+      return next;
+    }
+    openLine.current = p.length;
+    return [...p, { at: Date.now(), kind: 'text' as const, text }];
+  });
+
+  /** Open a file and, when it came from a search hit, scroll to the line. */
+  function openAt(path: string, line?: number) {
+    openFile(path);
+    setJump(line ? { path, line } : null);
+  }
 
   function toggleTerm() {
     setShowTerm((v) => { if (!v) setTermMounted(true); return !v; });
@@ -511,6 +549,8 @@ export function App() {
     history.current.push({ role: 'user', content });
     setShots([]);
 
+    const controller = new AbortController();
+    abort.current = controller;
     try {
       history.current = await runAgent({
         baseUrl, apiKey, model, root,
@@ -518,12 +558,19 @@ export function App() {
         pending: pending.current,
         askToRun,
         memory: memoryPrompt(memory),
+        onDelta: stream,
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
         onStaged: () => setChanges(pending.current.list()),
+        signal: controller.signal,
       });
     } catch (e) {
-      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+      // Stopping is a choice, not a failure, and reporting it as an error would
+      // read like something went wrong.
+      if (e instanceof Stopped) push({ kind: 'result', text: t('Stopped.') });
+      else push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
     } finally {
+      abort.current = null;
+      openLine.current = null;
       setBusy(false);
     }
   }
@@ -697,7 +744,7 @@ export function App() {
           {active === '__memory__' ? (
             <MemoryEditor root={root} memory={memory} onSaved={setMemory} t={t} />
           ) : active !== 'chat' ? (
-            <Viewer root={root} path={active} />
+            <Viewer root={root} path={active} line={jump?.path === active ? jump.line : undefined} />
           ) : (
           <div className="log" ref={log}>
         {lines.length === 0 && (
@@ -834,6 +881,13 @@ export function App() {
         </div>
       )}
 
+      {palette === 'open' && (
+        <QuickOpen entries={tree} onOpen={(p) => openAt(p)} onClose={() => setPalette(null)} t={t} />
+      )}
+      {palette === 'find' && (
+        <FindInFiles root={root} onOpen={openAt} onClose={() => setPalette(null)} t={t} />
+      )}
+
       {dragging && <div className="dropzone"><span>{t('Drop a folder to open it, or files to attach')}</span></div>}
 
       <div className="composer">
@@ -850,8 +904,12 @@ export function App() {
           rows={3}
           disabled={busy}
         />
-        <button className="send" onClick={() => void send()}
-                disabled={busy || (!prompt.trim() && shots.length === 0)}>{t('Send')}</button>
+        {busy ? (
+          <button className="send stop" onClick={() => abort.current?.abort()}>{t('Stop')}</button>
+        ) : (
+          <button className="send" onClick={() => void send()}
+                  disabled={!prompt.trim() && shots.length === 0}>{t('Send')}</button>
+        )}
       </div>
 
       <footer className="status">
@@ -860,6 +918,7 @@ export function App() {
         <span>{root ? folderName : t('No folder')}</span>
         {changes.length > 0 && <span><b>{changes.length}</b> {t('to review')}</span>}
         <span className="sp" />
+        <button className="st-btn" onClick={() => setPalette('find')}>⌕ {t('Search')}</button>
         <button className="st-btn" onClick={toggleTerm}>▤ {t('Terminal')}</button>
         {active !== 'chat' && active !== '__memory__' && <span>{active}</span>}
         <span>{model}</span>

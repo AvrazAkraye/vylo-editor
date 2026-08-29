@@ -24,6 +24,17 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Stop': 'إيقاف',
+  'Stopped.': 'تم الإيقاف.',
+  'Go to file…': 'الانتقال إلى ملف…',
+  'No matching file.': 'لا يوجد ملف مطابق.',
+  'Search the project…': 'البحث في المشروع…',
+  'No matches.': 'لا نتائج.',
+  'Searching…': 'جارٍ البحث…',
+  'Match case': 'مطابقة حالة الأحرف',
+  'Whole word': 'كلمة كاملة',
+  'Search': 'بحث',
+  'files': 'ملفات',
   'Terminal': 'الطرفية',
   'New terminal': 'طرفية جديدة',
   'Close': 'إغلاق',
@@ -107,6 +118,17 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Stop': 'وەستان',
+  'Stopped.': 'وەستێنرا.',
+  'Go to file…': 'بڕۆ بۆ فایل…',
+  'No matching file.': 'هیچ فایلێکی هاوتا نییە.',
+  'Search the project…': 'گەڕان بە پڕۆژەدا…',
+  'No matches.': 'هیچ ئەنجامێک نییە.',
+  'Searching…': 'گەڕان…',
+  'Match case': 'جیاکردنەوەی پیتی گەورە و بچووک',
+  'Whole word': 'وشەی تەواو',
+  'Search': 'گەڕان',
+  'files': 'فایل',
   'Terminal': 'تێرمینەڵ',
   'New terminal': 'تێرمینەڵی نوێ',
   'Close': 'داخستن',
@@ -190,6 +212,17 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Stop': 'راوەستان',
+  'Stopped.': 'هاتە راوەستاندن.',
+  'Go to file…': 'بچە بۆ دەفتەرەکێ…',
+  'No matching file.': 'چو دەفتەرێن لێکهاتی نینن.',
+  'Search the project…': 'لێگەریان د پرۆژەیێ دا…',
+  'No matches.': 'چو ئەنجام نینن.',
+  'Searching…': 'لێگەریان…',
+  'Match case': 'جودایا تیپێن مەزن و بچویک',
+  'Whole word': 'پەیڤا تەمام',
+  'Search': 'لێگەریان',
+  'files': 'دەفتەران',
   'Terminal': 'تێرمینال',
   'New terminal': 'تێرمینالەکێ نوی',
   'Close': 'دادان',
