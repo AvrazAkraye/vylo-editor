@@ -73,3 +73,28 @@ that skipped Windows simply does not offer Windows an update.
 
 Windows artifacts come from CI (they cannot be built on a Mac); download them
 from the workflow run, sign them the same way, and add a `windows-x86_64` entry.
+
+## Publishing an update
+
+Two platforms, two commands, because the split is deliberate: **CI builds and
+signs, this machine publishes.** The signing key is a CI secret and the SSH
+credentials for the update server are not in CI, so neither side can do the
+whole job alone — which is the point. An attacker holding the signing key still
+cannot reach the distribution channel.
+
+```
+./scripts/publish-macos.sh "release notes"     # builds locally, then publishes
+gh workflow run build.yml                      # Windows can only be built in CI
+./scripts/publish-windows.sh                   # takes the latest successful run
+```
+
+Both go through `scripts/push-update.sh`, which is the only thing that writes
+`latest.json`. It exists because the manifest carries **one version for every
+platform**: an entry left pointing at an older artifact would advertise the new
+version and install the old binary. So publishing one platform **drops any other
+platform still pointing at a different build**, and says which. No update for a
+platform is much better than the wrong update for it.
+
+The consequence in practice: after a macOS release, Windows has no update until
+CI has built that same commit and `publish-windows.sh` has run. That is correct
+— until then, there is no Windows build of that version to offer.

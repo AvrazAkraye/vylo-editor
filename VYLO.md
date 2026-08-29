@@ -90,8 +90,11 @@ a file in has chosen it explicitly.
 - `cd src-tauri && cargo test` — 9, including the stale-write guard
 - `npx tauri build` — produces the `.app` and `.dmg`
 
-Release macOS with `scripts/publish-macos.sh`, which carries the checks a plain
-build does not. Releases and the signing key are documented in
+Release with `scripts/publish-macos.sh`, then `scripts/publish-windows.sh`
+once CI has built the same commit — Windows binaries cannot be built on a Mac,
+and the update server's credentials are deliberately not in CI, so CI builds
+and signs while this machine publishes. Both go through `push-update.sh`, the
+only thing that writes `latest.json`. Releases and the signing key are documented in
 `docs/RELEASING.md`. Windows
 binaries cannot be built on a Mac; they come from CI.
 

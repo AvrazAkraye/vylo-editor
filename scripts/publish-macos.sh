@@ -61,22 +61,12 @@ cp -R "$BUNDLE/Vylo Editor.app" /Applications/
 xattr -cr "/Applications/Vylo Editor.app"
 
 echo "==> publishing"
-FILE="vylo-editor-$VERSION-aarch64.app.tar.gz"
-SIG=$(cat "$BUNDLE/Vylo Editor.app.tar.gz.sig")
-scp -q "$BUNDLE/Vylo Editor.app.tar.gz" "$HOST:$REMOTE/files/$FILE"
-ssh "$HOST" "python3 - <<PY
-import json
-p='$REMOTE/latest.json'
-m=json.load(open(p))
-m['version']='$VERSION'
-if '''$NOTES''': m['notes']='''$NOTES'''
-m['platforms']['darwin-aarch64']={'signature':'''$SIG''','url':'$BASE/files/$FILE'}
-json.dump(m, open(p,'w'), indent=2)
-PY"
+"$(dirname "$0")/push-update.sh" darwin-aarch64 \
+  "$BUNDLE/Vylo Editor.app.tar.gz" "$BUNDLE/Vylo Editor.app.tar.gz.sig" "$VERSION" "$NOTES"
 
-echo "==> verifying what is actually served"
+echo "==> verifying the served build says $VERSION"
 TMP=$(mktemp -d)
-curl -sf -o "$TMP/t.tar.gz" "$BASE/files/$FILE"
+curl -sf -o "$TMP/t.tar.gz" "$BASE/files/vylo-editor-$VERSION-darwin-aarch64.app.tar.gz"
 tar xzf "$TMP/t.tar.gz" -C "$TMP"
 SERVED=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$TMP/Vylo Editor.app/Contents/Info.plist")
 rm -rf "$TMP"
@@ -84,3 +74,4 @@ rm -rf "$TMP"
 
 open -a "/Applications/Vylo Editor.app"
 echo "==> $VERSION published and verified end to end"
+echo "    Windows: run scripts/publish-windows.sh once CI has built this commit"
