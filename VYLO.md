@@ -86,8 +86,9 @@ a file in has chosen it explicitly.
 ## Commands
 
 - `npm run build` — typecheck and bundle the frontend
-- `npm test` — the pure logic: diffs, SSE assembly, ranking, context fitting (389)
-- `cd src-tauri && cargo test` — 37, including the stale-write guard
+- `npm test` — the pure logic: diffs, SSE assembly, ranking, context fitting,
+  syntax spans, the navigation trail, retry policy (806)
+- `cd src-tauri && cargo test` — 83, including the stale-write guard
 - `npx tauri build` — produces the `.app` and `.dmg`
 
 Release with `scripts/publish-macos.sh`, then `scripts/publish-windows.sh`
@@ -139,6 +140,33 @@ summarise older turns into the system prompt, then keep fewer turns.
 the app always sent — because a `max_tokens` above what a model accepts fails
 the request outright, and guessing high on an unfamiliar id breaks the one case
 where someone is doing something deliberate.
+
+## What is kept outside the project, and why
+
+Four stores live in the Tauri app data directory and never in the folder being
+edited: drafts (unsaved buffers), checkpoints (the file contents before an
+approved write, plus the conversation tail so a redo can put it back), local
+file history (every version this app has written, so a human saving over their
+own work can get it back), and clipboard history.
+
+The last one carries a rule worth keeping in front of anyone who touches it:
+**it does not poll the OS clipboard.** A history that polls records whatever a
+password manager put there thirty seconds ago. It records only what is pasted
+*into* this app, skips what the OS marks concealed, and has a visible clear.
+`src/clips.ts` says so in its first paragraph; leave that paragraph there.
+
+Everything in that directory is capped by count, by bytes and by age, and every
+store has a way for a person to empty it.
+
+## Where dictation and the screenshot sit inside the rule
+
+Both are the human authoring their own input, like the terminal and the memory
+editor. Dictation puts text in the composer for a person to read and send — it
+is deliberately not "voice commands", because letting recognised speech *run*
+something would be putting text into a shell that no human read. And
+`capture.rs` takes an enum, never a string: the program is an absolute path and
+every flag is a `&'static str`, so there is no argument for anything to reach.
+The user drags the crosshair themselves, which is what makes the capture theirs.
 
 ## Gotchas that have already cost time
 

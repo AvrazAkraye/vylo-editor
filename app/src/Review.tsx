@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildPartial, diffRows, hunks, type Change, type Hunk, type Row } from './pending';
+import { DiffRows } from './DiffRows';
 import { highlightLines, type Span } from './highlight';
 import { useGrammars } from './useGrammars';
 import { Icon } from './Icon';
@@ -31,32 +32,6 @@ interface Props {
 
 /** Lines shown either side of a change. Matches the hunk merge threshold. */
 const CONTEXT = 3;
-
-/**
- * One diff row's text, coloured.
- *
- * A removed line exists only in `before` and an added line only in `after`, so
- * each takes its spans from its own side. An unchanged line is in both and
- * takes the *after* side, which is the file that will exist if this is
- * approved.
- *
- * Falls back to the row's own text whenever the parse is missing — the
- * grammars have not loaded, the language has none, the file was too large. The
- * text is what matters; the colour is not.
- */
-function Code({ row, a, b }: { row: Row; a: Span[][]; b: Span[][] }) {
-  const from = row.kind === '-' ? a : b;
-  const n = row.kind === '-' ? row.a : (row.b ?? row.a);
-  const spans = n ? from[n - 1] : undefined;
-  if (!spans || !spans.length) return <>{row.text || ' '}</>;
-  return (
-    <>
-      {spans.map((s, i) => (s.cls
-        ? <span key={i} className={s.cls}>{s.text}</span>
-        : <Fragment key={i}>{s.text}</Fragment>))}
-    </>
-  );
-}
 
 export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }: Props) {
   const [openPath, setOpenPath] = useState<string | null>(changes[0]?.path ?? null);
@@ -224,14 +199,7 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
                     {!on && <span className="hunk-skip">{t('not included')}</span>}
                   </button>
                   <pre>
-                    {rows.slice(from, to + 1).map((r, i) => (
-                      <div key={i} className={`row ${r.kind === '+' ? 'add' : r.kind === '-' ? 'del' : ''}`}>
-                        <span className="ln">{r.a ?? ''}</span>
-                        <span className="ln">{r.b ?? ''}</span>
-                        <span className="mk">{r.kind === ' ' ? ' ' : r.kind}</span>
-                        <span className="tx"><Code row={r} a={beforeLines} b={afterLines} /></span>
-                      </div>
-                    ))}
+                    <DiffRows rows={rows.slice(from, to + 1)} a={beforeLines} b={afterLines} />
                   </pre>
                 </div>
               );

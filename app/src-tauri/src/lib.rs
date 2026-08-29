@@ -20,11 +20,14 @@
 //!    shows a diff; nothing touches the disk until a human clicks. That is why
 //!    the dangerous verb can exist at all — it is not wired to the model.
 
+mod capture;
 mod checkpoint;
 mod drafts;
+mod history;
 mod index;
 mod mcp;
 mod pty;
+mod summon;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
@@ -447,14 +450,6 @@ fn search_in(
     Ok(hits)
 }
 
-/// Write a file. **Only the approval flow calls this.**
-///
-/// There is no tool named `apply_write` in the schema the model is given, so a
-/// model cannot invoke it however it is prompted. The agent's `write_file` and
-/// `edit_file` tools are handled in the loop, which stages the result and asks
-/// a human. This is the difference between "the agent is not allowed to write"
-/// and "the agent cannot write", and only the second one survives a determined
-/// prompt injection.
 /// Lowercase hex sha-256, the form the frontend compares against.
 fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::{Digest, Sha256};
@@ -474,14 +469,38 @@ fn file_hash(root: String, path: String) -> Result<Option<String>, String> {
     }
 }
 
+/// Write a file. **Only the approval flow calls this.**
+///
+/// There is no tool named `apply_write` in the schema the model is given, so a
+/// model cannot invoke it however it is prompted. The agent's `write_file` and
+/// `edit_file` tools are handled in the loop, which stages the result and asks
+/// a human. This is the difference between "the agent is not allowed to write"
+/// and "the agent cannot write", and only the second one survives a determined
+/// prompt injection.
 #[tauri::command]
 fn apply_write(
+    app: tauri::AppHandle,
     root: String,
     path: String,
     content: String,
     expect_sha256: Option<String>,
 ) -> Result<(), String> {
-    let p = resolve(&root, &path)?;
+    apply_write_in(store(&app).ok().as_deref(), &root, &path, content, expect_sha256)
+}
+
+/// The write itself, with the history store handed in.
+///
+/// Split out for the same reason as `search` / `search_in`: a `#[tauri::command]`
+/// that resolves an `AppHandle` cannot be called from a unit test. `None` is the
+/// same write with no version kept.
+fn apply_write_in(
+    history_base: Option<&Path>,
+    root: &str,
+    path: &str,
+    content: String,
+    expect_sha256: Option<String>,
+) -> Result<(), String> {
+    let p = resolve(root, path)?;
 
     // Refuse to write over a file that changed under us.
     //
@@ -513,6 +532,19 @@ fn apply_write(
     if p.is_dir() {
         return Err(format!("{path}: is a directory"));
     }
+
+    // Every write in the app lands here, so this is where a version is kept —
+    // and it is the *previous* contents that are kept, because `content` is
+    // about to be the file and what it replaces is about to exist nowhere. A
+    // file being created has no previous version, which is why the read failing
+    // is not an error.
+    //
+    // Best effort on purpose: a history store that cannot be written is a
+    // reason to lose a version, never a reason to refuse somebody's save.
+    if let (Some(base), Ok(previous)) = (history_base, fs::read_to_string(&p)) {
+        let _ = history::record_at(base, root, path, &previous);
+    }
+
     // Deliberately does not create missing directories. resolve() has to
     // canonicalize the parent to prove containment, so a parent that does not
     // exist cannot be verified -- and silently creating trees is not something
@@ -1103,6 +1135,23 @@ fn symbols_in_text(path: String, text: String) -> Vec<index::Symbol> {
     index::symbols_in(&path, &text)
 }
 
+/// Take a screenshot into the composer.
+///
+/// `async` where every other command in this file is synchronous, and that is
+/// not a stylistic choice: a synchronous command runs on the main thread, and
+/// this one waits for a person to drag a crosshair across their screen. Blocking
+/// the thread that draws the window for the length of a human decision would
+/// freeze the app underneath the very thing being photographed.
+///
+/// Like `apply_write` and the pty commands, this is **absent from the tool
+/// schema**. Unlike them it needs no approval gate, because there is nothing to
+/// approve: `capture.rs` writes the whole command line itself and takes neither
+/// a command, an argument nor a path from the caller.
+#[tauri::command(async)]
+fn capture_screenshot(mode: capture::Mode) -> Result<capture::Shot, String> {
+    capture::capture(mode)
+}
+
 /// Keep an unsaved buffer outside the process holding it.
 ///
 /// Called as you type, debounced. **Not** a write to the project: autosaving
@@ -1148,7 +1197,9 @@ fn store(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
         .map_err(|e| format!("no app data directory: {e}"))
 }
 
-/// Record what these files looked like before an approved change is written.
+/// Record what these files looked like before an approved change is written,
+/// and what it wrote, and answer with the number the checkpoint was filed
+/// under.
 ///
 /// **Only the approval flow calls this**, like `apply_write`, and like it this
 /// is absent from the tool schema.
@@ -1156,10 +1207,9 @@ fn store(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
 fn checkpoint_save(
     app: tauri::AppHandle,
     chat_id: String,
-    seq: u64,
     files: Vec<checkpoint::Snapshot>,
-) -> Result<(), String> {
-    checkpoint::save_at(&store(&app)?, &chat_id, seq, files)
+) -> Result<u64, String> {
+    checkpoint::save_at(&store(&app)?, &chat_id, files)
 }
 
 #[tauri::command]
@@ -1167,18 +1217,115 @@ fn checkpoint_list(app: tauri::AppHandle, chat_id: String) -> Result<Vec<checkpo
     checkpoint::list_at(&store(&app)?, &chat_id)
 }
 
-/// Put the workspace back to how it was before `seq`. Destructive by design;
-/// the confirmation in the UI names every file first.
+/// Put the workspace back to how it was before `seq`, keeping `tails` — where
+/// each checkpoint being undone falls inside the conversation, and, once, the
+/// conversation itself — so it can be put back. Destructive by design; the
+/// confirmation in the UI names every file first.
+///
+/// Still called `checkpoint_restore` rather than `checkpoint_undo`:
+/// `test/modes.test.mjs` asserts by that exact name that it is absent from the
+/// tool schema, and a rename would quietly drop it from that list.
 #[tauri::command]
 fn checkpoint_restore(
     app: tauri::AppHandle,
     chat_id: String,
     seq: u64,
     root: String,
+    tails: Vec<checkpoint::Tail>,
 ) -> Result<Vec<String>, String> {
     // Paths came from our own store, but they are still paths being written to
     // a user's disk, so they go through the same containment as everything else.
-    checkpoint::restore_at(&store(&app)?, &chat_id, seq, |rel| resolve(&root, rel))
+    checkpoint::undo_at(&store(&app)?, &chat_id, seq, tails, |rel| resolve(&root, rel))
+}
+
+/// Step one checkpoint forward again. Restoring files is a human action, so
+/// like its opposite this is absent from the tool schema.
+#[tauri::command]
+fn checkpoint_redo(
+    app: tauri::AppHandle,
+    chat_id: String,
+    root: String,
+) -> Result<checkpoint::Redone, String> {
+    checkpoint::redo_at(&store(&app)?, &chat_id, |rel| resolve(&root, rel))
+}
+
+/// Every kept version of one file, newest first.
+///
+/// `root` and `path` are hash keys here and nothing else — no file in the
+/// workspace is touched — which is why this one does not resolve them.
+#[tauri::command]
+fn history_list(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+) -> Result<Vec<history::Version>, String> {
+    Ok(history::list_at(&store(&app)?, &root, &path))
+}
+
+/// One version's contents, so it can be read before anything is written back.
+#[tauri::command]
+fn history_read(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    seq: u64,
+) -> Result<String, String> {
+    history::read_at(&store(&app)?, &root, &path, seq)
+}
+
+/// Put one version back over the file, and answer with what was written.
+///
+/// This writes to the user's disk, so like `apply_write` and
+/// `checkpoint_restore` it is **absent from the tool schema** — the person
+/// choosing a version out of a list is the author of that write. And like them
+/// the path goes through `resolve`, because a store on disk is a thing that can
+/// be edited by hand.
+#[tauri::command]
+fn history_restore(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    seq: u64,
+) -> Result<String, String> {
+    history::restore_at(&store(&app)?, &root, &path, seq, |rel| resolve(&root, rel))
+}
+
+/// Throw away what is kept for one file, or for a whole folder.
+///
+/// The other half of a store that keeps a copy of everything the app writes:
+/// sooner or later it holds a `.env`, or a key somebody pasted into a config
+/// file and then deleted, and removing that from the project does not remove it
+/// from here. The clipboard picker has had this button beside its list since
+/// I7, for exactly the same reason. Caps bound the store; a cap is not the same
+/// thing as being able to say *not that one*.
+///
+/// Like `history_restore` these are **absent from the tool schema** and named
+/// in `test/modes.test.mjs` beside it. `root` and `path` are hash keys here, so
+/// as with `history_list` no file in the workspace is touched and neither is
+/// resolved.
+#[tauri::command]
+fn history_forget(app: tauri::AppHandle, root: String, path: String) -> Result<(), String> {
+    history::forget_at(&store(&app)?, &root, &path)
+}
+
+#[tauri::command]
+fn history_forget_all(app: tauri::AppHandle, root: String) -> Result<(), String> {
+    history::forget_all_at(&store(&app)?, &root)
+}
+
+/// Bind the global shortcut to `accel`, or unbind it when `accel` is null.
+///
+/// Called from Settings as the field changes, so a new chord takes effect
+/// without a restart. Like `apply_write` and the pty commands this is **absent
+/// from the tool schema**: a chord the whole machine answers to is a thing a
+/// person chooses, and there is nothing here for the model to ask for.
+#[tauri::command]
+fn set_global_shortcut(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, summon::Bound>,
+    accel: Option<String>,
+) -> Result<(), String> {
+    summon::set(&app, &state, accel)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1187,9 +1334,14 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        // Built with no shortcuts and no global handler: nothing is registered
+        // until someone sets a binding in Settings. See `summon.rs` for why an
+        // unasked-for system-wide chord is worse than no shortcut at all.
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .manage(pty::Terminals::default())
         .manage(index::Indexes::default())
         .manage(mcp::Servers::default())
+        .manage(summon::Bound::default())
         // Shells outlive the window they were opened from unless something says
         // otherwise, and a `npm run dev` still holding port 5173 after the app
         // is gone is a genuinely confusing thing to debug.
@@ -1211,10 +1363,13 @@ pub fn run() {
             apply_write, file_hash, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             create_file, create_dir, rename_path, delete_path,
             git_status, git_file_head,
-            checkpoint_save, checkpoint_list, checkpoint_restore, find_symbol,
+            checkpoint_save, checkpoint_list, checkpoint_restore, checkpoint_redo, find_symbol,
             list_symbols, symbols_in_text,
             mcp_servers, mcp_start, mcp_call, mcp_stop,
             draft_save, draft_list, draft_read, draft_clear,
+            history_list, history_read, history_restore, history_forget, history_forget_all,
+            capture_screenshot,
+            set_global_shortcut,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
         ])
         .run(tauri::generate_context!())
@@ -1349,13 +1504,13 @@ mod tests {
         let prepared = file_hash(root.clone(), "a.txt".into()).unwrap().unwrap();
 
         // Nothing has changed: the write lands.
-        apply_write(root.clone(), "a.txt".into(), "agent edit\n".into(), Some(prepared.clone()))
+        apply_write_in(None, &root, "a.txt", "agent edit\n".into(), Some(prepared.clone()))
             .expect("write against a current hash");
         assert_eq!(fs::read_to_string(tmp.join("a.txt")).unwrap(), "agent edit\n");
 
         // Someone edits the file; the stale proposal must now be refused.
         fs::write(tmp.join("a.txt"), "human edit\n").unwrap();
-        let err = apply_write(root.clone(), "a.txt".into(), "agent edit again\n".into(), Some(prepared))
+        let err = apply_write_in(None, &root, "a.txt", "agent edit again\n".into(), Some(prepared))
             .expect_err("a stale hash must not write");
         assert!(err.contains("changed on disk"), "{err}");
         assert_eq!(
@@ -1365,15 +1520,49 @@ mod tests {
 
         // No expectation at all keeps the old behaviour, for callers like the
         // memory editor where the human is the author of both sides.
-        apply_write(root.clone(), "a.txt".into(), "unguarded\n".into(), None).unwrap();
+        apply_write_in(None, &root, "a.txt", "unguarded\n".into(), None).unwrap();
         assert_eq!(fs::read_to_string(tmp.join("a.txt")).unwrap(), "unguarded\n");
 
         // An empty expectation means "this file should not exist yet".
-        apply_write(root.clone(), "new.txt".into(), "created\n".into(), Some(String::new()))
+        apply_write_in(None, &root, "new.txt", "created\n".into(), Some(String::new()))
             .expect("creating a genuinely new file");
-        let err = apply_write(root.clone(), "new.txt".into(), "again\n".into(), Some(String::new()))
+        let err = apply_write_in(None, &root, "new.txt", "again\n".into(), Some(String::new()))
             .expect_err("a create must not silently overwrite");
         assert!(err.contains("changed on disk"), "{err}");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The hook that makes I8 work at all: every write in the app lands in
+    /// `apply_write`, so that is where the version that is about to stop
+    /// existing has to be taken.
+    #[test]
+    fn a_write_keeps_the_contents_it_replaced() {
+        let tmp = std::env::temp_dir().join(format!("vylo_wh_{}", std::process::id()));
+        let store = tmp.join("appdata");
+        let work = tmp.join("work");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&work).unwrap();
+        fs::create_dir_all(&store).unwrap();
+        let root = work.to_string_lossy().to_string();
+
+        // A file that did not exist has no previous version to keep.
+        apply_write_in(Some(&store), &root, "a.txt", "first\n".into(), None).unwrap();
+        assert!(history::list_at(&store, &root, "a.txt").is_empty());
+
+        apply_write_in(Some(&store), &root, "a.txt", "second\n".into(), None).unwrap();
+        let versions = history::list_at(&store, &root, "a.txt");
+        assert_eq!(versions.len(), 1);
+        assert_eq!(
+            history::read_at(&store, &root, "a.txt", versions[0].seq).unwrap(),
+            "first\n",
+            "the version kept is the one being overwritten, not the one being written",
+        );
+
+        // And it goes back through the same containment as any other write.
+        history::restore_at(&store, &root, "a.txt", versions[0].seq, |rel| resolve(&root, rel))
+            .unwrap();
+        assert_eq!(fs::read_to_string(work.join("a.txt")).unwrap(), "first\n");
 
         let _ = fs::remove_dir_all(&tmp);
     }

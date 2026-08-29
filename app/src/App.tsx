@@ -1,6 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
+  Dictation, OFF as NOT_DICTATING, browserOpen, insert as insertSpoken,
+  recognitionLang, speechAvailable, type State as DictState,
+} from './dictate';
+import {
   runAgent, Stopped, type Mode,
   type Block, type CommandRequest, type CommandResult, type Msg, type RunChoice,
 } from './agent';
@@ -20,6 +24,8 @@ import {
 } from './store';
 import { memoryPrompt, readMemory, type Memory } from './memory';
 import { MemoryEditor } from './MemoryEditor';
+import { FileHistory } from './FileHistory';
+import { cutPoints, redoTarget } from './checkpoints';
 import { FileTree, type Entry } from './FileTree';
 // CodeMirror is a few hundred KB and the chat tab needs none of it, so the
 // editor loads the first time a file is opened.
@@ -28,6 +34,7 @@ import type { EditorHandle } from './Editor';
 import type { CompleteStatus } from './complete';
 import { FindInFiles, QuickOpen, Symbols, type Symbol as Sym } from './Palette';
 import { NO_NAV, back, canBack, canForward, forget, forward, visit, type Nav } from './nav';
+import { keepExisting, loadWorkspace, saveWorkspace, type Workspace } from './workspace';
 import { groupLines, ToolRun } from './ToolRun';
 // xterm is the largest thing in the bundle and the panel starts closed, so it
 // is fetched the first time someone actually opens a terminal.
@@ -39,6 +46,10 @@ import {
   applyMention, findMentions, folderListing, mentionQuery, treeResolver, TERMINAL,
 } from './mentions';
 import { rank } from './fuzzy';
+import {
+  clear as clearClips, history as clipHistory, localClips, preview as clipPreview,
+  privateField, remember as rememberClip, shortened, type Clip,
+} from './clips';
 import { detailOf, explain } from './errors';
 import { add, NO_USAGE, summarise, compact, total, type Usage } from './usage';
 import { replaceAll } from './replace';
@@ -49,12 +60,20 @@ import {
 import { applyMessages, applyTarget, parseApply } from './apply';
 import { askRaw } from './inline';
 import { IS_MAC, Shortcuts, Welcome } from './Welcome';
+import { listen } from '@tauri-apps/api/event';
+import {
+  accelerator, bind, chordFrom, isCancel, label as chordLabel, loadBinding,
+  problem, refusal, saveBinding, SUMMONED,
+} from './shortcut';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
   watchSystem, type Theme,
 } from './theme';
 
 type Line = SavedLine & { shots?: Attached[] };
+
+/** One checkpoint as `checkpoint_list` reports it. */
+type CpMeta = { seq: number; at: number; paths: string[]; undone: boolean; redoable: boolean };
 
 /**
  * A list rather than a text field. Anthropic writes "Opus 4.8" in prose but
@@ -99,6 +118,13 @@ export function App() {
   // instead of each one becoming its own line.
   const openLine = useRef<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // The global shortcut, and null until somebody sets one -- which is the whole
+  // design of it rather than a default nobody got round to choosing. See
+  // `shortcut.ts`.
+  const [summon, setSummon] = useState<string | null>(() => loadBinding(localStorage));
+  const [recording, setRecording] = useState(false);
+  /** An English sentence out of `shortcut.ts`, translated where it is drawn. */
+  const [summonErr, setSummonErr] = useState('');
   const [shots, setShots] = useState<Attached[]>([]);
   const [dragging, setDragging] = useState(false);
   const [changes, setChanges] = useState<Change[]>([]);
@@ -132,6 +158,9 @@ export function App() {
   const [full, setFull] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
   const [palette, setPalette] = useState<'open' | 'find' | 'symbols' | 'fileSymbols' | 'defs' | null>(null);
+  // The file whose earlier versions are on screen. A path rather than a flag:
+  // the panel is about one file, and `active` can move under it.
+  const [versionsFor, setVersionsFor] = useState<string | null>(null);
   const [rail, setRail] = useState<RailId>(() => (localStorage.getItem('vylo.rail') as RailId) || 'files');
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem('vylo.railopen') !== '0');
   // The line a search result asked for, cleared once the file is showing so
@@ -141,14 +170,35 @@ export function App() {
   // half the jump makes navigating worse, not better.
   const [trail, setTrail] = useState<Nav>(NO_NAV);
   const [symbols, setSymbols] = useState<Sym[]>([]);
+  // Clipboard history. Held in state as well as in storage so the composer
+  // button can be disabled when there is nothing to offer -- which is also why
+  // the picker never has an empty state to design.
+  const [clips, setClips] = useState<Clip[]>(() => clipHistory(localClips));
+  const [clipsOpen, setClipsOpen] = useState(false);
   /**
    * The window-level key listener is registered once and would otherwise hold
    * the first render's closures — the same trap F3's quit guard fell into.
    * Everything it needs is read through here instead.
    */
-  const keys = useRef({ back: () => {}, fwd: () => {}, sym: () => {}, fileSym: () => {} });
+  const keys = useRef({ back: () => {}, fwd: () => {}, sym: () => {}, fileSym: () => {}, clips: () => {} });
   const editors = useRef(new Map<string, EditorHandle>());
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  /**
+   * The folder whose stored tabs have already been read back.
+   *
+   * `openFolder` clears the tabs before the restore has run, and the effect
+   * that persists them fires on that empty list — so without this the stored
+   * tabs are erased one frame before they are read. Nothing is written for a
+   * folder until its restore has had its say.
+   */
+  const restoredFor = useRef('');
+  /**
+   * Caret lines that came back from storage, held until each editor has mounted
+   * and can report its own. The editor is lazy and reads its file
+   * asynchronously, so there is a window where the only record of where you
+   * were is this map.
+   */
+  const restoredLines = useRef(new Map<string, number>());
   // The box grows with the text up to a point, then scrolls. A fixed three
   // rows meant anything longer than a sentence was written through a slot.
   useEffect(() => {
@@ -167,9 +217,13 @@ export function App() {
   // The active terminal's output, for `@terminal`. The panel hands this over
   // when it mounts so the composer can pull rather than the panel having to push.
   const termText = useRef<(() => string) | null>(null);
-  // Monotonic within a chat. Restoring drops this checkpoint and every later
-  // one, so ids are never reused within a run.
-  const cpSeq = useRef(0);
+  /**
+   * The checkpoint redo would put back, or null when nothing is undone.
+   *
+   * Read from the store rather than kept here, so it survives a restart and a
+   * chat switch the same way the undo buttons on the transcript do.
+   */
+  const [redoable, setRedoable] = useState<{ seq: number; paths: string[] } | null>(null);
   const [mcpServers, setMcpServers] = useState<ServerSpec[]>([]);
   /** Tools from servers that are actually running, namespaced for the model. */
   const [mcpTools, setMcpTools] = useState<Record<string, McpTool[]>>({});
@@ -205,7 +259,56 @@ export function App() {
   const work = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
   const resizing = useRef(false);
-  const t = translator(lang);
+
+  // Dictation. The control is only drawn where the webview has a speech engine
+  // at all -- WKWebView and WebView2 do not both have one -- because an
+  // affordance that cannot work is worse than no affordance, the same reason
+  // D6 shipped without a mention button.
+  const canDictate = useMemo(() => speechAvailable(), []);
+  const [dict, setDict] = useState<DictState>(NOT_DICTATING);
+  const dictation = useRef<Dictation | null>(null);
+  // The engine's callbacks and the silence timer both arrive from outside
+  // React, so what they read has to come through a ref: closing over `prompt`
+  // and `lang` directly would leave the session working from the state as it
+  // was on the render that built it.
+  const promptRef = useRef(prompt);
+  promptRef.current = prompt;
+  const langRef = useRef(lang);
+  langRef.current = lang;
+
+  function dictate() {
+    if (!dictation.current) {
+      dictation.current = new Dictation({
+        open: (sink) => browserOpen(recognitionLang(langRef.current, navigator.language))(sink),
+        // The only exit from the session: finalised words, into the box, at the
+        // caret, for a person to read and send. Nothing recognised runs.
+        onText: (said) => {
+          const el = composer.current;
+          const caret = el?.selectionStart ?? promptRef.current.length;
+          const r = insertSpoken(promptRef.current, caret, said);
+          promptRef.current = r.text;
+          setPrompt(r.text);
+          // After the value changes React puts the caret at the end, which
+          // would drop the next phrase somewhere else. Same fix as
+          // chooseMention above.
+          window.setTimeout(() => {
+            composer.current?.focus();
+            composer.current?.setSelectionRange(r.caret, r.caret);
+          }, 0);
+        },
+        onState: setDict,
+      });
+    }
+    dictation.current.toggle();
+  }
+
+  // A microphone left open by a component that no longer exists is the one
+  // failure nobody can see to fix.
+  useEffect(() => () => dictation.current?.dispose(), []);
+  // Memoised because `translator()` returns a fresh closure every call, and a
+  // `t` with a new identity on every render re-runs the effects of anything
+  // that depends on it — several times a second while a turn streams.
+  const t = useMemo(() => translator(lang), [lang]);
   const history = useRef<Msg[]>([]);
   const log = useRef<HTMLDivElement>(null);
 
@@ -265,6 +368,9 @@ export function App() {
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'p') {
         e.preventDefault();
         setPalette('open');
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'v') {
+        e.preventDefault();
+        keys.current.clips();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'f') {
         e.preventDefault();
         setPalette('find');
@@ -309,6 +415,51 @@ export function App() {
   // One check on launch, deliberately silent on failure -- an update check is
   // never a good reason to greet someone with an error.
   useEffect(() => { void checkForUpdate().then(setUpdate); }, []);
+
+  // The stored binding is registered here rather than from Rust at startup, so
+  // the chord lives in the same localStorage as every other setting and "not
+  // set" needs no representation at all.
+  useEffect(() => {
+    const stored = loadBinding(localStorage);
+    if (stored) void bind(stored).catch((e) => setSummonErr(refusal(detailOf(e))));
+  }, []);
+
+  // Rust has already raised and focused the window by the time this arrives.
+  // The caret is the half only the window can do, because only it knows what is
+  // on screen.
+  useEffect(() => {
+    const stop = listen(SUMMONED, () => composer.current?.focus());
+    return () => { void stop.then((off) => off()); };
+  }, []);
+
+  /** Bind `accel`, or release the chord when it is null. Stored only if the OS agreed. */
+  async function setSummonTo(accel: string | null) {
+    try {
+      await bind(accel);
+      saveBinding(localStorage, accel);
+      setSummon(accel);
+      setSummonErr('');
+      setRecording(false);
+    } catch (e) {
+      // Nothing was stored, and Rust has put the previous chord back, so the
+      // field still describes what the machine will answer to.
+      setSummonErr(refusal(detailOf(e)));
+    }
+  }
+
+  function recordSummon(e: React.KeyboardEvent) {
+    // While the field is recording, no key does its usual job -- ⌘P must not
+    // open the palette behind it. `stopPropagation` on the synthetic event
+    // stops the native one before the window keydown listener sees it.
+    e.preventDefault();
+    e.stopPropagation();
+    if (isCancel(e.nativeEvent)) { setRecording(false); return; }
+    const chord = chordFrom(e.nativeEvent);
+    if (!chord) return; // still only modifiers held
+    const why = problem(chord);
+    if (why) { setSummonErr(why); return; }
+    void setSummonTo(accelerator(chord));
+  }
 
   /**
    * Fill the symbol palette when it opens.
@@ -421,6 +572,86 @@ export function App() {
     setRecovering((p) => new Set([...p].filter((x) => !gone.includes(x))));
   }
 
+  /**
+   * Reopen the files this folder had open, silently dropping the ones that are
+   * gone.
+   *
+   * Silently is the requirement, not a nicety. Files move and are deleted
+   * between sessions — by git as much as by anyone — so a stored tab list is a
+   * list of guesses, and greeting someone with "could not open src/old.ts"
+   * about a file they deleted last week reports their own tidying back to them
+   * as a fault.
+   *
+   * `path_kind` stats and reads nothing, which is what makes probing a dozen
+   * paths before the window is useful cheap enough to do. It takes an absolute
+   * path and does not go through `resolve()`, and that is sound here because
+   * `loadWorkspace` has already dropped anything absolute or climbing out
+   * through `..` — the join cannot leave the folder.
+   */
+  useEffect(() => {
+    restoredFor.current = '';
+    restoredLines.current.clear();
+    if (!root) return;
+    let cancelled = false;
+    const saved = loadWorkspace(localStorage, root);
+    void (async () => {
+      const here = new Set<string>();
+      for (const tab of saved.tabs) {
+        const kind = await invoke<string>('path_kind', { path: `${root}/${tab.path}` })
+          .catch(() => 'missing');
+        if (kind === 'file') here.add(tab.path);
+      }
+      if (cancelled) return;
+      const ws = keepExisting(saved, (p) => here.has(p));
+      for (const tab of ws.tabs) restoredLines.current.set(tab.path, tab.line);
+      // Step aside if anything was opened while the probes were in flight — a
+      // recovered draft, or a click in the explorer. Replacing what someone
+      // just asked for with what they had last week is worse than not
+      // restoring at all.
+      setTabs((prev) => (prev.length ? prev : ws.tabs.map((x) => x.path)));
+      setActive((cur) => (cur === 'chat' && ws.active ? ws.active : cur));
+      restoredFor.current = root;
+      // Write back what actually survived, so a file deleted outside the app is
+      // probed once rather than on every launch for ever.
+      saveWorkspace(localStorage, root, ws);
+    })();
+    return () => { cancelled = true; };
+  }, [root]);
+
+  /**
+   * What to remember: the open files, which one was showing, and where the
+   * caret was in each.
+   *
+   * `__memory__` is not a file, so it is not stored — it would be probed and
+   * dropped on every launch. The chat is stored as no active file at all.
+   */
+  const snapshotTabs = (): Workspace => ({
+    tabs: tabs.filter((p) => p !== '__memory__').map((p) => ({
+      path: p,
+      // A tab that has just been restored has no editor handle yet — the
+      // component is lazy and its file is read asynchronously. Falling back to
+      // line 1 rather than to what was restored would erase every caret line
+      // one render after putting it back.
+      line: editors.current.get(p)?.line() ?? restoredLines.current.get(p) ?? 1,
+    })),
+    active: active === 'chat' || active === '__memory__' ? null : active,
+  });
+
+  /**
+   * Saved on every tab change, which is also when a caret is worth recording:
+   * switching tabs is the moment you leave a file, so the line read here is
+   * where you actually were in it. The caret in the tab still on screen moves
+   * without either list changing, and is caught by the close handler below.
+   *
+   * Through a ref for the same reason the quit guard is: the close listener is
+   * registered once and would otherwise hold the first render's tabs.
+   */
+  const keepTabs = useRef(() => {});
+  keepTabs.current = () => {
+    if (root && restoredFor.current === root) saveWorkspace(localStorage, root, snapshotTabs());
+  };
+  useEffect(() => { keepTabs.current(); }, [root, tabs, active]);
+
   // The config is read on every folder change, but reading it starts nothing:
   // it arrives with the repository, so a project you cloned could name any
   // command. Servers only spawn from the button, after the command is on screen.
@@ -489,6 +720,10 @@ export function App() {
   useEffect(() => {
     let stop: (() => void) | undefined;
     void getCurrentWindow().onCloseRequested((e) => {
+      // Before the early return: this is the one place the caret in the tab
+      // still on screen gets recorded, and a clean quit takes that path
+      // whether or not anything is dirty.
+      keepTabs.current();
       const c = closing.current;
       const unsaved = [...c.dirty].filter((p) => c.editors.current.get(p)?.isDirty());
       if (!unsaved.length && !c.changes.length && !c.busy) return;
@@ -661,6 +896,10 @@ export function App() {
       .then(setGit).catch(() => setGit(null));
   }, [root, changes]);
 
+  // The redo stack belongs to the chat, not to this component, so switching
+  // chats has to ask again rather than carrying the last one's answer over.
+  useEffect(() => { void refreshRedo(); }, [chatId]);
+
   // Drag-and-drop is a window-level OS event, not an HTML5 one: Tauri
   // intercepts the drop before the webview sees it.
   useEffect(() => {
@@ -678,6 +917,15 @@ export function App() {
   // never reaches the Rust side -- the blob is read here instead.
   useEffect(() => {
     const onPaste = async (e: ClipboardEvent) => {
+      // Clipboard history is fed from here and from nowhere else. Nothing polls
+      // the OS clipboard, because that would record the password a password
+      // manager put there thirty seconds ago -- see clips.ts. A paste into a
+      // password field (the gateway key, in Settings and on the welcome screen)
+      // is skipped for the same reason.
+      const pasted = e.clipboardData?.getData('text/plain') || '';
+      if (pasted && !privateField(e.target as HTMLInputElement | null)) {
+        setClips(rememberClip(localClips, pasted, { types: e.clipboardData?.types }));
+      }
       const files = Array.from(e.clipboardData?.files || []);
       const imgs = files.filter((f) => f.type.startsWith('image/'));
       if (!imgs.length) return;
@@ -886,6 +1134,7 @@ export function App() {
     fwd: () => step('forward'),
     sym: () => { if (root) setPalette('symbols'); },
     fileSym: () => { if (here()) setPalette('fileSymbols'); },
+    clips: () => openClips(),
   };
 
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
@@ -1025,10 +1274,78 @@ export function App() {
     }
   }
 
+  /**
+   * Take a screenshot straight into the tray.
+   *
+   * The Rust side runs a fixed, interactive command and nothing here supplies
+   * an argument to it — `mode` picks between two argument lists written in
+   * `capture.rs`, and the user drags the crosshair themselves, so what is
+   * captured stays their choice. Escape comes back as `cancelled` rather than
+   * an error: changing your mind is not a failure, and an error line saying
+   * otherwise is noise.
+   *
+   * Windows has no "write it to this file" snip, so it returns `clipboard` and
+   * we point at the paste that already works rather than growing a second way
+   * for an image to arrive.
+   */
+  async function capture(mode: 'region' | 'window') {
+    try {
+      const r = await invoke<{ status: string; media_type?: string; data?: string; bytes?: number }>(
+        'capture_screenshot', { mode },
+      );
+      if (r.status === 'cancelled') return;
+      if (r.status === 'clipboard') {
+        push({ kind: 'result', text: t('The snip is on your clipboard — paste it into the message.') });
+      } else if (r.status === 'captured' && r.data && r.media_type) {
+        const shot: Attached = {
+          kind: 'image',
+          id: `shot_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          name: `${t('Screenshot')}.png`,
+          mediaType: r.media_type,
+          data: r.data,
+          bytes: r.bytes ?? 0,
+        };
+        setShots((p) => [...p, shot]);
+      }
+      // Focus goes back to the box in both cases — the shot is only half of a
+      // message, and on Windows the next keystroke is the paste.
+      composer.current?.focus();
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, t('take a screenshot')) });
+    }
+  }
+
   /** Terminal output the user chose to hand to the agent. One direction only. */
   function fromTerminal(text: string) {
     setPrompt((p) => `${p ? p.replace(/\s*$/, '') + '\n\n' : ''}\`\`\`\n${text}\n\`\`\`\n`);
     composer.current?.focus();
+  }
+
+  function openClips() {
+    // Re-read rather than trusting state: entries expire by age, and the
+    // expiry has to happen when the list is looked at, not only when it grows.
+    const held = clipHistory(localClips);
+    setClips(held);
+    if (held.length) setClipsOpen(true);
+  }
+
+  function closeClips() {
+    setClipsOpen(false);
+    composer.current?.focus();
+  }
+
+  /** A chosen clip lands at the caret, not at the end -- it is a paste. */
+  function insertClip(text: string) {
+    const el = composer.current;
+    const from = el?.selectionStart ?? prompt.length;
+    const to = el?.selectionEnd ?? from;
+    setPrompt(prompt.slice(0, from) + text + prompt.slice(to));
+    setClipsOpen(false);
+    const caret = from + text.length;
+    window.setTimeout(() => {
+      composer.current?.focus();
+      composer.current?.setSelectionRange(caret, caret);
+    }, 0);
   }
 
   async function newBranch() {
@@ -1099,6 +1416,10 @@ export function App() {
     trusted.current.clear();
     setWritten([]);
     setCommitMsg('');
+    // Both of these are about the folder that was open. A File History left up
+    // would go on querying the old relative path against the new root.
+    setVersionsFor(null);
+    setClipsOpen(false);
   }
 
   function openFile(path: string) {
@@ -1115,6 +1436,10 @@ export function App() {
     setDirty((p) => { const n = new Set(p); n.delete(path); return n; });
     setTabs((prev) => prev.filter((p) => p !== path));
     setActive((cur) => (cur === path ? 'chat' : cur));
+    // Otherwise reopening the file later in the same session drops the caret at
+    // the line the *previous* session left it on, which reads as the editor
+    // scrolling on its own.
+    restoredLines.current.delete(path);
   }
 
   async function saveActive() {
@@ -1237,8 +1562,12 @@ export function App() {
     }
   }
 
+  /** The chat id as a directory name the checkpoint store will accept. */
+  function cpChat() { return chatId.replace(/[^A-Za-z0-9_-]/g, ''); }
+
   /**
-   * Record what the files about to be written look like now.
+   * Record what the files about to be written look like now, and what the
+   * write is about to make them.
    *
    * Returns null when there is nothing to record or the store is unavailable —
    * a checkpoint failing is not a reason to refuse a write the user asked for,
@@ -1248,35 +1577,69 @@ export function App() {
   async function snapshot(paths: string[]): Promise<{ seq: number; hist: number } | null> {
     const staged = pending.current.list().filter((c) => paths.includes(c.path));
     if (!staged.length) return null;
-    const seq = ++cpSeq.current;
     try {
-      await invoke('checkpoint_save', {
-        chatId: chatId.replace(/[^A-Za-z0-9_-]/g, ''),
-        seq,
-        files: staged.map((c) => ({ path: c.path, content: c.before, existed: !c.isNew })),
+      // `after` is what makes the write redoable. The number comes back from
+      // the store rather than a counter here, which would start again at one on
+      // the next launch and file this checkpoint on top of an older one.
+      const seq = await invoke<number>('checkpoint_save', {
+        chatId: cpChat(),
+        files: staged.map((c) => ({
+          path: c.path, content: c.before, existed: !c.isNew, after: c.after,
+        })),
       });
+      // A new write is a new branch. The store has just dropped everything that
+      // was undone, so the control for it goes too.
+      setRedoable(null);
       return { seq, hist: history.current.length };
     } catch {
       return null;
     }
   }
 
+  /**
+   * The checkpoint redo would put back, re-read from the store.
+   *
+   * Which one that is — the oldest undone, and only when it can actually be put
+   * back — is `redoTarget` in `checkpoints.ts`, where it is tested. It was the
+   * kind of rule that fails silently: skipping to a later checkpoint writes a
+   * state the project reached after one that was never restored.
+   */
+  async function refreshRedo() {
+    const meta = await invoke<CpMeta[]>('checkpoint_list', { chatId: cpChat() }).catch(() => []);
+    setRedoable(redoTarget(meta));
+  }
+
   /** Put the files back, and the conversation with them. */
   async function restore(index: number, cp: { seq: number; hist: number }) {
-    const meta = await invoke<{ seq: number; paths: string[] }[]>('checkpoint_list', {
-      chatId: chatId.replace(/[^A-Za-z0-9_-]/g, ''),
-    }).catch(() => []);
-    const affected = [...new Set(meta.filter((m) => m.seq >= cp.seq).flatMap((m) => m.paths))].sort();
+    const meta = await invoke<CpMeta[]>('checkpoint_list', { chatId: cpChat() }).catch(() => []);
+    const undoing = meta.filter((m) => !m.undone && m.seq >= cp.seq).sort((a, b) => a.seq - b.seq);
+    const affected = [...new Set(undoing.flatMap((m) => m.paths))].sort();
     const ok = window.confirm(
       `${t('Undo this change and everything after it?')}\n\n${affected.join('\n')}\n\n`
       + t('These files go back to how they were, losing any edits made since. The conversation is cut back to this point.'),
     );
     if (!ok) return;
 
+    // What redo will need: the conversation once, and where each checkpoint
+    // being undone falls inside it. One copy rather than one prefix each —
+    // `history` holds every tool result, so twenty prefixes of a refactoring
+    // session is tens of megabytes through one IPC call and again onto the
+    // disk. The arithmetic is `cutPoints`, which is tested; the store keeps
+    // whatever it is handed and never looks inside it.
+    //
+    // Images go, for the reason saveChat drops them: a few screenshots are
+    // megabytes of base64, and this is written to disk.
+    const cuts = cutPoints(undoing, lines, history.current.length);
+    const whole = {
+      lines: lines.map(({ shots: _shots, ...l }) => l),
+      history: history.current,
+    };
+    const tails = cuts.map((c, i) => (i === cuts.length - 1 ? { ...c, conversation: whole } : c));
+
     setBusy(true);
     try {
       const done = await invoke<string[]>('checkpoint_restore', {
-        chatId: chatId.replace(/[^A-Za-z0-9_-]/g, ''), seq: cp.seq, root,
+        chatId: cpChat(), seq: cp.seq, root, tails,
       });
       // Staged changes were proposed against files that no longer look like
       // that, so keeping them would offer a diff against a version that is gone.
@@ -1288,9 +1651,58 @@ export function App() {
       // Reload every open buffer, or the editor keeps showing the version that
       // was just rolled back and would write it straight over the restore.
       for (const h of editors.current.values()) await h.reload().catch(() => {});
+      await refreshRedo();
       push({ kind: 'result', text: `${t('Restored')} ${done.length} ${done.length === 1 ? t('file') : t('files')}.` });
     } catch (e) {
       push({ kind: 'error', text: explain(e, t('restore the files')) });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Step one checkpoint forward again.
+   *
+   * As destructive as undo — it writes over whatever is in those files now —
+   * so it asks in the same way, naming them.
+   */
+  async function redo() {
+    if (!redoable) return;
+    const ok = window.confirm(
+      `${t('Redo this change?')}\n\n${redoable.paths.join('\n')}\n\n`
+      + t('These files go back to the version this write produced, losing any edits made since. The conversation comes back with them.'),
+    );
+    if (!ok) return;
+
+    setBusy(true);
+    try {
+      const back = await invoke<{
+        paths: string[];
+        conversation: { lines: SavedLine[]; history: Msg[] } | null;
+        ends: { upto: number; hist: number } | null;
+      }>('checkpoint_redo', { chatId: cpChat(), root });
+      pending.current.clear();
+      setChanges([]);
+      // The transcript is replaced, not appended to: it is the one that write
+      // belonged to, and the line reporting it carries the undo button — which
+      // is what stops redo being the one-way step undo used to be.
+      //
+      // The store kept one conversation for the whole undo and this
+      // checkpoint's cut into it, so the slicing happens here: the shape of a
+      // transcript is the UI's business and nothing in Rust looks inside it. A
+      // missing cut takes nothing off, which is the whole conversation — what
+      // the newest checkpoint of an undo gets anyway.
+      history.current = (back.conversation?.history ?? []).slice(0, back.ends?.hist);
+      setLines((back.conversation?.lines ?? []).slice(0, back.ends?.upto));
+      setWritten([]);
+      for (const h of editors.current.values()) await h.reload().catch(() => {});
+      await refreshRedo();
+      push({
+        kind: 'result',
+        text: `${t('Redone')} ${back.paths.length} ${back.paths.length === 1 ? t('file') : t('files')}.`,
+      });
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, t('re-apply the files')) });
     } finally {
       setBusy(false);
     }
@@ -1314,6 +1726,9 @@ export function App() {
     if (!root) { push({ kind: 'error', text: t('Open a folder first.') }); return; }
     if (!apiKey) { push({ kind: 'error', text: t('Add your gateway API key in Settings.') }); setShowSettings(true); return; }
 
+    // The message is gone; anything still being said belongs to the next one,
+    // not to the empty box left behind.
+    dictation.current?.stop();
     setPrompt('');
     push({ kind: 'you', text, shots: shots.length ? [...shots] : undefined });
     setBusy(true);
@@ -1492,6 +1907,28 @@ export function App() {
               <option value="off">{t('Off')}</option>
             </select>
           </label>
+          <div className="fld">
+            <span className="fld-lbl">{t('Global shortcut')}</span>
+            <div className="sc-row">
+              <button type="button"
+                      className={`sc-key ${recording ? 'rec' : ''} ${summon ? '' : 'unset'}`}
+                      onClick={() => { setSummonErr(''); setRecording((r) => !r); }}
+                      onKeyDown={(e) => { if (recording) recordSummon(e); }}
+                      onBlur={() => setRecording(false)}>
+                {recording ? t('Press a combination…')
+                  : summon ? chordLabel(summon, IS_MAC) : t('Not set')}
+              </button>
+              {summon && !recording && (
+                <button type="button" className="ghost" onClick={() => void setSummonTo(null)}>
+                  {t('Clear')}
+                </button>
+              )}
+            </div>
+            <span className={`sc-why ${summonErr ? 'err' : ''}`}>
+              {summonErr ? t(summonErr)
+                : t('Off until you set one. Press it anywhere to bring Vylo forward and start a message.')}
+            </span>
+          </div>
           <label>{t('Theme')}
             <select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
               <option value="system">{t('Match system')}</option>
@@ -1792,6 +2229,17 @@ export function App() {
             )}
           </div>
         ))}
+        {/* Undo cut away the lines its own button sat on, so redo stands where
+            the transcript now ends, naming the write it would put back. */}
+        {redoable && (
+          <div className="line result redo-row">
+            <span className="body">{t('Undone:')} {redoable.paths.join(', ')}</span>
+            <button className="undo-cp" disabled={busy} onClick={() => void redo()}
+                    title={t('Redo this change?')}>
+              <Icon name="restore" size={12} />{t('Redo this write')}
+            </button>
+          </div>
+        )}
         {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
           </div>
           )}
@@ -1807,7 +2255,9 @@ export function App() {
                   path={p}
                   visible={active === p}
                   dark={resolved(theme) === 'dark'}
-                  line={jump?.path === p ? jump.line : undefined}
+                  // Read at mount only, so this is the restored caret for a
+                  // reopened tab and never fights a later jump.
+                  line={jump?.path === p ? jump.line : restoredLines.current.get(p)}
                   complete={() => ({
                     enabled: autocomplete,
                     baseUrl,
@@ -2003,6 +2453,53 @@ export function App() {
                      onReplace={replaceEverywhere} t={t} />
       )}
 
+      {/* Clipboard history. Never rendered empty: the button that opens it is
+          disabled when there is nothing held, so there is no state in which the
+          only way out is the mouse. */}
+      {clipsOpen && clips.length > 0 && (
+        <div className="pal-back" onMouseDown={closeClips}>
+          <div className="pal" role="dialog" aria-modal="true" aria-label={t('Clipboard history')}
+               onMouseDown={(e) => e.stopPropagation()}
+               onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); closeClips(); } }}>
+            <div className="pal-list">
+              {clips.map((c, i) => (
+                <button key={`${c.at}_${c.full}_${i}`} className="pal-row clip-row"
+                        autoFocus={i === 0} onClick={() => insertClip(c.text)}>
+                  <span className="clip-text">{clipPreview(c.text)}</span>
+                  <span className="clip-meta">
+                    <span>{ago(c.at)}</span>
+                    {shortened(c) && (
+                      <b title={t('Only the first part of this paste was kept.')}>{t('shortened')}</b>
+                    )}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="clip-foot">
+              <span className="clip-note">
+                {t('Only what you paste into Vylo is kept. Your clipboard is never read.')}
+              </span>
+              <button className="clip-clear"
+                      onClick={() => { clearClips(localClips); setClips([]); closeClips(); }}>
+                {t('Clear')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Restoring writes the file, so the open buffer has to be told: it is
+          still holding the version that was just replaced and would write it
+          straight back over the restore on the next save. Same reason the
+          checkpoint restore above reloads every editor. */}
+      {versionsFor && root && (
+        <FileHistory root={root} path={versionsFor} dirty={dirty.has(versionsFor)}
+                     onClose={() => setVersionsFor(null)}
+                     onRestored={(p) => void editors.current.get(p)?.reload()
+                       .catch((e) => push({ kind: 'error', text: explain(e, t('reload the file')) }))}
+                     t={t} />
+      )}
+
       {dragging && <div className="dropzone"><span>{t('Drop a folder to open it, or files to attach')}</span></div>}
 
       {root && (
@@ -2074,6 +2571,39 @@ export function App() {
               <Icon name="attach" size={15} />
             </button>
 
+            {/* A region on a click, a window on ⌥/Alt-click. One button with a
+                modifier rather than two: the bar is already five controls wide,
+                and on macOS the crosshair itself offers Space for a window, so
+                a second button would be advertising what the OS already does. */}
+            <button className="cmp-btn" disabled={busy}
+                    onClick={(e) => void capture(e.altKey ? 'window' : 'region')}
+                    title={`${t('Take a screenshot')} · ${IS_MAC ? t('hold Option for a window') : t('hold Alt for a window')}`}
+                    aria-label={t('Take a screenshot')}>
+              <Icon name="camera" size={15} />
+            </button>
+
+            <button className="cmp-btn" onClick={openClips} disabled={busy || clips.length === 0}
+                    title={t('Clipboard history')} aria-label={t('Clipboard history')}>
+              <Icon name="clipboard" size={15} />
+            </button>
+
+            {canDictate && (
+              <button className={`cmp-btn mic ${dict.phase === 'off' ? '' : 'on'}`}
+                      onClick={dictate} disabled={busy}
+                      aria-pressed={dict.phase !== 'off'}
+                      title={t(dict.phase === 'off' ? 'Dictate' : 'Stop dictating')}
+                      aria-label={t(dict.phase === 'off' ? 'Dictate' : 'Stop dictating')}>
+                <Icon name="mic" size={15} />
+              </button>
+            )}
+            {dict.error ? (
+              <span className="dict-say bad">{t(dict.error)}</span>
+            ) : dict.phase !== 'off' && (
+              /* The engine's guess, still provisional -- only finalised words
+                 are put in the message. */
+              <span className="dict-say">{dict.interim || t('Listening…')}</span>
+            )}
+
             {/* Inline, because which model is answering changes what the reply
                 costs and how good it is, and that is a per-question decision —
                 not a setting you configure once and forget. */}
@@ -2143,6 +2673,12 @@ export function App() {
             <Icon name={acStatus === 'thinking' ? 'ellipsis' : acStatus === 'cooldown' ? 'pause'
                        : acStatus === 'error' ? 'warning' : 'bolt'} size={13} />
           </span>
+        )}
+        {openFilePath && (
+          <button className="st-btn" onClick={() => setVersionsFor(openFilePath)}
+                  title={t('Earlier versions of this file')}>
+            <Icon name="restore" size={12} />{t('History')}
+          </button>
         )}
         <button className="st-btn" onClick={() => setPalette('find')}>
           <Icon name="search" size={12} />{t('Search')}

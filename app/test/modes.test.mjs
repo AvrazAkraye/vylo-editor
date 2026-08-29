@@ -49,8 +49,16 @@ for (const t of READ_TOOLS) {
 }
 
 // `apply_write` and the pty commands must not be reachable at all — the whole
-// design rests on that, and it is cheap to assert.
-const ABSENT = ['apply_write', 'pty_open', 'pty_write', 'pty_close', 'checkpoint_restore', 'mcp_call'];
+// design rests on that, and it is cheap to assert. Every Tauri command that
+// writes to a disk, runs a shell, spawns a process or throws something away
+// belongs on this list; a command that is absent from it and absent from the
+// schema is only absent by luck.
+const ABSENT = [
+  'apply_write', 'pty_open', 'pty_write', 'pty_resize', 'pty_close',
+  'checkpoint_restore', 'checkpoint_redo', 'mcp_start', 'mcp_call',
+  'capture_screenshot', 'set_global_shortcut',
+  'history_restore', 'history_forget', 'history_forget_all',
+];
 for (const forbidden of ABSENT) {
   ok(`${forbidden} is absent from the schema`, !TOOLS.some((t) => t.name === forbidden));
 }

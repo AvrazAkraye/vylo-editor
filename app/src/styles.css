@@ -11,7 +11,8 @@
      scrollbars, so they belong to the app rather than the OS default
      motion, kept subtle and opt-out · terminal panel
      attach button and file chips · status-bar button
-     command palette (⌘P, ⌘⇧F) · editor · icons
+     command palette (⌘P, ⌘⇧F) · editor · icons · working tree
+     clipboard history · file history · global shortcut
  */
 
 /* Vylo Editor — desktop chrome.
@@ -203,6 +204,25 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .settings .hint{ grid-column:1/-1; margin:0; font-size:var(--fs-3); color:var(--mute); text-transform:none; letter-spacing:0; }
 
+/* The one setting that is a key capture rather than a value. It is a div and
+   not a label like its neighbours, because a label wrapping a button forwards
+   a click on its own text to that button and the recorder would toggle twice. */
+.settings .fld{ display:grid; gap:var(--sp-3); }
+.settings .fld-lbl{ font-size:var(--fs-3); color:var(--mute); text-transform:uppercase; letter-spacing:.07em; }
+.sc-row{ display:flex; align-items:center; gap:var(--sp-4); }
+.sc-key{
+  flex:1; min-width:0; text-align:left; cursor:pointer;
+  font:inherit; font-family:var(--mono); font-size:var(--fs-4);
+  padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
+  border:1px solid var(--rule); background:var(--panel); color:var(--ink);
+}
+.sc-key.unset{ color:var(--mute); }
+/* Recording is a mode, and a mode that is not visible is a keystroke going
+   somewhere the user did not expect. */
+.sc-key.rec{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); color:var(--brand); }
+.sc-why{ font-size:var(--fs-3); color:var(--mute); text-transform:none; letter-spacing:0; }
+.sc-why.err{ color:var(--err); }
+
 .log{ flex:1; overflow-y:auto; padding:var(--sp-8); display:flex; flex-direction:column; gap:var(--sp-5); }
 .empty{ margin:auto; max-width:46ch; text-align:center; color:var(--ink-2); line-height:1.6; }
 .empty p{ margin:0 0 var(--sp-5); }
@@ -257,6 +277,32 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .cmp-btn:hover:not(:disabled){ background:var(--panel-2); color:var(--ink); }
 .cmp-btn:disabled{ opacity:.4; cursor:default; }
+
+/* Dictation. A microphone that is on and does not look on is the wrong thing
+   to be wrong about, so the listening state is a filled control plus a live
+   dot, not a subtle tint. */
+.cmp-btn.mic{ position:relative; }
+.cmp-btn.mic.on{ background:var(--brand-wash); color:var(--brand); }
+.cmp-btn.mic.on::after{
+  content:''; position:absolute; top:2px; right:2px;
+  width:6px; height:6px; border-radius:50%; background:var(--err);
+  animation:mic-live 1.4s ease-in-out infinite;
+}
+@keyframes mic-live{ 50%{ opacity:.2; } }
+/* Takes the slack in the bar so a long guess pushes nothing around, and
+   ellipsises rather than wrapping the composer to a second row. */
+.dict-say{
+  flex:1 1 auto; min-width:0; font-size:var(--fs-3); color:var(--mute);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.dict-say.bad{ color:var(--err); }
+
+/* Phase I put three more controls in this bar -- capture, clipboard, mic -- and
+   it does not wrap, so on a narrow window something has to give. The send key
+   reminder is the only thing here that is a reminder rather than a control. */
+@media (max-width:720px){
+  .cmp-hint{ display:none; }
+}
 
 .cmp-model{ display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--mute); }
 .cmp-model select{
@@ -724,7 +770,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .line, .toolrun{ animation:rise .18s ease-out; }
 @keyframes rise{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
 @media (prefers-reduced-motion: reduce){
-  .line, .toolrun, .dot{ animation:none; }
+  .line, .toolrun, .dot, .cmp-btn.mic.on::after{ animation:none; }
   *{ transition-duration:.001ms !important; }
 }
 
@@ -1133,6 +1179,13 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .undo-cp:hover:not(:disabled){ color:var(--err); border-color:var(--err); }
 .undo-cp:disabled{ opacity:.45; cursor:default; }
 
+/* Redo has no line of its own to sit on, so it stands at the end of the
+   transcript. Going forward is not a destructive-red action the way undo is. */
+.line.redo-row{ display:flex; align-items:center; gap:var(--sp-3); }
+.line.redo-row .body{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.line.redo-row .undo-cp{ margin-left:0; flex:none; }
+.line.redo-row .undo-cp:hover:not(:disabled){ color:var(--brand); border-color:var(--brand); }
+
 /* ── apply-from-chat ─────────────────────────────────────────────────── */
 /* Sits opposite the language tag, on the block it applies. A button in the
    toolbar would mean picking which block it meant. */
@@ -1289,3 +1342,90 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   border:1px solid var(--rule); background:var(--panel); color:var(--ink);
 }
 .wt-commit .approve{ flex:none; font-size:var(--fs-3); padding:var(--sp-3) var(--sp-5); }
+
+/* ── clipboard history ───────────────────────────────────────────────── */
+/* Rows are the palette's, stacked: the clip on one line and when it arrived on
+   the next. The text is mono because a clip is code at least as often as prose,
+   and proportional type makes two similar snippets look the same at a glance. */
+.clip-row{ flex-direction:column; align-items:stretch; gap:var(--sp-1); }
+.clip-text{
+  font-family:var(--mono); font-size:var(--fs-3); color:var(--ink);
+  white-space:pre; overflow:hidden; text-overflow:ellipsis;
+}
+.clip-meta{ display:flex; align-items:baseline; gap:var(--sp-4); font-size:var(--fs-2); color:var(--mute); }
+/* A clip too long to store whole says so on the row, not in a tooltip: handing
+   back nine tenths of what was copied without saying so is worse than refusing. */
+.clip-meta b{ font-weight:600; color:var(--warn); }
+
+.clip-foot{
+  flex:none; display:flex; align-items:center; gap:var(--sp-5);
+  padding:var(--sp-4) var(--sp-7); border-top:1px solid var(--rule); background:var(--panel-2);
+}
+/* The promise the feature rests on, kept where the history is read rather than
+   in a settings page nobody opens. */
+.clip-note{ flex:1; min-width:0; font-size:var(--fs-2); color:var(--mute); }
+.clip-clear{
+  flex:none; font:inherit; font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5);
+  border-radius:var(--r-2); border:1px solid var(--rule-2); background:var(--panel);
+  color:var(--ink-2); cursor:pointer;
+}
+.clip-clear:hover{ border-color:var(--err); color:var(--err); }
+
+/* ── file history ────────────────────────────────────────────────────── */
+/* Wider than the palettes it borrows its shell from: this one shows a diff,
+   not a list of names. */
+.pal.fh{ width:min(920px, 94vw); max-height:76vh; }
+.fh-bar{
+  display:flex; align-items:center; gap:var(--sp-3);
+  padding:var(--sp-4) var(--sp-5); border-bottom:1px solid var(--rule);
+  color:var(--mute); background:var(--panel-2);
+}
+.fh-bar code{
+  font-family:var(--mono); font-size:var(--fs-3); color:var(--ink-2);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+/* The shape the clipboard picker's Clear has, and there for the same reason: a
+   store of everything the app writes needs a way to say "not that one". */
+.fh-forget{
+  flex:none; font:inherit; font-size:var(--fs-2); padding:var(--sp-2) var(--sp-4);
+  border-radius:var(--r-2); border:1px solid var(--rule-2); background:var(--panel);
+  color:var(--mute); cursor:pointer;
+}
+.fh-forget:hover:not(:disabled){ border-color:var(--err); color:var(--err); }
+.fh-forget:disabled{ opacity:.5; cursor:default; }
+.fh-sp{ flex:1; }
+.fh-body{ display:flex; min-height:0; flex:1; }
+.fh-list{
+  width:190px; flex:none; overflow-y:auto; padding:var(--sp-3);
+  border-right:1px solid var(--rule); background:var(--panel-2);
+}
+.fh-row{ gap:var(--sp-3); font-family:var(--mono); font-size:var(--fs-3); }
+.fh-view{ flex:1; min-width:0; display:flex; flex-direction:column; }
+.fh-head{
+  display:flex; align-items:center; gap:var(--sp-4);
+  padding:var(--sp-4) var(--sp-5); border-bottom:1px solid var(--rule);
+  font-size:var(--fs-3); color:var(--mute);
+}
+.fh-counts{ display:flex; align-items:center; gap:var(--sp-3); }
+.fh-counts .mini{ display:flex; gap:var(--sp-3); font-family:var(--mono); font-size:var(--fs-2); }
+.fh-head .approve{ flex:none; font-size:var(--fs-3); padding:var(--sp-3) var(--sp-5); }
+/* Warning colour, not error: nothing has gone wrong, the button is simply
+   waiting on a decision about the unsaved buffer. */
+.fh-note{
+  margin:0; padding:var(--sp-3) var(--sp-5); font-size:var(--fs-3);
+  color:var(--warn); border-bottom:1px solid var(--rule);
+}
+.fh-scroll{ flex:1; min-height:0; overflow:auto; }
+/* Typography only. The rows themselves are `DiffRows`, the same component the
+   review pane draws, so the two diffs cannot drift apart — which they had,
+   silently, when this was a copy of the markup without the highlighting. */
+.fh-pre{
+  margin:0; font-family:var(--mono); font-size:var(--fs-3);
+  line-height:1.55; padding:var(--sp-3) 0;
+}
+.fh-plain{ padding:var(--sp-3) var(--sp-5); white-space:pre-wrap; color:var(--ink-2); }
+
+@media (max-width:760px){
+  .fh-body{ flex-direction:column; }
+  .fh-list{ width:auto; max-height:110px; border-right:0; border-bottom:1px solid var(--rule); }
+}

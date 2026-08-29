@@ -55,6 +55,15 @@ const code = readdirSync('src')
 const dead = [...base].filter((k) => !code.includes(k.replace(/\\'/g, "'")));
 ok('no catalogue entry has lost its UI', dead.length === 0, dead.join(' | '));
 
+// And the other direction, which nothing above could see: every check here
+// starts from the catalogue, so a string the UI passes to `t()` that no
+// catalogue has passes the whole suite while rendering in English inside an
+// RTL interface. Two of them had.
+const used = new Set([...code.matchAll(/\bt\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)].map((m) => m[1]));
+const untranslated = [...used].filter((k) => !base.has(k));
+ok('every string the UI hands to t() is in the catalogues',
+   untranslated.length === 0, untranslated.join(' | '));
+
 // The parser above is the thing most likely to be wrong, so prove it saw a
 // realistic number of entries rather than silently matching nothing.
 ok('the file parsed to a plausible catalogue', base.size > 50, `${base.size} keys`);

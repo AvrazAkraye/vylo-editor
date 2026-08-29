@@ -22,6 +22,9 @@ tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
 portable-pty = "0.9.0"
 sha2 = "0.11.0"
+# I5. The one binding is registered only when the user has set one; see the
+# global-shortcut section of lib.rs for why there is no default.
+tauri-plugin-global-shortcut = "2.3.2"
 
 [profile.release]
 codegen-units = 1
