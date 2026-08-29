@@ -1141,3 +1141,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* Mode selector, beside the model picker in the composer. */
 .cmp-mode{ flex:none; }
 .cmp-mode button{ font-size:var(--fs-3); padding:var(--sp-2) var(--sp-4); }
+
+/* The quit dialog reuses the approval overlay; only the emphasis differs. */
+.ask.quit .ask-lbl{ color:var(--ink); }
+.ask.quit .ask-why.err{ color:var(--err); font-family:var(--mono); }

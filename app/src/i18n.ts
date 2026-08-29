@@ -24,6 +24,15 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Unsaved work': 'عمل غير محفوظ',
+  'Leave without saving?': 'المغادرة دون حفظ؟',
+  'Stay': 'البقاء',
+  'Leave anyway': 'المغادرة على أي حال',
+  'Save and leave': 'حفظ ومغادرة',
+  'proposed change': 'تغيير مقترح',
+  'proposed changes': 'تغييرات مقترحة',
+  'will be discarded.': 'ستُلغى.',
+  'A reply is still being written.': 'لا يزال هناك رد قيد الكتابة.',
   'Showing the first 2 MB of this file.': 'يُعرض أول 2 ميغابايت من هذا الملف.',
   'It is too large to edit here, so it is read-only —': 'حجمه أكبر من أن يُحرَّر هنا، لذا فهو للقراءة فقط —',
   'in total': 'بالمجمل',
@@ -194,6 +203,15 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Unsaved work': 'کاری پاشەکەوتنەکراو',
+  'Leave without saving?': 'بەبێ پاشەکەوت دەربچیت؟',
+  'Stay': 'مانەوە',
+  'Leave anyway': 'بەهەرحاڵ دەربچە',
+  'Save and leave': 'پاشەکەوت و دەرچوون',
+  'proposed change': 'گۆڕانکاری پێشنیارکراو',
+  'proposed changes': 'گۆڕانکاری پێشنیارکراو',
+  'will be discarded.': 'فڕێدەدرێن.',
+  'A reply is still being written.': 'هێشتا وەڵامێک دەنووسرێت.',
   'Showing the first 2 MB of this file.': 'یەکەم ٢ مێگابایتی ئەم فایلە پیشان دەدرێت.',
   'It is too large to edit here, so it is read-only —': 'زۆر گەورەیە بۆ دەستکاری لێرە، بۆیە تەنها بۆ خوێندنەوەیە —',
   'in total': 'بە گشتی',
@@ -364,6 +382,15 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Unsaved work': 'کارێ نەپاراستی',
+  'Leave without saving?': 'بێ پاراستن دەرکەڤی؟',
+  'Stay': 'مانەوە',
+  'Leave anyway': 'ب هەر حالی دەرکەڤە',
+  'Save and leave': 'بپارێزە و دەرکەڤە',
+  'proposed change': 'گوهۆڕینا پێشنیارکری',
+  'proposed changes': 'گوهۆڕینێن پێشنیارکری',
+  'will be discarded.': 'دێ هێنە ئاڤێتن.',
+  'A reply is still being written.': 'هێشتا بەرسڤەک تێتە نڤیسین.',
   'Showing the first 2 MB of this file.': '٢ مێگابایتێن ئێکێ یێن ڤێ دەفتەرێ تێنە نیشاندان.',
   'It is too large to edit here, so it is read-only —': 'پر مەزنە بۆ دەستکارییا ل ڤێرێ، لەوما تنێ بۆ خواندنێیە —',
   'in total': 'ب گشتی',

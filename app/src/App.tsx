@@ -33,6 +33,7 @@ import { groupLines, ToolRun } from './ToolRun';
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
 import { Rail, type RailId } from './Rail';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   applyMention, findMentions, folderListing, mentionQuery, treeResolver, TERMINAL,
 } from './mentions';
@@ -159,6 +160,12 @@ export function App() {
   /** Tools from servers that are actually running, namespaced for the model. */
   const [mcpTools, setMcpTools] = useState<Record<string, McpTool[]>>({});
   const [mcpError, setMcpError] = useState<string | null>(null);
+  /**
+   * Set when a close was intercepted. Holds what would be lost, so the dialog
+   * can name it rather than asking about "unsaved changes" in the abstract.
+   */
+  const [quitting, setQuitting] = useState<{ dirty: string[]; staged: number; busy: boolean } | null>(null);
+  const [quitError, setQuitError] = useState<string | null>(null);
   const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('vylo.mode') as Mode) || 'agent');
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
@@ -358,6 +365,53 @@ export function App() {
     } catch (e) {
       setMcpError(`${spec.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
+  }
+
+  /**
+   * Closing the window throws away anything not on disk.
+   *
+   * Editor buffers are the part that actually loses work, so they are what
+   * blocks. Staged changes and a turn in flight are named too — they are also
+   * lost, and a dialog that mentions only one of the three would be telling
+   * half the truth.
+   *
+   * Read through refs: the listener is registered once, and a listener holding
+   * the first render's state would decide with numbers from before the session
+   * had anything in it.
+   */
+  const closing = useRef({ dirty, editors, changes: [] as Change[], busy: false });
+  closing.current = { dirty, editors, changes, busy };
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void getCurrentWindow().onCloseRequested((e) => {
+      const c = closing.current;
+      const unsaved = [...c.dirty].filter((p) => c.editors.current.get(p)?.isDirty());
+      if (!unsaved.length && !c.changes.length && !c.busy) return;
+      e.preventDefault();
+      setQuitError(null);
+      setQuitting({ dirty: unsaved, staged: c.changes.length, busy: c.busy });
+    }).then((un) => { stop = un; });
+    return () => stop?.();
+  }, []);
+
+  /** Leave without saving. `destroy` skips the handler above; `close` re-enters it. */
+  const quitNow = () => { void getCurrentWindow().destroy(); };
+
+  async function saveAllAndQuit() {
+    setQuitError(null);
+    for (const path of quitting?.dirty ?? []) {
+      const h = editors.current.get(path);
+      if (!h?.isDirty()) continue;
+      try {
+        await h.save();
+      } catch (e) {
+        // Quitting after a failed save would lose exactly the work this exists
+        // to protect, so it stays open and says which file refused.
+        setQuitError(`${path}: ${e instanceof Error ? e.message : String(e)}`);
+        return;
+      }
+    }
+    quitNow();
   }
 
   // The agent reads what you are looking at. Without this it reads the file
@@ -1393,6 +1447,37 @@ export function App() {
         </div>
       )}
 
+
+      {quitting && (
+        <div className="ask quit" role="alertdialog" aria-label={t('Unsaved work')}>
+          <div className="ask-in">
+            <div className="ask-txt">
+              <span className="ask-lbl">{t('Leave without saving?')}</span>
+              {quitting.dirty.length > 0 && (
+                <span className="ask-why">
+                  {t('Unsaved')}: {quitting.dirty.map((p) => p.split('/').pop()).join(', ')}
+                </span>
+              )}
+              {quitting.staged > 0 && (
+                <span className="ask-why">
+                  {quitting.staged} {quitting.staged === 1 ? t('proposed change') : t('proposed changes')} {t('will be discarded.')}
+                </span>
+              )}
+              {quitting.busy && <span className="ask-why">{t('A reply is still being written.')}</span>}
+              {quitError && <span className="ask-why err">{quitError}</span>}
+            </div>
+            <div className="ask-btns">
+              <button className="ghost keep" onClick={() => setQuitting(null)}>{t('Stay')}</button>
+              <button className="reject" onClick={quitNow}>{t('Leave anyway')}</button>
+              {quitting.dirty.length > 0 && (
+                <button className="approve" onClick={() => void saveAllAndQuit()}>
+                  {t('Save and leave')}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {palette === 'open' && (
         <QuickOpen entries={tree} onOpen={(p) => openAt(p)} onClose={() => setPalette(null)} t={t} />
