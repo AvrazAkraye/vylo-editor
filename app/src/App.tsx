@@ -38,6 +38,7 @@ import {
   applyMention, findMentions, folderListing, mentionQuery, treeResolver, TERMINAL,
 } from './mentions';
 import { rank } from './fuzzy';
+import { detailOf, explain } from './errors';
 import {
   commandLine, isEnabled, listServers, setEnabled, startServer, stopServer, toSchema,
   type McpTool, type ServerSpec,
@@ -507,7 +508,7 @@ export function App() {
           const a = await attachFromFile(f);
           setShots((p) => [...p, a]);
         } catch (err) {
-          push({ kind: 'error', text: String(err instanceof Error ? err.message : err) });
+          push({ kind: 'error', text: explain(err, t('attach that image')) });
         }
       }
     };
@@ -608,7 +609,7 @@ export function App() {
       setChanges(pending.current.list());
       push({ kind: 'result', text: `${t('Staged')} ${edits.length} ${edits.length === 1 ? t('edit') : t('edits')} ${t('to')} ${path}. ${t('Review below.')}` });
     } catch (e) {
-      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+      push({ kind: 'error', text: explain(e, `${t('apply that to')} ${path}`) });
     } finally {
       setBusy(false);
     }
@@ -659,7 +660,7 @@ export function App() {
       if (items.length) setShots((p) => [...p, ...items]);
       if (errors.length) push({ kind: 'error', text: errors.join(' \u00b7 ') });
     } catch (e) {
-      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+      push({ kind: 'error', text: explain(e, t('attach that file')) });
     }
   }
 
@@ -678,7 +679,7 @@ export function App() {
       setGit(await invoke('git_state', { root }));
       push({ kind: 'result', text: `Switched to branch ${name}` });
     } catch (e) {
-      push({ kind: 'error', text: String(e) });
+      push({ kind: 'error', text: explain(e, `${t('create the branch')} ${name}`) });
     }
   }
 
@@ -694,7 +695,7 @@ export function App() {
       setCommitMsg('');
       setGit(await invoke('git_state', { root }));
     } catch (e) {
-      push({ kind: 'error', text: String(e) });
+      push({ kind: 'error', text: explain(e, t('commit')) });
     } finally {
       setBusy(false);
     }
@@ -761,7 +762,7 @@ export function App() {
     try {
       await h.save();
     } catch (e) {
-      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+      push({ kind: 'error', text: explain(e, `${t('save')} ${active}`) });
     }
   }
 
@@ -827,7 +828,9 @@ export function App() {
         content: `[The user approved and wrote: ${done.join(', ')}. These changes are now on disk.]`,
       });
     } catch (e) {
-      const msg = String(e instanceof Error ? e.message : e);
+      // Raw, because the branch below matches on the stale-write wording.
+      // It is put through explain() at the point it is shown.
+      const msg = detailOf(e);
       // The write was refused because the file moved under the proposal. Re-base
       // the staged change on what is there now, so the review pane shows the
       // real conflict instead of a diff against a version that no longer exists.
@@ -837,7 +840,7 @@ export function App() {
         setChanges(pending.current.list());
         push({ kind: 'error', text: `${msg} ${t('The diff now shows the current file — check it before approving again.')}` });
       } else {
-        push({ kind: 'error', text: msg });
+        push({ kind: 'error', text: explain(msg, t('write the approved changes')) });
       }
     } finally {
       setBusy(false);
@@ -861,7 +864,7 @@ export function App() {
         content: `[The user approved part of your change to ${path} and wrote it. The rest of that change is still staged and NOT on disk. Re-read the file before editing it again.]`,
       });
     } catch (e) {
-      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+      push({ kind: 'error', text: explain(e, `${t('write part of')} ${path}`) });
     } finally {
       setBusy(false);
     }
@@ -920,7 +923,7 @@ export function App() {
       for (const h of editors.current.values()) await h.reload().catch(() => {});
       push({ kind: 'result', text: `${t('Restored')} ${done.length} ${done.length === 1 ? t('file') : t('files')}.` });
     } catch (e) {
-      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+      push({ kind: 'error', text: explain(e, t('restore the files')) });
     } finally {
       setBusy(false);
     }
@@ -993,7 +996,7 @@ export function App() {
       // Stopping is a choice, not a failure, and reporting it as an error would
       // read like something went wrong.
       if (e instanceof Stopped) push({ kind: 'result', text: t('Stopped.') });
-      else push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+      else push({ kind: 'error', text: explain(e, t('send the message')) });
     } finally {
       abort.current = null;
       openLine.current = null;
@@ -1379,7 +1382,7 @@ export function App() {
                   setUpdating(0);
                   update.install((p) => setUpdating(p)).catch((e) => {
                     setUpdating(null);
-                    push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+                    push({ kind: 'error', text: explain(e, t('install the update')) });
                   });
                 }}>{t('Install and restart')}</button>
               </>

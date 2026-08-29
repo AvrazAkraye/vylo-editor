@@ -1,3 +1,4 @@
+import { explain } from './errors';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -136,7 +137,7 @@ export async function collect(paths: string[]): Promise<{ items: Attached[]; err
   const errors: string[] = [];
   for (const path of paths) {
     try { items.push(await attachAnyPath(path)); }
-    catch (e) { errors.push(String(e instanceof Error ? e.message : e)); }
+    catch (e) { errors.push(explain(e, `attach ${path.split(/[/\\]/).pop()}`)); }
   }
   return { items, errors };
 }

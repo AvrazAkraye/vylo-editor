@@ -1,3 +1,4 @@
+import { explain } from './errors';
 import { useEffect, useRef } from 'react';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
@@ -130,7 +131,7 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
         void invoke('pty_resize', { id: n, cols: t.cols, rows: t.rows }).catch(() => {});
         t.focus();
       })
-      .catch((e) => cb.current.onError(String(e instanceof Error ? e.message : e)));
+      .catch((e) => cb.current.onError(explain(e, 'open a terminal')));
 
     const typed = t.onData((d) => {
       if (ptyId !== null) void invoke('pty_write', { id: ptyId, data: d }).catch(() => {});

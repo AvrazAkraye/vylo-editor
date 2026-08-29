@@ -1,3 +1,4 @@
+import { explain } from './errors';
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { EditorState, Prec, type Extension, Compartment } from '@codemirror/state';
@@ -404,7 +405,7 @@ export function Editor({
       v.focus();
     } catch (e) {
       if (!controller.signal.aborted) {
-        setAskError(String(e instanceof Error ? e.message : e));
+        setAskError(explain(e, cfg.current.t('rewrite that selection')));
       }
     } finally {
       abort.current = null;

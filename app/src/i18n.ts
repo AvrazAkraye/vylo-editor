@@ -24,6 +24,18 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'attach that image': 'إرفاق هذه الصورة',
+  'attach that file': 'إرفاق هذا الملف',
+  'apply that to': 'تطبيق ذلك على',
+  'create the branch': 'إنشاء الفرع',
+  'commit': 'الالتزام',
+  'save': 'حفظ',
+  'write the approved changes': 'كتابة التغييرات المعتمدة',
+  'write part of': 'كتابة جزء من',
+  'restore the files': 'استعادة الملفات',
+  'send the message': 'إرسال الرسالة',
+  'install the update': 'تثبيت التحديث',
+  'rewrite that selection': 'إعادة كتابة المحدد',
   'Unsaved work': 'عمل غير محفوظ',
   'Leave without saving?': 'المغادرة دون حفظ؟',
   'Stay': 'البقاء',
@@ -203,6 +215,18 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'attach that image': 'هاوپێچکردنی ئەم وێنەیە',
+  'attach that file': 'هاوپێچکردنی ئەم فایلە',
+  'apply that to': 'جێبەجێکردنی ئەوە لەسەر',
+  'create the branch': 'دروستکردنی لقی',
+  'commit': 'تۆمارکردن',
+  'save': 'پاشەکەوتکردنی',
+  'write the approved changes': 'نووسینی گۆڕانکارییە پەسەندکراوەکان',
+  'write part of': 'نووسینی بەشێک لە',
+  'restore the files': 'گەڕاندنەوەی فایلەکان',
+  'send the message': 'ناردنی نامەکە',
+  'install the update': 'دامەزراندنی نوێکردنەوە',
+  'rewrite that selection': 'نووسینەوەی ئەو دیاریکراوە',
   'Unsaved work': 'کاری پاشەکەوتنەکراو',
   'Leave without saving?': 'بەبێ پاشەکەوت دەربچیت؟',
   'Stay': 'مانەوە',
@@ -382,6 +406,18 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'attach that image': 'پێڤەکرنا ڤێ وێنەیێ',
+  'attach that file': 'پێڤەکرنا ڤێ دەفتەرێ',
+  'apply that to': 'جهبجهکرنا وێ ل سەر',
+  'create the branch': 'چێکرنا لقی',
+  'commit': 'تۆمارکرن',
+  'save': 'پاراستنا',
+  'write the approved changes': 'نڤیسینا گوهۆڕینێن پەسەندکری',
+  'write part of': 'نڤیسینا پارچەیەکێ ژ',
+  'restore the files': 'ڤەگەڕاندنا دەفتەران',
+  'send the message': 'هنارتنا پەیامێ',
+  'install the update': 'دامەزراندنا نویکرنێ',
+  'rewrite that selection': 'ژنویڤە نڤیسینا وی دیارکری',
   'Unsaved work': 'کارێ نەپاراستی',
   'Leave without saving?': 'بێ پاراستن دەرکەڤی؟',
   'Stay': 'مانەوە',
