@@ -27,7 +27,9 @@ tool schema**, so they cannot be reached by a tool call however the model is
 prompted.
 
 Keep it that way. If you add a capability, add it as a staged proposal, not as a
-direct action.
+direct action — and put it on one side of the `READ_TOOLS` / `WRITE_TOOLS`
+split in `agent.ts`, which is what Ask mode is built on. `test/modes.test.mjs`
+names both halves so a new tool cannot quietly join neither.
 
 ### Where the editor sits inside that rule
 

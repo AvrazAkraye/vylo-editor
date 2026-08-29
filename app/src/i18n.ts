@@ -24,6 +24,11 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Mode': 'الوضع',
+  'Ask': 'سؤال',
+  'Agent': 'وكيل',
+  'Reads only — cannot change anything': 'للقراءة فقط — لا يمكنه تغيير أي شيء',
+  'Can propose edits and ask to run commands': 'يمكنه اقتراح تعديلات وطلب تشغيل أوامر',
   'MCP servers': 'خوادم MCP',
   'Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.': 'معلنة من هذا المشروع في .vylo/mcp.json. اقرأ الأمر قبل التمكين — فهو يعمل على جهازك، وكل أداة يقدّمها يُطلب إذنك قبل تشغيلها.',
   'Enable': 'تمكين',
@@ -185,6 +190,11 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Mode': 'دۆخ',
+  'Ask': 'پرسیار',
+  'Agent': 'وەکیل',
+  'Reads only — cannot change anything': 'تەنها دەخوێنێتەوە — ناتوانێت هیچ بگۆڕێت',
+  'Can propose edits and ask to run commands': 'دەتوانێت دەستکاری پێشنیار بکات و داوای جێبەجێکردنی فەرمان بکات',
   'MCP servers': 'ڕاژەکانی MCP',
   'Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.': 'لەلایەن ئەم پڕۆژەیەوە لە .vylo/mcp.json ڕاگەیەنراوە. پێش کاراکردن فەرمانەکە بخوێنەوە — لەسەر ئامێری تۆ کاردەکات، و داوای مۆڵەت دەکرێت بۆ هەر ئامرازێکی.',
   'Enable': 'کاراکردن',
@@ -346,6 +356,11 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Mode': 'دۆخ',
+  'Ask': 'پرسیار',
+  'Agent': 'وەکیل',
+  'Reads only — cannot change anything': 'تنێ دخوینیت — ناشێت چو بگوهۆڕیت',
+  'Can propose edits and ask to run commands': 'دشێت دەستکاریان پێشنیار بکەت و داخوازا ب رێڤەبرنا فەرمانان بکەت',
   'MCP servers': 'ڕاژەیێن MCP',
   'Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.': 'ژ لایێ ڤێ پرۆژەیێ ڤە د .vylo/mcp.json دا هاتییە دیارکرن. بەری ڤەکرنێ فەرمانێ بخوینە — ل سەر ئامێرێ تە دخەبتیت، و بۆ هەر ئامرازەکێ وێ دەستویری تێتە خواستن.',
   'Enable': 'ڤەکرن',

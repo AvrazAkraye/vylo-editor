@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
-  runAgent, Stopped,
+  runAgent, Stopped, type Mode,
   type Block, type CommandRequest, type CommandResult, type Msg, type RunChoice,
 } from './agent';
 import {
@@ -159,6 +159,7 @@ export function App() {
   /** Tools from servers that are actually running, namespaced for the model. */
   const [mcpTools, setMcpTools] = useState<Record<string, McpTool[]>>({});
   const [mcpError, setMcpError] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('vylo.mode') as Mode) || 'agent');
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
@@ -188,6 +189,7 @@ export function App() {
   useEffect(() => { localStorage.setItem('vylo.autocomplete', autocomplete ? '1' : '0'); }, [autocomplete]);
   useEffect(() => { localStorage.setItem('vylo.termfull', termFull ? '1' : '0'); }, [termFull]);
   useEffect(() => { localStorage.setItem('vylo.rail', rail); }, [rail]);
+  useEffect(() => { localStorage.setItem('vylo.mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('vylo.railopen', railOpen ? '1' : '0'); }, [railOpen]);
   useEffect(() => { if (root) localStorage.setItem(LS.root, root); }, [root]);
   useEffect(() => {
@@ -919,6 +921,7 @@ export function App() {
         history: history.current,
         pending: pending.current,
         askToRun,
+        mode,
         extraTools: Object.entries(mcpTools)
           .flatMap(([server, tools]) => tools.map((t) => toSchema(server, t))),
         runInTerminal: (command) => {
@@ -1472,6 +1475,18 @@ export function App() {
             {/* Inline, because which model is answering changes what the reply
                 costs and how good it is, and that is a per-question decision —
                 not a setting you configure once and forget. */}
+            {/* Ask is a smaller tool array, not an instruction — see agent.ts.
+                It sits beside the model picker because both change what the
+                next message will cost and what it can do. */}
+            <span className="seg cmp-mode" role="group" aria-label={t('Mode')}>
+              {(['ask', 'agent'] as Mode[]).map((m) => (
+                <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}
+                        title={t(m === 'ask' ? 'Reads only — cannot change anything' : 'Can propose edits and ask to run commands')}>
+                  {t(m === 'ask' ? 'Ask' : 'Agent')}
+                </button>
+              ))}
+            </span>
+
             <span className="cmp-model">
               <select value={MODELS.some((m) => m.id === model) ? model : 'custom'}
                       onChange={(e) => { if (e.target.value !== 'custom') setModel(e.target.value); }}

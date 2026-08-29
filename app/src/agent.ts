@@ -46,7 +46,15 @@ export interface Msg {
  * this list, so they cannot be reached by a tool call however the model is
  * prompted — the gate is a missing capability, not an instruction.
  */
-export const TOOLS = [
+/**
+ * Tools that only look. Ask mode is given exactly these.
+ *
+ * The distinction is enforced by *sending a smaller array*, not by telling the
+ * model to behave. That is the same reason `apply_write` is absent from the
+ * schema rather than forbidden in the prompt: an instruction is a request, and
+ * a missing tool is a fact.
+ */
+export const READ_TOOLS = [
   {
     name: 'list_tree',
     description:
@@ -67,6 +75,41 @@ export const TOOLS = [
       required: ['path'],
     },
   },
+  {
+    name: 'find_symbol',
+    description:
+      'Find where something is declared — a function, class, type, struct or heading — by name. '
+      + 'Prefer this over search when you want a definition: search returns every mention, '
+      + 'including call sites, imports and comments, and leaves you to read through them. '
+      + 'Matches on a substring of the name, exact matches first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The name, or part of it.' },
+        limit: { type: 'integer', description: 'Cap on results. Default 40.' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'search',
+    description:
+      'Find a literal substring across the open folder. Returns path, line number and the matching line. '
+      + 'Not a regex. Results are ordered by how much each file is about the query, so the first few are '
+      + 'usually the ones worth reading. Use find_symbol instead when you want a declaration.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Literal text to find.' },
+        max_hits: { type: 'integer', description: 'Cap on hits returned. Default 200.' },
+      },
+      required: ['query'],
+    },
+  },
+];
+
+/** Tools that change something, or ask to. Only Agent mode gets these. */
+export const WRITE_TOOLS = [
   {
     name: 'write_file',
     description:
@@ -96,22 +139,6 @@ export const TOOLS = [
     },
   },
   {
-    name: 'find_symbol',
-    description:
-      'Find where something is declared — a function, class, type, struct or heading — by name. '
-      + 'Prefer this over search when you want a definition: search returns every mention, '
-      + 'including call sites, imports and comments, and leaves you to read through them. '
-      + 'Matches on a substring of the name, exact matches first.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        name: { type: 'string', description: 'The name, or part of it.' },
-        limit: { type: 'integer', description: 'Cap on results. Default 40.' },
-      },
-      required: ['name'],
-    },
-  },
-  {
     name: 'run_command',
     description:
       'Ask to run a shell command in the open folder — tests, a build, a linter. The user is shown the exact command and must approve it before it runs. Returns exit code, stdout and stderr. Use it to check your work; do not use it to edit files.',
@@ -136,22 +163,27 @@ export const TOOLS = [
       required: ['fact'],
     },
   },
-  {
-    name: 'search',
-    description:
-      'Find a literal substring across the open folder. Returns path, line number and the matching line. '
-      + 'Not a regex. Results are ordered by how much each file is about the query, so the first few are '
-      + 'usually the ones worth reading. Use find_symbol instead when you want a declaration.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        query: { type: 'string', description: 'Literal text to find.' },
-        max_hits: { type: 'integer', description: 'Cap on hits. Default 200.' },
-      },
-      required: ['query'],
-    },
-  },
 ] as const;
+
+/** Everything, for Agent mode. `TOOLS` is kept as the name callers know. */
+export const TOOLS = [...READ_TOOLS, ...WRITE_TOOLS];
+
+export type Mode = 'ask' | 'agent';
+
+/**
+ * Ask mode adds a sentence, but the sentence is not what stops anything.
+ *
+ * The model is simply not given the tools, so it cannot stage an edit however
+ * it is prompted. This exists so it does not offer to do things it has no way
+ * of doing, which reads as a broken promise rather than a limit.
+ */
+const ASK_NOTE = [
+  '',
+  'You are in **Ask** mode. You can read this project but not change it: the',
+  'tools for staging edits and running commands are not available to you. If a',
+  'change is needed, describe it — including the exact edit you would make — and',
+  'say that switching to Agent mode will let you propose it.',
+].join('\n');
 
 const BASE_SYSTEM = [
   'You are Vylo Editor, a coding agent working on a folder on the user\'s own machine.',
@@ -359,11 +391,30 @@ export interface RunOptions {
   maxHops?: number;
   /** Tools from enabled MCP servers, already namespaced. */
   extraTools?: unknown[];
+  /** Ask reads; Agent may also stage and request commands. Default agent. */
+  mode?: Mode;
 }
 
 /** Raised when the user stops a turn. Not an error to report as a failure. */
 export class Stopped extends Error {
   constructor() { super('stopped'); this.name = 'Stopped'; }
+}
+
+/**
+ * The tools for this turn.
+ *
+ * MCP tools are excluded from Ask mode as well. A third-party tool's side
+ * effects are not visible from its schema — a name like `query` could write —
+ * so "Ask changes nothing" can only hold if they are left out.
+ */
+function toolsFor(o: RunOptions): unknown[] {
+  if (o.mode === 'ask') return [...READ_TOOLS];
+  return [...TOOLS, ...(o.extraTools ?? [])];
+}
+
+function system(o: RunOptions): string {
+  const base = o.mode === 'ask' ? `${BASE_SYSTEM}\n${ASK_NOTE}` : BASE_SYSTEM;
+  return o.memory ? `${base}\n\n${o.memory}` : base;
 }
 
 export async function runAgent(o: RunOptions): Promise<Msg[]> {
@@ -384,8 +435,8 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
         body: JSON.stringify({
           model: o.model,
           max_tokens: 4096,
-          system: o.memory ? `${BASE_SYSTEM}\n\n${o.memory}` : BASE_SYSTEM,
-          tools: [...TOOLS, ...(o.extraTools ?? [])],
+          system: system(o),
+          tools: toolsFor(o),
           messages,
           stream: true,
         }),

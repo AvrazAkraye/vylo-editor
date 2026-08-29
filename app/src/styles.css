@@ -1137,3 +1137,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .mcp-env, .mcp-tools{ font-size:var(--fs-2); color:var(--mute); text-transform:none; letter-spacing:0; }
 .mcp-row .approve, .mcp-row .ghost{ flex:none; font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); }
 .mcp-row .ghost{ border-color:var(--rule); }
+
+/* Mode selector, beside the model picker in the composer. */
+.cmp-mode{ flex:none; }
+.cmp-mode button{ font-size:var(--fs-3); padding:var(--sp-2) var(--sp-4); }
