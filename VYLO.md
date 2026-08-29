@@ -21,6 +21,19 @@ prompted.
 Keep it that way. If you add a capability, add it as a staged proposal, not as a
 direct action.
 
+### Where the terminal sits inside that rule
+
+The integrated terminal (`src-tauri/src/pty.rs`) runs a real shell with no
+approval step, and that does not weaken the rule: the rule is about who is
+*authoring* the command. A human typing into a shell on their own machine could
+open the same shell in Terminal.app; asking them to approve their own keystrokes
+would be theatre, exactly as it is in the memory editor.
+
+What holds the line is that `pty_open` / `pty_write` / `pty_resize` /
+`pty_close` are **absent from the tool schema**, and nothing carries text from
+the model into a terminal. The bridge is one-way: a human can press *Send to
+chat* to hand terminal output to the agent. Do not add the reverse.
+
 ## Containment
 
 Every path the model supplies is resolved with `canonicalize` against the open
@@ -33,7 +46,7 @@ a file in has chosen it explicitly.
 - `npm run build` — typecheck and bundle the frontend
 - `npm test` — the diff tests (11)
 - `cd src-tauri && cargo test` — containment, command timeout, output truncation,
-  commit scope (4)
+  commit scope, and the terminal — pty round-trip and UTF-8 chunk boundaries (7)
 - `npx tauri build` — produces the `.app` and `.dmg`
 
 Releases and the signing key are documented in `docs/RELEASING.md`. Windows

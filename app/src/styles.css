@@ -581,3 +581,78 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .toolrun .tr-bad{
   margin-left:auto; flex:none; color:var(--err); font-weight:700;
 }
+
+/* ── terminal panel ──────────────────────────────────────────────────── */
+.hdiv{
+  flex:none; height:5px; margin-top:-2px; cursor:row-resize; background:transparent;
+  border-top:1px solid var(--rule);
+}
+.hdiv:hover{ background:var(--brand); opacity:.55; }
+body.resizing-v{ cursor:row-resize; user-select:none; }
+
+.panel-wrap{ flex:none; min-height:120px; display:flex; }
+.panel{ flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--bg); }
+
+.panel-bar{
+  flex:none; display:flex; align-items:stretch; gap:8px; padding:0 8px 0 4px;
+  border-bottom:1px solid var(--rule); background:var(--panel-2);
+}
+.panel-tabs{ display:flex; align-items:stretch; gap:2px; min-width:0; overflow-x:auto; }
+.panel-tabs::-webkit-scrollbar{ height:0; }
+.ptab{
+  display:flex; align-items:center; flex:none; border-bottom:2px solid transparent;
+  color:var(--mute);
+}
+.ptab.on{ color:var(--ink); border-bottom-color:var(--brand); background:var(--panel); }
+.ptab.dead .ptab-name{ text-decoration:line-through; opacity:.6; }
+.ptab-name{
+  font:inherit; font-size:11.5px; padding:7px 4px 7px 9px; border:0; background:transparent;
+  color:inherit; cursor:pointer; white-space:nowrap;
+}
+.ptab-i{ font-size:8px; margin-right:5px; color:var(--brand); }
+.ptab-x{
+  font:inherit; font-size:13px; line-height:1; padding:0 7px 2px; border:0;
+  background:transparent; color:var(--mute); cursor:pointer; opacity:0;
+}
+.ptab:hover .ptab-x, .ptab.on .ptab-x{ opacity:1; }
+.ptab-x:hover{ color:var(--ink); }
+.ptab-add{
+  font:inherit; font-size:15px; line-height:1; padding:0 9px; border:0; align-self:center;
+  background:transparent; color:var(--mute); cursor:pointer; border-radius:5px;
+}
+.ptab-add:hover{ background:var(--panel-3); color:var(--ink); }
+.panel-acts{ margin-left:auto; display:flex; align-items:center; gap:4px; flex:none; }
+.panel-acts .ghost{ font-size:11.5px; padding:4px 9px; }
+
+.panel-body{ flex:1; min-height:0; position:relative; }
+.term-host{ height:100%; padding:6px 4px 6px 10px; }
+.term-host .xterm{ height:100%; }
+.term-host .xterm-viewport{ background:transparent !important; }
+
+/* ── attach button and file chips ────────────────────────────────────── */
+.attach{
+  flex:none; align-self:stretch; width:38px; font:inherit; font-size:18px; line-height:1;
+  border-radius:9px; border:1px solid var(--rule); background:var(--panel-2);
+  color:var(--mute); cursor:pointer;
+}
+.attach:hover:not(:disabled){ color:var(--ink); border-color:var(--rule-2); }
+.attach:disabled{ opacity:.45; cursor:default; }
+
+.chip.text{ padding-left:9px; }
+.chip .doc{ font-size:13px; color:var(--brand); }
+.filechip{
+  display:inline-flex; align-items:center; padding:3px 8px; border-radius:6px;
+  font-family:var(--mono); font-size:10.5px;
+  background:var(--panel-2); border:1px solid var(--rule); color:var(--ink-2);
+}
+
+/* ── status-bar button ───────────────────────────────────────────────── */
+.st-btn{
+  font:inherit; font-family:var(--mono); font-size:10.5px; color:var(--mute);
+  border:0; background:transparent; cursor:pointer; padding:1px 5px; border-radius:4px;
+}
+.st-btn:hover{ background:var(--panel-3); color:var(--ink); }
+.ghost.icon.on{ color:var(--brand); border-color:var(--rule); background:var(--brand-wash); }
+.panel-load{ flex:1; display:grid; place-items:center; font-size:12px; color:var(--mute); }
+/* Hidden, not unmounted: a shell keeps running while the panel is out of sight. */
+.gone{ display:none !important; }

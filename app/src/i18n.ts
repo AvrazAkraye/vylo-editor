@@ -24,6 +24,15 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Terminal': 'الطرفية',
+  'New terminal': 'طرفية جديدة',
+  'Close': 'إغلاق',
+  'Send to chat': 'إرسال إلى المحادثة',
+  'Hide the panel': 'إخفاء اللوحة',
+  'Attach a file': 'إرفاق ملف',
+  'Starting a shell…': 'جارٍ تشغيل الطرفية…',
+  'Copy the selection, or the last of the output, into the message box': 'نسخ المحدد، أو آخر المخرجات، إلى صندوق الرسالة',
+  'The shell closed as soon as it started. Check your shell profile for an error.': 'أُغلقت الطرفية فور تشغيلها. راجع ملف إعداد الصدفة بحثاً عن خطأ.',
   'Theme': 'المظهر',
   'Light': 'فاتح',
   'Dark': 'داكن',
@@ -93,11 +102,20 @@ const ar: Dict = {
   'Not now': 'ليس الآن',
   '+ branch': '+ فرع',
   'New branch name': 'اسم الفرع الجديد',
-  'Drop a folder to open it, or images to attach': 'أفلت مجلداً لفتحه، أو صوراً لإرفاقها',
+  'Drop a folder to open it, or files to attach': 'أفلت مجلداً لفتحه، أو ملفات لإرفاقها',
   'Open a folder, or drop one here': 'افتح مجلداً، أو أفلت واحداً هنا',
 };
 
 const ckb: Dict = {
+  'Terminal': 'تێرمینەڵ',
+  'New terminal': 'تێرمینەڵی نوێ',
+  'Close': 'داخستن',
+  'Send to chat': 'ناردن بۆ چات',
+  'Hide the panel': 'شاردنەوەی پانێڵ',
+  'Attach a file': 'هاوپێچکردنی فایل',
+  'Starting a shell…': 'دەستپێکردنی شێڵ…',
+  'Copy the selection, or the last of the output, into the message box': 'دیاریکراوەکە، یان دوایین دەرچوو، بنووسە بۆ خانەی نامە',
+  'The shell closed as soon as it started. Check your shell profile for an error.': 'شێڵەکە هەر کە دەستی پێکرد داخرا. پڕۆفایلی شێڵەکەت بۆ هەڵە بپشکنە.',
   'Theme': 'ڕووکار',
   'Light': 'ڕووناک',
   'Dark': 'تاریک',
@@ -167,11 +185,20 @@ const ckb: Dict = {
   'Not now': 'ئێستا نا',
   '+ branch': '+ لق',
   'New branch name': 'ناوی لقی نوێ',
-  'Drop a folder to open it, or images to attach': 'بوخچەیەک فڕێبدە بۆ کردنەوەی، یان وێنە بۆ هاوپێچکردن',
+  'Drop a folder to open it, or files to attach': 'بوخچەیەک فڕێبدە بۆ کردنەوەی، یان فایل بۆ هاوپێچکردن',
   'Open a folder, or drop one here': 'بوخچەیەک بکەرەوە، یان یەکێک لێرە فڕێبدە',
 };
 
 const kmr: Dict = {
+  'Terminal': 'تێرمینال',
+  'New terminal': 'تێرمینالەکێ نوی',
+  'Close': 'دادان',
+  'Send to chat': 'ڕەوانەکرن بۆ چاتێ',
+  'Hide the panel': 'ڤەشارتنا پانێلی',
+  'Attach a file': 'پێڤەکرنا دەفتەرەکێ',
+  'Starting a shell…': 'دەستپێکرنا شێلی…',
+  'Copy the selection, or the last of the output, into the message box': 'دیارکری، یان دویماهیا دەرئێخستنێ، بنڤیسە د قوتیا پەیامێ دا',
+  'The shell closed as soon as it started. Check your shell profile for an error.': 'شێل هەما کو دەستپێکر هاتە دادان. پرۆفایلا شێلا خۆ بۆ شاشیێ بپشکنە.',
   'Theme': 'ڕەنگ و رووکار',
   'Light': 'ڕۆنی',
   'Dark': 'تاری',
@@ -241,7 +268,7 @@ const kmr: Dict = {
   'Not now': 'نە نوکە',
   '+ branch': '+ چق',
   'New branch name': 'ناڤێ چقێ نوی',
-  'Drop a folder to open it, or images to attach': 'بوخچەیەکێ بئاڤێژە بۆ ڤەکرنێ، یان وێنان بۆ پێڤەکرنێ',
+  'Drop a folder to open it, or files to attach': 'بوخچەیەکێ بئاڤێژە بۆ ڤەکرنێ، یان دەفتەران بۆ پێڤەکرنێ',
   'Open a folder, or drop one here': 'بوخچەیەکێ ڤەکە، یان یەکێ ل ڤێرێ بئاڤێژە',
 };
 

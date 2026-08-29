@@ -20,6 +20,8 @@
 //!    shows a diff; nothing touches the disk until a human clicks. That is why
 //!    the dangerous verb can exist at all — it is not wired to the model.
 
+mod pty;
+
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde::Serialize;
@@ -335,6 +337,52 @@ fn read_image(path: String) -> Result<Attachment, String> {
 }
 
 #[derive(Serialize)]
+pub struct TextAttachment {
+    name: String,
+    text: String,
+    bytes: u64,
+    truncated: bool,
+}
+
+/// Read a text file the **user** attached — a log, a CSV, a config from
+/// somewhere outside the open folder.
+///
+/// Outside `resolve()` for the same reason as `read_image`: the human picked
+/// this file. What it does enforce is that the file is *text*, because sending
+/// a megabyte of base64-looking noise to the model costs real money and answers
+/// nothing. Binary is detected by looking for a NUL byte, which is the same
+/// heuristic `git` and `grep` use and is right far more often than an
+/// extension list would be.
+#[tauri::command]
+fn read_text_attachment(path: String) -> Result<TextAttachment, String> {
+    let p = Path::new(&path);
+    let name = p.file_name().unwrap_or_default().to_string_lossy().to_string();
+    let md = fs::metadata(p).map_err(|e| format!("{path}: {e}"))?;
+    if md.is_dir() {
+        return Err(format!("{name}: is a folder"));
+    }
+
+    // Enough for a stack trace or a settings file; well short of a build log
+    // nobody meant to send.
+    const MAX: usize = 256 * 1024;
+    let bytes = fs::read(p).map_err(|e| format!("{path}: {e}"))?;
+    if bytes.iter().take(8192).any(|b| *b == 0) {
+        return Err(format!("{name}: looks like a binary file, so there is nothing to read"));
+    }
+
+    let truncated = bytes.len() > MAX;
+    let mut cut = bytes.len().min(MAX);
+    // Do not split a character in half on the way out. These are raw bytes, so
+    // the boundary test is the encoding's own: a continuation byte is 10xxxxxx.
+    while cut > 0 && cut < bytes.len() && bytes[cut] & 0xC0 == 0x80 {
+        cut -= 1;
+    }
+    let text = String::from_utf8_lossy(&bytes[..cut]).into_owned();
+
+    Ok(TextAttachment { name, text, bytes: md.len(), truncated })
+}
+
+#[derive(Serialize)]
 pub struct CommandOut {
     code: i32,
     stdout: String,
@@ -573,10 +621,22 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .manage(pty::Terminals::default())
+        // Shells outlive the window they were opened from unless something says
+        // otherwise, and a `npm run dev` still holding port 5173 after the app
+        // is gone is a genuinely confusing thing to debug.
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                use tauri::Manager as _;
+                if let Some(t) = window.try_state::<pty::Terminals>() {
+                    t.kill_all();
+                }
+            }
+        })
         .invoke_handler(tauri::generate_handler![
-            list_tree, read_file, search, path_kind, read_image, apply_write, git_state,
-            run_command, git_create_branch, git_commit,
-            run_command
+            list_tree, read_file, search, path_kind, read_image, read_text_attachment,
+            apply_write, git_state, run_command, git_create_branch, git_commit,
+            pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
         ])
         .run(tauri::generate_context!())
         .expect("error while running Vylo Editor");

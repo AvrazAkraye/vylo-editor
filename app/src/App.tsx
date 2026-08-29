@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { runAgent, type Block, type CommandRequest, type Msg } from './agent';
 import {
-  attachFromFile, listenForDrops, previewUrl, toImageBlock, type Attached,
+  attachFromFile, describe, isImage, isText, listenForDrops, pickAttachments,
+  previewUrl, textBlock, toImageBlock, type Attached,
 } from './attachments';
 import { Pending, type Change } from './pending';
 import { Review } from './Review';
@@ -20,6 +21,9 @@ import { FileTree, type Entry } from './FileTree';
 import { Viewer } from './Viewer';
 import { Section } from './Sidebar';
 import { groupLines, ToolRun } from './ToolRun';
+// xterm is the largest thing in the bundle and the panel starts closed, so it
+// is fetched the first time someone actually opens a terminal.
+const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
   watchSystem, type Theme,
@@ -86,6 +90,15 @@ export function App() {
   const [sidebarW, setSidebarW] = useState(() => Number(localStorage.getItem('vylo.sbw')) || 248);
   const [theme, setTheme] = useState<Theme>(() => storedTheme());
   const [full, setFull] = useState(false);
+  const [showTerm, setShowTerm] = useState(false);
+  // Hiding the panel must not kill what is running in it -- a dev server you
+  // cannot see is still a dev server. So the panel is mounted on first use and
+  // stays mounted, hidden, until the last shell is closed.
+  const [termMounted, setTermMounted] = useState(false);
+  const [termH, setTermH] = useState(() => Number(localStorage.getItem('vylo.termh')) || 260);
+  const sizingTerm = useRef(false);
+  const work = useRef<HTMLDivElement>(null);
+  const composer = useRef<HTMLTextAreaElement>(null);
   const resizing = useRef(false);
   const t = translator(lang);
   const history = useRef<Msg[]>([]);
@@ -135,6 +148,9 @@ export function App() {
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'd') {
         e.preventDefault();
         setTheme((t0) => t0 === 'dark' ? 'light' : 'dark');
+      } else if (e.ctrlKey && !e.metaKey && (e.key === '`' || e.key === '~')) {
+        e.preventDefault();
+        toggleTerm();
       }
     };
     // resize fires continuously while a window is dragged; each check is an IPC
@@ -185,6 +201,26 @@ export function App() {
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, [sidebarW]);
+
+  // Panel height, dragged from the bar above it. Measured against the work
+  // area rather than the viewport so the header and composer are not counted.
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      const box = work.current;
+      if (!sizingTerm.current || !box) return;
+      const r = box.getBoundingClientRect();
+      setTermH(Math.min(Math.max(r.height - 140, 120), Math.max(120, r.bottom - e.clientY)));
+    };
+    const up = () => {
+      if (!sizingTerm.current) return;
+      sizingTerm.current = false;
+      document.body.classList.remove('resizing-v');
+      try { localStorage.setItem('vylo.termh', String(termH)); } catch { /* private mode */ }
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  }, [termH]);
 
   // Memory is a file in the project, so it is re-read whenever the folder
   // changes or an edit lands -- approving a `remember` should take effect on
@@ -249,7 +285,7 @@ export function App() {
     let stop: (() => void) | undefined;
     void listenForDrops({
       onFolder: (path) => { openFolder(path); },
-      onImages: (imgs) => setShots((p) => [...p, ...imgs]),
+      onAttach: (items) => setShots((p) => [...p, ...items]),
       onHover: setDragging,
       onError: (m) => push({ kind: 'error', text: m }),
     }).then((un) => { stop = un; });
@@ -278,6 +314,26 @@ export function App() {
   }, []);
 
   const push = (l: Line) => setLines((p) => [...p, { at: Date.now(), ...l }]);
+
+  function toggleTerm() {
+    setShowTerm((v) => { if (!v) setTermMounted(true); return !v; });
+  }
+
+  async function attach() {
+    try {
+      const { items, errors } = await pickAttachments();
+      if (items.length) setShots((p) => [...p, ...items]);
+      if (errors.length) push({ kind: 'error', text: errors.join(' \u00b7 ') });
+    } catch (e) {
+      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+    }
+  }
+
+  /** Terminal output the user chose to hand to the agent. One direction only. */
+  function fromTerminal(text: string) {
+    setPrompt((p) => `${p ? p.replace(/\s*$/, '') + '\n\n' : ''}\`\`\`\n${text}\n\`\`\`\n`);
+    composer.current?.focus();
+  }
 
   async function newBranch() {
     const suggested = `vylo/${new Date().toISOString().slice(0, 10)}`;
@@ -443,10 +499,15 @@ export function App() {
     setBusy(true);
 
     // Images ride in the same user turn as the question, before the text, so
-    // the model reads the picture and then what is being asked about it.
-    const content: Block[] | string = shots.length
-      ? [...shots.map(toImageBlock), { type: 'text' as const, text }]
-      : text;
+    // the model reads the picture and then what is being asked about it. Text
+    // files have no block type of their own, so they are folded into the
+    // written turn with a header saying which file each one is.
+    const images = shots.filter(isImage);
+    const files = shots.filter(isText);
+    const written_ = files.length ? `${files.map(textBlock).join('\n\n')}\n\n${text}` : text;
+    const content: Block[] | string = images.length
+      ? [...images.map(toImageBlock), { type: 'text' as const, text: written_ }]
+      : written_;
     history.current.push({ role: 'user', content });
     setShots([]);
 
@@ -500,6 +561,8 @@ export function App() {
           </span>
         )}
         <span className="bar-sp" />
+        <button className={`ghost icon ${showTerm ? 'on' : ''}`} onClick={toggleTerm}
+                title={`${t('Terminal')}  ⌃\``} aria-pressed={showTerm}>▤</button>
         <div className="seg" role="group" aria-label={t('Theme')}>
           {(['light', 'system', 'dark'] as Theme[]).map((v) => (
             <button key={v} className={theme === v ? 'on' : ''} onClick={() => setTheme(v)}
@@ -616,7 +679,7 @@ export function App() {
           document.body.classList.add('resizing');
         }} role="separator" aria-orientation="vertical" />
 
-        <div className="work">
+        <div className="work" ref={work}>
           <div className="tabs">
             <button className={`tab ${active === 'chat' ? 'on' : ''}`} onClick={() => setActive('chat')}>
               {t('Chat')}
@@ -650,7 +713,10 @@ export function App() {
           <div key={i} className={`line ${item.kind}`}>
             {item.shots && (
               <div className="shots sent">
-                {item.shots.map((a) => <img key={a.id} src={previewUrl(a)} alt={a.name} />)}
+                {item.shots.filter(isImage).map((a) => <img key={a.id} src={previewUrl(a)} alt={a.name} />)}
+                {item.shots.filter(isText).map((a) => (
+                  <span key={a.id} className="filechip" title={describe(a)}>{a.name}</span>
+                ))}
               </div>
             )}
             {item.kind === 'error' && <span className="tag err">error</span>}
@@ -661,6 +727,25 @@ export function App() {
         ))}
         {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
           </div>
+          )}
+
+          {termMounted && (
+            <>
+              <div className={`hdiv ${showTerm ? '' : 'gone'}`} role="separator" aria-orientation="horizontal"
+                   onMouseDown={() => { sizingTerm.current = true; document.body.classList.add('resizing-v'); }} />
+              <div className={`panel-wrap ${showTerm ? '' : 'gone'}`} style={{ height: termH }}>
+                <Suspense fallback={<div className="panel-load">{t('Starting a shell…')}</div>}>
+                <TerminalPanel
+                  root={root}
+                  dark={resolved(theme) === 'dark'}
+                  t={t}
+                  onSendToChat={fromTerminal}
+                  onClose={(drop) => { setShowTerm(false); if (drop) setTermMounted(false); }}
+                  onError={(m) => push({ kind: 'error', text: m })}
+                />
+                </Suspense>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -739,8 +824,8 @@ export function App() {
       {shots.length > 0 && (
         <div className="tray">
           {shots.map((a) => (
-            <div className="chip" key={a.id}>
-              <img src={previewUrl(a)} alt="" />
+            <div className={`chip ${a.kind}`} key={a.id} title={describe(a)}>
+              {isImage(a) ? <img src={previewUrl(a)} alt="" /> : <span className="doc">▤</span>}
               <span className="nm">{a.name}</span>
               <button onClick={() => setShots((p) => p.filter((x) => x.id !== a.id))}
                       aria-label={`Remove ${a.name}`}>×</button>
@@ -749,15 +834,18 @@ export function App() {
         </div>
       )}
 
-      {dragging && <div className="dropzone"><span>{t('Drop a folder to open it, or images to attach')}</span></div>}
+      {dragging && <div className="dropzone"><span>{t('Drop a folder to open it, or files to attach')}</span></div>}
 
       <div className="composer">
+        <button className="attach" onClick={() => void attach()} disabled={busy}
+                title={t('Attach a file')} aria-label={t('Attach a file')}>+</button>
         <textarea
+          ref={composer}
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
           placeholder={root
-            ? 'Ask about this codebase…   ⌘/Ctrl+Enter to send · drop or paste images'
+            ? 'Ask about this codebase…   ⌘/Ctrl+Enter to send · drop, paste or attach files'
             : 'Open a folder, or drop one here'}
           rows={3}
           disabled={busy}
@@ -772,6 +860,7 @@ export function App() {
         <span>{root ? folderName : t('No folder')}</span>
         {changes.length > 0 && <span><b>{changes.length}</b> {t('to review')}</span>}
         <span className="sp" />
+        <button className="st-btn" onClick={toggleTerm}>▤ {t('Terminal')}</button>
         {active !== 'chat' && active !== '__memory__' && <span>{active}</span>}
         <span>{model}</span>
         <span>{resolved(theme)}</span>
