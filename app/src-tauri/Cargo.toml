@@ -1,6 +1,6 @@
 [package]
 name = "vylo-editor"
-version = "0.7.0"
+version = "0.7.1"
 description = "AI coding agent for macOS and Windows"
 edition = "2021"
 

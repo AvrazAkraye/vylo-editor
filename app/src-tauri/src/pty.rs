@@ -160,6 +160,7 @@ pub fn pty_open(
 
     let id = state.next.fetch_add(1, Ordering::Relaxed) + 1;
 
+    let exit_channel = on_event.clone();
     std::thread::spawn(move || {
         let mut reader = reader;
         let mut carry: Vec<u8> = Vec::new();
@@ -178,14 +179,21 @@ pub fn pty_open(
                 }
             }
         }
-        let _ = on_event.send(PtyEvent::Exit);
     });
 
-    // Reap the shell so it does not linger as a zombie. The reader above is
-    // what tells the UI the shell is gone; this only collects the status.
+    // The shell exiting is what closes the tab, and waiting on the child is the
+    // only portable way to learn it happened.
+    //
+    // Reader EOF is NOT that signal. A Unix pty reports EOF on the master when
+    // the slave closes, but ConPTY keeps the pseudoconsole open and the read
+    // simply blocks for ever -- so on Windows a shell you typed `exit` into
+    // would sit there looking alive. Windows CI found this by hanging on the
+    // test that read to EOF; the blocked reader unwinds when `pty_close` drops
+    // the master, which is what the tab closing does.
     std::thread::spawn(move || {
         let mut child = child;
         let _ = child.wait();
+        let _ = exit_channel.send(PtyEvent::Exit);
     });
 
     state
@@ -268,6 +276,12 @@ mod tests {
     /// terminal uses the user's shell so their PATH is right, but a test that
     /// did the same would depend on whatever is in their rc file and would fail
     /// on somebody's machine for a reason that has nothing to do with this code.
+    ///
+    /// It also waits for the *string* rather than for EOF, and never joins the
+    /// reader. The first version read to EOF and wedged Windows CI for hours:
+    /// ConPTY does not close the master when the child exits, so the read
+    /// blocks for ever. Same lesson as `run_command`'s pipe draining — never
+    /// wait on a handle a dead process can hold open.
     #[test]
     fn a_command_run_in_a_pty_comes_back_through_the_reader() {
         let pair = native_pty_system()
@@ -292,22 +306,38 @@ mod tests {
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().expect("reader");
 
-        // Read to EOF rather than polling for the string: the child is short
-        // lived, so EOF arrives on its own and the test cannot hang waiting for
-        // output that already came and went.
-        let mut carry = Vec::new();
-        let mut seen = String::new();
-        let mut chunk = [0u8; 1024];
-        while let Ok(n) = reader.read(&mut chunk) {
-            if n == 0 {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        let sink = std::sync::Arc::clone(&seen);
+        std::thread::spawn(move || {
+            let mut carry = Vec::new();
+            let mut chunk = [0u8; 1024];
+            while let Ok(n) = reader.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                carry.extend_from_slice(&chunk[..n]);
+                let text = take_utf8(&mut carry);
+                if let Ok(mut g) = sink.lock() {
+                    g.push_str(&text);
+                }
+            }
+        });
+
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        let mut found = false;
+        while std::time::Instant::now() < deadline {
+            if seen.lock().map(|g| g.contains("vylo-pty-ok")).unwrap_or(false) {
+                found = true;
                 break;
             }
-            carry.extend_from_slice(&chunk[..n]);
-            seen.push_str(&take_utf8(&mut carry));
+            std::thread::sleep(std::time::Duration::from_millis(50));
         }
-        let _ = child.wait();
 
-        assert!(seen.contains("vylo-pty-ok"), "pty produced: {seen:?}");
+        let _ = child.kill();
+        let _ = child.wait();
+        drop(pair.master);   // unblocks the reader on ConPTY
+
+        assert!(found, "pty produced: {:?}", seen.lock().map(|g| g.clone()));
     }
 
     #[test]

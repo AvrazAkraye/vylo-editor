@@ -112,3 +112,7 @@ pieces. Two rules live there:
 - Model ids use hyphens (`claude-opus-4-8`); the dotted form 404s upstream.
 - Killing a child process does not kill what it spawned. Drain its pipes on
   threads rather than joining, or a timed-out command holds the app open.
+- ConPTY does not close the master when the child exits, so reader EOF never
+  arrives on Windows. Terminal exit is signalled from `child.wait()`, and no
+  test may read a pty to EOF — the first one that did wedged Windows CI for
+  hours. Same lesson as the pipe draining above.
