@@ -24,6 +24,12 @@ export interface Line {
    * restoring truncates it back to.
    */
   cp?: { seq: number; hist: number };
+  /**
+   * Set on the error line of a turn that failed for a reason worth trying
+   * again. Cleared when a new turn starts, so only the most recent failure
+   * offers the button — an old one would re-run a question two answers back.
+   */
+  retry?: boolean;
 }
 
 export interface Chat {

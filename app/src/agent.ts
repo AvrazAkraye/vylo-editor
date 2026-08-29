@@ -5,6 +5,7 @@ import { callTool, splitTool } from './mcp';
 import { SSEDecoder, TurnAssembler } from './sse';
 import { add, fold, NO_USAGE, type Usage } from './usage';
 import { fit, limitsFor, estimateText, summaryBlock, type Fitted } from './budget';
+import { MAX_ATTEMPTS, backoffMs, pause, retryable, retryableMessage } from './retry';
 
 /**
  * The agent loop.
@@ -404,11 +405,45 @@ export interface RunOptions {
   onContext?: (used: number, limit: number) => void;
   /** Called once, the first time a turn has to drop history to fit. */
   onCompact?: (info: { dropped: number; trimmed: number; kept: number }) => void;
+  /** A request is being sent again after a failure worth retrying. */
+  onRetry?: (attempt: number, of: number) => void;
+  /**
+   * Discard whatever this hop has streamed so far — it is about to be asked
+   * for again. Without this an automatic retry appends a second copy of a
+   * half-written reply beneath the first.
+   */
+  onRestart?: () => void;
 }
 
-/** Raised when the user stops a turn. Not an error to report as a failure. */
+/**
+ * Raised when the user stops a turn. Not an error to report as a failure.
+ *
+ * Carries the conversation as it stands, because stopping is a decision about
+ * something already read: whatever the model had said before the stop is part
+ * of the conversation, and dropping it would leave the transcript showing a
+ * reply the model has no memory of giving.
+ */
 export class Stopped extends Error {
-  constructor() { super('stopped'); this.name = 'Stopped'; }
+  constructor(readonly messages: Msg[]) { super('stopped'); this.name = 'Stopped'; }
+}
+
+/**
+ * The conversation with any half-finished tool call removed.
+ *
+ * An assistant message holding `tool_use` blocks must be followed by their
+ * `tool_result`s, so a turn interrupted between the two cannot keep that
+ * message — the *next* request would fail for being malformed. Its text is
+ * worth keeping and its tool calls are not, which is the whole rule.
+ */
+export function keepText(messages: Msg[]): Msg[] {
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'assistant' || typeof last.content === 'string') return messages;
+  if (!last.content.some((b) => b.type === 'tool_use')) return messages;
+  const text = last.content
+    .filter((b): b is Extract<Block, { type: 'text' }> => b.type === 'text')
+    .map((b) => b.text).join('').trim();
+  const head = messages.slice(0, -1);
+  return text ? [...head, { role: 'assistant', content: text }] : head;
 }
 
 /**
@@ -476,96 +511,146 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
         dropped: fitted.dropped, trimmed: fitted.trimmed, kept: fitted.messages.length,
       });
     }
-    let res: Response;
-    try {
-      res = await fetch(`${o.baseUrl}/v1/messages`, {
-        method: 'POST',
-        signal: o.signal,
-        headers: {
-          'content-type': 'application/json',
-          'x-api-key': o.apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: o.model,
-          max_tokens: limits.maxOutput,
-          system: system(o, fitted.summary),
-          tools: toolsFor(o),
-          messages: fitted.messages,
-          stream: true,
-        }),
-      });
-    } catch (e) {
-      if (o.signal?.aborted) throw new Stopped();
-      // A webview reports every network-layer failure as "Load failed", which
-      // reads like a broken key or a dead server and is neither. Name the three
-      // things it actually is, in the order they are worth checking.
-      throw new Error(
-        `Could not reach the gateway at ${o.baseUrl}. `
-        + 'Check the address in Settings, that you are online, and that the gateway allows this app '
-        + `(the underlying error was: ${e instanceof Error ? e.message : String(e)}).`,
-      );
-    }
+    /**
+     * One hop, with retries.
+     *
+     * A dropped connection or a 502 is the network having a bad second, not the
+     * conversation being over — and the old behaviour, ending the turn at the
+     * first thing that went wrong, left retyping the question as the only way
+     * forward. What is *not* retried is anything saying the request itself was
+     * wrong: a bad key sent three times is the same answer with the useful
+     * message buried under two minutes of waiting.
+     */
+    let blocks: Block[] = [];
+    let stopReason: string | null = null;
 
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      let detail = body.slice(0, 300);
-      try {
-        const j = JSON.parse(body);
-        if (j?.error?.message) detail = j.error.message;
-      } catch { /* not JSON; the raw body is the best we have */ }
-      if (res.status === 401) throw new Error(`The gateway rejected the API key. Check it in Settings. (${detail})`);
-      if (res.status === 429) throw new Error(`Rate limited by the gateway — wait a moment. (${detail})`);
-      throw new Error(`Gateway ${res.status}: ${detail}`);
-    }
-    let blocks: Block[];
-    let stopReason: string | null;
+    for (let attempt = 1; ; attempt++) {
+      if (o.signal?.aborted) throw new Stopped(keepText(messages));
+      /** Wait and go round again, or -1 when this is as far as it goes. */
+      const again = (ok: boolean, header?: string | null) =>
+        (ok && attempt < MAX_ATTEMPTS ? backoffMs(attempt, header) : -1);
 
-    if (res.headers.get('content-type')?.includes('text/event-stream') && res.body) {
-      const assembler = new TurnAssembler();
-      const decoder = new SSEDecoder();
-      const reader = res.body.getReader();
-      const utf8 = new TextDecoder();
+      let res: Response;
       try {
-        for (;;) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          // stream:true keeps a multi-byte character intact across chunks.
-          for (const ev of decoder.decode(utf8.decode(value, { stream: true }))) {
-            assembler.push(ev, (t) => o.onDelta(t));
-          }
-        }
+        res = await fetch(`${o.baseUrl}/v1/messages`, {
+          method: 'POST',
+          signal: o.signal,
+          headers: {
+            'content-type': 'application/json',
+            'x-api-key': o.apiKey,
+            'anthropic-version': '2023-06-01',
+          },
+          body: JSON.stringify({
+            model: o.model,
+            max_tokens: limits.maxOutput,
+            system: system(o, fitted.summary),
+            tools: toolsFor(o),
+            messages: fitted.messages,
+            stream: true,
+          }),
+        });
       } catch (e) {
-        // Stopping mid-stream keeps the text and drops everything else. A
-        // tool_use block with no matching tool_result makes the very NEXT
-        // request fail, so half a tool call would poison the conversation
-        // rather than end the turn.
-        if (o.signal?.aborted) {
-          const partial = assembler.partialText();
-          if (partial.trim()) messages.push({ role: 'assistant', content: partial });
-          // Stopping does not refund what was already spent, so it is reported.
-          spent = add(spent, assembler.usage);
-          report();
-          throw new Stopped();
+        if (o.signal?.aborted) throw new Stopped(keepText(messages));
+        const wait = again(retryable(0));
+        if (wait >= 0) {
+          o.onRetry?.(attempt + 1, MAX_ATTEMPTS);
+          await pause(wait, o.signal);
+          continue;
         }
-        throw e;
-      } finally {
-        reader.releaseLock();
+        // A webview reports every network-layer failure as "Load failed", which
+        // reads like a broken key or a dead server and is neither. Name the three
+        // things it actually is, in the order they are worth checking.
+        throw new Error(
+          `Could not reach the gateway at ${o.baseUrl}. `
+          + 'Check the address in Settings, that you are online, and that the gateway allows this app '
+          + `(the underlying error was: ${e instanceof Error ? e.message : String(e)}).`,
+        );
       }
-      if (assembler.error) throw new Error(assembler.error);
-      blocks = assembler.blocks();
-      stopReason = assembler.stopReason;
-      spent = add(spent, assembler.usage);
-    } else {
-      // A gateway that does not stream still answers, and an app that only
-      // works against the newest server is a support problem.
-      const reply = await res.json();
-      blocks = Array.isArray(reply.content) ? reply.content : [];
-      stopReason = reply.stop_reason ?? null;
-      spent = add(spent, fold(NO_USAGE, reply.usage));
-      for (const b of blocks) {
-        if (b.type === 'text' && b.text.trim()) o.onDelta(b.text);
+
+      if (!res.ok) {
+        const body = await res.text().catch(() => '');
+        let detail = body.slice(0, 300);
+        try {
+          const j = JSON.parse(body);
+          if (j?.error?.message) detail = j.error.message;
+        } catch { /* not JSON; the raw body is the best we have */ }
+        const wait = again(retryable(res.status, detail), res.headers.get('retry-after'));
+        if (wait >= 0) {
+          o.onRetry?.(attempt + 1, MAX_ATTEMPTS);
+          await pause(wait, o.signal);
+          continue;
+        }
+        if (res.status === 401) throw new Error(`The gateway rejected the API key. Check it in Settings. (${detail})`);
+        if (res.status === 429) throw new Error(`Rate limited by the gateway — wait a moment. (${detail})`);
+        throw new Error(`Gateway ${res.status}: ${detail}`);
       }
+
+      if (res.headers.get('content-type')?.includes('text/event-stream') && res.body) {
+        const assembler = new TurnAssembler();
+        const decoder = new SSEDecoder();
+        const reader = res.body.getReader();
+        const utf8 = new TextDecoder();
+        let broke: unknown = null;
+        try {
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            // stream:true keeps a multi-byte character intact across chunks.
+            for (const ev of decoder.decode(utf8.decode(value, { stream: true }))) {
+              assembler.push(ev, (t) => o.onDelta(t));
+            }
+          }
+        } catch (e) {
+          // Stopping mid-stream keeps the text and drops everything else. A
+          // tool_use block with no matching tool_result makes the very NEXT
+          // request fail, so half a tool call would poison the conversation
+          // rather than end the turn.
+          if (o.signal?.aborted) {
+            const partial = assembler.partialText();
+            if (partial.trim()) messages.push({ role: 'assistant', content: partial });
+            // Stopping does not refund what was already spent, so it is reported.
+            spent = add(spent, assembler.usage);
+            report();
+            throw new Stopped(keepText(messages));
+          }
+          broke = e;
+        } finally {
+          reader.releaseLock();
+        }
+
+        // A connection that died partway through, or an `error` frame from the
+        // API. Neither is refunded, so both are counted before deciding.
+        const failure = broke ? String(broke) : assembler.error;
+        if (failure) {
+          spent = add(spent, assembler.usage);
+          const wait = again(broke ? true : retryableMessage(failure));
+          if (wait >= 0) {
+            // The half-written reply is already on screen. Asking again without
+            // clearing it would print the answer twice, one incomplete copy
+            // above the other.
+            o.onRestart?.();
+            o.onRetry?.(attempt + 1, MAX_ATTEMPTS);
+            await pause(wait, o.signal);
+            continue;
+          }
+          report();
+          throw broke instanceof Error ? broke : new Error(failure);
+        }
+        blocks = assembler.blocks();
+        stopReason = assembler.stopReason;
+        spent = add(spent, assembler.usage);
+      } else {
+        // A gateway that does not stream still answers, and an app that only
+        // works against the newest server is a support problem.
+        const reply = await res.json();
+        blocks = Array.isArray(reply.content) ? reply.content : [];
+        stopReason = reply.stop_reason ?? null;
+        spent = add(spent, fold(NO_USAGE, reply.usage));
+        for (const b of blocks) {
+          if (b.type === 'text' && b.text.trim()) o.onDelta(b.text);
+        }
+      }
+      break;
     }
 
     messages.push({ role: 'assistant', content: blocks });
@@ -578,7 +663,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     // model out of asking for calls in parallel.
     const results: Block[] = [];
     for (const c of calls) {
-      if (o.signal?.aborted) throw new Stopped();
+      if (o.signal?.aborted) throw new Stopped(keepText(messages));
       o.onEvent({ kind: 'tool', text: `${c.name}(${JSON.stringify(c.input)})` });
       const r = await runTool(
         o.root, { id: c.id, name: c.name, input: c.input }, o.pending, o.askToRun, o.runInTerminal,

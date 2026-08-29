@@ -1337,6 +1337,22 @@ export function App() {
     history.current.push({ role: 'user', content });
     setShots([]);
 
+    await converse();
+  }
+
+  /**
+   * Run a turn against the history as it stands.
+   *
+   * Split out of `send` so it can be run a second time. On a failed turn the
+   * history still ends with the user's message and nothing after it — the
+   * assistant's half is built inside `runAgent` and discarded when it throws —
+   * so trying again is the same request, not a repair.
+   */
+  async function converse() {
+    // Only the newest failure offers a retry; an older one would re-ask a
+    // question two answers back.
+    setLines((p) => (p.some((l) => l.retry) ? p.map((l) => (l.retry ? { ...l, retry: undefined } : l)) : p));
+    setBusy(true);
     const controller = new AbortController();
     abort.current = controller;
     try {
@@ -1367,13 +1383,34 @@ export function App() {
         onDelta: stream,
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
         onStaged: () => setChanges(pending.current.list()),
+        onRetry: (n, of) => push({
+          kind: 'result',
+          text: `${t('The gateway did not answer — trying again')} (${n}/${of})`,
+        }),
+        // The half-written reply is on screen and is about to be asked for
+        // again. Take it back, or the answer appears twice.
+        onRestart: () => setLines((p) => {
+          const i = openLine.current;
+          openLine.current = null;
+          return i === null ? p : p.filter((_, n) => n !== i);
+        }),
         signal: controller.signal,
       });
     } catch (e) {
       // Stopping is a choice, not a failure, and reporting it as an error would
-      // read like something went wrong.
-      if (e instanceof Stopped) push({ kind: 'result', text: t('Stopped.') });
-      else push({ kind: 'error', text: explain(e, t('send the message')) });
+      // read like something went wrong. What was said before the stop is kept:
+      // the person read it and decided on it, so it is part of the conversation
+      // — and a transcript showing a reply the model has no memory of giving is
+      // how the next question stops making sense.
+      if (e instanceof Stopped) {
+        history.current = e.messages;
+        push({ kind: 'result', text: t('Stopped.') });
+      } else {
+        // Retryable in the sense that the same request can be sent again: the
+        // history still ends with the user's message. Whether it will work is
+        // the gateway's business, and the button says nothing about that.
+        push({ kind: 'error', text: explain(e, t('send the message')), retry: true });
+      }
     } finally {
       abort.current = null;
       openLine.current = null;
@@ -1746,6 +1783,11 @@ export function App() {
                       onClick={() => void restore(i, item.cp!)}
                       title={t('Undo this change and everything after it?')}>
                 <Icon name="restore" size={12} />{t('Undo this write')}
+              </button>
+            )}
+            {item.retry && (
+              <button className="undo-cp" disabled={busy} onClick={() => void converse()}>
+                <Icon name="restore" size={12} />{t('Try again')}
               </button>
             )}
           </div>
