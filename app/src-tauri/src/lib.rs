@@ -154,6 +154,57 @@ fn read_file(root: String, path: String) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| format!("{path}: not valid UTF-8 (binary?)"))
 }
 
+/// How much of a file the editor will load. Four times the agent's limit: a
+/// person can usefully scroll a large file, a model reading one is nearly always
+/// a mistake and always expensive.
+const MAX_EDIT_BYTES: u64 = 2 * 1024 * 1024;
+
+#[derive(Serialize)]
+pub struct EditorFile {
+    text: String,
+    /// True when this is only the head of the file. The editor goes read-only.
+    truncated: bool,
+    bytes: u64,
+}
+
+/// Read a file for the editor, which tolerates more than the agent does.
+///
+/// A file past the limit comes back as its first 2 MB with `truncated` set,
+/// rather than as an error. The editor then refuses to save it — and that is
+/// the point rather than a nicety: saving a buffer holding the first 2 MB of a
+/// larger file writes those 2 MB over the whole thing and silently destroys the
+/// rest. Read-only is what makes showing a prefix safe at all.
+#[tauri::command]
+fn read_for_editor(root: String, path: String) -> Result<EditorFile, String> {
+    let p = resolve(&root, &path)?;
+    let md = fs::metadata(&p).map_err(|e| format!("{path}: {e}"))?;
+    if md.is_dir() {
+        return Err(format!("{path}: is a directory"));
+    }
+    let bytes = fs::read(&p).map_err(|e| format!("{path}: {e}"))?;
+    let truncated = md.len() > MAX_EDIT_BYTES;
+
+    let slice = if truncated {
+        let mut cut = MAX_EDIT_BYTES as usize;
+        // Never split a character: the same rule as the text attachments, and
+        // for the same reason -- half a character is not text.
+        while cut > 0 && cut < bytes.len() && bytes[cut] & 0xC0 == 0x80 {
+            cut -= 1;
+        }
+        &bytes[..cut]
+    } else {
+        &bytes[..]
+    };
+
+    let text = if truncated {
+        String::from_utf8_lossy(slice).into_owned()
+    } else {
+        String::from_utf8(slice.to_vec())
+            .map_err(|_| format!("{path}: not valid UTF-8 (binary?)"))?
+    };
+    Ok(EditorFile { text, truncated, bytes: md.len() })
+}
+
 /// True when `at..at+len` in `hay` is not butted against another word character.
 fn word_bounded(hay: &str, at: usize, len: usize) -> bool {
     let word = |c: char| c.is_alphanumeric() || c == '_';
@@ -901,7 +952,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
-            apply_write, file_hash, git_state, run_command, git_create_branch, git_commit,
+            apply_write, file_hash, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             checkpoint_save, checkpoint_list, checkpoint_restore, find_symbol,
             mcp_servers, mcp_start, mcp_call, mcp_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
@@ -1063,6 +1114,43 @@ mod tests {
         let err = apply_write(root.clone(), "new.txt".into(), "again\n".into(), Some(String::new()))
             .expect_err("a create must not silently overwrite");
         assert!(err.contains("changed on disk"), "{err}");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// A prefix is only safe to show because the editor cannot save it. This
+    /// pins the two facts that make that true: the flag is set, and the cut
+    /// lands on a character boundary.
+    #[test]
+    fn a_large_file_comes_back_truncated_rather_than_refused() {
+        // A unique prefix: tests share a process, so the pid alone does not
+        // separate them, and two tests writing to one directory delete each
+        // other's files.
+        let tmp = std::env::temp_dir().join(format!("vylo_editread_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        // Multi-byte characters throughout, so a naive byte cut would land
+        // inside one.
+        let unit = "é一\n";
+        let big: String = unit.repeat((MAX_EDIT_BYTES as usize / unit.len()) + 5000);
+        assert!(big.len() as u64 > MAX_EDIT_BYTES);
+        fs::write(tmp.join("big.txt"), &big).unwrap();
+
+        let r = read_for_editor(root.clone(), "big.txt".into()).unwrap();
+        assert!(r.truncated, "a file past the limit is truncated, not refused");
+        assert_eq!(r.bytes, big.len() as u64, "the real size is reported");
+        assert!(r.text.len() as u64 <= MAX_EDIT_BYTES);
+        assert!(!r.text.contains('\u{FFFD}'), "the cut must not split a character");
+        assert!(big.starts_with(&r.text), "it is the head of the file, unaltered");
+
+        fs::write(tmp.join("small.txt"), "fine\n").unwrap();
+        let s = read_for_editor(root.clone(), "small.txt".into()).unwrap();
+        assert!(!s.truncated && s.text == "fine\n");
+
+        // The agent's own limit is unchanged: it must not start receiving 2 MB.
+        assert!(read_file(root, "big.txt".into()).is_err(), "read_file keeps its 512 KB cap");
 
         let _ = fs::remove_dir_all(&tmp);
     }

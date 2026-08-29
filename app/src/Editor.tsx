@@ -178,6 +178,9 @@ export function Editor({
    * banner says which of the two situations you are in.
    */
   const [fits, setFits] = useState<boolean | null>(null);
+  /** Set when the file was too large to load whole. The buffer is a prefix. */
+  const [partial, setPartial] = useState<{ bytes: number } | null>(null);
+  const partialRef = useRef(false);
   const stagedRef = useRef<Staged | null>(null);
   stagedRef.current = staged;
 
@@ -193,6 +196,7 @@ export function Editor({
   const clean = useRef<string>('');
   const dirtyNow = useRef(false);
   const themeC = useRef(new Compartment());
+  const readOnlyC = useRef(new Compartment());
   const cb = useRef({ onDirty, onSaved, onError, complete });
   cb.current = { onDirty, onSaved, onError, complete };
 
@@ -261,6 +265,7 @@ export function Editor({
         language: languageName(path),
       })),
       themeC.current.of([theme(dark), syntaxHighlighting(highlight(dark))]),
+      readOnlyC.current.of([]),
       EditorView.updateListener.of((u) => {
         if (!u.docChanged) return;
         const st = stagedRef.current;
@@ -276,9 +281,17 @@ export function Editor({
     const v = new EditorView({ state: EditorState.create({ doc: '', extensions }), parent: el });
     view.current = v;
 
-    void invoke<string>('read_file', { root, path })
-      .then(async (text) => {
+    void invoke<{ text: string; truncated: boolean; bytes: number }>('read_for_editor', { root, path })
+      .then(async ({ text, truncated, bytes }) => {
         if (disposed) return;
+        if (truncated) {
+          partialRef.current = true;
+          setPartial({ bytes });
+          // Read-only is what makes showing a prefix safe. Saving a buffer that
+          // holds the first 2 MB of a larger file would write those 2 MB over
+          // the whole thing and silently destroy the rest.
+          v.dispatch({ effects: readOnlyC.current.reconfigure(EditorState.readOnly.of(true)) });
+        }
         clean.current = text;
         base.current = await sha256Hex(text);
         v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
@@ -293,6 +306,11 @@ export function Editor({
       isDirty: () => dirtyNow.current,
       text: () => v.state.doc.toString(),
       save: async () => {
+        // Belt as well as braces: the view is read-only, but a save reaching
+        // here anyway would truncate the file on disk.
+        if (partialRef.current) {
+          throw new Error(cfg.current.t('This file is too large to edit here, so it cannot be saved.'));
+        }
         const text = v.state.doc.toString();
         // The baseline is what this editor last saw on disk. Passing it means a
         // change made outside the app is reported rather than overwritten.
@@ -309,7 +327,9 @@ export function Editor({
         v.focus();
       },
       reload: async () => {
-        const text = await invoke<string>('read_file', { root, path });
+        // Same tolerant read as the initial load, or reloading a large file
+        // after a checkpoint restore would fail where opening it worked.
+        const { text } = await invoke<{ text: string }>('read_for_editor', { root, path });
         clean.current = text;
         base.current = await sha256Hex(text);
         v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
@@ -428,6 +448,17 @@ export function Editor({
   return (
     <div className="ed-wrap" style={{ display: visible ? 'flex' : 'none' }}>
       <div className="ed" ref={host} />
+
+      {partial && (
+        <div className="staged-bar stale">
+          <Icon name="warning" size={13} />
+          <span>
+            {T('Showing the first 2 MB of this file.')}{' '}
+            {T('It is too large to edit here, so it is read-only —')}{' '}
+            {(partial.bytes / 1048576).toFixed(1)} MB {T('in total')}.
+          </span>
+        </div>
+      )}
 
       {staged && (
         <div className={`staged-bar ${fits === false ? 'stale' : ''}`}>

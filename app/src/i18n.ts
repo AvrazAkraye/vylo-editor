@@ -24,6 +24,10 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Showing the first 2 MB of this file.': 'يُعرض أول 2 ميغابايت من هذا الملف.',
+  'It is too large to edit here, so it is read-only —': 'حجمه أكبر من أن يُحرَّر هنا، لذا فهو للقراءة فقط —',
+  'in total': 'بالمجمل',
+  'This file is too large to edit here, so it cannot be saved.': 'هذا الملف أكبر من أن يُحرَّر هنا، لذا لا يمكن حفظه.',
   'Mode': 'الوضع',
   'Ask': 'سؤال',
   'Agent': 'وكيل',
@@ -190,6 +194,10 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Showing the first 2 MB of this file.': 'یەکەم ٢ مێگابایتی ئەم فایلە پیشان دەدرێت.',
+  'It is too large to edit here, so it is read-only —': 'زۆر گەورەیە بۆ دەستکاری لێرە، بۆیە تەنها بۆ خوێندنەوەیە —',
+  'in total': 'بە گشتی',
+  'This file is too large to edit here, so it cannot be saved.': 'ئەم فایلە زۆر گەورەیە بۆ دەستکاری لێرە، بۆیە ناتوانرێت پاشەکەوت بکرێت.',
   'Mode': 'دۆخ',
   'Ask': 'پرسیار',
   'Agent': 'وەکیل',
@@ -356,6 +364,10 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Showing the first 2 MB of this file.': '٢ مێگابایتێن ئێکێ یێن ڤێ دەفتەرێ تێنە نیشاندان.',
+  'It is too large to edit here, so it is read-only —': 'پر مەزنە بۆ دەستکارییا ل ڤێرێ، لەوما تنێ بۆ خواندنێیە —',
+  'in total': 'ب گشتی',
+  'This file is too large to edit here, so it cannot be saved.': 'ئەڤ دەفتەر پر مەزنە بۆ دەستکارییا ل ڤێرێ، لەوما ناشێت بێتە پاراستن.',
   'Mode': 'دۆخ',
   'Ask': 'پرسیار',
   'Agent': 'وەکیل',
