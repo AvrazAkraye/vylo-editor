@@ -211,13 +211,19 @@ export interface Gateway { baseUrl: string; apiKey: string; model: string }
  * the edit arriving; the document is only touched once, when it is complete,
  * which keeps undo to a single entry instead of one per token.
  */
-export async function askEdit(
+/**
+ * One streamed, tool-free request returning the raw reply.
+ *
+ * Shared with "apply from chat", which needs the same transport but its own
+ * prompt and its own idea of what a clean answer looks like.
+ */
+export async function askRaw(
   gw: Gateway,
-  req: EditRequest,
-  onText: (chunk: string) => void,
+  system: string,
+  user: string,
+  onText: (chunk: string) => void = () => {},
   signal?: AbortSignal,
 ): Promise<string> {
-  const { system, user } = editMessages(req);
   const res = await fetch(`${gw.baseUrl}/v1/messages`, {
     method: 'POST',
     signal,
@@ -246,11 +252,9 @@ export async function askEdit(
 
   if (!res.headers.get('content-type')?.includes('text/event-stream') || !res.body) {
     const reply = await res.json();
-    const text = (Array.isArray(reply.content) ? reply.content : [])
+    return (Array.isArray(reply.content) ? reply.content : [])
       .filter((b: { type: string }) => b.type === 'text')
       .map((b: { text: string }) => b.text).join('');
-    onText(text);
-    return cleanEdit(text, req);
   }
 
   const decoder = new SSEDecoder();
@@ -267,6 +271,16 @@ export async function askEdit(
     reader.releaseLock();
   }
   if (asm.error) throw new Error(asm.error);
-  const text = asm.blocks().filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('');
+  return asm.blocks().filter((b) => b.type === 'text').map((b) => (b as { text: string }).text).join('');
+}
+
+export async function askEdit(
+  gw: Gateway,
+  req: EditRequest,
+  onText: (chunk: string) => void,
+  signal?: AbortSignal,
+): Promise<string> {
+  const { system, user } = editMessages(req);
+  const text = await askRaw(gw, system, user, onText, signal);
   return cleanEdit(text, req);
 }

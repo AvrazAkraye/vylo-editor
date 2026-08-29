@@ -37,6 +37,8 @@ import {
   applyMention, findMentions, folderListing, mentionQuery, treeResolver, TERMINAL,
 } from './mentions';
 import { rank } from './fuzzy';
+import { applyMessages, applyTarget, parseApply } from './apply';
+import { askRaw } from './inline';
 import { IS_MAC, Shortcuts, Welcome } from './Welcome';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
@@ -451,6 +453,50 @@ export function App() {
       }
     }
     return { items, errors };
+  }
+
+  /** A block can be applied when we can tell which file it belongs to. */
+  const fileSet = useMemo(
+    () => new Set(tree.filter((e) => !e.is_dir).map((e) => e.path)),
+    [tree],
+  );
+  const openFilePath = active !== 'chat' && active !== '__memory__' ? active : null;
+
+  /**
+   * Send a block back with the file it belongs to and stage what comes back.
+   *
+   * A block is almost always a fragment, so writing it to the file would
+   * replace the file with a snippet. The model returns targeted replacements
+   * instead, which `stageEdit` applies — and its uniqueness check is what stops
+   * an ambiguous anchor editing the wrong occurrence.
+   */
+  async function applyBlock(code: string, info: string, before: string) {
+    const path = applyTarget(info, before, openFilePath, (p) => fileSet.has(p));
+    if (!path) { push({ kind: 'error', text: t('No file to apply this to. Open one first.') }); return; }
+    if (!apiKey) { push({ kind: 'error', text: t('Add your gateway API key in Settings.') }); return; }
+
+    setBusy(true);
+    try {
+      const file = await pending.current.currentContent(root, path);
+      const { system, user } = applyMessages({
+        path, language: info.split(/\s+/)[0] || '', file, snippet: code,
+      });
+      const raw = await askRaw({ baseUrl, apiKey, model }, system, user);
+      const edits = parseApply(raw);
+      if (!edits.length) {
+        push({ kind: 'result', text: `${path}: ${t('nothing to change.')}` });
+        return;
+      }
+      for (const e of edits) {
+        await pending.current.stageEdit(root, path, e.old, e.replacement);
+      }
+      setChanges(pending.current.list());
+      push({ kind: 'result', text: `${t('Staged')} ${edits.length} ${edits.length === 1 ? t('edit') : t('edits')} ${t('to')} ${path}. ${t('Review below.')}` });
+    } catch (e) {
+      push({ kind: 'error', text: String(e instanceof Error ? e.message : e) });
+    } finally {
+      setBusy(false);
+    }
   }
 
   const push = (l: Line) => {
@@ -1088,7 +1134,15 @@ export function App() {
             )}
             {item.kind === 'error' && <span className="tag err">error</span>}
             {item.kind === 'text'
-              ? <div className="body"><Markdown text={item.text} /></div>
+              ? (
+                <div className="body">
+                  <Markdown text={item.text} apply={{
+                    can: (info, before) => !!applyTarget(info, before, openFilePath, (p) => fileSet.has(p)),
+                    run: (code, info, before) => void applyBlock(code, info, before),
+                    label: t('Apply'),
+                  }} />
+                </div>
+              )
               : <span className="body">{item.text}</span>}
             {item.cp && (
               <button className="undo-cp" disabled={busy}

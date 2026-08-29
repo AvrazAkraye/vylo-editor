@@ -33,7 +33,14 @@ function inline(text: string, keyBase: string): ReactNode[] {
   return out;
 }
 
-export function Markdown({ text }: { text: string }) {
+export interface ApplyHooks {
+  /** Whether this block has a file it could be applied to. */
+  can: (info: string, before: string) => boolean;
+  run: (code: string, info: string, before: string) => void;
+  label: string;
+}
+
+export function Markdown({ text, apply }: { text: string; apply?: ApplyHooks }) {
   const blocks: ReactNode[] = [];
   const lines = text.split('\n');
   let i = 0;
@@ -44,6 +51,7 @@ export function Markdown({ text }: { text: string }) {
 
     // fenced code
     if (line.trimStart().startsWith('```')) {
+      const fenceAt = i;
       const lang = line.trim().slice(3).trim();
       const body: string[] = [];
       i++;
@@ -52,10 +60,20 @@ export function Markdown({ text }: { text: string }) {
         i++;
       }
       i++; // closing fence, or the end of the text if the model never closed it
+      const code = body.join('\n');
+      // The few lines above the fence are where a reply names the file it is
+      // talking about, so they travel with the block.
+      const before = lines.slice(Math.max(0, fenceAt - 4), fenceAt).join('\n');
+      const canApply = !!apply && code.trim().length > 0 && apply.can(lang, before);
       blocks.push(
         <pre className="md-code" key={key++}>
           {lang && <span className="md-lang">{lang}</span>}
-          <code>{body.join('\n')}</code>
+          {canApply && (
+            <button className="md-apply" onClick={() => apply!.run(code, lang, before)}>
+              {apply!.label}
+            </button>
+          )}
+          <code>{code}</code>
         </pre>,
       );
       continue;

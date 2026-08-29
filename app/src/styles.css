@@ -1066,3 +1066,16 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .undo-cp:hover:not(:disabled){ color:var(--err); border-color:var(--err); }
 .undo-cp:disabled{ opacity:.45; cursor:default; }
+
+/* ── apply-from-chat ─────────────────────────────────────────────────── */
+/* Sits opposite the language tag, on the block it applies. A button in the
+   toolbar would mean picking which block it meant. */
+.md-apply{
+  position:absolute; top:var(--sp-2); right:var(--sp-3); z-index:1;
+  font:inherit; font-family:var(--sans); font-size:var(--fs-2); font-weight:600;
+  padding:var(--sp-1) var(--sp-4); border-radius:var(--r-1);
+  border:1px solid var(--rule-2); background:var(--panel); color:var(--ink-2);
+  cursor:pointer; opacity:0; transition:opacity .12s ease;
+}
+.md-code:hover .md-apply, .md-apply:focus-visible{ opacity:1; }
+.md-apply:hover{ border-color:var(--brand); color:var(--brand); }

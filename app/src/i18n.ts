@@ -24,6 +24,14 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Apply': 'تطبيق',
+  'No file to apply this to. Open one first.': 'لا يوجد ملف لتطبيق هذا عليه. افتح ملفاً أولاً.',
+  'nothing to change.': 'لا شيء لتغييره.',
+  'Staged': 'في انتظار المراجعة',
+  'edit': 'تعديل',
+  'edits': 'تعديلات',
+  'to': 'على',
+  'Review below.': 'راجعها أدناه.',
   'Run in terminal': 'تشغيل في الطرفية',
   'Open the terminal first.': 'افتح الطرفية أولاً.',
   'files': 'ملفات',
@@ -167,6 +175,14 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Apply': 'جێبەجێکردن',
+  'No file to apply this to. Open one first.': 'هیچ فایلێک نییە بۆ جێبەجێکردنی. سەرەتا یەکێک بکەرەوە.',
+  'nothing to change.': 'هیچ نییە بۆ گۆڕین.',
+  'Staged': 'ئامادەکراوە',
+  'edit': 'دەستکاری',
+  'edits': 'دەستکاری',
+  'to': 'بۆ',
+  'Review below.': 'لە خوارەوە پێداچوونەوەی بۆ بکە.',
   'Run in terminal': 'جێبەجێکردن لە تێرمینەڵ',
   'Open the terminal first.': 'سەرەتا تێرمینەڵ بکەرەوە.',
   'Undo this write': 'گەڕانەوە لەم نووسینە',
@@ -310,6 +326,14 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Apply': 'جهبجهکرن',
+  'No file to apply this to. Open one first.': 'چو دەفتەر نینن بۆ جهبجهکرنێ. بەری هەمییێ ئێکێ ڤەکە.',
+  'nothing to change.': 'چو نینە بۆ گوهۆڕینێ.',
+  'Staged': 'هاتییە ئامادەکرن',
+  'edit': 'دەستکاری',
+  'edits': 'دەستکاری',
+  'to': 'بۆ',
+  'Review below.': 'ل خوارێ بەرچاڤ بکە.',
   'Run in terminal': 'ب رێڤەبرن د تێرمینالێ دا',
   'Open the terminal first.': 'بەری هەمییێ تێرمینالێ ڤەکە.',
   'Undo this write': 'ڤەگەڕاندنا ڤێ نڤیسینێ',
