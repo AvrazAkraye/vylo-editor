@@ -376,8 +376,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 
 .sidebar{
   flex:none; display:flex; flex-direction:column; min-height:0;
-  overflow-y:auto; background:var(--panel-2);
-  border-right:1px solid var(--rule);
+  background:var(--panel-2); border-right:1px solid var(--rule);
 }
 .divider{
   flex:none; width:4px; cursor:col-resize; background:transparent;
@@ -388,28 +387,52 @@ body.resizing{ cursor:col-resize; user-select:none; }
 
 .work{ flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }
 
-/* ── sidebar sections ────────────────────────────────────────────────── */
-.sb-sec{ border-bottom:1px solid var(--rule); }
-.sb-head{ display:flex; align-items:center; }
-.sb-toggle{
-  flex:1; display:flex; align-items:center; gap:5px; text-align:left;
-  font:inherit; font-size:10.5px; font-weight:700; letter-spacing:.09em;
+/* ── sidebar ─────────────────────────────────────────────────────────── */
+/* The rail fixes the position of the chooser so the explorer never moves, and
+   the panel below it always starts at the top. Stacked accordions pushed the
+   one people look at constantly down the page by whatever else was open. */
+.rail{
+  flex:none; width:46px; display:flex; flex-direction:column; align-items:center;
+  gap:2px; padding:8px 0; background:var(--panel-2);
+  border-right:1px solid var(--rule);
+}
+.rail-sp{ margin-top:auto; }
+.rail-btn{
+  position:relative; width:34px; height:34px; display:flex; align-items:center;
+  justify-content:center; border:0; border-radius:9px; background:transparent;
+  color:var(--mute); cursor:pointer;
+}
+.rail-btn:hover{ color:var(--ink); background:var(--panel-3); }
+.rail-btn.on{ color:var(--brand); background:var(--brand-wash); }
+.rail-badge{
+  position:absolute; top:2px; right:0; min-width:15px; height:15px; padding:0 4px;
+  display:flex; align-items:center; justify-content:center;
+  border-radius:8px; background:var(--fill); color:var(--on-fill);
+  font-family:var(--mono); font-size:9px; font-weight:600;
+}
+
+.sb-head-bar{
+  flex:none; display:flex; align-items:center; gap:6px;
+  padding:11px 8px 8px 14px; border-bottom:1px solid var(--rule);
+}
+.sb-head-bar h2{
+  margin:0; flex:1; font-size:10.5px; font-weight:600; letter-spacing:.09em;
   text-transform:uppercase; color:var(--mute);
-  padding:8px 10px; border:0; background:transparent; cursor:pointer;
 }
-.sb-toggle:hover{ color:var(--ink); }
-.sb-caret{ display:inline-flex; align-items:center; transition:transform .12s ease; }
-.sb-caret.open{ transform:rotate(90deg); }
-.sb-count{
-  margin-left:auto; font-family:var(--mono); font-size:9.5px;
-  padding:1px 6px; border-radius:999px; background:var(--panel); color:var(--mute);
+.sb-panel{ flex:1; min-height:0; overflow-y:auto; padding:6px 0; }
+.sb-sub{
+  padding:12px 14px 5px; font-size:10px; font-weight:600; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--mute);
 }
-.sb-act{
-  font:inherit; font-size:15px; line-height:1; width:24px; height:24px; margin-right:6px;
-  border:0; border-radius:6px; background:transparent; color:var(--mute); cursor:pointer;
+.sb-cta{ display:flex; flex-direction:column; gap:7px; padding:12px 12px; }
+.ghost.bordered{
+  border-color:var(--rule); background:var(--panel); justify-content:flex-start;
+  width:100%; padding:8px 10px; font-size:12px;
 }
-.sb-act:hover{ background:var(--panel); color:var(--ink); }
-.sb-body{ padding:0 0 7px; }
+.ghost.bordered kbd{
+  margin-left:auto; font-family:var(--mono); font-size:10px; color:var(--mute);
+  border:1px solid var(--rule); border-radius:5px; padding:1px 5px;
+}
 
 /* ── file tree ───────────────────────────────────────────────────────── */
 .ft{ display:flex; flex-direction:column; }

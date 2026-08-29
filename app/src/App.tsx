@@ -24,12 +24,12 @@ const Editor = lazy(() => import('./Editor'));
 import type { EditorHandle } from './Editor';
 import type { CompleteStatus } from './complete';
 import { FindInFiles, QuickOpen } from './Palette';
-import { Section } from './Sidebar';
 import { groupLines, ToolRun } from './ToolRun';
 // xterm is the largest thing in the bundle and the panel starts closed, so it
 // is fetched the first time someone actually opens a terminal.
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
+import { Rail, type RailId } from './Rail';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
   watchSystem, type Theme,
@@ -48,6 +48,9 @@ const MODELS = [
   { id: 'claude-sonnet-5', label: 'Sonnet 5 — balanced' },
   { id: 'claude-opus-4-8', label: 'Opus 4.8 — most capable' },
 ];
+
+/** Width of the activity rail, which the sidebar drag has to discount. */
+const RAIL_W = 46;
 
 const LS = {
   base: 'vylo.baseUrl',
@@ -104,6 +107,8 @@ export function App() {
   const [full, setFull] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
   const [palette, setPalette] = useState<'open' | 'find' | null>(null);
+  const [rail, setRail] = useState<RailId>(() => (localStorage.getItem('vylo.rail') as RailId) || 'files');
+  const [railOpen, setRailOpen] = useState(() => localStorage.getItem('vylo.railopen') !== '0');
   // The line a search result asked for, cleared once the file is showing so
   // reopening the same file later does not jump again.
   const [jump, setJump] = useState<{ path: string; line: number } | null>(null);
@@ -139,6 +144,8 @@ export function App() {
   useEffect(() => { localStorage.setItem(LS.model, model); }, [model]);
   useEffect(() => { localStorage.setItem('vylo.autocomplete', autocomplete ? '1' : '0'); }, [autocomplete]);
   useEffect(() => { localStorage.setItem('vylo.termfull', termFull ? '1' : '0'); }, [termFull]);
+  useEffect(() => { localStorage.setItem('vylo.rail', rail); }, [rail]);
+  useEffect(() => { localStorage.setItem('vylo.railopen', railOpen ? '1' : '0'); }, [railOpen]);
   useEffect(() => { if (root) localStorage.setItem(LS.root, root); }, [root]);
   useEffect(() => {
     storeLang(lang);
@@ -223,7 +230,7 @@ export function App() {
   useEffect(() => {
     const move = (e: MouseEvent) => {
       if (!resizing.current) return;
-      const w = Math.min(460, Math.max(180, e.clientX));
+      const w = Math.min(460, Math.max(180, e.clientX - RAIL_W));
       setSidebarW(w);
     };
     const up = () => {
@@ -384,6 +391,13 @@ export function App() {
       const h = editors.current.get(path);
       if (h) window.setTimeout(() => h.goto(line), 0);
     }
+  }
+
+  /** Clicking the section you are on collapses the sidebar, as VS Code does. */
+  function pickRail(id: RailId) {
+    if (id === rail && railOpen) { setRailOpen(false); return; }
+    setRail(id);
+    setRailOpen(true);
   }
 
   function toggleTerm() {
@@ -727,74 +741,123 @@ export function App() {
       )}
 
       <div className="body">
+        <Rail
+          items={[
+            { id: 'files', icon: 'folder', label: t('Explorer') },
+            { id: 'search', icon: 'search', label: t('Search') },
+            { id: 'changes', icon: 'diff', label: t('Changes'), badge: changes.length },
+            { id: 'chats', icon: 'chat', label: t('Chats') },
+            { id: 'memory', icon: 'memory', label: t('Memory') },
+          ]}
+          active={rail}
+          collapsed={!railOpen}
+          onSelect={pickRail}
+          settings={() => setShowSettings((v) => !v)}
+          settingsLabel={t('Settings')}
+        />
+
+        {railOpen && (
         <aside className="sidebar" style={{ width: sidebarW }}>
-          <Section id="files" title={t('Explorer')} count={tree.filter((e) => !e.is_dir).length}>
-            {root
+          <div className="sb-head-bar">
+            <h2>{
+              rail === 'files' ? t('Explorer') : rail === 'search' ? t('Search')
+              : rail === 'changes' ? t('Changes') : rail === 'chats' ? t('Chats') : t('Memory')
+            }</h2>
+            {rail === 'chats' && (
+              <button className="sb-act" onClick={newChat} title={t('New chat')} aria-label={t('New chat')}>
+                <Icon name="plus" size={14} />
+              </button>
+            )}
+            {rail === 'files' && root && (
+              <button className="sb-act" onClick={pickFolder} title={t('Open folder…')} aria-label={t('Open folder…')}>
+                <Icon name="folder" size={14} />
+              </button>
+            )}
+          </div>
+
+          <div className="sb-panel">
+            {rail === 'files' && (root
               ? <FileTree entries={tree} openPath={active === 'chat' ? null : active}
                           onOpen={openFile} changed={new Set(changes.map((c) => c.path))} />
-              : <p className="ft-empty">{t('Open a folder, or drop one here')}</p>}
-          </Section>
+              : <p className="ft-empty">{t('Open a folder, or drop one here')}</p>)}
 
-          <Section id="changes" title={t('Changes')} count={changes.length} defaultOpen={false}>
-            {changes.length === 0
+            {rail === 'search' && (
+              <div className="sb-cta">
+                <p className="ft-empty">{t('Search every file in the project.')}</p>
+                <button className="ghost bordered" onClick={() => setPalette('find')}>
+                  <Icon name="search" size={13} />{t('Search')} <kbd>⌘⇧F</kbd>
+                </button>
+                <button className="ghost bordered" onClick={() => setPalette('open')}>
+                  <Icon name="file" size={13} />{t('Go to file…')} <kbd>⌘P</kbd>
+                </button>
+              </div>
+            )}
+
+            {rail === 'changes' && (changes.length === 0
               ? <p className="ft-empty">{t('No proposed changes.')}</p>
               : changes.map((c) => (
                   <button key={c.path} className="ft-row ft-file changed" onClick={() => openFile(c.path)} title={c.path}>
-                    <span className="ft-icon">±</span>
+                    <span className="ft-icon"><Icon name="diff" size={13} /></span>
                     <span className="ft-name">{c.path.split('/').pop()}</span>
                     <span className="ft-dot" />
                   </button>
-                ))}
-          </Section>
+                )))}
 
-          <Section id="memory" title={t('Memory')} count={memory.file ? memory.file : undefined}
-                   defaultOpen={false}>
-            <button className={`ft-row ft-file ${active === '__memory__' ? 'on' : ''}`}
-                    onClick={() => { setTabs((p) => p.includes('__memory__') ? p : [...p, '__memory__']); setActive('__memory__'); }}>
-              <span className="ft-icon">M</span>
-              <span className="ft-name">{memory.file ?? t('Create memory file')}</span>
-            </button>
-            <p className="ft-empty">
-              {memory.file
-                ? t('Carried into every chat in this project.')
-                : t('Nothing remembered yet — write it yourself, or ask the agent to remember something.')}
-            </p>
-          </Section>
+            {rail === 'memory' && (
+              <>
+                <button className={`ft-row ft-file ${active === '__memory__' ? 'on' : ''}`}
+                        onClick={() => { setTabs((p) => p.includes('__memory__') ? p : [...p, '__memory__']); setActive('__memory__'); }}>
+                  <span className="ft-icon"><Icon name="memory" size={13} /></span>
+                  <span className="ft-name">{memory.file ?? t('Create memory file')}</span>
+                </button>
+                <p className="ft-empty">
+                  {memory.file
+                    ? t('Carried into every chat in this project.')
+                    : t('Nothing remembered yet — write it yourself, or ask the agent to remember something.')}
+                </p>
+              </>
+            )}
 
-          <Section id="chats" title={t('Chats')} count={chats.length}
-                   action={<button className="sb-act" onClick={newChat} title={t('New chat')}
-                                    aria-label={t('New chat')}><Icon name="plus" size={13} /></button>}>
-            {chats.length === 0
-              ? <p className="ft-empty">{t('No saved conversations.')}</p>
-              : chats.map((c) => (
-                  <div key={c.id} className={`ft-row ft-file chat-row ${c.id === chatId ? 'on' : ''}`}>
-                    <button className="chat-open" onClick={() => openChat(c)} title={c.title}>
-                      <span className="ft-icon"><Icon name="chat" size={13} /></span>
-                      <span className="ft-name">{c.title}</span>
-                      <span className="rc-meta">{ago(c.updatedAt)}</span>
-                    </button>
-                    <button className="chat-x" onClick={() => removeChat(c.id)}
-                            aria-label={`Delete ${c.title}`}><Icon name="close" size={12} /></button>
-                  </div>
-                ))}
-          </Section>
-
-          <Section id="folders" title={t('Projects')} count={recents.length} defaultOpen={false}>
-            {recents.map((r) => (
-              <button key={r.folder} className={`ft-row ft-file ${r.folder === root ? 'on' : ''}`}
-                      onClick={() => openFolder(r.folder)} title={r.folder}>
-                <span className="ft-icon"><Icon name="folder" size={13} /></span>
-                <span className="ft-name">{r.name}</span>
-                <span className="rc-meta">{r.chats}</span>
-              </button>
-            ))}
-          </Section>
+            {rail === 'chats' && (
+              <>
+                {chats.length === 0
+                  ? <p className="ft-empty">{t('No saved conversations.')}</p>
+                  : chats.map((c) => (
+                      <div key={c.id} className={`ft-row ft-file chat-row ${c.id === chatId ? 'on' : ''}`}>
+                        <button className="chat-open" onClick={() => openChat(c)} title={c.title}>
+                          <span className="ft-icon"><Icon name="chat" size={13} /></span>
+                          <span className="ft-name">{c.title}</span>
+                          <span className="rc-meta">{ago(c.updatedAt)}</span>
+                        </button>
+                        <button className="chat-x" onClick={() => removeChat(c.id)}
+                                aria-label={`Delete ${c.title}`}><Icon name="close" size={12} /></button>
+                      </div>
+                    ))}
+                {recents.length > 0 && (
+                  <>
+                    <div className="sb-sub">{t('Projects')}</div>
+                    {recents.map((r) => (
+                      <button key={r.folder} className={`ft-row ft-file ${r.folder === root ? 'on' : ''}`}
+                              onClick={() => openFolder(r.folder)} title={r.folder}>
+                        <span className="ft-icon"><Icon name="folder" size={13} /></span>
+                        <span className="ft-name">{r.name}</span>
+                        <span className="rc-meta">{r.chats}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+          </div>
         </aside>
+        )}
 
-        <div className="divider" onMouseDown={() => {
-          resizing.current = true;
-          document.body.classList.add('resizing');
-        }} role="separator" aria-orientation="vertical" />
+        {railOpen && (
+          <div className="divider" onMouseDown={() => {
+            resizing.current = true;
+            document.body.classList.add('resizing');
+          }} role="separator" aria-orientation="vertical" />
+        )}
 
         <div className="work" ref={work}>
           <div className={`tabs ${showTerm && termFull ? 'gone' : ''}`}>
