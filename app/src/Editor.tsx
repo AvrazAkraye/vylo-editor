@@ -28,6 +28,7 @@ import {
 } from './inline';
 import { Icon } from './Icon';
 import { setStaged, stagedPreview, type Staged } from './staged';
+import { kindOf } from './highlight';
 
 /**
  * A real editor, replacing the read-only viewer.
@@ -75,37 +76,44 @@ function language(path: string): Extension[] {
   if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs'].includes(ext)) {
     return [javascript({ typescript: ext.startsWith('ts'), jsx: ext.endsWith('x') })];
   }
-  if (ext === 'py') return [python()];
-  if (ext === 'rs') return [rust()];
-  if (ext === 'json') return [json()];
-  if (['html', 'htm', 'vue', 'svelte'].includes(ext)) return [html()];
-  if (['css', 'scss', 'less'].includes(ext)) return [css()];
-  if (['md', 'markdown', 'mdx'].includes(ext)) return [markdown()];
-  return [];   // plain text still gets numbers, search and editing
+  // Everything else goes through the mapping the transcript highlighter uses,
+  // so the editor and a code block in a reply cannot disagree about what a
+  // `.pyi` or a `.jsonc` file is. JavaScript stays above because it is the one
+  // that needs two flags rather than a name.
+  switch (kindOf(ext)) {
+    case 'py': return [python()];
+    case 'rust': return [rust()];
+    case 'json': return [json()];
+    case 'html': return [html()];
+    case 'css': return [css()];
+    case 'md': return [markdown()];
+    default: return [];   // plain text still gets numbers, search and editing
+  }
 }
 
 /**
  * Highlighting from the app's own tokens rather than a stock theme, so the
  * editor belongs to the window it is in. Only the roles that carry meaning are
  * coloured; painting every token turns code into confetti.
+ *
+ * The colours are `--syn-*` custom properties rather than literals, which does
+ * two things. It follows the theme through the same cascade as every other
+ * colour, so this no longer has to be rebuilt when the theme changes; and it is
+ * the same palette `highlight.ts` gives code blocks in the transcript, so the
+ * two surfaces cannot drift into colouring a keyword differently.
  */
-function highlight(dark: boolean) {
-  const c = dark
-    ? { kw: '#C4A9FF', str: '#6BD6AE', num: '#E0AE5C', com: '#6B6880', fn: '#8FB8FF', type: '#6FD8DC', var: '#ECEAF5' }
-    : { kw: '#6D3FA8', str: '#17694C', num: '#96620F', com: '#8B87A0', fn: '#23458F', type: '#0F6A72', var: '#16151D' };
-  return HighlightStyle.define([
-    { tag: [t.keyword, t.modifier, t.controlKeyword, t.operatorKeyword], color: c.kw },
-    { tag: [t.string, t.special(t.string), t.regexp], color: c.str },
-    { tag: [t.number, t.bool, t.null, t.atom], color: c.num },
-    { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: c.com, fontStyle: 'italic' },
-    { tag: [t.function(t.variableName), t.function(t.propertyName), t.labelName], color: c.fn },
-    { tag: [t.typeName, t.className, t.namespace, t.tagName], color: c.type },
-    { tag: [t.variableName, t.propertyName, t.attributeName], color: c.var },
-    { tag: [t.heading], color: c.fn, fontWeight: 'bold' },
-    { tag: [t.link, t.url], color: c.type, textDecoration: 'underline' },
-    { tag: t.invalid, color: dark ? '#F0897C' : '#A8332A' },
-  ]);
-}
+const SYNTAX = HighlightStyle.define([
+  { tag: [t.keyword, t.modifier, t.controlKeyword, t.operatorKeyword], color: 'var(--syn-kw)' },
+  { tag: [t.string, t.special(t.string), t.regexp], color: 'var(--syn-str)' },
+  { tag: [t.number, t.bool, t.null, t.atom], color: 'var(--syn-num)' },
+  { tag: [t.comment, t.lineComment, t.blockComment, t.docComment], color: 'var(--syn-com)', fontStyle: 'italic' },
+  { tag: [t.function(t.variableName), t.function(t.propertyName), t.labelName], color: 'var(--syn-fn)' },
+  { tag: [t.typeName, t.className, t.namespace, t.tagName], color: 'var(--syn-type)' },
+  { tag: [t.variableName, t.propertyName, t.attributeName], color: 'var(--syn-var)' },
+  { tag: [t.heading], color: 'var(--syn-fn)', fontWeight: 'bold' },
+  { tag: [t.link, t.url], color: 'var(--syn-type)', textDecoration: 'underline' },
+  { tag: t.invalid, color: 'var(--syn-bad)' },
+]);
 
 function theme(dark: boolean) {
   return EditorView.theme({
@@ -268,7 +276,7 @@ export function Editor({
         path,
         language: languageName(path),
       })),
-      themeC.current.of([theme(dark), syntaxHighlighting(highlight(dark))]),
+      themeC.current.of([theme(dark), syntaxHighlighting(SYNTAX)]),
       readOnlyC.current.of([]),
       EditorView.updateListener.of((u) => {
         if (!u.docChanged) return;
@@ -384,7 +392,7 @@ export function Editor({
 
   useEffect(() => {
     view.current?.dispatch({
-      effects: themeC.current.reconfigure([theme(dark), syntaxHighlighting(highlight(dark))]),
+      effects: themeC.current.reconfigure([theme(dark), syntaxHighlighting(SYNTAX)]),
     });
   }, [dark]);
 

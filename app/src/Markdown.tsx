@@ -1,4 +1,5 @@
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { grammarsReady, highlight, loadGrammars } from './highlight';
 
 /**
  * A small markdown renderer for the agent's replies.
@@ -40,6 +41,54 @@ export interface ApplyHooks {
   label: string;
 }
 
+/**
+ * True once the grammars have arrived, re-rendering the block when they do.
+ *
+ * Every block subscribes; `loadGrammars` returns the one shared promise, so
+ * twenty blocks in a reply cost one download and one resolution.
+ */
+function useGrammars(): boolean {
+  const [ready, setReady] = useState(grammarsReady);
+  useEffect(() => {
+    if (ready) return;
+    let live = true;
+    void loadGrammars().then(() => { if (live) setReady(true); });
+    return () => { live = false; };
+  }, [ready]);
+  return ready;
+}
+
+/**
+ * A fenced block.
+ *
+ * Highlighting waits for the closing fence. A block still streaming is a
+ * half-written string literal and a half-written comment, and colouring those
+ * means colouring them *wrongly* and then changing the colour a moment later —
+ * the flicker reads as a bug. Waiting also means the parser runs once per
+ * block rather than once per token.
+ */
+function CodeBlock(
+  { code, lang, closed, onApply, applyLabel }:
+  { code: string; lang: string; closed: boolean; onApply?: () => void; applyLabel: string },
+) {
+  const ready = useGrammars();
+  const spans = useMemo(
+    () => (closed && ready ? highlight(code, lang) : [{ text: code, cls: '' }]),
+    [code, lang, closed, ready],
+  );
+  return (
+    <pre className="md-code">
+      {lang && <span className="md-lang">{lang}</span>}
+      {onApply && <button className="md-apply" onClick={onApply}>{applyLabel}</button>}
+      <code>
+        {spans.map((s, n) => (s.cls
+          ? <span key={n} className={s.cls}>{s.text}</span>
+          : <Fragment key={n}>{s.text}</Fragment>))}
+      </code>
+    </pre>
+  );
+}
+
 export function Markdown({ text, apply }: { text: string; apply?: ApplyHooks }) {
   const blocks: ReactNode[] = [];
   const lines = text.split('\n');
@@ -59,22 +108,19 @@ export function Markdown({ text, apply }: { text: string; apply?: ApplyHooks }) 
         body.push(lines[i]);
         i++;
       }
-      i++; // closing fence, or the end of the text if the model never closed it
+      // Whether the model actually closed the fence, or the reply simply ended
+      // — which is what a block still streaming looks like.
+      const closed = i < lines.length;
+      i++;
       const code = body.join('\n');
       // The few lines above the fence are where a reply names the file it is
       // talking about, so they travel with the block.
       const before = lines.slice(Math.max(0, fenceAt - 4), fenceAt).join('\n');
       const canApply = !!apply && code.trim().length > 0 && apply.can(lang, before);
       blocks.push(
-        <pre className="md-code" key={key++}>
-          {lang && <span className="md-lang">{lang}</span>}
-          {canApply && (
-            <button className="md-apply" onClick={() => apply!.run(code, lang, before)}>
-              {apply!.label}
-            </button>
-          )}
-          <code>{code}</code>
-        </pre>,
+        <CodeBlock key={key++} code={code} lang={lang} closed={closed}
+                   onApply={canApply ? () => apply!.run(code, lang, before) : undefined}
+                   applyLabel={apply?.label ?? ''} />,
       );
       continue;
     }
