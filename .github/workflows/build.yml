@@ -85,10 +85,11 @@ jobs:
         with:
           name: vylo-editor-${{ matrix.target }}
           if-no-files-found: error
-          path: |
-            app/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
-            app/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*.exe
-            app/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi
-            app/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz*
-            app/src-tauri/target/${{ matrix.target }}/release/bundle/nsis/*-setup.nsis.zip*
-            app/src-tauri/target/${{ matrix.target }}/release/bundle/msi/*.msi.zip*
+          # The whole bundle directory, rather than a glob per artifact type.
+          # The per-type list silently uploaded two files out of six on Windows:
+          # the installers matched, the updater archives and every .sig did not,
+          # and nothing failed because `if-no-files-found` only fires when
+          # *nothing* matches. An update needs its signature, so a partial
+          # upload is the same as no Windows updates at all -- which is exactly
+          # what it was.
+          path: app/src-tauri/target/${{ matrix.target }}/release/bundle/**

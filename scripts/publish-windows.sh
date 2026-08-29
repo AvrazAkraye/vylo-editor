@@ -26,9 +26,15 @@ gh run download "$RUN" -n vylo-editor-x86_64-pc-windows-msvc -D "$TMP" >/dev/nul
 # The NSIS installer is the updater artifact on Windows; Tauri writes it as a
 # zip beside its signature.
 ZIP=$(find "$TMP" -name '*-setup.nsis.zip' | head -1)
-[ -n "$ZIP" ] || { echo "that run has no Windows updater artifact"; ls -R "$TMP"; exit 1; }
+if [ -z "$ZIP" ]; then
+  echo "that run has no Windows updater artifact. It contains:"
+  find "$TMP" -type f | sed "s|$TMP/|  |"
+  echo "If only the installers are there, the CI upload is dropping them --"
+  echo "the bundle directory should be uploaded whole, not globbed per type."
+  exit 1
+fi
 SIG="$ZIP.sig"
-[ -f "$SIG" ] || { echo "the artifact is unsigned; check the signing secrets in CI"; exit 1; }
+[ -f "$SIG" ] || { echo "the updater archive is unsigned; check TAURI_SIGNING_PRIVATE_KEY in CI"; exit 1; }
 
 # CI builds whatever was committed at the time, which is not necessarily what is
 # in package.json now. Publishing a mismatched build under this version is
