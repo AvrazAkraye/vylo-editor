@@ -95,6 +95,22 @@ export const TOOLS = [
     },
   },
   {
+    name: 'find_symbol',
+    description:
+      'Find where something is declared — a function, class, type, struct or heading — by name. '
+      + 'Prefer this over search when you want a definition: search returns every mention, '
+      + 'including call sites, imports and comments, and leaves you to read through them. '
+      + 'Matches on a substring of the name, exact matches first.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'The name, or part of it.' },
+        limit: { type: 'integer', description: 'Cap on results. Default 40.' },
+      },
+      required: ['name'],
+    },
+  },
+  {
     name: 'run_command',
     description:
       'Ask to run a shell command in the open folder — tests, a build, a linter. The user is shown the exact command and must approve it before it runs. Returns exit code, stdout and stderr. Use it to check your work; do not use it to edit files.',
@@ -122,7 +138,9 @@ export const TOOLS = [
   {
     name: 'search',
     description:
-      'Find a literal substring across the open folder. Returns path, line number and the matching line. Not a regex.',
+      'Find a literal substring across the open folder. Returns path, line number and the matching line. '
+      + 'Not a regex. Results are ordered by how much each file is about the query, so the first few are '
+      + 'usually the ones worth reading. Use find_symbol instead when you want a declaration.',
     input_schema: {
       type: 'object',
       properties: {
@@ -263,6 +281,14 @@ async function runTool(
       // the edit or report that it failed.
       const path = String(call.input.path ?? '');
       return { content: await pending.currentContent(root, path), isError: false };
+    }
+    if (call.name === 'find_symbol') {
+      const hits = await invoke('find_symbol', {
+        root,
+        name: String(call.input.name ?? ''),
+        limit: call.input.limit ?? null,
+      });
+      return { content: JSON.stringify(hits), isError: false };
     }
     if (call.name === 'search') {
       const hits = await invoke('search', {

@@ -21,6 +21,7 @@
 //!    the dangerous verb can exist at all — it is not wired to the model.
 
 mod checkpoint;
+mod index;
 mod pty;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -169,20 +170,39 @@ fn word_bounded(hay: &str, at: usize, len: usize) -> bool {
 /// "todo" means any case, a model asking for `TODO` means exactly that.
 #[tauri::command]
 fn search(
+    state: tauri::State<'_, index::Indexes>,
     root: String,
     query: String,
     max_hits: Option<usize>,
     case_insensitive: Option<bool>,
     whole_word: Option<bool>,
 ) -> Result<Vec<Hit>, String> {
+    // Ranking is looked up here and the walk stays a plain function, so the
+    // search itself can be tested without a Tauri app around it.
+    let scores = index::with_index(&state, &root, |i| i.rank(&query)).ok();
+    search_in(&root, &query, max_hits, case_insensitive, whole_word, scores.as_ref())
+}
+
+fn search_in(
+    root: &str,
+    query: &str,
+    max_hits: Option<usize>,
+    case_insensitive: Option<bool>,
+    whole_word: Option<bool>,
+    scores: Option<&std::collections::HashMap<String, f64>>,
+) -> Result<Vec<Hit>, String> {
     if query.trim().is_empty() {
         return Err("search query is empty".into());
     }
     let fold = case_insensitive.unwrap_or(false);
     let words = whole_word.unwrap_or(false);
-    let needle = if fold { query.to_lowercase() } else { query.clone() };
+    let needle = if fold { query.to_lowercase() } else { query.to_string() };
     let cap = max_hits.unwrap_or(200);
-    let base = Path::new(&root)
+    // Collect beyond the cap so ranking has something to choose between. A cap
+    // applied during the walk would leave ranking only reordering whatever the
+    // walker reached first, which is the problem it exists to fix.
+    let gather = (cap * 5).min(2000);
+    let base = Path::new(root)
         .canonicalize()
         .map_err(|e| format!("workspace root is unreadable: {e}"))?;
     let mut hits = Vec::new();
@@ -241,12 +261,25 @@ fn search(
                     line: i + 1,
                     text: line.chars().take(300).collect(),
                 });
-                if hits.len() >= cap {
-                    return Ok(hits);
+                if hits.len() >= gather {
+                    break;
                 }
             }
         }
     }
+
+    // Order by how much each file is actually about the query, keeping line
+    // order within a file. The sort is stable, so files the index knows nothing
+    // about keep the order the walk found them in — which is the old behaviour,
+    // and what happens when the index is empty or the query is punctuation.
+    if let Some(scores) = scores.filter(|s| !s.is_empty()) {
+        hits.sort_by(|a, b| {
+            let sa = scores.get(&a.path).copied().unwrap_or(0.0);
+            let sb = scores.get(&b.path).copied().unwrap_or(0.0);
+            sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+    hits.truncate(cap);
     Ok(hits)
 }
 
@@ -714,6 +747,41 @@ fn git_commit(root: String, message: String, paths: Vec<String>) -> Result<Commi
     })
 }
 
+/// Jump to where something is declared.
+///
+/// The agent's other option is `search`, which finds every mention of a name —
+/// the call sites, the imports, the comments — and leaves it to read through
+/// them for the one line that defines it. This answers that question directly.
+#[tauri::command]
+fn find_symbol(
+    state: tauri::State<'_, index::Indexes>,
+    root: String,
+    name: String,
+    limit: Option<usize>,
+) -> Result<Vec<index::Symbol>, String> {
+    let needle = name.trim().to_lowercase();
+    if needle.is_empty() {
+        return Err("symbol name is empty".into());
+    }
+    let cap = limit.unwrap_or(40);
+    index::with_index(&state, &root, |i| {
+        let mut hits: Vec<index::Symbol> = i
+            .symbols
+            .iter()
+            .filter(|s| s.name.to_lowercase().contains(&needle))
+            .cloned()
+            .collect();
+        // Exact names first: asking for `open` should not bury it under
+        // `openFolder` and `openChat`.
+        hits.sort_by_key(|s| {
+            let n = s.name.to_lowercase();
+            (n != needle, !n.starts_with(&needle), n.len())
+        });
+        hits.truncate(cap);
+        hits
+    })
+}
+
 /// Where snapshots live. The app data directory, never the repository — undo
 /// history for a change showing up as another change would be absurd.
 fn store(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -763,6 +831,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .manage(pty::Terminals::default())
+        .manage(index::Indexes::default())
         // Shells outlive the window they were opened from unless something says
         // otherwise, and a `npm run dev` still holding port 5173 after the app
         // is gone is a genuinely confusing thing to debug.
@@ -777,7 +846,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
             apply_write, file_hash, git_state, run_command, git_create_branch, git_commit,
-            checkpoint_save, checkpoint_list, checkpoint_restore,
+            checkpoint_save, checkpoint_list, checkpoint_restore, find_symbol,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
         ])
         .run(tauri::generate_context!())
@@ -884,7 +953,7 @@ mod tests {
         fs::write(tmp.join("a.txt"), "TODO: one\ntodo: two\nautodoc\nautodoc todo\n").unwrap();
         let root = tmp.to_string_lossy().to_string();
         let find = |q: &str, fold: Option<bool>, words: Option<bool>| {
-            search(root.clone(), q.into(), None, fold, words).unwrap().len()
+            search_in(&root, q, None, fold, words, None).unwrap().len()
         };
 
         // Default: exactly what the model asked for, as before.
