@@ -33,6 +33,8 @@ export interface Chat {
   updatedAt: number;
   lines: Line[];
   history: Msg[];
+  /** Tokens this conversation has used, summed over its turns. */
+  tokens?: { input: number; output: number; cacheRead: number; cacheWrite: number };
 }
 
 const KEY = 'vylo.chats.v2';

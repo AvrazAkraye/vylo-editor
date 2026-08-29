@@ -24,6 +24,8 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Tokens used by the last turn': 'الوحدات المستخدمة في آخر دور',
+  'Tokens used by this conversation': 'الوحدات المستخدمة في هذه المحادثة',
   'Connect to your gateway': 'الاتصال ببوابتك',
   'Vylo Editor talks to your own gateway. Paste the key from your account to let the agent answer.': 'يتصل Vylo Editor ببوابتك الخاصة. الصق المفتاح من حسابك ليتمكن الوكيل من الإجابة.',
   'Connect': 'اتصال',
@@ -229,6 +231,8 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Tokens used by the last turn': 'تۆکنە بەکارهاتووەکانی دوایین خول',
+  'Tokens used by this conversation': 'تۆکنە بەکارهاتووەکانی ئەم گفتوگۆیە',
   'Connect to your gateway': 'پەیوەندی بە دەروازەکەتەوە',
   'Vylo Editor talks to your own gateway. Paste the key from your account to let the agent answer.': 'Vylo Editor لەگەڵ دەروازەی خۆتدا دەدوێت. کلیلەکە لە هەژمارەکەتەوە بلکێنە تا وەکیلەکە بتوانێت وەڵام بداتەوە.',
   'Connect': 'پەیوەندی',
@@ -434,6 +438,8 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Tokens used by the last turn': 'تۆکنێن دویماهی خولێ هاتینە بکارئینان',
+  'Tokens used by this conversation': 'تۆکنێن ڤێ ئاخڤتنێ هاتینە بکارئینان',
   'Connect to your gateway': 'گرێدان ب دەرگەها خۆ',
   'Vylo Editor talks to your own gateway. Paste the key from your account to let the agent answer.': 'Vylo Editor د گەل دەرگەها تە یا خۆ دئاخڤیت. کلیلێ ژ هەژمارا خۆ بلکینە دا وەکیل بشێت بەرسڤێ بدەت.',
   'Connect': 'گرێدان',

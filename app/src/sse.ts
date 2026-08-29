@@ -1,4 +1,5 @@
 import type { Block } from './agent';
+import { fold, NO_USAGE, type Usage } from './usage';
 
 /**
  * Server-sent events, and the turn assembled out of them.
@@ -58,6 +59,8 @@ export class TurnAssembler {
   private slots = new Map<number, Slot>();
   stopReason: string | null = null;
   error: string | null = null;
+  /** Folded from every frame that carries it — see `fold` for why not summed. */
+  usage: Usage = NO_USAGE;
 
   /** `onText` fires per delta, for rendering a reply as it is written. */
   push(ev: unknown, onText?: (t: string) => void): void {
@@ -103,8 +106,12 @@ export class TurnAssembler {
         }
         break;
       }
+      case 'message_start':
+        this.usage = fold(this.usage, e.message?.usage);
+        break;
       case 'message_delta':
         if (e.delta?.stop_reason) this.stopReason = e.delta.stop_reason;
+        this.usage = fold(this.usage, e.usage);
         break;
       case 'error':
         this.error = e.error?.message || 'The gateway reported an error mid-stream.';

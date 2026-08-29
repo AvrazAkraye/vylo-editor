@@ -39,6 +39,7 @@ import {
 } from './mentions';
 import { rank } from './fuzzy';
 import { detailOf, explain } from './errors';
+import { add, NO_USAGE, summarise, compact, total, type Usage } from './usage';
 import {
   commandLine, isEnabled, listServers, setEnabled, startServer, stopServer, toSchema,
   type McpTool, type ServerSpec,
@@ -167,6 +168,8 @@ export function App() {
    */
   const [quitting, setQuitting] = useState<{ dirty: string[]; staged: number; busy: boolean } | null>(null);
   const [quitError, setQuitError] = useState<string | null>(null);
+  const [lastTurn, setLastTurn] = useState<Usage>(NO_USAGE);
+  const [chatTokens, setChatTokens] = useState<Usage>(NO_USAGE);
   const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('vylo.mode') as Mode) || 'agent');
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
@@ -448,10 +451,14 @@ export function App() {
       setChatId(latest.id);
       setLines(latest.lines);
       history.current = latest.history;
+      setChatTokens(latest.tokens ?? NO_USAGE);
+      setLastTurn(NO_USAGE);
     } else {
       setChatId(newChatId());
       setLines([]);
       history.current = [];
+      setChatTokens(NO_USAGE);
+      setLastTurn(NO_USAGE);
     }
   }, [root]);
 
@@ -468,10 +475,11 @@ export function App() {
       updatedAt: Date.now(),
       lines: lines.map(({ shots: _shots, ...l }) => l),
       history: history.current,
+      tokens: chatTokens,
     });
     setChats(chatsIn(root));
     setRecents(folders());
-  }, [root, busy, lines, chatId]);
+  }, [root, busy, lines, chatId, chatTokens]);
   useEffect(() => { log.current?.scrollTo({ top: log.current.scrollHeight }); }, [lines, changes]);
 
   // Whether git is available as an undo is worth knowing *before* approving,
@@ -843,6 +851,8 @@ export function App() {
     setLines([]);
     setChanges([]);
     pending.current.clear();
+    setChatTokens(NO_USAGE);
+    setLastTurn(NO_USAGE);
     setActive('chat');
   }
 
@@ -850,6 +860,8 @@ export function App() {
     setChatId(c.id);
     setLines(c.lines);
     history.current = c.history;
+    setChatTokens(c.tokens ?? NO_USAGE);
+    setLastTurn(NO_USAGE);
     // Staged edits belong to the thread that proposed them; carrying them into
     // another conversation would offer changes with no visible reason.
     pending.current.clear();
@@ -1049,6 +1061,7 @@ export function App() {
         pending: pending.current,
         askToRun,
         mode,
+        onUsage: (u) => { setLastTurn(u); setChatTokens((p) => add(p, u)); },
         extraTools: Object.entries(mcpTools)
           .flatMap(([server, tools]) => tools.map((t) => toSchema(server, t))),
         runInTerminal: (command) => {
@@ -1688,6 +1701,14 @@ export function App() {
         {git?.is_repo && <span><b>{git.branch}</b>{git.dirty ? ` ${git.dirty}±` : ''}</span>}
         <span>{root ? folderName : t('No folder')}</span>
         {changes.length > 0 && <span><b>{changes.length}</b> {t('to review')}</span>}
+        {total(lastTurn) > 0 && (
+          <span title={t('Tokens used by the last turn')}>{summarise(lastTurn)}</span>
+        )}
+        {total(chatTokens) > 0 && (
+          <span title={t('Tokens used by this conversation')}>
+            <Icon name="bolt" size={11} />{compact(total(chatTokens))}
+          </span>
+        )}
         <span className="sp" />
         {active !== 'chat' && active !== '__memory__' && (
           <span className={`ac ac-${acStatus}`} title={t('Inline completion')}>

@@ -3,6 +3,7 @@ import type { Pending } from './pending';
 import { appendFact, MEMORY_FILE } from './memory';
 import { callTool, splitTool } from './mcp';
 import { SSEDecoder, TurnAssembler } from './sse';
+import { add, fold, NO_USAGE, type Usage } from './usage';
 
 /**
  * The agent loop.
@@ -393,6 +394,8 @@ export interface RunOptions {
   extraTools?: unknown[];
   /** Ask reads; Agent may also stage and request commands. Default agent. */
   mode?: Mode;
+  /** Tokens for the whole turn, once it ends. Hops are summed. */
+  onUsage?: (u: Usage) => void;
 }
 
 /** Raised when the user stops a turn. Not an error to report as a failure. */
@@ -420,6 +423,10 @@ function system(o: RunOptions): string {
 export async function runAgent(o: RunOptions): Promise<Msg[]> {
   const messages: Msg[] = [...o.history];
   const maxHops = o.maxHops ?? 12;
+  // A turn is several requests, and each is billed. Reporting one hop would
+  // understate a turn that read six files before answering.
+  let spent: Usage = NO_USAGE;
+  const report = () => o.onUsage?.(spent);
 
   for (let hop = 0; hop < maxHops; hop++) {
     let res: Response;
@@ -489,6 +496,9 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
         if (o.signal?.aborted) {
           const partial = assembler.partialText();
           if (partial.trim()) messages.push({ role: 'assistant', content: partial });
+          // Stopping does not refund what was already spent, so it is reported.
+          spent = add(spent, assembler.usage);
+          report();
           throw new Stopped();
         }
         throw e;
@@ -498,12 +508,14 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
       if (assembler.error) throw new Error(assembler.error);
       blocks = assembler.blocks();
       stopReason = assembler.stopReason;
+      spent = add(spent, assembler.usage);
     } else {
       // A gateway that does not stream still answers, and an app that only
       // works against the newest server is a support problem.
       const reply = await res.json();
       blocks = Array.isArray(reply.content) ? reply.content : [];
       stopReason = reply.stop_reason ?? null;
+      spent = add(spent, fold(NO_USAGE, reply.usage));
       for (const b of blocks) {
         if (b.type === 'text' && b.text.trim()) o.onDelta(b.text);
       }
@@ -512,7 +524,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     messages.push({ role: 'assistant', content: blocks });
 
     const calls = blocks.filter((b): b is Extract<Block, { type: 'tool_use' }> => b.type === 'tool_use');
-    if (stopReason !== 'tool_use' || calls.length === 0) return messages;
+    if (stopReason !== 'tool_use' || calls.length === 0) { report(); return messages; }
 
     // Every tool_result for a turn goes back in ONE user message. Splitting them
     // across several would break the alternation the API expects, and trains the
@@ -531,5 +543,6 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     messages.push({ role: 'user', content: results });
   }
 
+  report();
   throw new Error(`Stopped after ${maxHops} hops without finishing.`);
 }
