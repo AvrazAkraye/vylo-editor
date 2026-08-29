@@ -1022,3 +1022,35 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   text-decoration:line-through; padding:var(--sp-1) 0;
   font-family:var(--mono); font-size:var(--fs-4); line-height:1.55;
 }
+
+/* ── mention picker ──────────────────────────────────────────────────── */
+/* Anchored to the top of the composer card rather than the caret. Measuring a
+   caret inside a textarea means mirroring it in a hidden div, and the picker is
+   two lines above where you are looking either way. */
+.mpick{
+  display:flex; flex-direction:column; max-height:220px; overflow-y:auto;
+  padding:var(--sp-2); border-bottom:1px solid var(--rule);
+}
+.mpick-row{
+  display:flex; align-items:baseline; gap:var(--sp-4); width:100%; text-align:left;
+  padding:var(--sp-2) var(--sp-4); border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--ink-2); font:inherit; font-size:var(--fs-3);
+  cursor:pointer; overflow:hidden;
+}
+.mpick-row.on{ background:var(--brand-wash); color:var(--ink); }
+.mpick-row .ic{ align-self:center; color:var(--mute); }
+.mpick-row.on .ic{ color:var(--brand); }
+.mpick-name{ flex:none; }
+.mpick-dir{
+  flex:1; min-width:0; font-size:var(--fs-2); color:var(--mute);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left;
+}
+
+/* A mention chip is derived from the text, so it has no remove button — the
+   way to remove it is to delete the word, which is where it came from. */
+.chip.mention{
+  padding-left:var(--sp-4); padding-right:var(--sp-4);
+  background:var(--brand-wash); border-color:var(--brand);
+  color:var(--ink-2);
+}
+.chip.mention .ic{ color:var(--brand); }

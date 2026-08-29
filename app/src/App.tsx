@@ -1,9 +1,9 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { runAgent, Stopped, type Block, type CommandRequest, type Msg } from './agent';
 import {
-  attachFromFile, describe, isImage, isText, listenForDrops, pickAttachments,
-  previewUrl, textBlock, toImageBlock, type Attached,
+  attachAnyPath, attachFromFile, describe, isImage, isText, listenForDrops,
+  pickAttachments, previewUrl, textBlock, toImageBlock, type Attached,
 } from './attachments';
 import { Pending, type Change } from './pending';
 import { Review } from './Review';
@@ -30,6 +30,10 @@ import { groupLines, ToolRun } from './ToolRun';
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
 import { Rail, type RailId } from './Rail';
+import {
+  applyMention, findMentions, folderListing, mentionQuery, treeResolver, TERMINAL,
+} from './mentions';
+import { rank } from './fuzzy';
 import { IS_MAC, Shortcuts, Welcome } from './Welcome';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
@@ -129,6 +133,13 @@ export function App() {
 
   const [autocomplete, setAutocomplete] = useState(() => localStorage.getItem('vylo.autocomplete') !== '0');
   const [acStatus, setAcStatus] = useState<CompleteStatus>('idle');
+  // The mention being typed. Derived from the caret, never stored alongside the
+  // text -- see mentions.ts for why.
+  const [mention, setMention] = useState<{ start: number; caret: number; query: string } | null>(null);
+  const [mentionPick, setMentionPick] = useState(0);
+  // The active terminal's output, for `@terminal`. The panel hands this over
+  // when it mounts so the composer can pull rather than the panel having to push.
+  const termText = useRef<(() => string) | null>(null);
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
@@ -377,6 +388,61 @@ export function App() {
     window.addEventListener('paste', onPaste);
     return () => window.removeEventListener('paste', onPaste);
   }, []);
+
+  const resolveMention = useMemo(() => treeResolver(tree), [tree]);
+
+  /** Files and folders ranked for the picker, plus @terminal when one is open. */
+  const mentionHits = useMemo(() => {
+    if (!mention) return [] as { path: string; kind: 'file' | 'folder' | 'terminal' }[];
+    const rows: { path: string; kind: 'file' | 'folder' | 'terminal' }[] =
+      tree.map((e) => ({ path: e.path, kind: e.is_dir ? ('folder' as const) : ('file' as const) }));
+    if (termMounted) rows.unshift({ path: TERMINAL, kind: 'terminal' });
+    const q = mention.query.trim();
+    return q ? rank(q, rows, (r) => r.path, 8) : rows.slice(0, 8);
+  }, [mention, tree, termMounted]);
+
+  /** What the message will carry, recomputed from the text on every keystroke. */
+  const mentioned = useMemo(
+    () => findMentions(prompt, resolveMention, termMounted),
+    [prompt, resolveMention, termMounted],
+  );
+
+  function chooseMention(path: string) {
+    if (!mention) return;
+    const r = applyMention(prompt, mention.start, mention.caret, path);
+    setPrompt(r.text);
+    setMention(null);
+    window.setTimeout(() => {
+      composer.current?.focus();
+      composer.current?.setSelectionRange(r.caret, r.caret);
+    }, 0);
+  }
+
+  /** Turn every mention in the message into something the model can read. */
+  async function resolveAttachments(): Promise<{ items: Attached[]; errors: string[] }> {
+    const items: Attached[] = [];
+    const errors: string[] = [];
+    for (const m of mentioned) {
+      try {
+        if (m.kind === 'terminal') {
+          const text = termText.current?.() ?? '';
+          if (text.trim()) {
+            items.push({ kind: 'text', id: `m_${m.raw}`, name: 'terminal', text, bytes: text.length, truncated: false });
+          }
+        } else if (m.kind === 'folder') {
+          // Paths, not contents -- see folderListing.
+          const text = folderListing(m.path, tree);
+          items.push({ kind: 'text', id: `m_${m.raw}`, name: `${m.path}/`, text, bytes: text.length, truncated: false });
+        } else {
+          const a = await attachAnyPath(`${root}/${m.path}`);
+          items.push({ ...a, id: `m_${m.raw}`, name: m.path });
+        }
+      } catch (e) {
+        errors.push(`${m.raw}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    return { items, errors };
+  }
 
   const push = (l: Line) => {
     openLine.current = null;
@@ -650,8 +716,14 @@ export function App() {
     // the model reads the picture and then what is being asked about it. Text
     // files have no block type of their own, so they are folded into the
     // written turn with a header saying which file each one is.
-    const images = shots.filter(isImage);
-    const files = shots.filter(isText);
+    // Mentions are read at send time from the text as it finally stands, so a
+    // file named and then deleted from the message is never attached.
+    const { items: fromMentions, errors: mentionErrors } = await resolveAttachments();
+    for (const e of mentionErrors) push({ kind: 'error', text: e });
+    const carried = [...fromMentions, ...shots];
+
+    const images = carried.filter(isImage);
+    const files = carried.filter(isText);
     const written_ = files.length ? `${files.map(textBlock).join('\n\n')}\n\n${text}` : text;
     const content: Block[] | string = images.length
       ? [...images.map(toImageBlock), { type: 'text' as const, text: written_ }]
@@ -989,6 +1061,7 @@ export function App() {
                   dark={resolved(theme) === 'dark'}
                   t={t}
                   onSendToChat={fromTerminal}
+                  expose={(getText) => { termText.current = getText; }}
                   full={termFull}
                   onToggleFull={() => setTermFull((v) => !v)}
                   onClose={(drop) => { setShowTerm(false); if (drop) setTermMounted(false); }}
@@ -1086,8 +1159,15 @@ export function App() {
       {root && (
       <div className="composer">
         <div className={`cmp-card ${busy ? 'busy' : ''}`}>
-                  {shots.length > 0 && (
+                  {(shots.length > 0 || mentioned.length > 0) && (
             <div className="tray">
+              {/* Derived from the text, so deleting the word removes the chip. */}
+              {mentioned.map((m) => (
+                <span className="chip mention" key={m.raw} title={m.raw}>
+                  <Icon name={m.kind === 'terminal' ? 'terminal' : m.kind === 'folder' ? 'folder' : 'file'} size={13} />
+                  <span className="nm">{m.kind === 'terminal' ? t('Terminal') : m.path}</span>
+                </span>
+              ))}
               {shots.map((a) => (
                 <div className={`chip ${a.kind}`} key={a.id} title={describe(a)}>
                   {isImage(a) ? <img src={previewUrl(a)} alt="" /> : <span className="doc"><Icon name="file" size={14} /></span>}
@@ -1098,11 +1178,42 @@ export function App() {
               ))}
             </div>
           )}
+          {mention && mentionHits.length > 0 && (
+            <div className="mpick" role="listbox" aria-label={t('Mention a file')}>
+              {mentionHits.map((h, i) => (
+                <button key={h.path} role="option" aria-selected={i === mentionPick}
+                        className={`mpick-row ${i === mentionPick ? 'on' : ''}`}
+                        onMouseEnter={() => setMentionPick(i)}
+                        onMouseDown={(e) => { e.preventDefault(); chooseMention(h.path); }}>
+                  <Icon name={h.kind === 'terminal' ? 'terminal' : h.kind === 'folder' ? 'folder' : 'file'} size={13} />
+                  <span className="mpick-name">{h.path.split('/').pop()}</span>
+                  <span className="mpick-dir">{h.path.includes('/') ? h.path.slice(0, h.path.lastIndexOf('/')) : ''}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <textarea
             ref={composer}
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
+            onChange={(e) => {
+              setPrompt(e.target.value);
+              const caret = e.target.selectionStart ?? e.target.value.length;
+              const q = mentionQuery(e.target.value, caret);
+              setMention(q ? { ...q, caret } : null);
+              setMentionPick(0);
+            }}
+            onBlur={() => setMention(null)}
+            onKeyDown={(e) => {
+              // While the picker is up it owns the arrows and Enter; without
+              // this, Enter would send a message with a half-typed mention in it.
+              if (mention && mentionHits.length) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setMentionPick((i) => Math.min(mentionHits.length - 1, i + 1)); return; }
+                if (e.key === 'ArrowUp') { e.preventDefault(); setMentionPick((i) => Math.max(0, i - 1)); return; }
+                if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); chooseMention(mentionHits[mentionPick].path); return; }
+                if (e.key === 'Escape') { e.preventDefault(); setMention(null); return; }
+              }
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); }
+            }}
             placeholder={t('Ask about this codebase…')}
             rows={2}
             disabled={busy}

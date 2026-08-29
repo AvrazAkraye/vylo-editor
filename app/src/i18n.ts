@@ -24,6 +24,7 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Mention a file': 'ذكر ملفاً',
   'Describe the change…': 'صف التغيير…',
   'Describe what to write here…': 'صف ما يُكتب هنا…',
   'Rewrite': 'إعادة كتابة',
@@ -159,6 +160,7 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Mention a file': 'ئاماژە بە فایلێک',
   'Describe the change…': 'گۆڕانکارییەکە باس بکە…',
   'Describe what to write here…': 'باسی ئەوە بکە کە لێرە بنووسرێت…',
   'Rewrite': 'نووسینەوە',
@@ -294,6 +296,7 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Mention a file': 'ئاماژە ب دەفتەرەکێ',
   'Describe the change…': 'گوهۆڕینێ شرۆڤە بکە…',
   'Describe what to write here…': 'شرۆڤە بکە چ ل ڤێرێ بێتە نڤیسین…',
   'Rewrite': 'ژنویڤە نڤیسین',

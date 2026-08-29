@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { Icon } from './Icon';
 
@@ -21,16 +21,29 @@ interface Props {
   onClose: (drop?: boolean) => void;
   full: boolean;
   onToggleFull: () => void;
+  /** Hands the composer a way to read the active pane, for `@terminal`. */
+  expose: (getText: (() => string) | null) => void;
   onError: (message: string) => void;
 }
 
 let seq = 0;
 const newTab = (n: number): Tab => ({ id: `t${++seq}`, n, born: Date.now(), dead: false });
 
-export function TerminalPanel({ root, dark, t, onSendToChat, onClose, onError, full, onToggleFull }: Props) {
+export function TerminalPanel({
+  root, dark, t, onSendToChat, onClose, onError, full, onToggleFull, expose,
+}: Props) {
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
   const handles = useRef(new Map<string, TermHandle>());
+  // `active` changes and `expose` is an inline arrow from the parent, so both
+  // go through refs: the getter reads the current tab at call time, and the
+  // effect runs once instead of on every render.
+  const live = useRef({ active: '', expose });
+  live.current = { active, expose };
+  useEffect(() => {
+    live.current.expose(() => handles.current.get(live.current.active)?.text(200) ?? '');
+    return () => live.current.expose(null);
+  }, []);
 
   function add() {
     const next = newTab(Math.max(0, ...tabs.map((x) => x.n)) + 1);
