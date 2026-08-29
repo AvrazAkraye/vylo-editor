@@ -1163,3 +1163,28 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .ft-act:hover{ background:var(--panel); color:var(--ink); }
 .ft-act.danger:hover{ color:var(--err); }
+
+/* ── first run: the gateway key ──────────────────────────────────────── */
+.wc-key{
+  margin-top:var(--sp-9); padding:var(--sp-6);
+  border:1px solid var(--brand); border-radius:var(--r-3); background:var(--brand-wash);
+}
+.wc-key h2{
+  margin:0 0 var(--sp-2); font-size:var(--fs-4); font-weight:600;
+  letter-spacing:0; text-transform:none; color:var(--ink);
+}
+.wc-key-note{ margin:0 0 var(--sp-5); font-size:var(--fs-3); line-height:1.55; color:var(--ink-2); }
+.wc-key-row{ display:flex; gap:var(--sp-4); }
+.wc-key-row input{
+  flex:1; min-width:0; font:inherit; font-family:var(--mono); font-size:var(--fs-3);
+  padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
+  border:1px solid var(--rule-2); background:var(--panel); color:var(--ink);
+}
+.wc-key-row .approve{ flex:none; padding:var(--sp-4) var(--sp-6); }
+.wc-key-said{ margin:var(--sp-4) 0 0; font-size:var(--fs-3); line-height:1.5; color:var(--ink-2); }
+.wc-key-said.bad{ color:var(--err); }
+.wc-key-said.good{ color:var(--ok); }
+
+/* With a key still to enter, opening a folder is the second step, not the first. */
+.wc-open.second{ background:var(--panel); color:var(--ink-2); border:1px solid var(--rule-2); }
+.wc-open.second:hover{ border-color:var(--brand); color:var(--ink); filter:none; }

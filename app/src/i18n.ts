@@ -24,6 +24,11 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Connect to your gateway': 'الاتصال ببوابتك',
+  'Vylo Editor talks to your own gateway. Paste the key from your account to let the agent answer.': 'يتصل Vylo Editor ببوابتك الخاصة. الصق المفتاح من حسابك ليتمكن الوكيل من الإجابة.',
+  'Connect': 'اتصال',
+  'Checking…': 'جارٍ التحقق…',
+  'Connected.': 'تم الاتصال.',
   'New file': 'ملف جديد',
   'New folder': 'مجلد جديد',
   'Rename to': 'إعادة التسمية إلى',
@@ -224,6 +229,11 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Connect to your gateway': 'پەیوەندی بە دەروازەکەتەوە',
+  'Vylo Editor talks to your own gateway. Paste the key from your account to let the agent answer.': 'Vylo Editor لەگەڵ دەروازەی خۆتدا دەدوێت. کلیلەکە لە هەژمارەکەتەوە بلکێنە تا وەکیلەکە بتوانێت وەڵام بداتەوە.',
+  'Connect': 'پەیوەندی',
+  'Checking…': 'پشکنین…',
+  'Connected.': 'پەیوەندی کرا.',
   'New file': 'فایلی نوێ',
   'New folder': 'بوخچەی نوێ',
   'Rename to': 'ناوی بگۆڕە بۆ',
@@ -424,6 +434,11 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Connect to your gateway': 'گرێدان ب دەرگەها خۆ',
+  'Vylo Editor talks to your own gateway. Paste the key from your account to let the agent answer.': 'Vylo Editor د گەل دەرگەها تە یا خۆ دئاخڤیت. کلیلێ ژ هەژمارا خۆ بلکینە دا وەکیل بشێت بەرسڤێ بدەت.',
+  'Connect': 'گرێدان',
+  'Checking…': 'پشکنین…',
+  'Connected.': 'هاتە گرێدان.',
   'New file': 'دەفتەرەکێ نوی',
   'New folder': 'فولدەرەکێ نوی',
   'Rename to': 'ناڤی بگوهۆڕە بۆ',

@@ -1321,7 +1321,8 @@ export function App() {
 
         <div className="work" ref={work}>
           {!root && !(showTerm && termFull) && (
-            <Welcome recents={recents} onOpen={pickFolder} onOpenFolder={openFolder} t={t} />
+            <Welcome recents={recents} onOpen={pickFolder} onOpenFolder={openFolder}
+                     apiKey={apiKey} baseUrl={baseUrl} onKey={setApiKey} t={t} />
           )}
 
           <div className={`tabs ${!root || (showTerm && termFull) ? 'gone' : ''}`}>
