@@ -23,13 +23,16 @@ TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 gh run download "$RUN" -n vylo-editor-x86_64-pc-windows-msvc -D "$TMP" >/dev/null
 
-# The NSIS installer is the updater artifact on Windows; Tauri writes it as a
-# zip beside its signature.
+# Tauri v2's Windows updater artifact is the NSIS installer itself, with a .sig
+# beside it — not the `.nsis.zip` that v1 produced and that tauri-action still
+# names in its logs. The zip is tried first anyway, so this keeps working if a
+# future version brings it back.
 ZIP=$(find "$TMP" -name '*-setup.nsis.zip' | head -1)
+[ -n "$ZIP" ] || ZIP=$(find "$TMP" -name '*-setup.exe' | head -1)
 if [ -z "$ZIP" ]; then
   echo "that run has no Windows updater artifact. It contains:"
   find "$TMP" -type f | sed "s|$TMP/|  |"
-  echo "If only the installers are there, the CI upload is dropping them --"
+  echo "If the .sig files are missing, the CI upload is dropping them --"
   echo "the bundle directory should be uploaded whole, not globbed per type."
   exit 1
 fi
