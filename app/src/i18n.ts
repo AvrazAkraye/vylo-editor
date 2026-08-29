@@ -24,6 +24,7 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Ask about this codebase…': 'اسأل عن هذه الشيفرة…',
   'Proposed changes': 'التغييرات المقترحة',
   '1 file proposed': 'ملف واحد مقترح',
   'files proposed': 'ملفات مقترحة',
@@ -144,6 +145,7 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Ask about this codebase…': 'لەبارەی ئەم کۆدەوە بپرسە…',
   'Proposed changes': 'گۆڕانکارییە پێشنیارکراوەکان',
   '1 file proposed': 'یەک فایل پێشنیارکراوە',
   'files proposed': 'فایل پێشنیارکراون',
@@ -264,6 +266,7 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Ask about this codebase…': 'دەربارەی ڤی کۆدی بپرسە…',
   'Proposed changes': 'گوهۆڕینێن پێشنیارکری',
   '1 file proposed': 'ئێک دەفتەر پێشنیارکری',
   'files proposed': 'دەفتەر پێشنیارکرین',

@@ -30,7 +30,7 @@ import { groupLines, ToolRun } from './ToolRun';
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
 import { Rail, type RailId } from './Rail';
-import { Shortcuts, Welcome } from './Welcome';
+import { IS_MAC, Shortcuts, Welcome } from './Welcome';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
   watchSystem, type Theme,
@@ -45,13 +45,16 @@ type Line = SavedLine & { shots?: Attached[] };
  * not offering the mistake is better than fixing it.
  */
 const MODELS = [
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5 — fastest, cheapest' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5 — balanced' },
-  { id: 'claude-opus-4-8', label: 'Opus 4.8 — most capable' },
+  { id: 'claude-haiku-4-5', short: 'Haiku 4.5', label: 'Haiku 4.5 — fastest, cheapest' },
+  { id: 'claude-sonnet-5', short: 'Sonnet 5', label: 'Sonnet 5 — balanced' },
+  { id: 'claude-opus-4-8', short: 'Opus 4.8', label: 'Opus 4.8 — most capable' },
 ];
 
 /** Width of the activity rail, which the sidebar drag has to discount. */
 const RAIL_W = 46;
+
+/** Shown in the composer, so the shortcut is learnable without a manual. */
+const SEND_KEY = IS_MAC ? '⌘↵' : 'Ctrl+↵';
 
 const LS = {
   base: 'vylo.baseUrl',
@@ -115,6 +118,15 @@ export function App() {
   const [jump, setJump] = useState<{ path: string; line: number } | null>(null);
   const editors = useRef(new Map<string, EditorHandle>());
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  // The box grows with the text up to a point, then scrolls. A fixed three
+  // rows meant anything longer than a sentence was written through a slot.
+  useEffect(() => {
+    const el = composer.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
+  }, [prompt]);
+
   const [autocomplete, setAutocomplete] = useState(() => localStorage.getItem('vylo.autocomplete') !== '0');
   const [acStatus, setAcStatus] = useState<CompleteStatus>('idle');
   // Hiding the panel must not kill what is running in it -- a dev server you
@@ -734,13 +746,6 @@ export function App() {
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
                    placeholder="sk-vylo-…" spellCheck={false} />
           </label>
-          <label>{t('Model')}
-            <select value={MODELS.some((m) => m.id === model) ? model : 'custom'}
-                    onChange={(e) => { if (e.target.value !== 'custom') setModel(e.target.value); }}>
-              {MODELS.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
-              {!MODELS.some((m) => m.id === model) && <option value="custom">{model}</option>}
-            </select>
-          </label>
           <label>{t('Language')}
             <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
               {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
@@ -1063,18 +1068,6 @@ export function App() {
         </div>
       )}
 
-      {shots.length > 0 && (
-        <div className="tray">
-          {shots.map((a) => (
-            <div className={`chip ${a.kind}`} key={a.id} title={describe(a)}>
-              {isImage(a) ? <img src={previewUrl(a)} alt="" /> : <span className="doc"><Icon name="file" size={14} /></span>}
-              <span className="nm">{a.name}</span>
-              <button onClick={() => setShots((p) => p.filter((x) => x.id !== a.id))}
-                      aria-label={`Remove ${a.name}`}><Icon name="close" size={12} /></button>
-            </div>
-          ))}
-        </div>
-      )}
 
       {palette === 'open' && (
         <QuickOpen entries={tree} onOpen={(p) => openAt(p)} onClose={() => setPalette(null)} t={t} />
@@ -1087,29 +1080,62 @@ export function App() {
 
       {root && (
       <div className="composer">
-        <button className="attach" onClick={() => void attach()} disabled={busy}
-                title={t('Attach a file')} aria-label={t('Attach a file')}><Icon name="attach" size={17} /></button>
-        <textarea
-          ref={composer}
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
-          placeholder={root
-            ? 'Ask about this codebase…   ⌘/Ctrl+Enter to send · drop, paste or attach files'
-            : 'Open a folder, or drop one here'}
-          rows={3}
-          disabled={busy}
-        />
-        {busy ? (
-          <button className="send stop" onClick={() => abort.current?.abort()}>
-            <Icon name="stop" size={13} />{t('Stop')}
-          </button>
-        ) : (
-          <button className="send" onClick={() => void send()}
-                  disabled={!prompt.trim() && shots.length === 0}>
-            {t('Send')}<Icon name="send" size={14} />
-          </button>
-        )}
+        <div className={`cmp-card ${busy ? 'busy' : ''}`}>
+                  {shots.length > 0 && (
+            <div className="tray">
+              {shots.map((a) => (
+                <div className={`chip ${a.kind}`} key={a.id} title={describe(a)}>
+                  {isImage(a) ? <img src={previewUrl(a)} alt="" /> : <span className="doc"><Icon name="file" size={14} /></span>}
+                  <span className="nm">{a.name}</span>
+                  <button onClick={() => setShots((p) => p.filter((x) => x.id !== a.id))}
+                          aria-label={`Remove ${a.name}`}><Icon name="close" size={12} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+          <textarea
+            ref={composer}
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); } }}
+            placeholder={t('Ask about this codebase…')}
+            rows={2}
+            disabled={busy}
+          />
+
+          <div className="cmp-bar">
+            <button className="cmp-btn" onClick={() => void attach()} disabled={busy}
+                    title={t('Attach a file')} aria-label={t('Attach a file')}>
+              <Icon name="attach" size={15} />
+            </button>
+
+            {/* Inline, because which model is answering changes what the reply
+                costs and how good it is, and that is a per-question decision —
+                not a setting you configure once and forget. */}
+            <span className="cmp-model">
+              <select value={MODELS.some((m) => m.id === model) ? model : 'custom'}
+                      onChange={(e) => { if (e.target.value !== 'custom') setModel(e.target.value); }}
+                      disabled={busy} aria-label={t('Model')}>
+                {MODELS.map((m) => <option key={m.id} value={m.id}>{m.short}</option>)}
+                {!MODELS.some((m) => m.id === model) && <option value="custom">{model}</option>}
+              </select>
+              <Icon name="chevron" size={11} turn={90} />
+            </span>
+
+            <span className="cmp-hint">{SEND_KEY}</span>
+
+            {busy ? (
+              <button className="send stop" onClick={() => abort.current?.abort()}>
+                <Icon name="stop" size={13} />{t('Stop')}
+              </button>
+            ) : (
+              <button className="send" onClick={() => void send()}
+                      disabled={!prompt.trim() && shots.length === 0}>
+                {t('Send')}<Icon name="send" size={14} />
+              </button>
+            )}
+          </div>
+        </div>
       </div>
       )}
 
