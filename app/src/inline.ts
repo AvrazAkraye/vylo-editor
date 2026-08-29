@@ -3,6 +3,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { SSEDecoder, TurnAssembler } from './sse';
 import { diffRows } from './pending';
 import { limitsFor } from './budget';
+import { highlightRange, spansToDOM, type Span } from './highlight';
 
 /**
  * ⌘K — rewrite a selection in place.
@@ -137,6 +138,8 @@ export interface Pending {
   to: number;
   /** What was there before, so rejecting can put it back exactly. */
   original: string;
+  /** Only names the language for the preview; nothing here reads the file. */
+  path: string;
 }
 
 export const setPendingEdit = StateEffect.define<Pending | null>();
@@ -146,20 +149,25 @@ export const fromInlineEdit = Annotation.define<boolean>();
 
 /** The replaced lines, shown above the new ones so the change is reviewable. */
 class RemovedWidget extends WidgetType {
-  constructor(readonly text: string) { super(); }
-  eq(o: RemovedWidget) { return o.text === this.text; }
+  constructor(readonly text: string, readonly spans: Span[][]) { super(); }
+  /**
+   * The grammars load on demand, so a widget built before they arrive would
+   * never be rebuilt if only its text were compared — and would sit grey next
+   * to the coloured code it is replacing.
+   */
+  eq(o: RemovedWidget) {
+    return o.text === this.text && o.spans.some(hasClass) === this.spans.some(hasClass);
+  }
   toDOM() {
     const box = document.createElement('div');
     box.className = 'cm-was';
-    for (const line of this.text.split('\n')) {
-      const row = document.createElement('div');
-      row.textContent = line || ' ';
-      box.appendChild(row);
-    }
+    this.text.split('\n').forEach((line, i) => box.appendChild(spansToDOM(this.spans[i], line)));
     return box;
   }
   ignoreEvent() { return true; }
 }
+
+const hasClass = (line: Span[]) => line.some((s) => !!s.cls);
 
 export const pendingEdit = StateField.define<Pending | null>({
   create: () => null,
@@ -179,7 +187,17 @@ const decorations = EditorView.decorations.compute([pendingEdit], (state) => {
   const marks = [];
   if (p.original) {
     const at = state.doc.lineAt(p.from).from;
-    marks.push(Decoration.widget({ widget: new RemovedWidget(p.original), block: true, side: -1 }).range(at));
+    // The buffer already holds the *new* text, so the old lines have to be
+    // parsed against the document they came out of — rebuilt here by putting
+    // them back. Highlighting them on their own would read a method body as a
+    // program: `}` alone is a syntax error and half a template literal is code
+    // rather than the prose it actually is.
+    const doc = state.doc.toString();
+    const original = doc.slice(0, p.from) + p.original + doc.slice(p.to);
+    const spans = highlightRange(original, p.path, p.from, p.from + p.original.length);
+    marks.push(Decoration.widget({
+      widget: new RemovedWidget(p.original, spans), block: true, side: -1,
+    }).range(at));
   }
   const first = state.doc.lineAt(p.from).number;
   const last = state.doc.lineAt(Math.min(p.to, state.doc.length)).number;
@@ -196,7 +214,11 @@ export const inlineEditState: Extension = [
     '.cm-now': { backgroundColor: 'var(--ok-wash, rgba(107,214,174,.14))' },
     '.cm-was': {
       backgroundColor: 'var(--err-wash, rgba(240,137,124,.13))',
-      color: 'var(--mute)',
+      // Faded rather than recoloured. A flat mute colour would say "secondary"
+      // by overwriting the syntax colours, which is the same as saying it in
+      // the one way that also makes the code harder to read; the strike-through
+      // was already carrying that meaning on its own.
+      opacity: '.7',
       textDecoration: 'line-through',
       padding: '1px 0',
     },

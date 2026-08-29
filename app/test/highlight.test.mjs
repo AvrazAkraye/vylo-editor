@@ -5,7 +5,7 @@
 // a character or repeats one has silently rewritten the model's code in the
 // place a person reads it to decide whether to apply it.
 import {
-  kindOf, kindOfInfo, highlight, highlightLines, loadGrammars, grammarsReady,
+  kindOf, kindOfInfo, highlight, highlightLines, highlightRange, loadGrammars, grammarsReady,
 } from '../.test-build/highlight.js';
 
 let pass = 0, fail = 0;
@@ -182,6 +182,52 @@ ok('an enormous block is not parsed', (() => {
   const lines = highlightLines('const a = 1;\nconst b = 2;', 'src/App.tsx');
   ok('a file path names the language',
      lines[1].some((s) => s.cls === 'syn-kw'), lines[1]);
+}
+
+// ── one range of a document ───────────────────────────────────────────────
+//
+// What CMD-K's preview needs: the lines it is replacing, highlighted against the
+// document they came out of, where the range can start mid-line.
+{
+  const code = 'const a = 1;\nconst b = "two";\nconst c = 3;';
+  const from = code.indexOf('const b');
+  const to = code.indexOf('const c');
+  const lines = highlightRange(code, 'ts', from, to);
+  ok('a range comes back as its own lines',
+     lines.map((l) => l.map((s) => s.text).join('')).join('\n') === code.slice(from, to), lines);
+  ok('and it is still highlighted',
+     lines[0].some((s) => s.text === 'const' && s.cls === 'syn-kw'), lines[0]);
+}
+{
+  // Mid-line on both ends: a span straddling the boundary has to be divided,
+  // not dropped and not included whole.
+  const code = 'const value = "a string";';
+  const from = code.indexOf('alue');
+  const to = code.indexOf(' string');
+  const lines = highlightRange(code, 'ts', from, to);
+  ok('a range starting inside a token keeps only the part asked for',
+     lines[0].map((s) => s.text).join('') === code.slice(from, to), lines[0]);
+  ok('and the part of the string that is inside it is still a string',
+     lines[0].some((s) => s.cls === 'syn-str' && s.text === '"a'), lines[0]);
+}
+{
+  const code = 'a\nb\nc\n';
+  ok('an empty range is one empty line, not nothing',
+     JSON.stringify(highlightRange(code, 'ts', 2, 2)) === '[[]]', highlightRange(code, 'ts', 2, 2));
+  ok('a range past the end is empty rather than an error',
+     JSON.stringify(highlightRange(code, 'ts', 99, 120)) === '[[]]');
+  const whole = highlightRange(code, 'ts', 0, code.length);
+  ok('the whole document as a range equals the whole document by lines',
+     JSON.stringify(whole) === JSON.stringify(highlightLines(code, 'ts')), whole);
+}
+{
+  // The context is what makes this worth doing: `}` alone is not a program, and
+  // a line inside a template literal is prose.
+  const code = 'const t = `not code ${x}`;\nconst real = 1;';
+  const from = code.indexOf('not code');
+  const inside = highlightRange(code, 'ts', from, from + 8);
+  ok('a range inside a template literal is not parsed as code',
+     inside[0].every((s) => s.cls !== 'syn-kw'), inside[0]);
 }
 
 // ── the cache ─────────────────────────────────────────────────────────────

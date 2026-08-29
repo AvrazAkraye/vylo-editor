@@ -28,7 +28,7 @@ import {
 } from './inline';
 import { Icon } from './Icon';
 import { setStaged, stagedPreview, type Staged } from './staged';
-import { kindOf } from './highlight';
+import { kindOf, loadGrammars } from './highlight';
 
 /**
  * A real editor, replacing the read-only viewer.
@@ -238,6 +238,10 @@ export function Editor({
     const el = host.current;
     if (!el) return;
     let disposed = false;
+    // The staged and ⌘K previews highlight the moment they appear, with no
+    // chance to wait. The chunk is already in memory here — Editor imports the
+    // same grammars — so this only populates the table highlight.ts reads.
+    void loadGrammars();
 
     const extensions: Extension[] = [
       lineNumbers(), highlightActiveLineGutter(), foldGutter(), history(),
@@ -491,7 +495,7 @@ export function Editor({
       v.dispatch({
         changes: { from: ask.from, to: ask.to, insert: text },
         selection: { anchor: ask.from + text.length },
-        effects: setPendingEdit.of({ from: ask.from, to: ask.from + text.length, original: selection }),
+        effects: setPendingEdit.of({ from: ask.from, to: ask.from + text.length, original: selection, path }),
         annotations: fromInlineEdit.of(true),
       });
       setApplied(editSize(selection, text));

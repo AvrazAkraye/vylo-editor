@@ -100,5 +100,45 @@ const marks = (before, after) => stagedMarks(diffRows(before, after));
      m.removed.every((n, i) => i === 0 || n > m.removed[i - 1]), m.removed);
 }
 
+// ── where an added run starts in the proposed file ────────────────────────
+//
+// `from` is what lets the added lines be highlighted: they are lines of the
+// *proposed* document and have to be parsed as part of it. If it is off by one
+// the block shows a neighbouring line's colours, which is worse than none.
+{
+  const rows = diffRows('a\nb\nc', 'a\nNEW1\nNEW2\nb\nc');
+  const m = stagedMarks(rows);
+  ok('an inserted run knows where it starts in the new file',
+     m.added.length === 1 && m.added[0].from === 2, m.added);
+  ok('and `from` indexes the proposed lines exactly', (() => {
+    const after = 'a\nNEW1\nNEW2\nb\nc'.split('\n');
+    const g = m.added[0];
+    return after.slice(g.from - 1, g.from - 1 + g.lines.length).join('\n') === g.lines.join('\n');
+  })(), m.added[0]);
+}
+{
+  const before = 'one\ntwo\nthree\nfour';
+  const after = 'ADDED\none\ntwo\nX\nthree\nfour\nEND';
+  const m = stagedMarks(diffRows(before, after));
+  const lines = after.split('\n');
+  ok('every run indexes the proposed file, wherever it lands',
+     m.added.length === 3 && m.added.every((g) =>
+       lines.slice(g.from - 1, g.from - 1 + g.lines.length).join('\n') === g.lines.join('\n')),
+     m.added);
+  ok('including one at the very top', m.added[0].from === 1 && m.added[0].after === 0, m.added[0]);
+}
+{
+  // A replacement: lines out and lines in at the same place.
+  const m = stagedMarks(diffRows('keep\nold\nkeep2', 'keep\nnew1\nnew2\nkeep2'));
+  const lines = 'keep\nnew1\nnew2\nkeep2'.split('\n');
+  ok('a replacement indexes the new lines, not the old ones',
+     m.added.every((g) => lines.slice(g.from - 1, g.from - 1 + g.lines.length).join('\n') === g.lines.join('\n')),
+     m.added);
+}
+{
+  const m = stagedMarks(diffRows('', 'only\nlines'));
+  ok('a file that was empty starts at line one', m.added[0].from === 1, m.added);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

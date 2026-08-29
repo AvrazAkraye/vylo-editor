@@ -1,6 +1,7 @@
 import { StateEffect, StateField, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType } from '@codemirror/view';
 import { diffRows, type Row } from './pending';
+import { highlightLines, spansToDOM, type Span } from './highlight';
 
 /**
  * The agent's staged proposal, drawn over the open file.
@@ -26,8 +27,14 @@ import { diffRows, type Row } from './pending';
 export interface Marks {
   /** 1-based buffer lines the change would remove. */
   removed: number[];
-  /** Lines the change would add, anchored after a buffer line (0 = at the top). */
-  added: { after: number; lines: string[] }[];
+  /**
+   * Lines the change would add, anchored after a buffer line (0 = at the top).
+   *
+   * `from` is where the run starts in the *proposed* file, which the buffer
+   * does not contain. It is what lets the added lines be highlighted: they have
+   * to be parsed as part of the document they belong to, not on their own.
+   */
+  added: { after: number; from: number; lines: string[] }[];
 }
 
 /**
@@ -39,16 +46,21 @@ export interface Marks {
  */
 export function stagedMarks(rows: Row[]): Marks {
   const removed: number[] = [];
-  const added: { after: number; lines: string[] }[] = [];
+  const added: { after: number; from: number; lines: string[] }[] = [];
   let anchor = 0;
   let run: string[] = [];
+  let runFrom = 0;
 
   const flush = () => {
-    if (run.length) { added.push({ after: anchor, lines: run }); run = []; }
+    if (run.length) { added.push({ after: anchor, from: runFrom, lines: run }); run = []; }
   };
 
   for (const r of rows) {
-    if (r.kind === '+') { run.push(r.text); continue; }
+    if (r.kind === '+') {
+      if (!run.length) runFrom = r.b ?? 0;
+      run.push(r.text);
+      continue;
+    }
     flush();
     if (r.a !== undefined) anchor = r.a;
     if (r.kind === '-') removed.push(r.a ?? anchor);
@@ -58,22 +70,30 @@ export function stagedMarks(rows: Row[]): Marks {
 }
 
 class AddedWidget extends WidgetType {
-  constructor(readonly lines: string[]) { super(); }
-  eq(o: AddedWidget) { return o.lines.join('\n') === this.lines.join('\n'); }
+  constructor(readonly lines: string[], readonly spans: Span[][]) { super(); }
+  /**
+   * Same lines *and* the same idea of whether they are coloured.
+   *
+   * The grammars load on demand, so a widget can be built before they arrive
+   * and would otherwise never be rebuilt — comparing only the text would leave
+   * the one block on screen that stayed grey.
+   */
+  eq(o: AddedWidget) {
+    return o.lines.join('\n') === this.lines.join('\n') && coloured(o.spans) === coloured(this.spans);
+  }
   toDOM() {
     const box = document.createElement('div');
     box.className = 'cm-staged-add';
-    for (const line of this.lines) {
-      const row = document.createElement('div');
-      row.textContent = line || ' ';
-      box.appendChild(row);
-    }
+    this.lines.forEach((line, i) => box.appendChild(spansToDOM(this.spans[i], line)));
     return box;
   }
   ignoreEvent() { return true; }
 }
 
-export interface Staged { before: string; after: string }
+const coloured = (spans: Span[][]) => spans.some((l) => l.some((s) => s.cls));
+
+/** `path` only names the language; nothing here reads the file. */
+export interface Staged { before: string; after: string; path: string }
 
 export const setStaged = StateEffect.define<Staged | null>();
 
@@ -85,7 +105,12 @@ const stagedField = StateField.define<Staged | null>({
   },
 });
 
-const decorations = EditorView.decorations.compute([stagedField], (state) => {
+// `doc` is a dependency, not decoration: a facet computation runs again only
+// when something it declares has changed, so without it the check below —
+// "the buffer still says what the proposal was built against" — would never be
+// re-evaluated after an edit, and the decorations would stay drawn at line
+// numbers that had moved underneath them.
+const decorations = EditorView.decorations.compute(['doc', stagedField], (state) => {
   const s = state.field(stagedField, false);
   if (!s) return Decoration.none;
 
@@ -96,6 +121,9 @@ const decorations = EditorView.decorations.compute([stagedField], (state) => {
   if (doc !== s.before) return Decoration.none;
 
   const marks = stagedMarks(diffRows(s.before, s.after));
+  // The proposed file, parsed whole. The added lines are lines *of it*, and a
+  // line parsed on its own is not the same text.
+  const proposed = highlightLines(s.after, s.path);
   const out = [];
   for (const n of marks.removed) {
     if (n >= 1 && n <= state.doc.lines) {
@@ -107,7 +135,11 @@ const decorations = EditorView.decorations.compute([stagedField], (state) => {
       ? 0
       : state.doc.line(Math.min(group.after, state.doc.lines)).to;
     out.push(
-      Decoration.widget({ widget: new AddedWidget(group.lines), block: true, side: 1 }).range(at),
+      Decoration.widget({
+        widget: new AddedWidget(group.lines, proposed.slice(group.from - 1, group.from - 1 + group.lines.length)),
+        block: true,
+        side: 1,
+      }).range(at),
     );
   }
   return Decoration.set(out, true);

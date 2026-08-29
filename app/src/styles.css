@@ -477,19 +477,19 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   text-transform:uppercase; color:var(--mute); user-select:none;
 }
 /* Syntax classes, shared with the editor through the --syn-* tokens above.
-   Listed under the two places code appears outside the editor rather than left
-   global, so a `syn-` class can never leak onto ordinary UI text. Add a surface
-   to the :is() list; do not unscope it. */
-:is(.md-code, .rv-diff) .syn-kw{ color:var(--syn-kw); }
-:is(.md-code, .rv-diff) .syn-str{ color:var(--syn-str); }
-:is(.md-code, .rv-diff) .syn-num{ color:var(--syn-num); }
-:is(.md-code, .rv-diff) .syn-com{ color:var(--syn-com); font-style:italic; }
-:is(.md-code, .rv-diff) .syn-fn{ color:var(--syn-fn); }
-:is(.md-code, .rv-diff) .syn-type{ color:var(--syn-type); }
-:is(.md-code, .rv-diff) .syn-var{ color:var(--syn-var); }
-:is(.md-code, .rv-diff) .syn-head{ color:var(--syn-fn); font-weight:600; }
-:is(.md-code, .rv-diff) .syn-link{ color:var(--syn-type); text-decoration:underline; }
-:is(.md-code, .rv-diff) .syn-bad{ color:var(--syn-bad); }
+   Listed under the four places code appears outside the editor's own document
+   rather than left global, so a `syn-` class can never leak onto ordinary UI
+   text. Add a surface to the :is() list; do not unscope it. */
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-kw{ color:var(--syn-kw); }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-str{ color:var(--syn-str); }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-num{ color:var(--syn-num); }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-com{ color:var(--syn-com); font-style:italic; }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-fn{ color:var(--syn-fn); }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-type{ color:var(--syn-type); }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-var{ color:var(--syn-var); }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-head{ color:var(--syn-fn); font-weight:600; }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-link{ color:var(--syn-type); text-decoration:underline; }
+:is(.md-code, .rv-diff, .cm-staged-add, .cm-was) .syn-bad{ color:var(--syn-bad); }
 
 /* ── recent folders ──────────────────────────────────────────────────── */
 .recents button{

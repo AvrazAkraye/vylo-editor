@@ -227,21 +227,56 @@ export function highlight(code: string, info: string): Span[] {
 }
 
 /**
- * The same spans, split one array per line.
+ * The spans of a whole document, split one array per line.
  *
  * A diff is rendered line by line, and a line parsed on its own is not the same
  * text: a method body is not a program, `}` alone is a syntax error, and a line
  * inside a template literal is prose. So the whole document is parsed once and
  * the result is cut up afterwards — which is also why a diff needs both sides
  * parsed, not the rows.
- *
- * Always `code.split('\n').length` entries, so a line number indexes it
- * directly. A span crossing a newline — a block comment, a template literal —
- * is divided and keeps its class on both sides.
  */
 export function highlightLines(code: string, info: string): Span[][] {
+  return splitLines(highlight(code, info));
+}
+
+/**
+ * The same, for one range of a document.
+ *
+ * ⌘K needs this. Its preview shows the lines it is replacing, but by the time
+ * the preview is drawn the buffer already holds the *new* text — so the old
+ * lines have to be highlighted against a document reconstructed around them,
+ * and the piece to show is an offset range of that document rather than a run
+ * of whole lines. A selection can start in the middle of a line, which is
+ * exactly what line indexing cannot express.
+ */
+export function highlightRange(code: string, info: string, from: number, to: number): Span[][] {
+  return splitLines(clipSpans(highlight(code, info), from, to));
+}
+
+/** The spans covering `[from, to)`, with the ones straddling an end divided. */
+function clipSpans(spans: Span[], from: number, to: number): Span[] {
+  const out: Span[] = [];
+  let at = 0;
+  for (const s of spans) {
+    const start = at;
+    at += s.text.length;
+    if (at <= from || start >= to) continue;
+    const text = s.text.slice(Math.max(from, start) - start, Math.min(to, at) - start);
+    if (text) out.push({ text, cls: s.cls });
+  }
+  return out;
+}
+
+/**
+ * One array per line.
+ *
+ * Always `code.split('\n').length` entries for a whole document, so a line
+ * number indexes it directly. A span crossing a newline — a block comment, a
+ * template literal — is divided and keeps its class on both sides.
+ */
+function splitLines(spans: Span[]): Span[][] {
   const out: Span[][] = [[]];
-  for (const span of highlight(code, info)) {
+  for (const span of spans) {
     let rest = span.text;
     for (;;) {
       const nl = rest.indexOf('\n');
@@ -255,4 +290,28 @@ export function highlightLines(code: string, info: string): Span[][] {
     }
   }
   return out;
+}
+
+/**
+ * One line of spans as a DOM row, for the CodeMirror widgets.
+ *
+ * The widgets are built with `document.createElement` rather than React, so the
+ * span-to-element step has to exist twice unless it lives somewhere both can
+ * reach. `fallback` is what to show when there are no spans — a blank line
+ * still needs a row, or the block collapses.
+ */
+export function spansToDOM(spans: Span[] | undefined, fallback: string): HTMLElement {
+  const row = document.createElement('div');
+  if (!spans || !spans.length) {
+    row.textContent = fallback || ' ';
+    return row;
+  }
+  for (const s of spans) {
+    if (!s.cls) { row.appendChild(document.createTextNode(s.text)); continue; }
+    const el = document.createElement('span');
+    el.className = s.cls;
+    el.textContent = s.text;
+    row.appendChild(el);
+  }
+  return row;
 }
