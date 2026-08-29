@@ -24,6 +24,8 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Run in terminal': 'تشغيل في الطرفية',
+  'Open the terminal first.': 'افتح الطرفية أولاً.',
   'files': 'ملفات',
   'Undo this write': 'تراجع عن هذه الكتابة',
   'Undo this change and everything after it?': 'التراجع عن هذا التغيير وكل ما بعده؟',
@@ -165,6 +167,8 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Run in terminal': 'جێبەجێکردن لە تێرمینەڵ',
+  'Open the terminal first.': 'سەرەتا تێرمینەڵ بکەرەوە.',
   'Undo this write': 'گەڕانەوە لەم نووسینە',
   'Undo this change and everything after it?': 'ئەم گۆڕانکارییە و هەموو ئەوەی دوای بگەڕێندرێتەوە؟',
   'These files go back to how they were, losing any edits made since. The conversation is cut back to this point.': 'ئەم فایلانە دەگەڕێنەوە بۆ دۆخی پێشوو، هەر دەستکارییەکی دوایی لەدەست دەچێت. گفتوگۆکەش تا ئێرە کورت دەکرێتەوە.',
@@ -306,6 +310,8 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Run in terminal': 'ب رێڤەبرن د تێرمینالێ دا',
+  'Open the terminal first.': 'بەری هەمییێ تێرمینالێ ڤەکە.',
   'Undo this write': 'ڤەگەڕاندنا ڤێ نڤیسینێ',
   'Undo this change and everything after it?': 'ئەڤ گوهۆڕین و هەمی یێن پشتی وێ بێنە ڤەگەڕاندن؟',
   'These files go back to how they were, losing any edits made since. The conversation is cut back to this point.': 'ئەڤ دەفتەر دێ ڤەگەڕن سەر دۆخێ خۆ یێ بەری، هەر دەستکارییەکا پشتی وێ دێ وندا بیت. ئاخڤتن ژی دێ هێتە قرتاندن هەتا ڤێرێ.',

@@ -30,7 +30,8 @@ use tauri::ipc::Channel;
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum PtyEvent {
     Data { data: String },
-    Exit,
+    /// `code` is None only when waiting on the child itself failed.
+    Exit { code: Option<u32> },
 }
 
 struct Session {
@@ -100,12 +101,20 @@ fn take_utf8(buf: &mut Vec<u8>) -> String {
     }
 }
 
+/// Open a pty. With no `command` it runs an interactive shell; with one it runs
+/// that instead.
+///
+/// Running an approved command *as the child* rather than typing it into a shell
+/// avoids all the usual fragility: no prompt in the output, no echo of the
+/// command itself, and no sentinel needed to detect completion — the child
+/// exiting is the signal, and `child.wait()` already reports it with a code.
 #[tauri::command]
 pub fn pty_open(
     state: tauri::State<'_, Terminals>,
     cwd: Option<String>,
     cols: u16,
     rows: u16,
+    command: Option<String>,
     on_event: Channel<PtyEvent>,
 ) -> Result<u32, String> {
     let pair = native_pty_system()
@@ -122,7 +131,26 @@ pub fn pty_open(
     // an app launched from Finder inherits launchd's environment, so without it
     // the PATH set in .zprofile — homebrew, nvm, pyenv — is simply absent, and
     // `node` is not found in a terminal that works fine outside the app.
-    let mut cmd = CommandBuilder::new_default_prog();
+    let mut cmd = match command.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+        Some(line) => {
+            // Through a shell deliberately: pipes and redirects are most of why
+            // anyone wants to run a command, and the exact string was shown to a
+            // human and approved before it got here.
+            #[cfg(windows)]
+            {
+                let mut c = CommandBuilder::new("cmd.exe");
+                c.args(["/C", line]);
+                c
+            }
+            #[cfg(not(windows))]
+            {
+                let mut c = CommandBuilder::new("/bin/sh");
+                c.args(["-c", line]);
+                c
+            }
+        }
+        None => CommandBuilder::new_default_prog(),
+    };
     if let Some(dir) = cwd
         .as_deref()
         .map(std::path::Path::new)
@@ -192,8 +220,8 @@ pub fn pty_open(
     // the master, which is what the tab closing does.
     std::thread::spawn(move || {
         let mut child = child;
-        let _ = child.wait();
-        let _ = exit_channel.send(PtyEvent::Exit);
+        let code = child.wait().ok().map(|s| s.exit_code());
+        let _ = exit_channel.send(PtyEvent::Exit { code });
     });
 
     state

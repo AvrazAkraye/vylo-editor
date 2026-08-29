@@ -14,7 +14,7 @@ import '@xterm/xterm/css/xterm.css';
  * switching tabs does not lose the scrollback.
  */
 
-type PtyEvent = { kind: 'data'; data: string } | { kind: 'exit' };
+type PtyEvent = { kind: 'data'; data: string } | { kind: 'exit'; code: number | null };
 
 export interface TermHandle {
   focus(): void;
@@ -28,9 +28,14 @@ interface Props {
   cwd: string;
   dark: boolean;
   visible: boolean;
+  /** When set, the pty runs this instead of an interactive shell. */
+  command?: string;
   onReady: (h: TermHandle | null) => void;
-  onExit: () => void;
+  /** `code` is the command's exit status when this pane was running one. */
+  onExit: (code: number | null) => void;
   onError: (message: string) => void;
+  /** Raw pty bytes, for a pane whose output is going back to the agent. */
+  onData?: (chunk: string) => void;
 }
 
 /**
@@ -62,14 +67,14 @@ function palette(dark: boolean) {
       };
 }
 
-export function TerminalView({ cwd, dark, visible, onReady, onExit, onError }: Props) {
+export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
   // Props the long-lived pty callbacks need to read at call time rather than
   // capture at mount time.
-  const cb = useRef({ onExit, onError });
-  cb.current = { onExit, onError };
+  const cb = useRef({ onExit, onError, onData });
+  cb.current = { onExit, onError, onData };
 
   useEffect(() => {
     const el = host.current;
@@ -104,12 +109,13 @@ export function TerminalView({ cwd, dark, visible, onReady, onExit, onError }: P
       // The reader thread can have a frame in flight when the pane goes away,
       // and writing to a disposed terminal throws.
       if (disposed) return;
-      if (m.kind === 'data') t.write(m.data);
-      else if (!closed) { closed = true; cb.current.onExit(); }
+      if (m.kind === 'data') { t.write(m.data); cb.current.onData?.(m.data); }
+      else if (!closed) { closed = true; cb.current.onExit(m.code); }
     };
 
     void invoke<number>('pty_open', {
       cwd: cwd || null,
+      command: command || null,
       cols: t.cols,
       rows: t.rows,
       onEvent: channel,

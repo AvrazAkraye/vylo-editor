@@ -1,13 +1,13 @@
 {
   "name": "vylo-editor",
   "private": true,
-  "version": "0.13.0",
+  "version": "0.14.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
-    "test": "esbuild src/pending.ts src/sse.ts src/fuzzy.ts src/complete.ts src/inline.ts src/mentions.ts --bundle --format=esm --outdir=.test-build --external:@tauri-apps/api/core --external:@codemirror/state --log-level=error && node test/diff.test.mjs && node test/hunks.test.mjs && node test/sse.test.mjs && node test/fuzzy.test.mjs && node test/complete.test.mjs && node test/inline.test.mjs && node test/mentions.test.mjs && node test/i18n.test.mjs",
+    "test": "esbuild src/pending.ts src/sse.ts src/fuzzy.ts src/complete.ts src/inline.ts src/mentions.ts src/ansi.ts --bundle --format=esm --outdir=.test-build --external:@tauri-apps/api/core --external:@codemirror/state --log-level=error && node test/diff.test.mjs && node test/hunks.test.mjs && node test/sse.test.mjs && node test/fuzzy.test.mjs && node test/complete.test.mjs && node test/inline.test.mjs && node test/mentions.test.mjs && node test/ansi.test.mjs && node test/i18n.test.mjs",
     "test:rust": "cd src-tauri && cargo test"
   },
   "dependencies": {

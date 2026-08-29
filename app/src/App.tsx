@@ -1,6 +1,9 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { runAgent, Stopped, type Block, type CommandRequest, type Msg } from './agent';
+import {
+  runAgent, Stopped,
+  type Block, type CommandRequest, type CommandResult, type Msg, type RunChoice,
+} from './agent';
 import {
   attachAnyPath, attachFromFile, describe, isImage, isText, listenForDrops,
   pickAttachments, previewUrl, textBlock, toImageBlock, type Attached,
@@ -92,7 +95,10 @@ export function App() {
   const pending = useRef(new Pending());
   // The command the agent is waiting on, plus the resolver that unblocks it.
   const [askRun, setAskRun] = useState<CommandRequest | null>(null);
-  const decide = useRef<((ok: boolean) => void) | null>(null);
+  const decide = useRef<((choice: RunChoice) => void) | null>(null);
+  // Set by the terminal panel: run an approved string in a visible tab and
+  // resolve with what it printed.
+  const termRun = useRef<((command: string) => Promise<CommandResult>) | null>(null);
   // Commands the user chose to stop being asked about. Session-only and matched
   // exactly: "always allow npm test" should not quietly also allow "npm test && rm -rf".
   const trusted = useRef(new Set<string>());
@@ -539,14 +545,14 @@ export function App() {
    * can read the command's output immediately instead of the turn ending and
    * the context being re-sent.
    */
-  function askToRun(req: CommandRequest): Promise<boolean> {
-    if (trusted.current.has(req.command)) return Promise.resolve(true);
+  function askToRun(req: CommandRequest): Promise<RunChoice> {
+    if (trusted.current.has(req.command)) return Promise.resolve('pipe');
     setAskRun(req);
-    return new Promise<boolean>((resolve) => {
-      decide.current = (ok) => {
+    return new Promise<RunChoice>((resolve) => {
+      decide.current = (choice) => {
         decide.current = null;
         setAskRun(null);
-        resolve(ok);
+        resolve(choice);
       };
     });
   }
@@ -808,6 +814,11 @@ export function App() {
         history: history.current,
         pending: pending.current,
         askToRun,
+        runInTerminal: (command) => {
+          if (!termRun.current) throw new Error(t('Open the terminal first.'));
+          setShowTerm(true);
+          return termRun.current(command);
+        },
         memory: memoryPrompt(memory),
         onDelta: stream,
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
@@ -1138,6 +1149,7 @@ export function App() {
                   t={t}
                   onSendToChat={fromTerminal}
                   expose={(getText) => { termText.current = getText; }}
+                  exposeRun={(run: ((c: string) => Promise<CommandResult>) | null) => { termRun.current = run; }}
                   full={termFull}
                   onToggleFull={() => setTermFull((v) => !v)}
                   onClose={(drop) => { setShowTerm(false); if (drop) setTermMounted(false); }}
@@ -1189,12 +1201,20 @@ export function App() {
               <span className="ask-dir">{t('in')} {folderName}</span>
             </div>
             <div className="ask-btns">
-              <button className="reject" onClick={() => decide.current?.(false)}>{t('Decline')}</button>
+              <button className="reject" onClick={() => decide.current?.('no')}>{t('Decline')}</button>
               <button className="ghost keep" onClick={() => {
                 trusted.current.add(askRun.command);
-                decide.current?.(true);
+                decide.current?.('pipe');
               }}>{t('Always allow this')}</button>
-              <button className="approve" onClick={() => decide.current?.(true)}>{t('Run')}</button>
+              {/* The same approved string, on a surface you can watch and
+                  interrupt. Not a second decision — the string was already read
+                  and approved by the time either button is pressed. */}
+              {termMounted && (
+                <button className="ghost keep" onClick={() => decide.current?.('terminal')}>
+                  {t('Run in terminal')}
+                </button>
+              )}
+              <button className="approve" onClick={() => decide.current?.('pipe')}>{t('Run')}</button>
             </div>
           </div>
         </div>

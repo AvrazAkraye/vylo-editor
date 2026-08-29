@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { TerminalView, type TermHandle } from './TerminalView';
+import { readable } from './ansi';
 import { Icon } from './Icon';
 
 /**
@@ -10,7 +11,14 @@ import { Icon } from './Icon';
  * throw away both the scrollback and the process.
  */
 
-interface Tab { id: string; n: number; born: number; dead: boolean }
+interface Tab {
+  id: string; n: number; born: number; dead: boolean;
+  /** Set when this pane exists to run one approved command. */
+  command?: string;
+}
+
+/** What a command pane reports back to the agent once it finishes. */
+export interface CommandResult { code: number | null; output: string; truncated: boolean }
 
 interface Props {
   root: string;
@@ -23,6 +31,8 @@ interface Props {
   onToggleFull: () => void;
   /** Hands the composer a way to read the active pane, for `@terminal`. */
   expose: (getText: (() => string) | null) => void;
+  /** Hands the approval flow a way to run a command in a visible pane. */
+  exposeRun: (run: ((command: string) => Promise<CommandResult>) | null) => void;
   onError: (message: string) => void;
 }
 
@@ -30,7 +40,7 @@ let seq = 0;
 const newTab = (n: number): Tab => ({ id: `t${++seq}`, n, born: Date.now(), dead: false });
 
 export function TerminalPanel({
-  root, dark, t, onSendToChat, onClose, onError, full, onToggleFull, expose,
+  root, dark, t, onSendToChat, onClose, onError, full, onToggleFull, expose, exposeRun,
 }: Props) {
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
@@ -38,12 +48,31 @@ export function TerminalPanel({
   // `active` changes and `expose` is an inline arrow from the parent, so both
   // go through refs: the getter reads the current tab at call time, and the
   // effect runs once instead of on every render.
-  const live = useRef({ active: '', expose });
-  live.current = { active, expose };
+  const live = useRef({ active: '', expose, exposeRun });
+  live.current = { active, expose, exposeRun };
+
+  /** Command panes still waiting to finish, by tab id. */
+  const runs = useRef(new Map<string, {
+    buffer: string[];
+    settle: (r: CommandResult) => void;
+  }>());
+
   useEffect(() => {
     live.current.expose(() => handles.current.get(live.current.active)?.text(200) ?? '');
-    return () => live.current.expose(null);
+    live.current.exposeRun((command) => new Promise<CommandResult>((settle) => {
+      const next = newTab(Math.max(0, ...tabsRef.current.map((x) => x.n)) + 1);
+      next.command = command;
+      runs.current.set(next.id, { buffer: [], settle });
+      setTabs((p) => [...p, next]);
+      setActive(next.id);
+    }));
+    return () => { live.current.expose(null); live.current.exposeRun(null); };
   }, []);
+
+  // The promise above is created outside React's render, so it needs the tab
+  // list as it is *now* rather than as it was when the effect ran.
+  const tabsRef = useRef<Tab[]>([]);
+  tabsRef.current = tabs;
 
   function add() {
     const next = newTab(Math.max(0, ...tabs.map((x) => x.n)) + 1);
@@ -53,6 +82,14 @@ export function TerminalPanel({
 
   function close(id: string) {
     handles.current.delete(id);
+    // Closing a pane mid-command still has to answer the agent, or the loop
+    // waits for a promise nothing will ever settle.
+    const run = runs.current.get(id);
+    if (run) {
+      runs.current.delete(id);
+      const { text, truncated } = readable(run.buffer.join(''));
+      run.settle({ code: null, output: text, truncated });
+    }
     const left = tabs.filter((x) => x.id !== id);
     // Closing the last shell means there is nothing to keep running, so the
     // panel is torn down rather than hidden -- reopening then starts fresh.
@@ -68,7 +105,25 @@ export function TerminalPanel({
    * closing the tab looks like the button did nothing. Those stay, with the
    * reason on screen.
    */
-  function exited(tab: Tab) {
+  /**
+   * A command pane finishing is the answer the agent is waiting for.
+   *
+   * The pane is left open on purpose. The output is the point, and closing it
+   * the instant the command ended would take away the thing the user chose this
+   * button to see.
+   */
+  function finished(tab: Tab, code: number | null) {
+    const run = runs.current.get(tab.id);
+    if (!run) return false;
+    runs.current.delete(tab.id);
+    const { text, truncated } = readable(run.buffer.join(''));
+    run.settle({ code, output: text, truncated });
+    setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, dead: true } : x)));
+    return true;
+  }
+
+  function exited(tab: Tab, code: number | null) {
+    if (finished(tab, code)) return;
     if (Date.now() - tab.born < 800) {
       setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, dead: true } : x)));
       onError(t('The shell closed as soon as it started. Check your shell profile for an error.'));
@@ -92,7 +147,8 @@ export function TerminalPanel({
           {tabs.map((tab) => (
             <span key={tab.id} className={`ptab ${tab.id === active ? 'on' : ''} ${tab.dead ? 'dead' : ''}`}>
               <button className="ptab-name" onClick={() => setActive(tab.id)}>
-                <span className="ptab-i"><Icon name="terminal" size={13} /></span>{t('Terminal')} {tab.n}
+                <span className="ptab-i"><Icon name="terminal" size={13} /></span>
+                {tab.command ? tab.command.slice(0, 28) : `${t('Terminal')} ${tab.n}`}
               </button>
               <button className="ptab-x" onClick={() => close(tab.id)}
                       aria-label={`${t('Close')} ${t('Terminal')} ${tab.n}`}><Icon name="close" size={12} /></button>
@@ -123,7 +179,9 @@ export function TerminalPanel({
             dark={dark}
             visible={tab.id === active}
             onReady={(h) => { if (h) handles.current.set(tab.id, h); else handles.current.delete(tab.id); }}
-            onExit={() => exited(tab)}
+            command={tab.command}
+            onExit={(code) => exited(tab, code)}
+            onData={tab.command ? (chunk) => runs.current.get(tab.id)?.buffer.push(chunk) : undefined}
             onError={onError}
           />
         ))}

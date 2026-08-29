@@ -174,10 +174,18 @@ const BASE_SYSTEM = [
 
 /** Run one tool call. Reads hit the Rust side; writes are staged, not applied. */
 export interface CommandRequest { command: string; reason: string }
-export type AskToRun = (req: CommandRequest) => Promise<boolean>;
+/**
+ * How a human answered. `terminal` runs the same approved string in a visible
+ * pty instead of a pipe — a different surface for the same decision, not a
+ * second decision.
+ */
+export type RunChoice = 'no' | 'pipe' | 'terminal';
+export type AskToRun = (req: CommandRequest) => Promise<RunChoice>;
+export interface CommandResult { code: number | null; output: string; truncated: boolean }
 
 async function runTool(
   root: string, call: ToolCall, pending: Pending, ask: AskToRun,
+  runInTerminal?: (command: string) => Promise<CommandResult>,
 ): Promise<{ content: string; isError: boolean }> {
   try {
     if (call.name === 'write_file') {
@@ -205,9 +213,21 @@ async function runTool(
       // returning "pending" and ending the turn -- keeping the turn intact is
       // what lets the model act on the output in the same breath.
       const decision = await ask({ command, reason: String(call.input.reason ?? '') });
-      if (!decision) {
+      if (decision === 'no') {
         return { content: 'The user declined to run that command.', isError: false };
       }
+
+      if (decision === 'terminal') {
+        if (!runInTerminal) {
+          return { content: 'Running in a terminal is unavailable here.', isError: true };
+        }
+        const t = await runInTerminal(command);
+        const parts = [`exit code: ${t.code ?? 'unknown'} (run in the user's terminal)`];
+        parts.push(t.output.trim() ? `output:\n${t.output}` : '(no output)');
+        if (t.truncated) parts.push('(output was truncated)');
+        return { content: parts.join('\n\n'), isError: false };
+      }
+
       const r = await invoke<{
         code: number; stdout: string; stderr: string; timed_out: boolean; truncated: boolean;
       }>('run_command', { root, command, timeoutSecs: null });
@@ -268,8 +288,10 @@ export interface RunOptions {
   history: Msg[];
   /** Staging area. The loop routes write_file/edit_file here instead of to disk. */
   pending: Pending;
-  /** Suspends the loop until a human approves a command. Resolve false to decline. */
+  /** Suspends the loop until a human decides. Resolve 'no' to decline. */
   askToRun: AskToRun;
+  /** Runs an already-approved command in a visible terminal tab. */
+  runInTerminal?: (command: string) => Promise<CommandResult>;
   /** Project memory block, appended to the system prompt. Empty when there is none. */
   memory?: string;
   /** Called as the loop progresses so the UI can show work in flight. */
@@ -397,7 +419,9 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     for (const c of calls) {
       if (o.signal?.aborted) throw new Stopped();
       o.onEvent({ kind: 'tool', text: `${c.name}(${JSON.stringify(c.input)})` });
-      const r = await runTool(o.root, { id: c.id, name: c.name, input: c.input }, o.pending, o.askToRun);
+      const r = await runTool(
+        o.root, { id: c.id, name: c.name, input: c.input }, o.pending, o.askToRun, o.runInTerminal,
+      );
       o.onEvent({ kind: 'result', text: `${c.name} → ${r.isError ? 'error: ' : ''}${r.content.slice(0, 160)}` });
       if (c.name === 'write_file' || c.name === 'edit_file') o.onStaged?.();
       results.push({ type: 'tool_result', tool_use_id: c.id, content: r.content, is_error: r.isError || undefined });
