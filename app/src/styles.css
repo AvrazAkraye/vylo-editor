@@ -40,6 +40,7 @@
   --brand-wash:#EEEBFD;
   --ok-wash:#E4F4EC;
   --err-wash:#FBE9E7;
+  --warn-wash:#FBF0DC;
   --fill:#5B4DE0;
   --on-fill:#FFFFFF;
   --on-fill-line:rgb(255 255 255 / .35);
@@ -99,6 +100,7 @@
     --brand-wash:#241F3C;
     --ok-wash:#12261F;
     --err-wash:#2E1815;
+    --warn-wash:#2A2113;
     --fill:#5A46C8;
     --on-fill:#F4F1FF;
     --on-fill-line:rgb(244 241 255 / .34);
@@ -126,6 +128,7 @@
   --brand-wash:#241F3C;
   --ok-wash:#12261F;
   --err-wash:#2E1815;
+  --warn-wash:#2A2113;
   --fill:#5A46C8;
   --on-fill:#F4F1FF;
   --on-fill-line:rgb(244 241 255 / .34);
@@ -1079,3 +1082,24 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .md-code:hover .md-apply, .md-apply:focus-visible{ opacity:1; }
 .md-apply:hover{ border-color:var(--brand); color:var(--brand); }
+
+/* ── staged proposal, drawn over the open file ───────────────────────── */
+.staged-bar{
+  flex:none; display:flex; align-items:center; gap:var(--sp-4);
+  padding:var(--sp-3) var(--sp-6); border-bottom:1px solid var(--rule);
+  background:var(--ok-wash); color:var(--ink-2); font-size:var(--fs-3);
+}
+.staged-bar .ic{ color:var(--ok); flex:none; }
+.staged-bar.stale{ background:var(--warn-wash, var(--panel-2)); }
+.staged-bar.stale .ic{ color:var(--warn); }
+
+/* The buffer still holds the file; these mark what the proposal would do to it. */
+.ed .cm-staged-del{
+  background:var(--err-wash); text-decoration:line-through;
+  text-decoration-color:var(--err);
+}
+.ed .cm-staged-add{
+  background:var(--ok-wash); border-left:2px solid var(--ok);
+  padding-left:var(--sp-3); font-family:var(--mono);
+  font-size:var(--fs-4); line-height:1.55;
+}

@@ -24,6 +24,8 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Proposed change shown in place — nothing is written until you approve it below.': 'التغيير المقترح معروض في مكانه — لا يُكتب شيء حتى توافق عليه أدناه.',
+  'This file changed since the proposal, so it cannot be shown in place. The review panel still has it.': 'تغيّر هذا الملف بعد الاقتراح، لذا لا يمكن عرضه في مكانه. لا يزال موجوداً في لوحة المراجعة.',
   'Apply': 'تطبيق',
   'No file to apply this to. Open one first.': 'لا يوجد ملف لتطبيق هذا عليه. افتح ملفاً أولاً.',
   'nothing to change.': 'لا شيء لتغييره.',
@@ -175,6 +177,8 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Proposed change shown in place — nothing is written until you approve it below.': 'گۆڕانکاری پێشنیارکراو لە شوێنی خۆیدا پیشان دراوە — هیچ نانووسرێت هەتا لە خوارەوە پەسەندی نەکەیت.',
+  'This file changed since the proposal, so it cannot be shown in place. The review panel still has it.': 'ئەم فایلە دوای پێشنیارەکە گۆڕاوە، بۆیە ناتوانرێت لە شوێنی خۆیدا پیشان بدرێت. هێشتا لە پانێڵی پێداچوونەوەدایە.',
   'Apply': 'جێبەجێکردن',
   'No file to apply this to. Open one first.': 'هیچ فایلێک نییە بۆ جێبەجێکردنی. سەرەتا یەکێک بکەرەوە.',
   'nothing to change.': 'هیچ نییە بۆ گۆڕین.',
@@ -326,6 +330,8 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Proposed change shown in place — nothing is written until you approve it below.': 'گوهۆڕینا پێشنیارکری ل جهێ خۆ هاتییە نیشاندان — چو نایێتە نڤیسین هەتا تو ل خوارێ پەسەند نەکەی.',
+  'This file changed since the proposal, so it cannot be shown in place. The review panel still has it.': 'ئەڤ دەفتەر پشتی پێشنیارێ هاتییە گوهۆڕین، لەوما ناشێت ل جهێ خۆ بێتە نیشاندان. هێشتا د پانێلا بەرچاڤکرنێ دا هەیە.',
   'Apply': 'جهبجهکرن',
   'No file to apply this to. Open one first.': 'چو دەفتەر نینن بۆ جهبجهکرنێ. بەری هەمییێ ئێکێ ڤەکە.',
   'nothing to change.': 'چو نینە بۆ گوهۆڕینێ.',

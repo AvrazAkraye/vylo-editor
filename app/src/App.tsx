@@ -1176,6 +1176,7 @@ export function App() {
                     onStatus: setAcStatus,
                   })}
                   edit={() => ({ baseUrl, apiKey, model, memory: memoryPrompt(memory) })}
+                  staged={changes.find((c) => c.path === p) ?? null}
                   t={t}
                   onReady={(h) => { if (h) editors.current.set(p, h); else editors.current.delete(p); }}
                   onDirty={(path, isDirty) => setDirty((prev) => {

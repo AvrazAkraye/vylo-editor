@@ -26,6 +26,7 @@ import {
   pendingEdit, setPendingEdit, type Gateway,
 } from './inline';
 import { Icon } from './Icon';
+import { setStaged, stagedPreview, type Staged } from './staged';
 
 /**
  * A real editor, replacing the read-only viewer.
@@ -145,6 +146,8 @@ interface Props {
   complete: () => Omit<CompleteConfig, 'path' | 'language'>;
   /** Gateway settings and project memory for ⌘K. */
   edit: () => Gateway & { memory: string };
+  /** The agent's proposal for this file, drawn over it. Null when there is none. */
+  staged: Staged | null;
   t: (s: string) => string;
   onReady: (h: EditorHandle | null) => void;
   /** Fires whenever the dirty state changes, so tabs and the agent stay honest. */
@@ -154,7 +157,8 @@ interface Props {
 }
 
 export function Editor({
-  root, path, visible, dark, line, complete, edit, t, onReady, onDirty, onSaved, onError,
+  root, path, visible, dark, line, complete, edit, staged, t,
+  onReady, onDirty, onSaved, onError,
 }: Props) {
   /** The ⌘K bar: where it sits, what was selected, and what came back. */
   const [ask, setAsk] = useState<{ from: number; to: number; top: number } | null>(null);
@@ -165,6 +169,18 @@ export function Editor({
   const [applied, setApplied] = useState<{ added: number; removed: number } | null>(null);
   const abort = useRef<AbortController | null>(null);
   const prompt = useRef<HTMLInputElement>(null);
+  /**
+   * Whether the proposal can be drawn where it belongs.
+   *
+   * It cannot once the file has been edited since it was staged, because the
+   * line numbers then mean something else. The decorations vanish on their own
+   * in that case, and a preview that silently disappears is confusing — so the
+   * banner says which of the two situations you are in.
+   */
+  const [fits, setFits] = useState<boolean | null>(null);
+  const stagedRef = useRef<Staged | null>(null);
+  stagedRef.current = staged;
+
   const cfg = useRef({ edit, t });
   cfg.current = { edit, t };
   // The keymap is built once at mount, so it reaches the handlers through a ref
@@ -235,6 +251,7 @@ export function Editor({
       ]),
       syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
       inlineEditState,
+      stagedPreview,
       ...language(path),
       // Read through the ref so toggling completion in Settings takes effect on
       // files that are already open, without rebuilding the editor.
@@ -246,6 +263,8 @@ export function Editor({
       themeC.current.of([theme(dark), syntaxHighlighting(highlight(dark))]),
       EditorView.updateListener.of((u) => {
         if (!u.docChanged) return;
+        const st = stagedRef.current;
+        setFits(st ? u.state.doc.toString() === st.before : null);
         const now = u.state.doc.toString() !== clean.current;
         if (now !== dirtyNow.current) {
           dirtyNow.current = now;
@@ -314,6 +333,14 @@ export function Editor({
       effects: themeC.current.reconfigure([theme(dark), syntaxHighlighting(highlight(dark))]),
     });
   }, [dark]);
+
+  // Pushed in rather than read out: the proposal lives in `Pending`, and the
+  // editor only ever draws it.
+  useEffect(() => {
+    const v = view.current;
+    v?.dispatch({ effects: setStaged.of(staged) });
+    setFits(staged && v ? v.state.doc.toString() === staged.before : null);
+  }, [staged]);
 
   useEffect(() => { if (visible) view.current?.focus(); }, [visible]);
 
@@ -401,6 +428,17 @@ export function Editor({
   return (
     <div className="ed-wrap" style={{ display: visible ? 'flex' : 'none' }}>
       <div className="ed" ref={host} />
+
+      {staged && (
+        <div className={`staged-bar ${fits === false ? 'stale' : ''}`}>
+          <Icon name={fits === false ? 'warning' : 'diff'} size={13} />
+          <span>
+            {fits === false
+              ? T('This file changed since the proposal, so it cannot be shown in place. The review panel still has it.')
+              : T('Proposed change shown in place — nothing is written until you approve it below.')}
+          </span>
+        </div>
+      )}
 
       {ask && (
         <div className="kbar" style={{ top: ask.top }}>
