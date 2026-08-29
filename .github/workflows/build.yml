@@ -14,14 +14,30 @@ jobs:
       contents: write
     strategy:
       fail-fast: false
+      # Windows only, and that is a cost decision with a reason.
+      #
+      # A private repository bills Actions against a monthly allowance, and the
+      # multipliers are not close: macOS is charged at 10x and Windows at 2x. The
+      # two macOS jobs were about seven eighths of the bill for the one platform
+      # that does not need them -- macOS is built, gated and published from the
+      # maintainer's own Mac before every release, and `publish-macos.sh` refuses
+      # to publish when the tarball does not match package.json.
+      #
+      # Windows is the job that cannot be replaced: Tauri needs the target's own
+      # toolchain, so the .exe exists only if CI makes it. Every bug CI has ever
+      # caught that a Mac could not was a Windows bug -- a pipe deadlock, a
+      # terminal that never reported exit, a pty test that hung on ConPTY, and a
+      # CRLF regex. None of them needed a macOS runner to find.
+      #
+      # To build macOS here again, paste the two entries back:
+      #   - os: macos-latest
+      #     target: aarch64-apple-darwin
+      #     label: macOS (Apple Silicon)
+      #   - os: macos-latest
+      #     target: x86_64-apple-darwin
+      #     label: macOS (Intel)
       matrix:
         include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            label: macOS (Apple Silicon)
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            label: macOS (Intel)
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             label: Windows
