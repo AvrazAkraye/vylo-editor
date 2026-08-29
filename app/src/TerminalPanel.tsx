@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { TerminalView, type TermHandle } from './TerminalView';
+import { Icon } from './Icon';
 
 /**
  * The terminal panel: tabs across the top, shells below.
@@ -78,13 +79,13 @@ export function TerminalPanel({ root, dark, t, onSendToChat, onClose, onError, f
           {tabs.map((tab) => (
             <span key={tab.id} className={`ptab ${tab.id === active ? 'on' : ''} ${tab.dead ? 'dead' : ''}`}>
               <button className="ptab-name" onClick={() => setActive(tab.id)}>
-                <span className="ptab-i">▸</span>{t('Terminal')} {tab.n}
+                <span className="ptab-i"><Icon name="terminal" size={13} /></span>{t('Terminal')} {tab.n}
               </button>
               <button className="ptab-x" onClick={() => close(tab.id)}
-                      aria-label={`${t('Close')} ${t('Terminal')} ${tab.n}`}>×</button>
+                      aria-label={`${t('Close')} ${t('Terminal')} ${tab.n}`}><Icon name="close" size={12} /></button>
             </span>
           ))}
-          <button className="ptab-add" onClick={add} title={t('New terminal')} aria-label={t('New terminal')}>+</button>
+          <button className="ptab-add" onClick={add} title={t('New terminal')} aria-label={t('New terminal')}><Icon name="plus" size={13} /></button>
         </div>
         <div className="panel-acts">
           <button className="ghost" onClick={sendToChat} disabled={dead}
@@ -96,8 +97,8 @@ export function TerminalPanel({ root, dark, t, onSendToChat, onClose, onError, f
           </button>
           <button className="ghost icon" onClick={onToggleFull} aria-pressed={full}
                   title={t(full ? 'Restore the panel' : 'Fill the window')}
-                  aria-label={t(full ? 'Restore the panel' : 'Fill the window')}>{full ? '⤡' : '⤢'}</button>
-          <button className="ghost icon" onClick={() => onClose()} title={t('Hide the panel')} aria-label={t('Hide the panel')}>▾</button>
+                  aria-label={t(full ? 'Restore the panel' : 'Fill the window')}><Icon name={full ? 'restore' : 'maximise'} size={14} /></button>
+          <button className="ghost icon" onClick={() => onClose()} title={t('Hide the panel')} aria-label={t('Hide the panel')}><Icon name="chevron" size={14} turn={90} /></button>
         </div>
       </div>
 

@@ -99,6 +99,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .brand{ display:flex; align-items:center; gap:8px; font-size:13px; }
 .brand svg{ width:22px; height:22px; border-radius:5px; display:block; }
 .folder{
+  display:inline-flex; align-items:center; gap:7px;
   margin-left:auto; font:inherit; font-size:12.5px; padding:5px 11px;
   border-radius:7px; border:1px solid var(--rule); background:var(--panel-2);
   color:var(--ink); cursor:pointer; max-width:46ch; overflow:hidden;
@@ -397,7 +398,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
   padding:8px 10px; border:0; background:transparent; cursor:pointer;
 }
 .sb-toggle:hover{ color:var(--ink); }
-.sb-caret{ display:inline-block; transition:transform .12s ease; font-size:9px; }
+.sb-caret{ display:inline-flex; align-items:center; transition:transform .12s ease; }
 .sb-caret.open{ transform:rotate(90deg); }
 .sb-count{
   margin-left:auto; font-family:var(--mono); font-size:9.5px;
@@ -421,7 +422,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .ft-row:hover{ background:var(--panel); color:var(--ink); }
 .ft-row.on{ background:var(--panel); color:var(--brand); }
 .ft-name{ overflow:hidden; text-overflow:ellipsis; }
-.ft-caret{ font-size:9px; width:9px; flex:none; transition:transform .12s ease; color:var(--mute); }
+.ft-caret{ display:inline-flex; align-items:center; width:12px; flex:none; transition:transform .12s ease; color:var(--mute); }
 .ft-caret.open{ transform:rotate(90deg); }
 .ft-dir{ font-weight:600; color:var(--ink); }
 .ft-icon{
@@ -550,7 +551,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
   padding:6px 11px; border:0; background:transparent; cursor:pointer;
 }
 .toolrun > button:hover{ background:var(--panel-3); color:var(--ink-2); }
-.toolrun .tr-caret{ font-size:9px; transition:transform .12s ease; }
+.toolrun .tr-caret{ display:inline-flex; align-items:center; transition:transform .12s ease; }
 .toolrun.open .tr-caret{ transform:rotate(90deg); }
 .toolrun .tr-list{ padding:2px 11px 9px; display:flex; flex-direction:column; gap:4px; }
 .toolrun .tr-item{
@@ -733,3 +734,27 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .ac-thinking{ color:var(--brand); }
 .ac-cooldown, .ac-off{ color:var(--mute); }
 .ac-error{ color:var(--err); }
+
+
+/* ── icons ───────────────────────────────────────────────────────────── */
+/* One family on one grid, inheriting colour from whatever contains them. The
+   flex alignment is the point: an SVG placed inline sits on the text baseline
+   and rides low next to its label, which is what made the old glyph mixture
+   look misaligned even where the glyphs themselves matched. */
+.ic{ flex:none; display:block; }
+
+.st-btn, .send, .folder, .brand, .ptab-name, .ghost.icon, .attach,
+.tab-x, .ptab-x, .chat-x, .sb-act, .ptab-add, .seg button{
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+}
+.st-btn{ gap:5px; }
+.send{ gap:7px; }
+.status .ac{ display:inline-flex; align-items:center; }
+.status span{ display:inline-flex; align-items:center; gap:5px; }
+.ft-icon{ display:inline-flex; align-items:center; justify-content:center; }
+.chip .doc{ display:inline-flex; align-items:center; }
+
+/* Carets rotate rather than being swapped for a second glyph, so the state
+   change reads as motion instead of a substitution. The rotation stays on the
+   SPAN, where it already was -- rotating the svg as well would compose to 180
+   and point the caret backwards when open. */

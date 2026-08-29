@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Icon } from './Icon';
 
 export interface Entry { path: string; is_dir: boolean; size: number }
 
@@ -59,7 +60,7 @@ const ICONS: Record<string, string> = {
   ts: 'TS', tsx: 'TS', js: 'JS', jsx: 'JS', json: '{}', rs: 'RS',
   py: 'PY', go: 'GO', java: 'JV', rb: 'RB', php: 'PHP', sh: '$',
   css: '#', scss: '#', html: '<>', md: 'M', yml: 'Y', yaml: 'Y',
-  toml: 'T', sql: 'DB', png: '▣', jpg: '▣', jpeg: '▣', svg: '▣', gif: '▣',
+  toml: 'T', sql: 'DB', png: 'IMG', jpg: 'IMG', jpeg: 'IMG', svg: 'IMG', gif: 'IMG',
 };
 const iconFor = (name: string) => ICONS[name.split('.').pop()?.toLowerCase() || ''] || '·';
 
@@ -94,7 +95,7 @@ export function FileTree({ entries, openPath, onOpen, changed }: Props) {
         return [
           <button key={n.path} className="ft-row ft-dir" style={pad}
                   onClick={() => toggle(n.path)} title={n.path}>
-            <span className={`ft-caret ${open ? 'open' : ''}`}>▸</span>
+            <span className={`ft-caret ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>
             <span className="ft-name">{n.name}</span>
           </button>,
           ...(open ? render(n.children, depth + 1) : []),

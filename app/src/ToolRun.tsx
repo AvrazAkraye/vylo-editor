@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Line } from './store';
+import { Icon } from './Icon';
 
 /**
  * A run of tool calls, folded to one line.
@@ -57,7 +58,7 @@ export function ToolRun({ run, t }: Props) {
   return (
     <div className={`toolrun ${open ? 'open' : ''}`}>
       <button onClick={() => setOpen((o) => !o)} aria-expanded={open}>
-        <span className="tr-caret">▶</span>
+        <span className="tr-caret"><Icon name="chevron" size={11} /></span>
         <span className="tr-n">{n === 1 ? t('1 step') : `${n} ${t('steps')}`}</span>
         <span className="tr-names">{shown}</span>
         {failed && <span className="tr-bad">!</span>}

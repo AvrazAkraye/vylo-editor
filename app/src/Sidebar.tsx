@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { Icon } from './Icon';
 
 /**
  * Collapsible sidebar section.
@@ -32,7 +33,7 @@ export function Section({
     <section className={`sb-sec ${open ? 'open' : ''}`}>
       <div className="sb-head">
         <button className="sb-toggle" onClick={() => set(!open)} aria-expanded={open}>
-          <span className={`sb-caret ${open ? 'open' : ''}`}>▸</span>
+          <span className={`sb-caret ${open ? 'open' : ''}`}><Icon name="chevron" size={11} /></span>
           <span className="sb-title">{title}</span>
           {count !== undefined && count !== 0 && <span className="sb-count">{count}</span>}
         </button>

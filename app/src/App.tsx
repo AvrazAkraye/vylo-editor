@@ -29,6 +29,7 @@ import { groupLines, ToolRun } from './ToolRun';
 // xterm is the largest thing in the bundle and the panel starts closed, so it
 // is fetched the first time someone actually opens a terminal.
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
+import { Icon } from './Icon';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
   watchSystem, type Theme,
@@ -655,7 +656,7 @@ export function App() {
           <b>Vylo Editor</b>
         </div>
         <button className="folder" onClick={pickFolder} title={root || 'No folder open'}>
-          {folderName ? `📁 ${folderName}` : t('Open folder…')}
+          <Icon name="folder" size={14} />{folderName || t('Open folder…')}
         </button>
         {git?.is_repo && (
           <button className="ghost br" onClick={() => void newBranch()} title="Create a branch and switch to it">
@@ -670,18 +671,18 @@ export function App() {
         )}
         <span className="bar-sp" />
         <button className={`ghost icon ${showTerm ? 'on' : ''}`} onClick={toggleTerm}
-                title={`${t('Terminal')}  ⌃\``} aria-pressed={showTerm}>▤</button>
+                title={`${t('Terminal')}  ⌃\``} aria-pressed={showTerm}><Icon name="terminal" /></button>
         <div className="seg" role="group" aria-label={t('Theme')}>
           {(['light', 'system', 'dark'] as Theme[]).map((v) => (
             <button key={v} className={theme === v ? 'on' : ''} onClick={() => setTheme(v)}
                     title={t(v === 'light' ? 'Light' : v === 'dark' ? 'Dark' : 'Match system')}>
-              {v === 'light' ? '☀' : v === 'dark' ? '☾' : '◐'}
+              <Icon name={v === 'light' ? 'sun' : v === 'dark' ? 'moon' : 'auto'} size={14} />
             </button>
           ))}
         </div>
         <button className="ghost icon" onClick={() => void toggleFullscreen().then(setFull)}
                 title={t(full ? 'Leave full screen' : 'Full screen')} aria-pressed={full}>
-          {full ? '⤡' : '⤢'}
+          <Icon name={full ? 'restore' : 'maximise'} />
         </button>
         <button className="ghost" onClick={() => setShowSettings((s) => !s)}>{t('Settings')}</button>
       </header>
@@ -761,18 +762,19 @@ export function App() {
           </Section>
 
           <Section id="chats" title={t('Chats')} count={chats.length}
-                   action={<button className="sb-act" onClick={newChat} title={t('New chat')}>+</button>}>
+                   action={<button className="sb-act" onClick={newChat} title={t('New chat')}
+                                    aria-label={t('New chat')}><Icon name="plus" size={13} /></button>}>
             {chats.length === 0
               ? <p className="ft-empty">{t('No saved conversations.')}</p>
               : chats.map((c) => (
                   <div key={c.id} className={`ft-row ft-file chat-row ${c.id === chatId ? 'on' : ''}`}>
                     <button className="chat-open" onClick={() => openChat(c)} title={c.title}>
-                      <span className="ft-icon">✦</span>
+                      <span className="ft-icon"><Icon name="chat" size={13} /></span>
                       <span className="ft-name">{c.title}</span>
                       <span className="rc-meta">{ago(c.updatedAt)}</span>
                     </button>
                     <button className="chat-x" onClick={() => removeChat(c.id)}
-                            aria-label={`Delete ${c.title}`}>×</button>
+                            aria-label={`Delete ${c.title}`}><Icon name="close" size={12} /></button>
                   </div>
                 ))}
           </Section>
@@ -781,7 +783,7 @@ export function App() {
             {recents.map((r) => (
               <button key={r.folder} className={`ft-row ft-file ${r.folder === root ? 'on' : ''}`}
                       onClick={() => openFolder(r.folder)} title={r.folder}>
-                <span className="ft-icon">▤</span>
+                <span className="ft-icon"><Icon name="folder" size={13} /></span>
                 <span className="ft-name">{r.name}</span>
                 <span className="rc-meta">{r.chats}</span>
               </button>
@@ -805,7 +807,7 @@ export function App() {
                   {path === '__memory__' ? (memory.file ?? t('Memory')) : path.split('/').pop()}
                   {dirty.has(path) && <i className="tab-dot" aria-label={t('Unsaved')} />}
                 </button>
-                <button className="tab-x" onClick={() => closeTab(path)} aria-label={`Close ${path}`}>×</button>
+                <button className="tab-x" onClick={() => closeTab(path)} aria-label={`Close ${path}`}><Icon name="close" size={12} /></button>
               </span>
             ))}
           </div>
@@ -973,10 +975,10 @@ export function App() {
         <div className="tray">
           {shots.map((a) => (
             <div className={`chip ${a.kind}`} key={a.id} title={describe(a)}>
-              {isImage(a) ? <img src={previewUrl(a)} alt="" /> : <span className="doc">▤</span>}
+              {isImage(a) ? <img src={previewUrl(a)} alt="" /> : <span className="doc"><Icon name="file" size={14} /></span>}
               <span className="nm">{a.name}</span>
               <button onClick={() => setShots((p) => p.filter((x) => x.id !== a.id))}
-                      aria-label={`Remove ${a.name}`}>×</button>
+                      aria-label={`Remove ${a.name}`}><Icon name="close" size={12} /></button>
             </div>
           ))}
         </div>
@@ -993,7 +995,7 @@ export function App() {
 
       <div className="composer">
         <button className="attach" onClick={() => void attach()} disabled={busy}
-                title={t('Attach a file')} aria-label={t('Attach a file')}>+</button>
+                title={t('Attach a file')} aria-label={t('Attach a file')}><Icon name="attach" size={17} /></button>
         <textarea
           ref={composer}
           value={prompt}
@@ -1006,10 +1008,14 @@ export function App() {
           disabled={busy}
         />
         {busy ? (
-          <button className="send stop" onClick={() => abort.current?.abort()}>{t('Stop')}</button>
+          <button className="send stop" onClick={() => abort.current?.abort()}>
+            <Icon name="stop" size={13} />{t('Stop')}
+          </button>
         ) : (
           <button className="send" onClick={() => void send()}
-                  disabled={!prompt.trim() && shots.length === 0}>{t('Send')}</button>
+                  disabled={!prompt.trim() && shots.length === 0}>
+            {t('Send')}<Icon name="send" size={14} />
+          </button>
         )}
       </div>
 
@@ -1021,13 +1027,18 @@ export function App() {
         <span className="sp" />
         {active !== 'chat' && active !== '__memory__' && (
           <span className={`ac ac-${acStatus}`} title={t('Inline completion')}>
-            {acStatus === 'thinking' ? '⋯' : acStatus === 'cooldown' ? '⏸' : acStatus === 'error' ? '!' : '⌁'}
+            <Icon name={acStatus === 'thinking' ? 'ellipsis' : acStatus === 'cooldown' ? 'pause'
+                       : acStatus === 'error' ? 'warning' : 'bolt'} size={13} />
           </span>
         )}
-        <button className="st-btn" onClick={() => setPalette('find')}>⌕ {t('Search')}</button>
-        <button className="st-btn" onClick={toggleTerm}>▤ {t('Terminal')}</button>
+        <button className="st-btn" onClick={() => setPalette('find')}>
+          <Icon name="search" size={12} />{t('Search')}
+        </button>
+        <button className="st-btn" onClick={toggleTerm}>
+          <Icon name="terminal" size={12} />{t('Terminal')}
+        </button>
         {active !== 'chat' && active !== '__memory__' && (
-          <span>{active}{dirty.has(active) ? ' ●' : ''}</span>
+          <span>{active}{dirty.has(active) && <Icon name="dot" size={9} />}</span>
         )}
         <span>{model}</span>
         <span>{resolved(theme)}</span>
