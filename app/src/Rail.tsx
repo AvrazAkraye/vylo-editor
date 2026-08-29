@@ -31,11 +31,13 @@ interface Props {
   onSelect: (id: RailId) => void;
   settings: () => void;
   settingsLabel: string;
+  /** The rail is navigation, so it needs a name in the language in use. */
+  label: string;
 }
 
-export function Rail({ items, active, collapsed, onSelect, settings, settingsLabel }: Props) {
+export function Rail({ items, active, collapsed, onSelect, settings, settingsLabel, label }: Props) {
   return (
-    <nav className="rail" aria-label="Sections">
+    <nav className="rail" aria-label={label}>
       {items.map((it) => (
         <button
           key={it.id}

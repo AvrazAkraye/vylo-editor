@@ -721,7 +721,8 @@ export function App() {
         )}
         <span className="bar-sp" />
         <button className={`ghost icon ${showTerm ? 'on' : ''}`} onClick={toggleTerm}
-                title={`${t('Terminal')}  ⌃\``} aria-pressed={showTerm}><Icon name="terminal" /></button>
+                title={`${t('Terminal')}  ⌃\``} aria-label={t('Terminal')}
+                aria-pressed={showTerm}><Icon name="terminal" /></button>
         <div className="seg" role="group" aria-label={t('Theme')}>
           {(['light', 'system', 'dark'] as Theme[]).map((v) => (
             <button key={v} className={theme === v ? 'on' : ''} onClick={() => setTheme(v)}
@@ -783,6 +784,7 @@ export function App() {
           onSelect={pickRail}
           settings={() => setShowSettings((v) => !v)}
           settingsLabel={t('Settings')}
+          label={t('Sections')}
         />
 
         {railOpen && (
@@ -911,7 +913,8 @@ export function App() {
           {!root ? null : active === '__memory__' ? (
             <MemoryEditor root={root} memory={memory} onSaved={setMemory} t={t} />
           ) : active !== 'chat' ? null : (
-          <div className={`log ${showTerm && termFull ? 'gone' : ''}`} ref={log}>
+          <div className={`log ${showTerm && termFull ? 'gone' : ''}`} ref={log}
+               role="log" aria-relevant="additions" aria-label={t('Conversation')}>
         {lines.length === 0 && (
           <div className="empty">
             <p className="empty-lead">{t('Ask about the code in this folder.')}</p>
@@ -1139,7 +1142,7 @@ export function App() {
       </div>
       )}
 
-      <footer className="status">
+      <footer className="status" aria-label={t('Status')}>
         <span><span className={`dotm ${apiKey ? '' : 'off'}`} />{busy ? t('working…') : apiKey ? t('Ready') : t('No API key')}</span>
         {git?.is_repo && <span><b>{git.branch}</b>{git.dirty ? ` ${git.dirty}±` : ''}</span>}
         <span>{root ? folderName : t('No folder')}</span>

@@ -11,10 +11,28 @@ import type { Entry } from './FileTree';
  * them. These are the same two capabilities, given to the human directly.
  */
 
-function Shell({ onClose, children }: { onClose: () => void; children: React.ReactNode }) {
+function Shell({ onClose, label, children }: {
+  onClose: () => void; label: string; children: React.ReactNode;
+}) {
+  // Send focus back where it came from. Closing an overlay and dropping the
+  // caret at the top of the document is the difference between a keyboard user
+  // continuing and starting again.
+  const came = useRef<Element | null>(null);
+  useEffect(() => {
+    came.current = document.activeElement;
+    return () => { (came.current as HTMLElement | null)?.focus?.(); };
+  }, []);
+
+  // Escape works wherever focus is inside the overlay, not only in the input.
+  // Arrowing into the results used to leave no way out but the mouse.
+  const escape = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+  };
+
   return (
     <div className="pal-back" onMouseDown={onClose}>
-      <div className="pal" onMouseDown={(e) => e.stopPropagation()} role="dialog">
+      <div className="pal" onMouseDown={(e) => e.stopPropagation()} onKeyDown={escape}
+           role="dialog" aria-modal="true" aria-label={label}>
         {children}
       </div>
     </div>
@@ -66,7 +84,7 @@ export function QuickOpen({ entries, onOpen, onClose, t }: QuickOpenProps) {
   }
 
   return (
-    <Shell onClose={onClose}>
+    <Shell onClose={onClose} label={t('Go to file…')}>
       <input className="pal-in" autoFocus value={q} placeholder={t('Go to file…')}
              onChange={(e) => setQ(e.target.value)} onKeyDown={key} spellCheck={false} />
       <div className="pal-list" ref={list}>
@@ -137,7 +155,7 @@ export function FindInFiles({ root, onOpen, onClose, t }: FindProps) {
   const files = new Set(hits.map((h) => h.path)).size;
 
   return (
-    <Shell onClose={onClose}>
+    <Shell onClose={onClose} label={t('Search the project…')}>
       <div className="pal-head">
         <input className="pal-in" autoFocus value={q} placeholder={t('Search the project…')}
                onChange={(e) => setQ(e.target.value)} onKeyDown={key} spellCheck={false} />

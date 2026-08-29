@@ -188,7 +188,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .working{ color:var(--mute); font-size:var(--fs-4); align-items:center; }
 .dot{ width:7px; height:7px; border-radius:50%; background:var(--brand); animation:p 1s ease-in-out infinite; }
 @keyframes p{ 50%{ opacity:.25; } }
-@media (prefers-reduced-motion: reduce){ .dot{ animation:none; } }
 
 /* One card holding the attachments, the text and the controls, rather than a
    textarea with a button beside it. The attachments belong to the message being
@@ -206,6 +205,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   padding:var(--sp-5) var(--sp-6) var(--sp-3); border:0; background:transparent;
   color:var(--ink); min-height:52px; max-height:260px; overflow-y:auto;
 }
+/* The card draws the ring on :focus-within, so a second one on the textarea
+   would be a box inside a box. */
 .composer textarea:focus{ outline:none; }
 
 .cmp-bar{
@@ -661,7 +662,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .line, .toolrun{ animation:rise .18s ease-out; }
 @keyframes rise{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
 @media (prefers-reduced-motion: reduce){
-  .line, .toolrun{ animation:none; }
+  .line, .toolrun, .dot{ animation:none; }
   *{ transition-duration:.001ms !important; }
 }
 
@@ -757,7 +758,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   flex:1; font:inherit; font-size:var(--fs-6); padding:var(--sp-7) var(--sp-8); border:0;
   border-bottom:1px solid var(--rule); background:transparent; color:var(--ink);
 }
-.pal-in:focus{ outline:none; }
+
 .pal-tog{
   flex:none; font:inherit; font-family:var(--mono); font-size:var(--fs-2); padding:var(--sp-2) var(--sp-4);
   border-radius:var(--r-2); border:1px solid var(--rule); background:var(--panel-2);
@@ -933,3 +934,36 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .hunk-bar .mini{ margin-left:auto; display:flex; gap:var(--sp-3); font-family:var(--mono); font-size:var(--fs-2); }
 .hunk-skip{ font-size:var(--fs-2); color:var(--mute); }
 .hunk pre{ margin:0; overflow-x:auto; }
+
+/* ── focus, visible ──────────────────────────────────────────────────── */
+/*
+ * `:focus-visible`, not `:focus`. The reason most apps end up with no focus
+ * styling at all is that `:focus` leaves a ring behind after every mouse click,
+ * someone removes it, and keyboard users are left with nothing. `:focus-visible`
+ * shows the ring only when the browser judges it useful, so there is no reason
+ * to take it away again.
+ *
+ * Before this the file had five focus rules, two of which removed an outline.
+ */
+:focus-visible{
+  outline:2px solid var(--brand);
+  outline-offset:2px;
+  border-radius:var(--r-1);
+}
+
+/* Rows, tabs and rails run edge to edge inside a scroll container, so an
+   outset ring is clipped. Those draw the ring inside their own box. */
+.ft-row:focus-visible, .tab-name:focus-visible, .tab-x:focus-visible,
+.pal-row:focus-visible, .pal-in:focus-visible, .wc-row:focus-visible,
+.rail-btn:focus-visible, .hunk-bar:focus-visible, .rv-files button:focus-visible,
+.chat-open:focus-visible, .chat-x:focus-visible, .ptab-name:focus-visible,
+.ptab-x:focus-visible, .st-btn:focus-visible, .cmp-model select:focus-visible,
+.sb-act:focus-visible, .ptab-add:focus-visible{
+  outline-offset:-2px;
+  border-radius:0;
+}
+
+/* A ring the same colour as the fill it sits on is not a ring. */
+.send:focus-visible, .approve:focus-visible, .wc-open:focus-visible{
+  outline-color:var(--ink);
+}
