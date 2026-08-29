@@ -13,7 +13,8 @@ set -euo pipefail
 HOST="${VYLO_UPDATE_HOST:-user@your-server}"
 REMOTE="/opt/<gateway>/updates"
 BASE="https://capi.vylo-tech.com/updates"
-APP_DIR="$(cd "$(dirname "$0")/../app" && pwd)"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+APP_DIR="$(cd "$HERE/../app" && pwd)"
 BUNDLE="$APP_DIR/src-tauri/target/release/bundle/macos"
 NOTES="${1:-}"
 
@@ -61,7 +62,7 @@ cp -R "$BUNDLE/Vylo Editor.app" /Applications/
 xattr -cr "/Applications/Vylo Editor.app"
 
 echo "==> publishing"
-"$(dirname "$0")/push-update.sh" darwin-aarch64 \
+"$HERE/push-update.sh" darwin-aarch64 \
   "$BUNDLE/Vylo Editor.app.tar.gz" "$BUNDLE/Vylo Editor.app.tar.gz.sig" "$VERSION" "$NOTES"
 
 echo "==> verifying the served build says $VERSION"

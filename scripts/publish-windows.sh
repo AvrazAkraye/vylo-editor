@@ -10,7 +10,8 @@
 # With no run-id it takes the most recent successful build.
 set -euo pipefail
 
-cd "$(dirname "$0")/.."
+HERE="$(cd "$(dirname "$0")" && pwd)"
+cd "$HERE/.."
 VERSION=$(node -p "require('./app/package.json').version")
 RUN="${1:-}"
 if [ -z "$RUN" ]; then
@@ -47,7 +48,7 @@ case "$(basename "$ZIP")" in
   *) echo "that run built $(basename "$ZIP"), which is not $VERSION — dispatch CI on the current commit first"; exit 1 ;;
 esac
 
-./scripts/push-update.sh windows-x86_64 "$ZIP" "$SIG" "$VERSION"
+"$HERE/push-update.sh" windows-x86_64 "$ZIP" "$SIG" "$VERSION"
 
 echo "==> a Windows client on an older version is now offered:"
 curl -s "https://capi.vylo-tech.com/updates/windows/x86_64/0.0.1" \
