@@ -1188,3 +1188,10 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* With a key still to enter, opening a folder is the second step, not the first. */
 .wc-open.second{ background:var(--panel); color:var(--ink-2); border:1px solid var(--rule-2); }
 .wc-open.second:hover{ border-color:var(--brand); color:var(--ink); filter:none; }
+
+/* The recovery banner borrows the update banner's shape but not its urgency:
+   nothing is wrong, there is simply work waiting. */
+.update.recover{ background:var(--panel-2); color:var(--ink); border-top:1px solid var(--rule); }
+.update.recover .ghost{ color:var(--mute); border-color:var(--rule-2); }
+.update.recover .ghost:hover{ color:var(--ink); }
+.update.recover .up-notes{ color:var(--mute); }

@@ -24,6 +24,10 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  '1 file was left unsaved': 'بقي ملف واحد غير محفوظ',
+  'files were left unsaved': 'ملفات بقيت غير محفوظة',
+  'Discard them': 'تجاهلها',
+  'Reopen them': 'إعادة فتحها',
   'Tokens used by the last turn': 'الوحدات المستخدمة في آخر دور',
   'Tokens used by this conversation': 'الوحدات المستخدمة في هذه المحادثة',
   'Connect to your gateway': 'الاتصال ببوابتك',
@@ -231,6 +235,10 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  '1 file was left unsaved': 'یەک فایل پاشەکەوتنەکراو مایەوە',
+  'files were left unsaved': 'فایل پاشەکەوتنەکراو مانەوە',
+  'Discard them': 'فڕێیانبدە',
+  'Reopen them': 'دووبارە بیانکەرەوە',
   'Tokens used by the last turn': 'تۆکنە بەکارهاتووەکانی دوایین خول',
   'Tokens used by this conversation': 'تۆکنە بەکارهاتووەکانی ئەم گفتوگۆیە',
   'Connect to your gateway': 'پەیوەندی بە دەروازەکەتەوە',
@@ -438,6 +446,10 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  '1 file was left unsaved': 'ئێک دەفتەر نەپاراستی ما',
+  'files were left unsaved': 'دەفتەر نەپاراستی مان',
+  'Discard them': 'بئاڤێژە',
+  'Reopen them': 'ژنویڤە ڤەکە',
   'Tokens used by the last turn': 'تۆکنێن دویماهی خولێ هاتینە بکارئینان',
   'Tokens used by this conversation': 'تۆکنێن ڤێ ئاخڤتنێ هاتینە بکارئینان',
   'Connect to your gateway': 'گرێدان ب دەرگەها خۆ',

@@ -149,6 +149,8 @@ interface Props {
   edit: () => Gateway & { memory: string };
   /** The agent's proposal for this file, drawn over it. Null when there is none. */
   staged: Staged | null;
+  /** Load the recovered draft for this file instead of what is on disk. */
+  recover?: boolean;
   t: (s: string) => string;
   onReady: (h: EditorHandle | null) => void;
   /** Fires whenever the dirty state changes, so tabs and the agent stay honest. */
@@ -158,7 +160,7 @@ interface Props {
 }
 
 export function Editor({
-  root, path, visible, dark, line, complete, edit, staged, t,
+  root, path, visible, dark, line, complete, edit, staged, recover, t,
   onReady, onDirty, onSaved, onError,
 }: Props) {
   /** The ⌘K bar: where it sits, what was selected, and what came back. */
@@ -182,6 +184,7 @@ export function Editor({
   /** Set when the file was too large to load whole. The buffer is a prefix. */
   const [partial, setPartial] = useState<{ bytes: number } | null>(null);
   const partialRef = useRef(false);
+  const draftTimer = useRef<number | undefined>(undefined);
   const stagedRef = useRef<Staged | null>(null);
   stagedRef.current = staged;
 
@@ -276,6 +279,18 @@ export function Editor({
           dirtyNow.current = now;
           cb.current.onDirty(path, now);
         }
+        // Kept outside the process holding it, so a crash does not take it.
+        // Debounced: a draft per keystroke would be a write per keystroke.
+        window.clearTimeout(draftTimer.current);
+        if (now) {
+          draftTimer.current = window.setTimeout(() => {
+            void invoke('draft_save', {
+              root, path, text: v.state.doc.toString(), base: base.current,
+            }).catch(() => { /* a lost draft is not worth interrupting typing for */ });
+          }, 1200);
+        } else {
+          void invoke('draft_clear', { root, path }).catch(() => {});
+        }
       }),
     ];
 
@@ -295,7 +310,22 @@ export function Editor({
         }
         clean.current = text;
         base.current = await sha256Hex(text);
-        v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: text } });
+
+        // A recovered draft replaces the text but not the baseline: `clean` and
+        // `base` stay as what is on disk, so the buffer is correctly dirty
+        // against it and the save guard still compares against the real file.
+        let shown = text;
+        if (recover) {
+          const draft = await invoke<string | null>('draft_read', { root, path });
+          if (draft !== null && draft !== undefined && draft !== text) {
+            shown = draft;
+            partialRef.current = false;
+            dirtyNow.current = true;
+            cb.current.onDirty(path, true);
+          }
+        }
+
+        v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: shown } });
         if (line) {
           const l = v.state.doc.line(Math.min(Math.max(1, line), v.state.doc.lines));
           v.dispatch({ selection: { anchor: l.from }, effects: EditorView.scrollIntoView(l.from, { y: 'center' }) });
@@ -320,6 +350,8 @@ export function Editor({
         base.current = await sha256Hex(text);
         dirtyNow.current = false;
         cb.current.onDirty(path, false);
+        // Saved is the one moment a draft is certainly no longer wanted.
+        void invoke('draft_clear', { root, path }).catch(() => {});
         cb.current.onSaved(path);
       },
       goto: (n) => {
@@ -341,6 +373,7 @@ export function Editor({
 
     return () => {
       disposed = true;
+      window.clearTimeout(draftTimer.current);
       onReady(null);
       view.current = null;
       v.destroy();

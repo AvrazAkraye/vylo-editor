@@ -21,6 +21,7 @@
 //!    the dangerous verb can exist at all — it is not wired to the model.
 
 mod checkpoint;
+mod drafts;
 mod index;
 mod mcp;
 mod pty;
@@ -994,6 +995,42 @@ fn find_symbol(
     })
 }
 
+/// Keep an unsaved buffer outside the process holding it.
+///
+/// Called as you type, debounced. **Not** a write to the project: autosaving
+/// into the folder would turn "I was trying something" into a change the agent
+/// reads as the truth and git reports as work.
+#[tauri::command]
+fn draft_save(
+    app: tauri::AppHandle,
+    root: String,
+    path: String,
+    text: String,
+    base: String,
+) -> Result<(), String> {
+    drafts::save_at(&store(&app)?, &root, &path, &text, &base)
+}
+
+#[tauri::command]
+fn draft_list(app: tauri::AppHandle, root: String) -> Result<Vec<drafts::DraftInfo>, String> {
+    Ok(drafts::list_at(&store(&app)?, &root))
+}
+
+#[tauri::command]
+fn draft_read(app: tauri::AppHandle, root: String, path: String) -> Result<Option<String>, String> {
+    Ok(drafts::read_at(&store(&app)?, &root, &path))
+}
+
+#[tauri::command]
+fn draft_clear(app: tauri::AppHandle, root: String, path: Option<String>) -> Result<(), String> {
+    let base = store(&app)?;
+    match path {
+        Some(p) => drafts::clear_at(&base, &root, &p),
+        None => drafts::clear_all_at(&base, &root),
+    }
+    Ok(())
+}
+
 /// Where snapshots live. The app data directory, never the repository — undo
 /// history for a change showing up as another change would be absurd.
 fn store(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -1067,6 +1104,7 @@ pub fn run() {
             create_file, create_dir, rename_path, delete_path,
             checkpoint_save, checkpoint_list, checkpoint_restore, find_symbol,
             mcp_servers, mcp_start, mcp_call, mcp_stop,
+            draft_save, draft_list, draft_read, draft_clear,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
         ])
         .run(tauri::generate_context!())

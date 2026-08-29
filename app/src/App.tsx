@@ -170,6 +170,10 @@ export function App() {
   const [quitError, setQuitError] = useState<string | null>(null);
   const [lastTurn, setLastTurn] = useState<Usage>(NO_USAGE);
   const [chatTokens, setChatTokens] = useState<Usage>(NO_USAGE);
+  /** Unsaved buffers from a session that did not end cleanly. */
+  const [drafts, setDrafts] = useState<{ path: string; base: string; at: number }[]>([]);
+  /** Files the user chose to recover; the editor reads its draft on mount. */
+  const [recovering, setRecovering] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('vylo.mode') as Mode) || 'agent');
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
@@ -320,6 +324,38 @@ export function App() {
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, [termH]);
 
+  /**
+   * Anything left unsaved by a session that did not end cleanly.
+   *
+   * Offered rather than restored: silently reopening files someone may have
+   * abandoned is its own surprise, and the banner says how many there are
+   * before anything is reopened.
+   */
+  useEffect(() => {
+    setDrafts([]);
+    setRecovering(new Set());
+    if (!root) return;
+    let cancelled = false;
+    void invoke<{ path: string; base: string; at: number }[]>('draft_list', { root })
+      .then((d) => { if (!cancelled) setDrafts(d); })
+      .catch(() => { /* no drafts is the normal case */ });
+    return () => { cancelled = true; };
+  }, [root]);
+
+  function recoverDrafts() {
+    setRecovering(new Set(drafts.map((d) => d.path)));
+    setTabs((p) => [...new Set([...p, ...drafts.map((d) => d.path)])]);
+    setActive(drafts[0]?.path ?? 'chat');
+    setDrafts([]);
+  }
+
+  function discardDrafts() {
+    const gone = drafts.map((d) => d.path);
+    void invoke('draft_clear', { root, path: null }).catch(() => {});
+    setDrafts([]);
+    setRecovering((p) => new Set([...p].filter((x) => !gone.includes(x))));
+  }
+
   // The config is read on every folder change, but reading it starts nothing:
   // it arrives with the repository, so a project you cloned could name any
   // command. Servers only spawn from the button, after the command is on screen.
@@ -398,8 +434,18 @@ export function App() {
     return () => stop?.();
   }, []);
 
-  /** Leave without saving. `destroy` skips the handler above; `close` re-enters it. */
-  const quitNow = () => { void getCurrentWindow().destroy(); };
+  /**
+   * Leave without saving. `destroy` skips the handler above; `close` re-enters it.
+   *
+   * The drafts go too. "Leave anyway" is a decision to discard this work, and
+   * offering it back on the next launch would quietly overturn that — the
+   * recovery banner is for a session that ended without anyone choosing.
+   */
+  const quitNow = () => {
+    void invoke('draft_clear', { root, path: null })
+      .catch(() => {})
+      .finally(() => { void getCurrentWindow().destroy(); });
+  };
 
   async function saveAllAndQuit() {
     setQuitError(null);
@@ -1422,6 +1468,7 @@ export function App() {
                   })}
                   edit={() => ({ baseUrl, apiKey, model, memory: memoryPrompt(memory) })}
                   staged={changes.find((c) => c.path === p) ?? null}
+                  recover={recovering.has(p)}
                   t={t}
                   onReady={(h) => { if (h) editors.current.set(p, h); else editors.current.delete(p); }}
                   onDirty={(path, isDirty) => setDirty((prev) => {
@@ -1461,6 +1508,25 @@ export function App() {
           )}
         </div>
       </div>
+
+      {drafts.length > 0 && (
+        <div className="update recover">
+          <span className="up-txt">
+            <b>
+              {drafts.length === 1
+                ? t('1 file was left unsaved')
+                : `${drafts.length} ${t('files were left unsaved')}`}
+            </b>
+            <span className="up-notes">
+              {drafts.map((d) => d.path.split('/').pop()).join(', ')}
+            </span>
+          </span>
+          <div className="up-btns">
+            <button className="ghost" onClick={discardDrafts}>{t('Discard them')}</button>
+            <button className="approve" onClick={recoverDrafts}>{t('Reopen them')}</button>
+          </div>
+        </div>
+      )}
 
       {update && (
         <div className="update">
