@@ -30,6 +30,7 @@ import { groupLines, ToolRun } from './ToolRun';
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
 import { Rail, type RailId } from './Rail';
+import { Shortcuts, Welcome } from './Welcome';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
   watchSystem, type Theme,
@@ -860,7 +861,11 @@ export function App() {
         )}
 
         <div className="work" ref={work}>
-          <div className={`tabs ${showTerm && termFull ? 'gone' : ''}`}>
+          {!root && !(showTerm && termFull) && (
+            <Welcome recents={recents} onOpen={pickFolder} onOpenFolder={openFolder} t={t} />
+          )}
+
+          <div className={`tabs ${!root || (showTerm && termFull) ? 'gone' : ''}`}>
             <button className={`tab ${active === 'chat' ? 'on' : ''}`} onClick={() => setActive('chat')}>
               {t('Chat')}
             </button>
@@ -875,15 +880,15 @@ export function App() {
             ))}
           </div>
 
-          {active === '__memory__' ? (
+          {!root ? null : active === '__memory__' ? (
             <MemoryEditor root={root} memory={memory} onSaved={setMemory} t={t} />
           ) : active !== 'chat' ? null : (
           <div className={`log ${showTerm && termFull ? 'gone' : ''}`} ref={log}>
         {lines.length === 0 && (
           <div className="empty">
-            <p><b>{t('Open a folder, then ask about the code in it.')}</b></p>
-            <p>{t('The agent reads files on this machine — nothing is uploaded except your question and the snippets it chooses to read.')}</p>
-            <p className="muted">{t('It can propose edits and run your tests — you approve every change and every command first.')}</p>
+            <p className="empty-lead">{t('Ask about the code in this folder.')}</p>
+            <p>{t('It can propose edits and run your tests — you approve every change and every command first.')}</p>
+            <Shortcuts t={t} columns={1} />
           </div>
         )}
         {groupLines(lines).map((item, i) => Array.isArray(item) ? (
@@ -1056,6 +1061,7 @@ export function App() {
 
       {dragging && <div className="dropzone"><span>{t('Drop a folder to open it, or files to attach')}</span></div>}
 
+      {root && (
       <div className="composer">
         <button className="attach" onClick={() => void attach()} disabled={busy}
                 title={t('Attach a file')} aria-label={t('Attach a file')}><Icon name="attach" size={17} /></button>
@@ -1081,6 +1087,7 @@ export function App() {
           </button>
         )}
       </div>
+      )}
 
       <footer className="status">
         <span><span className={`dotm ${apiKey ? '' : 'off'}`} />{busy ? t('working…') : apiKey ? t('Ready') : t('No API key')}</span>

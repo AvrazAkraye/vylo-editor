@@ -825,3 +825,61 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    change reads as motion instead of a substitution. The rotation stays on the
    SPAN, where it already was -- rotating the svg as well would compose to 180
    and point the caret backwards when open. */
+
+/* ── welcome ─────────────────────────────────────────────────────────── */
+.welcome{
+  flex:1; min-height:0; overflow-y:auto; display:flex; justify-content:center;
+  padding:var(--sp-10) var(--sp-8); background:var(--bg);
+}
+.wc-inner{ width:100%; max-width:520px; margin:auto; }
+
+.wc-head{ text-align:center; }
+.wc-mark{ width:52px; height:52px; border-radius:12px; display:block; margin:0 auto var(--sp-6); }
+.wc-head h1{ margin:0 0 var(--sp-3); font-size:var(--fs-8); font-weight:650; letter-spacing:-.01em; }
+.wc-head p{
+  margin:0 auto; max-width:44ch; font-size:var(--fs-4); line-height:1.65; color:var(--mute);
+}
+
+.wc-open{
+  display:flex; align-items:center; justify-content:center; gap:var(--sp-4);
+  width:100%; margin:var(--sp-9) 0 var(--sp-3); padding:var(--sp-5) var(--sp-6);
+  font:inherit; font-size:var(--fs-4); font-weight:600;
+  border:0; border-radius:var(--r-3); cursor:pointer;
+  background:var(--fill); color:var(--on-fill);
+}
+.wc-open:hover{ filter:brightness(1.06); }
+.wc-drop{ margin:0; text-align:center; font-size:var(--fs-3); color:var(--mute); }
+
+.wc-recent, .wc-keys{ margin-top:var(--sp-10); }
+.wc-recent h2, .wc-keys h2{
+  margin:0 0 var(--sp-4); font-size:var(--fs-2); font-weight:600;
+  letter-spacing:.09em; text-transform:uppercase; color:var(--mute);
+}
+.wc-row{
+  display:flex; align-items:center; gap:var(--sp-4); width:100%; text-align:left;
+  padding:var(--sp-4) var(--sp-5); margin-bottom:var(--sp-1);
+  font:inherit; font-size:var(--fs-4); color:var(--ink-2);
+  border:1px solid transparent; border-radius:var(--r-2);
+  background:transparent; cursor:pointer;
+}
+.wc-row:hover{ background:var(--panel); border-color:var(--rule); color:var(--ink); }
+.wc-name{ flex:none; font-weight:600; }
+.wc-path{
+  flex:1; min-width:0; font-size:var(--fs-2); color:var(--mute);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left;
+}
+.wc-meta{ flex:none; font-family:var(--mono); font-size:var(--fs-2); color:var(--mute); }
+
+/* ── keyboard map, shared by the welcome and the empty chat ──────────── */
+.keys{ display:grid; gap:var(--sp-2) var(--sp-8); margin:0; }
+.keys-row{ display:flex; align-items:baseline; gap:var(--sp-4); }
+.keys dt{ flex:none; }
+.keys dd{ margin:0; font-size:var(--fs-3); color:var(--mute); }
+.keys kbd{
+  display:inline-block; min-width:34px; text-align:center;
+  font-family:var(--mono); font-size:var(--fs-2); color:var(--ink-2);
+  padding:var(--sp-1) var(--sp-3); border:1px solid var(--rule-2);
+  border-bottom-width:2px; border-radius:var(--r-1); background:var(--panel);
+}
+.empty .keys{ margin-top:var(--sp-8); text-align:left; }
+.empty-lead{ font-size:var(--fs-6); font-weight:600; color:var(--ink); }
