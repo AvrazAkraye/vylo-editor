@@ -225,3 +225,34 @@ export function highlight(code: string, info: string): Span[] {
   CACHE.set(key, out);
   return out;
 }
+
+/**
+ * The same spans, split one array per line.
+ *
+ * A diff is rendered line by line, and a line parsed on its own is not the same
+ * text: a method body is not a program, `}` alone is a syntax error, and a line
+ * inside a template literal is prose. So the whole document is parsed once and
+ * the result is cut up afterwards — which is also why a diff needs both sides
+ * parsed, not the rows.
+ *
+ * Always `code.split('\n').length` entries, so a line number indexes it
+ * directly. A span crossing a newline — a block comment, a template literal —
+ * is divided and keeps its class on both sides.
+ */
+export function highlightLines(code: string, info: string): Span[][] {
+  const out: Span[][] = [[]];
+  for (const span of highlight(code, info)) {
+    let rest = span.text;
+    for (;;) {
+      const nl = rest.indexOf('\n');
+      if (nl === -1) {
+        if (rest) out[out.length - 1].push({ text: rest, cls: span.cls });
+        break;
+      }
+      if (nl > 0) out[out.length - 1].push({ text: rest.slice(0, nl), cls: span.cls });
+      out.push([]);
+      rest = rest.slice(nl + 1);
+    }
+  }
+  return out;
+}

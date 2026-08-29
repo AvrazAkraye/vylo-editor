@@ -5,7 +5,7 @@
 // a character or repeats one has silently rewritten the model's code in the
 // place a person reads it to decide whether to apply it.
 import {
-  kindOf, kindOfInfo, highlight, loadGrammars, grammarsReady,
+  kindOf, kindOfInfo, highlight, highlightLines, loadGrammars, grammarsReady,
 } from '../.test-build/highlight.js';
 
 let pass = 0, fail = 0;
@@ -126,6 +126,63 @@ ok('an enormous block is not parsed', (() => {
   const spans = highlight('const x = 1;\n'.repeat(20_000), 'ts');
   return spans.length === 1 && spans[0].cls === '';
 })());
+
+// ── one array per line, for the diff ──────────────────────────────────────
+//
+// A diff is rendered line by line, so the whole document is parsed once and cut
+// up afterwards. Both halves of that have to be exact: the wrong number of
+// lines misaligns every row after it, and a lost character rewrites the code
+// in the place a person reads it to decide whether to accept it.
+{
+  const samples = [
+    ['ts', 'const a = 1;\nfunction f() {\n  return a;\n}'],
+    ['ts', '/* a block\n   comment across\n   three lines */\nconst x = 1;'],
+    ['js', 'const s = `a template\nspanning lines`;\n'],
+    ['py', 'def f():\n    """doc\n    string"""\n    pass'],
+    ['ts', ''],
+    ['ts', '\n'],
+    ['ts', '\n\n\n'],
+    ['ts', 'one line, no newline'],
+    ['ts', 'trailing newline\n'],
+    ['bash', 'echo one\necho two'],
+    ['ts', 'const emoji = "🙂";\nconst next = 2;'],
+    ['js', 'a = 1;\r\nb = 2;'],
+  ];
+  let counts = true, lossless = true, which = '';
+  for (const [lang, code] of samples) {
+    const lines = highlightLines(code, lang);
+    if (lines.length !== code.split('\n').length) { counts = false; which = code; break; }
+    if (lines.map((l) => l.map((s) => s.text).join('')).join('\n') !== code) {
+      lossless = false; which = code; break;
+    }
+  }
+  ok('there is exactly one entry per line, so a line number indexes it', counts, which);
+  ok('and the lines rejoin into exactly the original code', lossless, which);
+}
+{
+  const lines = highlightLines('/* one\n   two */\nconst x = 1;', 'ts');
+  ok('a comment crossing a newline keeps its class on both lines',
+     lines[0].every((s) => s.cls === 'syn-com') && lines[1].every((s) => s.cls === 'syn-com'),
+     lines.slice(0, 2));
+  ok('and the line after it is code again',
+     lines[2].some((s) => s.text === 'const' && s.cls === 'syn-kw'), lines[2]);
+}
+{
+  const lines = highlightLines('', 'ts');
+  ok('empty code is one empty line, not zero lines',
+     lines.length === 1 && lines[0].length === 0, lines);
+}
+{
+  const lines = highlightLines('a\n\nb', 'bash');
+  ok('a blank line is an empty span list, never a phantom span',
+     lines.length === 3 && lines[1].length === 0, lines);
+}
+{
+  // What the review pane actually calls it with: a path, not a language name.
+  const lines = highlightLines('const a = 1;\nconst b = 2;', 'src/App.tsx');
+  ok('a file path names the language',
+     lines[1].some((s) => s.cls === 'syn-kw'), lines[1]);
+}
 
 // ── the cache ─────────────────────────────────────────────────────────────
 {

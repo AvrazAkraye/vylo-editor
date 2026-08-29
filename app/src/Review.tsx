@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { buildPartial, diffRows, hunks, type Change, type Hunk, type Row } from './pending';
+import { highlightLines, type Span } from './highlight';
+import { useGrammars } from './useGrammars';
 import { Icon } from './Icon';
 
 interface Props {
@@ -30,6 +32,32 @@ interface Props {
 /** Lines shown either side of a change. Matches the hunk merge threshold. */
 const CONTEXT = 3;
 
+/**
+ * One diff row's text, coloured.
+ *
+ * A removed line exists only in `before` and an added line only in `after`, so
+ * each takes its spans from its own side. An unchanged line is in both and
+ * takes the *after* side, which is the file that will exist if this is
+ * approved.
+ *
+ * Falls back to the row's own text whenever the parse is missing — the
+ * grammars have not loaded, the language has none, the file was too large. The
+ * text is what matters; the colour is not.
+ */
+function Code({ row, a, b }: { row: Row; a: Span[][]; b: Span[][] }) {
+  const from = row.kind === '-' ? a : b;
+  const n = row.kind === '-' ? row.a : (row.b ?? row.a);
+  const spans = n ? from[n - 1] : undefined;
+  if (!spans || !spans.length) return <>{row.text || ' '}</>;
+  return (
+    <>
+      {spans.map((s, i) => (s.cls
+        ? <span key={i} className={s.cls}>{s.text}</span>
+        : <Fragment key={i}>{s.text}</Fragment>))}
+    </>
+  );
+}
+
 export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }: Props) {
   const [openPath, setOpenPath] = useState<string | null>(changes[0]?.path ?? null);
   /** Hunks the user has un-ticked, per file. Absent means "all ticked". */
@@ -37,14 +65,30 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
   const [focused, setFocused] = useState(0);
   const box = useRef<HTMLElement>(null);
 
+  const ready = useGrammars();
+
+  /**
+   * Both sides of every file, parsed whole and cut into lines.
+   *
+   * Whole, because a diff row is one line and a line has no context of its own
+   * — a method body is not a program. And both sides, because after a partial
+   * accept `before` is what is now on disk while `after` is still the full
+   * proposal, so a removed line and an added line are lines of two different
+   * documents and cannot share one parse.
+   */
   const diffs = useMemo(() => {
-    const m = new Map<string, { rows: Row[]; list: Hunk[] }>();
+    const m = new Map<string, { rows: Row[]; list: Hunk[]; a: Span[][]; b: Span[][] }>();
     for (const c of changes) {
       const rows = diffRows(c.before, c.after);
-      m.set(c.path, { rows, list: hunks(rows) });
+      m.set(c.path, {
+        rows,
+        list: hunks(rows),
+        a: ready ? highlightLines(c.before, c.path) : [],
+        b: ready ? highlightLines(c.after, c.path) : [],
+      });
     }
     return m;
-  }, [changes]);
+  }, [changes, ready]);
 
   // A file that has just been written is gone from `changes`, so the selection
   // has to move rather than pointing at nothing.
@@ -53,7 +97,8 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
 
   if (!changes.length) return null;
 
-  const { rows, list } = diffs.get(open.path) ?? { rows: [], list: [] };
+  const { rows, list, a: beforeLines, b: afterLines } =
+    diffs.get(open.path) ?? { rows: [], list: [], a: [], b: [] };
   const skipped = off.get(open.path) ?? new Set<number>();
   const accepted = new Set(list.filter((h) => !skipped.has(h.index)).map((h) => h.index));
 
@@ -184,7 +229,7 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
                         <span className="ln">{r.a ?? ''}</span>
                         <span className="ln">{r.b ?? ''}</span>
                         <span className="mk">{r.kind === ' ' ? ' ' : r.kind}</span>
-                        <span className="tx">{r.text || ' '}</span>
+                        <span className="tx"><Code row={r} a={beforeLines} b={afterLines} /></span>
                       </div>
                     ))}
                   </pre>

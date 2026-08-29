@@ -1,5 +1,6 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { grammarsReady, highlight, loadGrammars } from './highlight';
+import { Fragment, useMemo, type ReactNode } from 'react';
+import { highlight } from './highlight';
+import { useGrammars } from './useGrammars';
 
 /**
  * A small markdown renderer for the agent's replies.
@@ -39,23 +40,6 @@ export interface ApplyHooks {
   can: (info: string, before: string) => boolean;
   run: (code: string, info: string, before: string) => void;
   label: string;
-}
-
-/**
- * True once the grammars have arrived, re-rendering the block when they do.
- *
- * Every block subscribes; `loadGrammars` returns the one shared promise, so
- * twenty blocks in a reply cost one download and one resolution.
- */
-function useGrammars(): boolean {
-  const [ready, setReady] = useState(grammarsReady);
-  useEffect(() => {
-    if (ready) return;
-    let live = true;
-    void loadGrammars().then(() => { if (live) setReady(true); });
-    return () => { live = false; };
-  }, [ready]);
-  return ready;
 }
 
 /**
