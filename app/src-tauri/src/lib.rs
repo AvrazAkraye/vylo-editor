@@ -22,6 +22,7 @@
 
 mod checkpoint;
 mod index;
+mod mcp;
 mod pty;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -747,6 +748,55 @@ fn git_commit(root: String, message: String, paths: Vec<String>) -> Result<Commi
     })
 }
 
+/// What `.vylo/mcp.json` declares. **Starts nothing.**
+///
+/// The config arrives with the project, so a repository you cloned can name any
+/// command it likes. Reading it and running what it says would be a way to
+/// execute a stranger's code by opening their folder, so this only reports what
+/// is declared; `mcp_start` is what spawns, and the UI calls that after a human
+/// has read the command.
+#[tauri::command]
+fn mcp_servers(root: String) -> Result<Vec<mcp::ServerSpec>, String> {
+    let p = Path::new(&root).join(".vylo").join("mcp.json");
+    match fs::read_to_string(&p) {
+        Ok(text) => mcp::parse_config(&text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(format!(".vylo/mcp.json: {e}")),
+    }
+}
+
+/// Spawn one declared server and return the tools it offers.
+#[tauri::command]
+fn mcp_start(
+    state: tauri::State<'_, mcp::Servers>,
+    root: String,
+    spec: mcp::ServerSpec,
+) -> Result<Vec<serde_json::Value>, String> {
+    let dir = Path::new(&root)
+        .canonicalize()
+        .map_err(|e| format!("workspace root is unreadable: {e}"))?;
+    mcp::start(&state, &spec, &dir.to_string_lossy())
+}
+
+/// Call a tool on a running server. **Only the approval flow calls this**, like
+/// `apply_write` and `run_command`, and like them it is absent from the tool
+/// schema: the model asks, a human reads the arguments, and only then does this
+/// run. An MCP tool can do anything, and none of that is visible from its name.
+#[tauri::command]
+fn mcp_call(
+    state: tauri::State<'_, mcp::Servers>,
+    server: String,
+    tool: String,
+    args: serde_json::Value,
+) -> Result<String, String> {
+    mcp::call(&state, &server, &tool, args)
+}
+
+#[tauri::command]
+fn mcp_stop(state: tauri::State<'_, mcp::Servers>, name: String) {
+    mcp::stop(&state, &name);
+}
+
 /// Jump to where something is declared.
 ///
 /// The agent's other option is `search`, which finds every mention of a name —
@@ -832,6 +882,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(pty::Terminals::default())
         .manage(index::Indexes::default())
+        .manage(mcp::Servers::default())
         // Shells outlive the window they were opened from unless something says
         // otherwise, and a `npm run dev` still holding port 5173 after the app
         // is gone is a genuinely confusing thing to debug.
@@ -841,12 +892,18 @@ pub fn run() {
                 if let Some(t) = window.try_state::<pty::Terminals>() {
                     t.kill_all();
                 }
+                // Same reasoning as the terminals: a server left running after
+                // the window is gone is a process nobody can see or stop.
+                if let Some(m) = window.try_state::<mcp::Servers>() {
+                    mcp::stop_all(&m);
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
             apply_write, file_hash, git_state, run_command, git_create_branch, git_commit,
             checkpoint_save, checkpoint_list, checkpoint_restore, find_symbol,
+            mcp_servers, mcp_start, mcp_call, mcp_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
         ])
         .run(tauri::generate_context!())

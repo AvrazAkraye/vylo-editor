@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import type { Pending } from './pending';
 import { appendFact, MEMORY_FILE } from './memory';
+import { callTool, splitTool } from './mcp';
 import { SSEDecoder, TurnAssembler } from './sse';
 
 /**
@@ -191,7 +192,12 @@ const BASE_SYSTEM = [
 ].join('\n');
 
 /** Run one tool call. Reads hit the Rust side; writes are staged, not applied. */
-export interface CommandRequest { command: string; reason: string }
+export interface CommandRequest {
+  command: string;
+  reason: string;
+  /** `mcp` changes what the dialog says; a tool call is not a shell command. */
+  kind?: 'shell' | 'mcp';
+}
 /**
  * How a human answered. `terminal` runs the same approved string in a visible
  * pty instead of a pipe — a different surface for the same decision, not a
@@ -298,6 +304,23 @@ async function runTool(
       });
       return { content: JSON.stringify(hits), isError: false };
     }
+    // An MCP tool: third-party code with side effects nothing about its name
+    // reveals, so it goes through the same gate as run_command rather than
+    // running because the model asked.
+    const ext = splitTool(call.name);
+    if (ext) {
+      const decision = await ask({
+        command: `${ext.server}: ${ext.tool}(${JSON.stringify(call.input)})`,
+        reason: 'This tool comes from an MCP server, not from Vylo Editor.',
+        kind: 'mcp',
+      });
+      if (decision === 'no') {
+        return { content: 'The user declined to run that tool.', isError: false };
+      }
+      const out = await callTool(ext.server, ext.tool, call.input);
+      return { content: out || '(the tool returned nothing)', isError: false };
+    }
+
     return { content: `Unknown tool: ${call.name}`, isError: true };
   } catch (e) {
     // A tool error is information the model can act on (wrong path, file too
@@ -334,6 +357,8 @@ export interface RunOptions {
   onStaged?: () => void;
   /** Stop after this many model round-trips. A loop that will not terminate is a bill. */
   maxHops?: number;
+  /** Tools from enabled MCP servers, already namespaced. */
+  extraTools?: unknown[];
 }
 
 /** Raised when the user stops a turn. Not an error to report as a failure. */
@@ -360,7 +385,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
           model: o.model,
           max_tokens: 4096,
           system: o.memory ? `${BASE_SYSTEM}\n\n${o.memory}` : BASE_SYSTEM,
-          tools: TOOLS,
+          tools: [...TOOLS, ...(o.extraTools ?? [])],
           messages,
           stream: true,
         }),

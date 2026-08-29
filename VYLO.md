@@ -46,6 +46,21 @@ reads what you are looking at instead of a stale copy.
 Open files stay mounted while their tab is hidden. Unmounting would throw away
 unsaved edits and the undo history with them.
 
+### Where MCP sits inside that rule
+
+`.vylo/mcp.json` lives in the *project*, so it arrives with the project. A
+repository you cloned can name any command, and a client that reads that file
+and starts what it says is a way to run a stranger's code by opening their
+folder — which is why Claude Desktop keeps its config user-global.
+
+So reading the config starts nothing. A server spawns only from a button, after
+its exact command is on screen, and the approval is stored against a fingerprint
+of that command so editing the config asks again. Every MCP *tool call* then
+goes through the same gate as `run_command`: the tools are third-party code
+whose side effects nothing about their names reveals.
+
+`mcp_start` and `mcp_call` are absent from the tool schema, like `apply_write`.
+
 ### Where the terminal sits inside that rule
 
 The integrated terminal (`src-tauri/src/pty.rs`) runs a real shell with no

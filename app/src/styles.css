@@ -1103,3 +1103,37 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   padding-left:var(--sp-3); font-family:var(--mono);
   font-size:var(--fs-4); line-height:1.55;
 }
+
+/* ── MCP servers ─────────────────────────────────────────────────────── */
+.mcp{ grid-column:1/-1; padding-top:var(--sp-3); border-top:1px solid var(--rule); }
+.mcp h3{
+  margin:0 0 var(--sp-2); font-size:var(--fs-2); font-weight:600;
+  letter-spacing:.09em; text-transform:uppercase; color:var(--mute);
+}
+.mcp-note{
+  margin:0 0 var(--sp-5); max-width:78ch; font-size:var(--fs-3); line-height:1.55;
+  color:var(--mute); text-transform:none; letter-spacing:0;
+}
+.mcp-err{
+  margin:0 0 var(--sp-4); padding:var(--sp-3) var(--sp-5); border-radius:var(--r-2);
+  background:var(--err-wash); color:var(--err);
+  font-family:var(--mono); font-size:var(--fs-3); text-transform:none; letter-spacing:0;
+}
+.mcp-row{
+  display:flex; align-items:center; gap:var(--sp-5); margin-bottom:var(--sp-3);
+  padding:var(--sp-4) var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel);
+}
+.mcp-row.on{ border-color:var(--ok); }
+.mcp-what{ flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--sp-1); }
+.mcp-what b{ font-size:var(--fs-4); color:var(--ink); text-transform:none; letter-spacing:0; }
+/* The command is the thing being agreed to, so it is shown in full rather than
+   truncated to fit — a command you cannot read is not one you can approve. */
+.mcp-what code{
+  font-family:var(--mono); font-size:var(--fs-2); color:var(--ink-2);
+  background:var(--panel-2); padding:var(--sp-1) var(--sp-3); border-radius:var(--r-1);
+  word-break:break-all; text-transform:none; letter-spacing:0;
+}
+.mcp-env, .mcp-tools{ font-size:var(--fs-2); color:var(--mute); text-transform:none; letter-spacing:0; }
+.mcp-row .approve, .mcp-row .ghost{ flex:none; font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); }
+.mcp-row .ghost{ border-color:var(--rule); }

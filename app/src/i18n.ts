@@ -24,6 +24,14 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'MCP servers': 'خوادم MCP',
+  'Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.': 'معلنة من هذا المشروع في .vylo/mcp.json. اقرأ الأمر قبل التمكين — فهو يعمل على جهازك، وكل أداة يقدّمها يُطلب إذنك قبل تشغيلها.',
+  'Enable': 'تمكين',
+  'Disable': 'تعطيل',
+  'sets': 'يضبط',
+  'tool': 'أداة',
+  'tools': 'أدوات',
+  'Let this MCP tool run?': 'السماح بتشغيل أداة MCP هذه؟',
   'Proposed change shown in place — nothing is written until you approve it below.': 'التغيير المقترح معروض في مكانه — لا يُكتب شيء حتى توافق عليه أدناه.',
   'This file changed since the proposal, so it cannot be shown in place. The review panel still has it.': 'تغيّر هذا الملف بعد الاقتراح، لذا لا يمكن عرضه في مكانه. لا يزال موجوداً في لوحة المراجعة.',
   'Apply': 'تطبيق',
@@ -177,6 +185,14 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'MCP servers': 'ڕاژەکانی MCP',
+  'Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.': 'لەلایەن ئەم پڕۆژەیەوە لە .vylo/mcp.json ڕاگەیەنراوە. پێش کاراکردن فەرمانەکە بخوێنەوە — لەسەر ئامێری تۆ کاردەکات، و داوای مۆڵەت دەکرێت بۆ هەر ئامرازێکی.',
+  'Enable': 'کاراکردن',
+  'Disable': 'ناکاراکردن',
+  'sets': 'دادەنێت',
+  'tool': 'ئامراز',
+  'tools': 'ئامراز',
+  'Let this MCP tool run?': 'ڕێگە بدرێت ئەم ئامرازەی MCP کاربکات؟',
   'Proposed change shown in place — nothing is written until you approve it below.': 'گۆڕانکاری پێشنیارکراو لە شوێنی خۆیدا پیشان دراوە — هیچ نانووسرێت هەتا لە خوارەوە پەسەندی نەکەیت.',
   'This file changed since the proposal, so it cannot be shown in place. The review panel still has it.': 'ئەم فایلە دوای پێشنیارەکە گۆڕاوە، بۆیە ناتوانرێت لە شوێنی خۆیدا پیشان بدرێت. هێشتا لە پانێڵی پێداچوونەوەدایە.',
   'Apply': 'جێبەجێکردن',
@@ -330,6 +346,14 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'MCP servers': 'ڕاژەیێن MCP',
+  'Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.': 'ژ لایێ ڤێ پرۆژەیێ ڤە د .vylo/mcp.json دا هاتییە دیارکرن. بەری ڤەکرنێ فەرمانێ بخوینە — ل سەر ئامێرێ تە دخەبتیت، و بۆ هەر ئامرازەکێ وێ دەستویری تێتە خواستن.',
+  'Enable': 'ڤەکرن',
+  'Disable': 'گرتن',
+  'sets': 'دانێت',
+  'tool': 'ئامراز',
+  'tools': 'ئامراز',
+  'Let this MCP tool run?': 'دەستویر بێتە دان کو ئەڤ ئامرازێ MCP بخەبتیت؟',
   'Proposed change shown in place — nothing is written until you approve it below.': 'گوهۆڕینا پێشنیارکری ل جهێ خۆ هاتییە نیشاندان — چو نایێتە نڤیسین هەتا تو ل خوارێ پەسەند نەکەی.',
   'This file changed since the proposal, so it cannot be shown in place. The review panel still has it.': 'ئەڤ دەفتەر پشتی پێشنیارێ هاتییە گوهۆڕین، لەوما ناشێت ل جهێ خۆ بێتە نیشاندان. هێشتا د پانێلا بەرچاڤکرنێ دا هەیە.',
   'Apply': 'جهبجهکرن',

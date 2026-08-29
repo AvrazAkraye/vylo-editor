@@ -37,6 +37,10 @@ import {
   applyMention, findMentions, folderListing, mentionQuery, treeResolver, TERMINAL,
 } from './mentions';
 import { rank } from './fuzzy';
+import {
+  commandLine, isEnabled, listServers, setEnabled, startServer, stopServer, toSchema,
+  type McpTool, type ServerSpec,
+} from './mcp';
 import { applyMessages, applyTarget, parseApply } from './apply';
 import { askRaw } from './inline';
 import { IS_MAC, Shortcuts, Welcome } from './Welcome';
@@ -151,6 +155,10 @@ export function App() {
   // Monotonic within a chat. Restoring drops this checkpoint and every later
   // one, so ids are never reused within a run.
   const cpSeq = useRef(0);
+  const [mcpServers, setMcpServers] = useState<ServerSpec[]>([]);
+  /** Tools from servers that are actually running, namespaced for the model. */
+  const [mcpTools, setMcpTools] = useState<Record<string, McpTool[]>>({});
+  const [mcpError, setMcpError] = useState<string | null>(null);
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
@@ -298,6 +306,57 @@ export function App() {
     window.addEventListener('mouseup', up);
     return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   }, [termH]);
+
+  // The config is read on every folder change, but reading it starts nothing:
+  // it arrives with the repository, so a project you cloned could name any
+  // command. Servers only spawn from the button, after the command is on screen.
+  useEffect(() => {
+    setMcpTools({});
+    setMcpError(null);
+    if (!root) { setMcpServers([]); return; }
+    let cancelled = false;
+    void listServers(root)
+      .then((list) => { if (!cancelled) setMcpServers(list); })
+      .catch((e) => { if (!cancelled) { setMcpServers([]); setMcpError(String(e)); } });
+    return () => { cancelled = true; };
+  }, [root]);
+
+  // Servers the human enabled earlier are started again on open — the approval
+  // was for this exact command, and the fingerprint check is what enforces that.
+  useEffect(() => {
+    if (!root || !mcpServers.length) return;
+    let cancelled = false;
+    void (async () => {
+      for (const s of mcpServers) {
+        if (cancelled || !isEnabled(root, s)) continue;
+        try {
+          const tools = await startServer(root, s);
+          if (!cancelled) setMcpTools((p) => ({ ...p, [s.name]: tools }));
+        } catch (e) {
+          if (!cancelled) setMcpError(`${s.name}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [root, mcpServers]);
+
+  async function toggleServer(spec: ServerSpec) {
+    const on = isEnabled(root, spec);
+    setMcpError(null);
+    if (on) {
+      setEnabled(root, spec, false);
+      await stopServer(spec.name).catch(() => {});
+      setMcpTools((p) => { const n = { ...p }; delete n[spec.name]; return n; });
+      return;
+    }
+    try {
+      const tools = await startServer(root, spec);
+      setEnabled(root, spec, true);
+      setMcpTools((p) => ({ ...p, [spec.name]: tools }));
+    } catch (e) {
+      setMcpError(`${spec.name}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
 
   // The agent reads what you are looking at. Without this it reads the file
   // from disk while your unsaved edits are on screen, reasons about code that
@@ -860,6 +919,8 @@ export function App() {
         history: history.current,
         pending: pending.current,
         askToRun,
+        extraTools: Object.entries(mcpTools)
+          .flatMap(([server, tools]) => tools.map((t) => toSchema(server, t))),
         runInTerminal: (command) => {
           if (!termRun.current) throw new Error(t('Open the terminal first.'));
           setShowTerm(true);
@@ -964,6 +1025,36 @@ export function App() {
               <option value="dark">{t('Dark')}</option>
             </select>
           </label>
+          {(mcpServers.length > 0 || mcpError) && (
+            <div className="mcp">
+              <h3>{t('MCP servers')}</h3>
+              <p className="mcp-note">
+                {t('Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.')}
+              </p>
+              {mcpError && <p className="mcp-err">{mcpError}</p>}
+              {mcpServers.map((sv) => {
+                const on = isEnabled(root, sv);
+                const tools = mcpTools[sv.name];
+                return (
+                  <div className={`mcp-row ${on ? 'on' : ''}`} key={sv.name}>
+                    <div className="mcp-what">
+                      <b>{sv.name}</b>
+                      <code>{commandLine(sv)}</code>
+                      {Object.keys(sv.env ?? {}).length > 0 && (
+                        <span className="mcp-env">{t('sets')} {Object.keys(sv.env).join(', ')}</span>
+                      )}
+                      {on && tools && (
+                        <span className="mcp-tools">{tools.length} {tools.length === 1 ? t('tool') : t('tools')}</span>
+                      )}
+                    </div>
+                    <button className={on ? 'ghost' : 'approve'} onClick={() => void toggleServer(sv)}>
+                      {on ? t('Disable') : t('Enable')}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <p className="hint">{t('Stored in this app only, on this machine.')}</p>
         </div>
       )}
@@ -1250,7 +1341,9 @@ export function App() {
         <div className="ask" role="alertdialog" aria-label="Command approval">
           <div className="ask-in">
             <div className="ask-txt">
-              <span className="ask-lbl">{t('Run this command?')}</span>
+              <span className="ask-lbl">
+                {askRun.kind === 'mcp' ? t('Let this MCP tool run?') : t('Run this command?')}
+              </span>
               <code>{askRun.command}</code>
               {askRun.reason && <span className="ask-why">{askRun.reason}</span>}
               <span className="ask-dir">{t('in')} {folderName}</span>
