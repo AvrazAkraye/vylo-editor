@@ -111,10 +111,19 @@ interface FindProps {
   root: string;
   onOpen: (path: string, line: number) => void;
   onClose: () => void;
+  /**
+   * Stage the replacement across every matching file. Staged, not written: a
+   * bulk edit is precisely the one nobody reads afterwards, so it goes through
+   * the same review as anything the agent proposes.
+   */
+  onReplace: (find: string, to: string, opts: { fold: boolean; words: boolean }) => Promise<number>;
   t: (s: string) => string;
 }
 
-export function FindInFiles({ root, onOpen, onClose, t }: FindProps) {
+export function FindInFiles({ root, onOpen, onClose, onReplace, t }: FindProps) {
+  const [replacement, setReplacement] = useState('');
+  const [showReplace, setShowReplace] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [q, setQ] = useState('');
   const [fold, setFold] = useState(true);
   const [words, setWords] = useState(false);
@@ -163,7 +172,26 @@ export function FindInFiles({ root, onOpen, onClose, t }: FindProps) {
                 title={t('Match case')}>Aa</button>
         <button className={`pal-tog ${words ? 'on' : ''}`} onClick={() => setWords((v) => !v)}
                 title={t('Whole word')}>|ab|</button>
+        <button className={`pal-tog ${showReplace ? 'on' : ''}`}
+                onClick={() => setShowReplace((v) => !v)} title={t('Replace')}>⇄</button>
       </div>
+
+      {showReplace && (
+        <div className="pal-head pal-replace">
+          <input className="pal-in" value={replacement} placeholder={t('Replace with…')}
+                 onChange={(e) => setReplacement(e.target.value)}
+                 onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}
+                 spellCheck={false} />
+          <button className="approve" disabled={!q.trim() || replacing || !hits.length}
+                  onClick={async () => {
+                    setReplacing(true);
+                    try { await onReplace(q, replacement, { fold, words }); onClose(); }
+                    finally { setReplacing(false); }
+                  }}>
+            {replacing ? t('Staging…') : `${t('Replace in')} ${files} ${files === 1 ? t('file') : t('files')}`}
+          </button>
+        </div>
+      )}
       <div className="pal-list" ref={list}>
         {err && <p className="pal-none pal-err">{err}</p>}
         {!err && q.trim() && !busy && hits.length === 0 && <p className="pal-none">{t('No matches.')}</p>}

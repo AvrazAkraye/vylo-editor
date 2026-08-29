@@ -24,6 +24,15 @@ export const LANGS: { code: Lang; label: string }[] = [
 type Dict = Record<string, string>;
 
 const ar: Dict = {
+  'Replace': 'استبدال',
+  'Replace with…': 'الاستبدال بـ…',
+  'Replace in': 'استبدال في',
+  'Staging…': 'جارٍ التحضير…',
+  'replacement': 'استبدال',
+  'replacements': 'استبدالات',
+  'across': 'عبر',
+  'Nothing to replace.': 'لا شيء لاستبداله.',
+  'replace in': 'الاستبدال في',
   '1 file was left unsaved': 'بقي ملف واحد غير محفوظ',
   'files were left unsaved': 'ملفات بقيت غير محفوظة',
   'Discard them': 'تجاهلها',
@@ -235,6 +244,15 @@ const ar: Dict = {
 };
 
 const ckb: Dict = {
+  'Replace': 'جێگرەوە',
+  'Replace with…': 'جێگرەوە بە…',
+  'Replace in': 'جێگرەوە لە',
+  'Staging…': 'ئامادەکردن…',
+  'replacement': 'جێگرەوە',
+  'replacements': 'جێگرەوە',
+  'across': 'بەسەر',
+  'Nothing to replace.': 'هیچ نییە بۆ جێگرەوە.',
+  'replace in': 'جێگرەوە لە',
   '1 file was left unsaved': 'یەک فایل پاشەکەوتنەکراو مایەوە',
   'files were left unsaved': 'فایل پاشەکەوتنەکراو مانەوە',
   'Discard them': 'فڕێیانبدە',
@@ -446,6 +464,15 @@ const ckb: Dict = {
 };
 
 const kmr: Dict = {
+  'Replace': 'جهگر',
+  'Replace with…': 'جهگر ب…',
+  'Replace in': 'جهگر د',
+  'Staging…': 'ئامادەکرن…',
+  'replacement': 'جهگر',
+  'replacements': 'جهگر',
+  'across': 'ل سەر',
+  'Nothing to replace.': 'چو نینە بۆ جهگرکرنێ.',
+  'replace in': 'جهگرکرن د',
   '1 file was left unsaved': 'ئێک دەفتەر نەپاراستی ما',
   'files were left unsaved': 'دەفتەر نەپاراستی مان',
   'Discard them': 'بئاڤێژە',

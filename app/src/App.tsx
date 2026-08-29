@@ -40,6 +40,7 @@ import {
 import { rank } from './fuzzy';
 import { detailOf, explain } from './errors';
 import { add, NO_USAGE, summarise, compact, total, type Usage } from './usage';
+import { replaceAll } from './replace';
 import {
   commandLine, isEnabled, listServers, setEnabled, startServer, stopServer, toSchema,
   type McpTool, type ServerSpec,
@@ -772,6 +773,48 @@ export function App() {
     } catch (e) {
       push({ kind: 'error', text: explain(e, `${t('delete')} ${path}`) });
     }
+  }
+
+  /**
+   * Replace across the project, staged for review.
+   *
+   * Every affected file is read through `Pending.currentContent`, so an
+   * unsaved buffer or an already-staged change is what gets rewritten rather
+   * than a stale copy from disk. Nothing is written here — the review pane is
+   * where a bulk edit is either understood or refused.
+   */
+  async function replaceEverywhere(
+    find: string, to: string, opts: { fold: boolean; words: boolean },
+  ): Promise<number> {
+    // A wider net than the display cap: the panel shows 300 hits, but a replace
+    // has to touch every file that matches, not the first few hundred lines.
+    const hits = await invoke<{ path: string }[]>('search', {
+      root, query: find, maxHits: 5000, caseInsensitive: opts.fold, wholeWord: opts.words,
+    }).catch(() => [] as { path: string }[]);
+
+    const paths = [...new Set(hits.map((h) => h.path))];
+    let changed = 0;
+    let total = 0;
+    for (const path of paths) {
+      try {
+        const before = await pending.current.currentContent(root, path);
+        const { text, count } = replaceAll(before, find, to, opts);
+        if (!count || text === before) continue;
+        await pending.current.stageWrite(root, path, text);
+        changed += 1;
+        total += count;
+      } catch (e) {
+        push({ kind: 'error', text: explain(e, `${t('replace in')} ${path}`) });
+      }
+    }
+    setChanges(pending.current.list());
+    push({
+      kind: 'result',
+      text: changed
+        ? `${t('Staged')} ${total} ${total === 1 ? t('replacement') : t('replacements')} ${t('across')} ${changed} ${changed === 1 ? t('file') : t('files')}. ${t('Review below.')}`
+        : t('Nothing to replace.'),
+    });
+    return changed;
   }
 
   function toggleTerm() {
@@ -1646,7 +1689,8 @@ export function App() {
         <QuickOpen entries={tree} onOpen={(p) => openAt(p)} onClose={() => setPalette(null)} t={t} />
       )}
       {palette === 'find' && (
-        <FindInFiles root={root} onOpen={openAt} onClose={() => setPalette(null)} t={t} />
+        <FindInFiles root={root} onOpen={openAt} onClose={() => setPalette(null)}
+                     onReplace={replaceEverywhere} t={t} />
       )}
 
       {dragging && <div className="dropzone"><span>{t('Drop a folder to open it, or files to attach')}</span></div>}

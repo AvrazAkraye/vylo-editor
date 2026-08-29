@@ -1195,3 +1195,8 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .update.recover .ghost{ color:var(--mute); border-color:var(--rule-2); }
 .update.recover .ghost:hover{ color:var(--ink); }
 .update.recover .up-notes{ color:var(--mute); }
+
+/* Replace sits under the search field, appearing only when asked for — it is
+   the rarer half and would otherwise widen the panel for everyone. */
+.pal-replace{ border-bottom:1px solid var(--rule); padding-bottom:var(--sp-2); }
+.pal-replace .approve{ flex:none; font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); white-space:nowrap; }
