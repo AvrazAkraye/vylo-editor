@@ -78,6 +78,7 @@ import {
 } from './account';
 import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
+import { SignIn } from './SignIn';
 import { listen } from '@tauri-apps/api/event';
 import {
   accelerator, bind, chordFrom, isCancel, loadBinding,
@@ -179,6 +180,10 @@ export function App() {
   // instead of each one becoming its own line.
   const openLine = useRef<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  // The account form, opened from Settings. It lives outside the settings
+  // modal rather than inside it because it takes a password and then replaces
+  // two stored credentials — that is a screen, not a row.
+  const [signInOpen, setSignInOpen] = useState(false);
   // The global shortcut, and null until somebody sets one -- which is the whole
   // design of it rather than a default nobody got round to choosing. See
   // `shortcut.ts`.
@@ -2331,6 +2336,24 @@ export function App() {
           unrolled under the header and pushed the whole app down. The controls
           are the same ones and no longer a flat list; `settings.ts` is the
           catalogue and `SettingsPanel.tsx` draws it. */}
+      {signInOpen && (
+        <div className="pal-back" onMouseDown={() => setSignInOpen(false)}>
+          <div className="pal signin-modal" onMouseDown={(e) => e.stopPropagation()}
+               role="dialog" aria-modal="true" aria-label={t('Sign in')}
+               onKeyDown={(e) => { if (e.key === 'Escape') setSignInOpen(false); }}>
+            <SignIn baseUrl={baseUrl} t={t}
+                    onSignedIn={(tok, key) => {
+                      // Same rule as the welcome screen: neither empty half may
+                      // overwrite something live.
+                      const next = adopted({ apiKey, token }, { apiKey: key, token: tok });
+                      setToken(next.token);
+                      setApiKey(next.apiKey);
+                      setSignInOpen(false);
+                    }} />
+          </div>
+        </div>
+      )}
+
       {showSettings && (
         <SettingsPanel
           t={t}
@@ -2341,6 +2364,7 @@ export function App() {
           onApiKey={setApiKey}
           token={token}
           signedInAs={signedInAs}
+          onSignIn={() => { setShowSettings(false); setSignInOpen(true); }}
           plan={planChip}
           onSignOut={() => {
             // Signing out clears the session and *not* the API key: the key is

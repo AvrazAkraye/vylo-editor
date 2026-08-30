@@ -760,6 +760,11 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .mac .bar{ padding-left:var(--sp-4); }
 .mac .shell.fullscreen .bar{ padding-left:var(--sp-7); }
 
+/* The account form, opened from Settings rather than only from the welcome
+   screen. Wider than the palettes because it holds a form and its explanations,
+   not a list of one-line rows. */
+.signin-modal{ max-width:460px; padding:var(--sp-7); }
+
 /* ── window buttons ──────────────────────────────────────────────────────
    Redrawn rather than reused, so they can carry the focus ring, the
    reduced-motion rule and the four languages that the native ones cannot be

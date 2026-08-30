@@ -67,6 +67,8 @@ interface Props {
   /** Empty when nobody is signed in. Never rendered — see `VYLO.md`. */
   token: string;
   signedInAs: string;
+  /** Opens the account form. Settings closes; the form owns the screen. */
+  onSignIn: () => void;
   /** Already reduced by `session.chip`, which decides the unmetered case. */
   plan: Chip | null;
   onSignOut: () => void;
@@ -371,11 +373,20 @@ function Control({ row, ...p }: ControlProps) {
         </Row>
       );
     case 'signedIn':
+      // Not signed in is a *state to leave*, not a fact to report. Until this
+      // carried a button the only sign-in form was on the welcome screen, which
+      // nobody sees once a folder is open and a key is saved — so the feature
+      // existed and was unreachable by anyone who already had a key, which is
+      // everyone who had used the app before it shipped.
       return (
         <Row label={label} hint={hint}>
-          <span className="set-val">
-            {p.token ? (p.signedInAs || t('Signed in')) : t('Not signed in')}
-          </span>
+          {p.token
+            ? <span className="set-val">{p.signedInAs || t('Signed in')}</span>
+            : (
+              <button className="ghost set-btn" onClick={p.onSignIn}>
+                {t('Sign in')}
+              </button>
+            )}
         </Row>
       );
     case 'signOut':
