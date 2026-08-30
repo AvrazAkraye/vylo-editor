@@ -2,12 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
+import { filter, since, stateOf, titleOf } from './terminals';
 
 /**
- * The terminal panel: tabs across the top, shells below.
+ * The terminal panel: sessions down the left, shells to the right.
  *
- * Every pane stays mounted while its tab is hidden. A terminal is a place you
- * leave a server running and come back to, so unmounting on tab switch would
+ * The strip of tabs across the top worked for two panes and stopped working at
+ * five. Names truncated to "Termi…", a command pane's whole identity is the
+ * command it is running and there was nowhere to put it, and nothing said
+ * whether a pane was still going. A vertical list has room for a second line
+ * and for a state on every row.
+ *
+ * Every pane stays mounted while its row is not selected. A terminal is a place
+ * you leave a server running and come back to, so unmounting on switch would
  * throw away both the scrollback and the process.
  */
 
@@ -15,6 +22,9 @@ interface Tab {
   id: string; n: number; born: number; dead: boolean;
   /** Set when this pane exists to run one approved command. */
   command?: string;
+  /** The exit code once there is one. `null` means a signal, which is not a
+   *  clean finish — the row shows that difference. */
+  code?: number | null;
 }
 
 /** What a command pane reports back to the agent once it finishes. */
@@ -44,6 +54,14 @@ export function TerminalPanel({
 }: Props) {
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
+  const [query, setQuery] = useState('');
+  // Ticks once a minute so the ages on the rows stay honest without a timer per
+  // row. A terminal you opened an hour ago should not still say 1m.
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
   const handles = useRef(new Map<string, TermHandle>());
   // `active` changes and `expose` is an inline arrow from the parent, so both
   // go through refs: the getter reads the current tab at call time, and the
@@ -118,14 +136,14 @@ export function TerminalPanel({
     runs.current.delete(tab.id);
     const { text, truncated } = readable(run.buffer.join(''));
     run.settle({ code, output: text, truncated });
-    setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, dead: true } : x)));
+    setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, dead: true, code } : x)));
     return true;
   }
 
   function exited(tab: Tab, code: number | null) {
     if (finished(tab, code)) return;
     if (Date.now() - tab.born < 800) {
-      setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, dead: true } : x)));
+      setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, dead: true, code } : x)));
       onError(t('The shell closed as soon as it started. Check your shell profile for an error.'));
       return;
     }
@@ -139,22 +157,14 @@ export function TerminalPanel({
   }
 
   const dead = tabs.find((x) => x.id === active)?.dead;
+  const shown = filter(tabs, query, t('Terminal'));
 
   return (
     <section className="panel" aria-label={t('Terminal')}>
       <div className="panel-bar">
-        <div className="panel-tabs">
-          {tabs.map((tab) => (
-            <span key={tab.id} className={`ptab ${tab.id === active ? 'on' : ''} ${tab.dead ? 'dead' : ''}`}>
-              <button className="ptab-name" onClick={() => setActive(tab.id)}>
-                <span className="ptab-i"><Icon name="terminal" size={13} /></span>
-                {tab.command ? tab.command.slice(0, 28) : `${t('Terminal')} ${tab.n}`}
-              </button>
-              <button className="ptab-x" onClick={() => close(tab.id)}
-                      aria-label={`${t('Close')} ${t('Terminal')} ${tab.n}`}><Icon name="close" size={12} /></button>
-            </span>
-          ))}
-          <button className="ptab-add" onClick={add} title={t('New terminal')} aria-label={t('New terminal')}><Icon name="plus" size={13} /></button>
+        <div className="panel-title">
+          <Icon name="terminal" size={13} />
+          {t('Terminal')}
         </div>
         <div className="panel-acts">
           <button className="ghost" onClick={sendToChat} disabled={dead}
@@ -171,6 +181,59 @@ export function TerminalPanel({
         </div>
       </div>
 
+      <div className="panel-split">
+        <div className="tsl" role="navigation" aria-label={t('Terminal sessions')}>
+          <div className="tsl-head">
+            <span className="tsl-find">
+              <Icon name="search" size={13} />
+              <input value={query} onChange={(e) => setQuery(e.target.value)}
+                     placeholder={t('Search sessions…')} aria-label={t('Search sessions…')}
+                     spellCheck={false} />
+            </span>
+            <button className="tsl-add" onClick={add}
+                    title={t('New terminal')} aria-label={t('New terminal')}>
+              <Icon name="plus" size={15} />
+            </button>
+          </div>
+
+          <div className="tsl-list">
+            {shown.length === 0 && <p className="tsl-none">{t('No session matches that.')}</p>}
+            {shown.map((tab) => {
+              const state = stateOf(tab);
+              const title = titleOf(tab, t('Terminal'));
+              return (
+                <div key={tab.id} className={`tsl-row ${tab.id === active ? 'on' : ''}`}>
+                  <button className="tsl-pick" onClick={() => setActive(tab.id)}
+                          aria-current={tab.id === active ? 'true' : undefined}>
+                    <span className={`tsl-mark ${state}`}>
+                      <Icon name="terminal" size={14} />
+                      {/* The badge carries the state, so the second line is free
+                          to say something the badge cannot. */}
+                      <i className="tsl-dot" aria-hidden="true">
+                        {state === 'ok' && <Icon name="check" size={9} />}
+                        {state === 'failed' && <Icon name="warning" size={9} />}
+                      </i>
+                    </span>
+                    <span className="tsl-text">
+                      <span className={`tsl-name ${title.mono ? 'mono' : ''}`}>{title.text}</span>
+                      <span className="tsl-sub">
+                        {state === 'busy' ? t('running')
+                          : state === 'live' ? t('shell')
+                          : state === 'ok' ? t('finished')
+                          : tab.code === null ? t('stopped') : `${t('exit')} ${tab.code}`}
+                        <span className="tsl-age">{since(tab.born, clock)}</span>
+                      </span>
+                    </span>
+                  </button>
+                  <button className="tsl-x" onClick={() => close(tab.id)}
+                          title={t('Close')}
+                          aria-label={`${t('Close')} ${title.text}`}><Icon name="close" size={12} /></button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
       <div className="panel-body">
         {tabs.map((tab) => (
           <TerminalView
@@ -185,6 +248,7 @@ export function TerminalPanel({
             onError={onError}
           />
         ))}
+      </div>
       </div>
     </section>
   );

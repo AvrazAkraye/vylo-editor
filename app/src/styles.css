@@ -862,30 +862,127 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   flex:none; display:flex; align-items:stretch; gap:var(--sp-4); padding:0 var(--sp-4) 0 var(--sp-2);
   border-bottom:1px solid var(--rule); background:var(--panel-2);
 }
-.panel-tabs{ display:flex; align-items:stretch; gap:var(--sp-1); min-width:0; overflow-x:auto; }
-.panel-tabs::-webkit-scrollbar{ height:0; }
-.ptab{
-  display:flex; align-items:center; flex:none; border-bottom:2px solid transparent;
+.panel-title{
+  display:flex; align-items:center; gap:var(--sp-3); flex:none;
+  padding:var(--sp-4) var(--sp-4) var(--sp-4) var(--sp-5);
+  font-size:var(--fs-3); font-weight:600; color:var(--ink-2);
+  letter-spacing:.02em;
+}
+.panel-title svg{ color:var(--brand); }
+
+/* ── terminal sessions, down the left ────────────────────────────────────
+   A strip of tabs across the top worked for two panes and failed at five:
+   the names truncated, a command pane's identity IS its command, and there
+   was nowhere to say whether it was still running. A vertical row has a
+   second line and a badge. */
+.panel-split{ flex:1; min-height:0; display:flex; }
+.tsl{
+  flex:none; width:236px; min-width:0; display:flex; flex-direction:column;
+  border-right:1px solid var(--rule); background:var(--panel-2);
+}
+.tsl-head{
+  flex:none; display:flex; align-items:center; gap:var(--sp-2);
+  padding:var(--sp-4) var(--sp-3) var(--sp-4) var(--sp-4);
+  border-bottom:1px solid var(--rule);
+}
+.tsl-find{
+  flex:1; min-width:0; display:flex; align-items:center; gap:var(--sp-3);
+  padding:var(--sp-2) var(--sp-4); border-radius:var(--r-2);
+  background:var(--bg); border:1px solid var(--rule);
   color:var(--mute);
 }
-.ptab.on{ color:var(--ink); border-bottom-color:var(--brand); background:var(--panel); }
-.ptab.dead .ptab-name{ text-decoration:line-through; opacity:.6; }
-.ptab-name{
-  font:inherit; font-size:var(--fs-3); padding:var(--sp-4) var(--sp-2) var(--sp-4) var(--sp-5); border:0; background:transparent;
-  color:inherit; cursor:pointer; white-space:nowrap;
+.tsl-find:focus-within{ border-color:var(--brand); }
+.tsl-find input{
+  flex:1; min-width:0; font:inherit; font-size:var(--fs-3);
+  border:0; background:transparent; color:var(--ink); outline:none;
 }
-.ptab-i{ font-size:var(--fs-1); margin-right:var(--sp-3); color:var(--brand); }
-.ptab-x{
-  font:inherit; font-size:var(--fs-5); line-height:1; padding:0 var(--sp-4) var(--sp-1); border:0;
-  background:transparent; color:var(--mute); cursor:pointer; opacity:0;
+.tsl-find input::placeholder{ color:var(--mute); }
+.tsl-add{
+  flex:none; display:grid; place-items:center; width:26px; height:26px;
+  border:0; border-radius:var(--r-2); background:transparent;
+  color:var(--mute); cursor:pointer;
 }
-.ptab:hover .ptab-x, .ptab.on .ptab-x{ opacity:1; }
-.ptab-x:hover{ color:var(--ink); }
-.ptab-add{
-  font:inherit; line-height:1; padding:0 var(--sp-5); border:0; align-self:center;
-  background:transparent; color:var(--mute); cursor:pointer; border-radius:var(--r-1);
+.tsl-add:hover{ background:var(--panel-3); color:var(--ink); }
+
+.tsl-list{ flex:1; min-height:0; overflow-y:auto; padding:var(--sp-2) var(--sp-3); }
+.tsl-none{ margin:0; padding:var(--sp-5) var(--sp-4); font-size:var(--fs-3); color:var(--mute); }
+
+.tsl-row{
+  display:flex; align-items:stretch; border-radius:var(--r-3);
+  border:1px solid transparent;
 }
-.ptab-add:hover{ background:var(--panel-3); color:var(--ink); }
+/* Hairlines between rows, the way the list reads without them being boxes.
+   Suppressed either side of the selected row, which is a card of its own. */
+.tsl-row + .tsl-row{ border-top-color:var(--rule); }
+.tsl-row.on, .tsl-row.on + .tsl-row{ border-top-color:transparent; }
+.tsl-row:hover:not(.on){ background:var(--panel-3); }
+.tsl-row.on{
+  background:var(--panel); border-color:var(--rule-2); box-shadow:var(--shadow);
+}
+.tsl-pick{
+  flex:1; min-width:0; display:flex; align-items:center; gap:var(--sp-4);
+  padding:var(--sp-4) var(--sp-2) var(--sp-4) var(--sp-4);
+  font:inherit; text-align:left; border:0; background:transparent;
+  color:inherit; cursor:pointer;
+}
+
+/* The mark, and its state badge. The badge carries whether the pane is
+   running or done, which frees the second line to say something else. */
+.tsl-mark{
+  position:relative; flex:none; display:grid; place-items:center;
+  width:28px; height:28px; border-radius:50%;
+  background:var(--brand-wash); color:var(--brand);
+}
+.tsl-mark.busy{ color:var(--warn); background:var(--warn-wash); }
+.tsl-mark.failed{ color:var(--err); background:var(--err-wash, var(--panel-3)); }
+.tsl-dot{
+  position:absolute; right:-2px; bottom:-2px;
+  width:13px; height:13px; border-radius:50%;
+  display:grid; place-items:center;
+  border:2px solid var(--panel-2); background:var(--mute); color:var(--bg);
+}
+.tsl-row.on .tsl-dot{ border-color:var(--panel); }
+.tsl-mark.live + .tsl-text .tsl-sub{ color:var(--mute); }
+.tsl-mark.ok .tsl-dot{ background:var(--ok); }
+.tsl-mark.failed .tsl-dot{ background:var(--err); }
+/* Still going: a ring rather than a filled dot, so "working" does not read as
+   a result. */
+.tsl-mark.busy .tsl-dot{ background:var(--warn); }
+.tsl-mark.live .tsl-dot{ background:var(--ok); }
+
+.tsl-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+.tsl-name{
+  font-size:var(--fs-4); color:var(--ink); font-weight:500;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* A command pane's name is a string that ran, and setting it in the mono face
+   says so without a badge. */
+.tsl-name.mono{ font-family:var(--mono); font-size:var(--fs-3); font-weight:400; }
+.tsl-sub{
+  display:flex; gap:var(--sp-3); font-size:var(--fs-2); color:var(--mute);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.tsl-age{ font-variant-numeric:tabular-nums; }
+.tsl-age::before{ content:'·'; margin-right:var(--sp-3); }
+
+.tsl-x{
+  flex:none; display:grid; place-items:center; width:26px;
+  border:0; background:transparent; color:var(--mute); cursor:pointer;
+  opacity:0; border-radius:var(--r-2);
+}
+.tsl-row:hover .tsl-x, .tsl-row.on .tsl-x, .tsl-x:focus-visible{ opacity:1; }
+.tsl-x:hover{ color:var(--err); }
+
+/* Narrow windows: the list becomes a strip of marks, because 236px of a
+   400px panel is most of the terminal. */
+@media (max-width:720px){
+  .tsl{ width:56px; }
+  .tsl-head{ padding:var(--sp-3); }
+  .tsl-find, .tsl-text{ display:none; }
+  .tsl-pick{ justify-content:center; padding:var(--sp-4) 0; }
+  .tsl-x{ display:none; }
+}
+
 .panel-acts{ margin-left:auto; display:flex; align-items:center; gap:var(--sp-2); flex:none; }
 .panel-acts .ghost{ font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); }
 
@@ -1005,8 +1102,8 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    look misaligned even where the glyphs themselves matched. */
 .ic{ flex:none; display:block; }
 
-.st-btn, .send, .folder, .brand, .ptab-name, .ghost.icon, .cmp-btn,
-.tab-x, .ptab-x, .chat-x, .sb-act, .ptab-add, .seg button{
+.st-btn, .send, .folder, .brand, .ghost.icon, .cmp-btn,
+.tab-x, .chat-x, .sb-act, .tsl-add, .tsl-x, .seg button{
   display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-3);
 }
 .st-btn{ gap:var(--sp-3); }
@@ -1162,9 +1259,9 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .ft-row:focus-visible, .tab-name:focus-visible, .tab-x:focus-visible,
 .pal-row:focus-visible, .pal-in:focus-visible, .wc-row:focus-visible,
 .rail-btn:focus-visible, .hunk-bar:focus-visible, .rv-files button:focus-visible,
-.chat-open:focus-visible, .chat-x:focus-visible, .ptab-name:focus-visible,
-.ptab-x:focus-visible, .st-btn:focus-visible, .cmp-model select:focus-visible,
-.sb-act:focus-visible, .ptab-add:focus-visible{
+.chat-open:focus-visible, .chat-x:focus-visible, .tsl-pick:focus-visible,
+.tsl-x:focus-visible, .st-btn:focus-visible, .cmp-model select:focus-visible,
+.sb-act:focus-visible, .tsl-add:focus-visible{
   outline-offset:-2px;
   border-radius:0;
 }
