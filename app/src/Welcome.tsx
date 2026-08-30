@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import { Icon } from './Icon';
 import { ago } from './store';
-import { checkKey, type KeyCheck } from './gateway';
+import { SignIn } from './SignIn';
 
 /**
  * The first screen.
@@ -64,65 +63,16 @@ interface Props {
   /** Empty until the gateway key is set, which is what the first screen asks for. */
   apiKey: string;
   baseUrl: string;
-  onKey: (key: string) => void;
+  /**
+   * A finished setup, from whichever route: the session token and the key to
+   * talk to the model with. Either may be `''` — see `SignIn`'s own note, and
+   * the guard in `App.tsx` that stops an empty one overwriting a live one.
+   */
+  onSignedIn: (token: string, key: string) => void;
   t: (s: string) => string;
 }
 
-/**
- * The one thing needed, when it is the only thing needed.
- *
- * Without a key you could open a folder, read the code, type a question, and
- * only then be told to go to Settings. Asking here costs one screen and saves
- * that. It does not *block* opening a folder, because the editor and the
- * terminal work perfectly well without a key and someone may only want those.
- */
-function KeySetup({ baseUrl, onKey, t }: { baseUrl: string; onKey: (k: string) => void; t: (s: string) => string }) {
-  const [key, setKey] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<KeyCheck | null>(null);
-
-  async function connect() {
-    setBusy(true);
-    setResult(null);
-    const r = await checkKey(baseUrl, key);
-    setResult(r);
-    setBusy(false);
-    // A key that is right but blocked — no plan, suspended, rate limited — is
-    // still the right key, so it is saved. Only a rejected one is withheld.
-    if (r.state === 'ok' || r.state === 'ok-but' || r.state === 'unknown') onKey(key.trim());
-  }
-
-  return (
-    <section className="wc-key">
-      <h2>{t('Connect to your gateway')}</h2>
-      <p className="wc-key-note">
-        {t('Vylo Editor talks to your own gateway. Paste the key from your account to let the agent answer.')}
-      </p>
-      <div className="wc-key-row">
-        <input
-          type="password"
-          value={key}
-          onChange={(e) => { setKey(e.target.value); setResult(null); }}
-          onKeyDown={(e) => { if (e.key === 'Enter' && key.trim()) void connect(); }}
-          placeholder="sk-vylo-…"
-          spellCheck={false}
-          autoFocus
-        />
-        <button className="approve" onClick={() => void connect()} disabled={busy || !key.trim()}>
-          {busy ? t('Checking…') : t('Connect')}
-        </button>
-      </div>
-      {result && result.state !== 'ok' && (
-        <p className={`wc-key-said ${result.state === 'bad' ? 'bad' : ''}`}>
-          {result.note} {result.fix}
-        </p>
-      )}
-      {result?.state === 'ok' && <p className="wc-key-said good">{t('Connected.')}</p>}
-    </section>
-  );
-}
-
-export function Welcome({ recents, onOpen, onOpenFolder, apiKey, baseUrl, onKey, t }: Props) {
+export function Welcome({ recents, onOpen, onOpenFolder, apiKey, baseUrl, onSignedIn, t }: Props) {
   return (
     <div className="welcome">
       <div className="wc-inner">
@@ -141,7 +91,7 @@ export function Welcome({ recents, onOpen, onOpenFolder, apiKey, baseUrl, onKey,
           <p>{t('An agent that works on a folder on this machine. Your code stays here — only your question and the snippets it chooses to read are sent.')}</p>
         </header>
 
-        {!apiKey && <KeySetup baseUrl={baseUrl} onKey={onKey} t={t} />}
+        {!apiKey && <SignIn baseUrl={baseUrl} onSignedIn={onSignedIn} t={t} />}
 
         <button className={`wc-open ${apiKey ? '' : 'second'}`} onClick={onOpen}>
           <Icon name="folder" size={16} />

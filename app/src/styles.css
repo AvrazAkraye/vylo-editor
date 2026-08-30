@@ -210,6 +210,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .settings .fld{ display:grid; gap:var(--sp-3); }
 .settings .fld-lbl{ font-size:var(--fs-3); color:var(--mute); text-transform:uppercase; letter-spacing:.07em; }
 .sc-row{ display:flex; align-items:center; gap:var(--sp-4); }
+/* An email address, which is longer than any other value in this panel and is
+   allowed to break rather than widen it. */
+.settings .acct{ font-size:var(--fs-3); color:var(--ink-2); overflow-wrap:anywhere; }
 .sc-key{
   flex:1; min-width:0; text-align:left; cursor:pointer;
   font:inherit; font-family:var(--mono); font-size:var(--fs-4);
@@ -1167,6 +1170,13 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    to its right as it climbs. */
 .status .ctxm{ font-variant-numeric:tabular-nums; }
 .status .ctxm.hot{ color:var(--warn); font-weight:600; }
+/* The plan balance, for the context meter's reason: the number changes after
+   every turn and must not shuffle its neighbours as it does. Two coloured
+   states and no more — the whole point of showing this is that the last of an
+   allowance is visible before it is spent. */
+.status .planm{ font-variant-numeric:tabular-nums; }
+.status .planm.low{ color:var(--warn); }
+.status .planm.out{ color:var(--err); font-weight:600; }
 .ft-icon{ display:inline-flex; align-items:center; justify-content:center; }
 .chip .doc{ display:inline-flex; align-items:center; }
 
@@ -1544,6 +1554,35 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .wc-key-said{ margin:var(--sp-4) 0 0; font-size:var(--fs-3); line-height:1.5; color:var(--ink-2); }
 .wc-key-said.bad{ color:var(--err); }
 .wc-key-said.good{ color:var(--ok); }
+/* The sign-in that got half way: an account, no key. Warn rather than err —
+   nothing the person did is wrong, and the field below is the way on. A block
+   rather than a paragraph because the server's own crumb nests inside it. */
+.wc-key-fell{
+  margin:0 0 var(--sp-5); font-size:var(--fs-3); line-height:1.5; color:var(--warn);
+}
+/* Signing in. The two fields stack rather than sharing a row: an email and a
+   password side by side give each of them half a field, and the email is the
+   long one. */
+.wc-acc-rows{ display:flex; flex-direction:column; gap:var(--sp-4); }
+.wc-acc-rows input{
+  font:inherit; font-size:var(--fs-3); min-width:0;
+  padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
+  border:1px solid var(--rule-2); background:var(--panel); color:var(--ink);
+}
+.wc-acc-act{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-5); margin-top:var(--sp-5); }
+/* The ways out of the default path. Not buttons in appearance, because they are
+   alternatives to the action rather than second actions. */
+.wc-acc-alt{
+  background:none; border:0; padding:0; font:inherit; font-size:var(--fs-3);
+  color:var(--brand); cursor:pointer;
+}
+.wc-acc-alt:hover{ text-decoration:underline; }
+/* What the server said, verbatim and untranslated, under the sentence that is
+   ours. Monospace and small because it is a technical crumb, not a message. */
+.wc-key-detail{
+  margin:var(--sp-2) 0 0; font-family:var(--mono); font-size:var(--fs-2);
+  color:var(--mute); overflow-wrap:anywhere;
+}
 
 /* With a key still to enter, opening a folder is the second step, not the first. */
 .wc-open.second{ background:var(--panel); color:var(--ink-2); border:1px solid var(--rule-2); }

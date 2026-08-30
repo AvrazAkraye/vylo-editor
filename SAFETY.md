@@ -19,10 +19,11 @@ version 0.26.0.
 
 ## What reaches the network
 
-Vylo Editor talks to one service: your Vylo gateway. There is no accounts
-service of its own, no analytics, no crash reporting, and no second vendor.
+Vylo Editor talks to one service: your Vylo gateway. The model API and the
+account API are both it. There is no third-party identity provider, no
+analytics, no crash reporting, and no second vendor.
 
-The frontend makes four kinds of outbound request, and they all go to the
+The frontend makes seven kinds of outbound request, and they all go to the
 gateway:
 
 | Where | Request | When |
@@ -31,6 +32,9 @@ gateway:
 | `app/src/inline.ts` | `POST {gateway}/v1/messages` | ⌘K rewrite, apply-from-chat |
 | `app/src/complete.ts` | `POST {gateway}/v1/complete` | inline (ghost-text) completion |
 | `app/src/gateway.ts` | `POST {gateway}/v1/messages` | checking a key you just pasted |
+| `app/src/account.ts` | `POST {gateway}/app/api/auth/login` | signing in — `/auth/register` and `/auth/logout` are the same shape |
+| `app/src/account.ts` | `GET {gateway}/app/api/me` | the plan balance: on launch, when a turn ends, otherwise every five minutes |
+| `app/src/account.ts` | `POST {gateway}/app/api/keys` | minting this app's own key, once, at the end of a sign-in |
 
 `{gateway}` defaults to `https://capi.vylo-tech.com` and can be changed in
 Settings (`app/src/App.tsx`).
@@ -112,12 +116,35 @@ decision, not ours. That path is not covered by the policy above, because it is
 not a request the page makes. Only final results are inserted into the composer,
 and nothing recognised can *run* anything — dictation's only exit is a textarea.
 
-### Your gateway key
+### Your two credentials, and your password
 
-It is kept in the webview's `localStorage` as `vylo.apiKey`, in plaintext, not
-in the OS keychain. It is sent as the `x-api-key` header to the four endpoints
-above and nowhere else. Treat it as you would any API key on a machine you
-control: anyone who can use your user account can read it.
+**The gateway key** is kept in the webview's `localStorage` as `vylo.apiKey`,
+in plaintext, not in the OS keychain. It is sent as the `x-api-key` header to
+the four `/v1/` endpoints above and nowhere else. You can paste one, or sign in
+and let the app mint its own: `POST {gateway}/app/api/keys` returns a key
+exactly once and the server keeps only its hash, so what comes back is stored at
+the moment it arrives or it is gone.
+
+**The session token** is a JWT, kept the same way under `vylo.token`
+(`app/src/account.ts`), and sent as an `Authorization` header to the three
+`/app/api` endpoints above and nowhere else. It authenticates the *account*;
+the key authenticates the *model*. The two are never interchanged, which
+`app/test/account.test.mjs` asserts about the wire rather than about the prose.
+**Signing out clears the token and deliberately does not clear the key** — the
+key was minted for this machine and goes on working, and revoking it is a
+decision for the keys page rather than a side effect of closing a session.
+
+**Your password is not stored at all.** It is an argument to one function, it is
+sent once, and `app/src/SignIn.tsx` drops it the moment the request returns —
+before the result is looked at, so no error path can reach it. It is not in a
+ref, not in `localStorage`, and not in anything rendered.
+
+None of this is reachable by the agent. There is no Tauri command behind any of
+it, so there is nothing new to keep out of the tool schema below: the model
+cannot read the token, mint a key, or see the password.
+
+Treat both credentials as you would any API key on a machine you control:
+anyone who can use your user account can read them.
 
 ---
 
@@ -311,9 +338,9 @@ skips strings shaped like secrets. That last check is a courtesy and not a
 guarantee — it matches shapes, so it misses a short password or a four-word
 passphrase, and `app/src/clips.ts` says so in its own header.
 
-Chats, settings, your gateway key, which MCP servers you enabled and the
-clipboard history above are in the webview's `localStorage`, not in that
-directory.
+Chats, settings, your gateway key, your session token, which MCP servers you
+enabled and the clipboard history above are in the webview's `localStorage`, not
+in that directory.
 
 Nothing here is encrypted at rest beyond whatever your disk already does.
 

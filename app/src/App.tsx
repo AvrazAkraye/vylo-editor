@@ -71,6 +71,11 @@ import {
 import { applyMessages, applyTarget, parseApply } from './apply';
 import { askRaw } from './inline';
 import { IS_MAC, Shortcuts, Welcome } from './Welcome';
+import {
+  forgetToken, loadToken, me, planSummary, saveToken, signOut,
+  type PlanSummary,
+} from './account';
+import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -115,6 +120,21 @@ const LS = {
   model: 'vylo.model',
   root: 'vylo.root',
 };
+// The session token is deliberately not in LS. It is a credential with its own
+// lifetime and its own validation on the way *out* of storage — localStorage is
+// editable — so it lives behind `loadToken` / `saveToken` in `account.ts`, under
+// `vylo.token`, and is read nowhere else.
+
+/**
+ * How often the plan balance is re-read while nothing else is happening.
+ *
+ * Minutes, deliberately. This is a billing figure, not telemetry. It moves when
+ * a turn ends, which is when it is fetched anyway; the timer exists only to
+ * catch the account changing somewhere this app cannot see — a plan bought on
+ * the website, or tokens spent from another machine. Polling it in seconds
+ * would spend the user's own rate limit to tell them nothing new.
+ */
+const PLAN_EVERY_MS = 5 * 60_000;
 
 export function App() {
   // capi is the gateway's own PUBLIC_BASE_URL and what the other Vylo clients
@@ -122,6 +142,19 @@ export function App() {
   // `flush_interval -1` in its Caddy block the way chat already has.
   const [baseUrl, setBaseUrl] = useState(() => localStorage.getItem(LS.base) || 'https://capi.vylo-tech.com');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem(LS.key) || '');
+  // Two secrets, and they are not interchangeable: `apiKey` authenticates
+  // `/v1/messages`, `token` authenticates the account API. Neither is ever sent
+  // where the other belongs — `account.ts` builds no URL outside `/app/api`,
+  // and nothing here hands `token` to `runAgent`, `askRaw` or a transcript.
+  const [token, setToken] = useState(() => loadToken(localStorage));
+  // Who that token belongs to, for Settings to name. The email is what the
+  // person typed, not a secret; the token it came with never leaves the two
+  // lines above and below.
+  const [signedInAs, setSignedInAs] = useState('');
+  // What the plan has left, or null when there is nothing to say. Never
+  // rendered as a zero balance — see `planSummary`, which is where the
+  // unmetered case is decided.
+  const [plan, setPlan] = useState<PlanSummary | null>(null);
   const [model, setModel] = useState(() => localStorage.getItem(LS.model) || 'claude-haiku-4-5');
   const [root, setRoot] = useState(() => localStorage.getItem(LS.root) || '');
   const [prompt, setPrompt] = useState('');
@@ -402,6 +435,11 @@ export function App() {
 
   useEffect(() => { localStorage.setItem(LS.base, baseUrl); }, [baseUrl]);
   useEffect(() => { localStorage.setItem(LS.key, apiKey); }, [apiKey]);
+  // Storage follows the state in both directions, so signing out cannot leave a
+  // dead token behind for the next launch to load and send.
+  useEffect(() => {
+    if (token) saveToken(localStorage, token); else forgetToken(localStorage);
+  }, [token]);
   useEffect(() => { localStorage.setItem(LS.model, model); }, [model]);
   useEffect(() => { localStorage.setItem('vylo.autocomplete', autocomplete ? '1' : '0'); }, [autocomplete]);
   useEffect(() => { localStorage.setItem('vylo.termfull', termFull ? '1' : '0'); }, [termFull]);
@@ -416,6 +454,46 @@ export function App() {
     // text runs right-to-left, and the browser does that on its own.
     document.documentElement.lang = lang;
   }, [lang]);
+
+  /**
+   * T3.1 — what the plan has left, before a turn hits the end of it.
+   *
+   * Today an allowance runs out mid-answer and the first anyone hears of it is
+   * a 402 halfway through. `GET /me` has the number, so it is read on launch,
+   * again every time a turn ends — `busy` going false is the moment the figure
+   * has just changed, and the only moment worth spending a request on — and
+   * otherwise on a timer slow enough to be a billing figure rather than a poll.
+   *
+   * Nothing here is allowed to be fatal. A `/me` that has never succeeded leaves
+   * `plan` null and the status bar showing nothing at all — the app has to work
+   * perfectly for somebody who pasted a key and never signed in, which is most
+   * people today. A refresh that fails after one has succeeded keeps the figure
+   * it already had, which is a real number a few minutes old rather than a
+   * blank that would read as an allowance gone.
+   */
+  useEffect(() => {
+    if (!token) { setPlan(null); setSignedInAs(''); return; }
+    // Not mid-turn. The answer would be out of date the moment the turn ended,
+    // and the request would be competing with the one that matters.
+    if (busy) return;
+    let live = true;
+    const ask = () => void me(baseUrl, token).then((r) => {
+      if (!live) return;
+      if (r.ok) {
+        setSignedInAs(r.value.user.email);
+        setPlan(planSummary(r.value.usage));
+        return;
+      }
+      // An expired session is a sign-out, not an error banner: the minted key
+      // still works, so nothing the person is doing has to stop — they are
+      // simply not signed in any more. Clearing the token here runs this effect
+      // again, which is what forgets the stored copy and the plan.
+      if (r.why.state === 'signed-out') setToken('');
+    });
+    ask();
+    const timer = setInterval(ask, PLAN_EVERY_MS);
+    return () => { live = false; clearInterval(timer); };
+  }, [token, baseUrl, busy]);
 
   // Applying on every change rather than only on click also covers the first
   // paint, so the window never flashes the wrong theme on launch.
@@ -2190,6 +2268,10 @@ export function App() {
   }, [busy, queue, convoNow]);
 
   const folderName = root ? root.split(/[/\\]/).filter(Boolean).pop() : null;
+  // null means say nothing, which is what a status bar owes somebody who pasted
+  // a key and never signed in — the majority path, and the one this feature is
+  // not allowed to change.
+  const planChip = chip(plan);
   // '__memory__' is a tab but not a file on the editor stack.
   const files = tabs.filter((p) => p !== '__memory__');
 
@@ -2253,6 +2335,29 @@ export function App() {
             <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
                    placeholder="sk-vylo-…" spellCheck={false} />
           </label>
+          {/* The account, and the one thing there is to do with it. Signing out
+              clears the session and *not* the API key: the key is a separate
+              credential that goes on working, it was minted for this machine,
+              and throwing it away because somebody closed a session panel would
+              take the app offline for a reason nobody asked for. Revoking a key
+              is a decision for the keys page. */}
+          <div className="fld">
+            <span className="fld-lbl">{t('Account')}</span>
+            <div className="sc-row">
+              <span className="acct">
+                {token ? (signedInAs || t('Signed in')) : t('Not signed in')}
+              </span>
+              {token && (
+                <button className="ghost" onClick={() => {
+                  const dead = token;
+                  const next = signedOut({ apiKey, token });
+                  setToken(next.token);
+                  setApiKey(next.apiKey);
+                  void signOut(localStorage, baseUrl, dead);
+                }}>{t('Sign out')}</button>
+              )}
+            </div>
+          </div>
           <label>{t('Language')}
             <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
               {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
@@ -2511,8 +2616,16 @@ export function App() {
 
         <div className="work" ref={work}>
           {!root && !(showTerm && termFull) && (
+            // Either half may be empty, and neither empty one may overwrite
+            // something live: a pasted key arrives with no token, and a
+            // sign-in whose minting failed arrives with no key.
             <Welcome recents={recents} onOpen={pickFolder} onOpenFolder={openFolder}
-                     apiKey={apiKey} baseUrl={baseUrl} onKey={setApiKey} t={t} />
+                     apiKey={apiKey} baseUrl={baseUrl} t={t}
+                     onSignedIn={(tok, key) => {
+                       const next = adopted({ apiKey, token }, { apiKey: key, token: tok });
+                       setToken(next.token);
+                       setApiKey(next.apiKey);
+                     }} />
           )}
 
           <div className={`tabs ${!root || (showTerm && termFull) ? 'gone' : ''}`}>
@@ -3109,6 +3222,19 @@ export function App() {
 
       <footer className="status" aria-label={t('Status')}>
         <span><span className={`dotm ${apiKey ? '' : 'off'}`} />{busy ? t('working…') : apiKey ? t('Ready') : t('No API key')}</span>
+        {/* The balance, and only when there is a real one to show. `unknown` is
+            "we could not tell", which is not something to put in a status bar —
+            a wrong figure about money is worse than no figure. An unmetered
+            plan says so rather than showing a zero, which would tell the
+            customer paying the most that they had run out. */}
+        {planChip && (
+          <span className={`planm ${planChip.level}`}
+                title={t('What your plan has left this period')}>
+            <b>{planChip.name ?? t('No plan')}</b>
+            {planChip.tail === 'left' ? ` ${planChip.left} ${t('left')}`
+              : planChip.tail === 'no-limit' ? ` ${t('no limit')}` : ''}
+          </span>
+        )}
         {git?.is_repo && <span><b>{git.branch}</b>{git.dirty ? ` ${git.dirty}±` : ''}</span>}
         <span>{root ? folderName : t('No folder')}</span>
         {changes.length > 0 && <span><b>{changes.length}</b> {t('to review')}</span>}

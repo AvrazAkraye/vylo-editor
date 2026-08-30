@@ -48,6 +48,48 @@ reads what you are looking at instead of a stale copy.
 Open files stay mounted while their tab is hidden. Unmounting would throw away
 unsaved edits and the undo history with them.
 
+### Where signing in sits inside that rule
+
+The first screen signs you in and mints the app's own `sk-vylo-…` key, which
+puts a second credential in the app and a password in a form. None of it is a
+tool: `src/account.ts` is frontend-only, there is no Tauri command behind it,
+and the schema still has exactly eight names — so the model cannot read the
+session token, mint a key, or see the password.
+
+**The two secrets are not interchangeable.** The JWT from `/auth/login`
+authenticates the *account* API (`/app/api` — the bare paths 404) and appears
+in exactly one place, an `Authorization` header. The `sk-vylo-…` key
+authenticates the *model* API and goes on `x-api-key`. Sending either where the
+other belongs is the mistake this is written down to prevent, and
+`test/account.test.mjs` asserts it about the wire rather than about the prose.
+
+Three rules with sharp edges, all in `src/session.ts` and `src/account.ts`
+because each reads backwards until it is written down:
+
+- **The password is dropped the moment the request returns**, before the result
+  is looked at, so no error path can reach it — and again when the form is left
+  for the paste field, which is the one exit that does not unmount it.
+- **Signing out clears the token and not the key.** The key was minted for this
+  machine and still works; clearing it would take somebody's model access away
+  as a side effect of a button labelled *Sign out*.
+- **An empty half never overwrites a live one.** A pasted key arrives with no
+  token, and a sign-in whose minting failed arrives with no key. Both are
+  ordinary outcomes, and the obvious assignment in either direction destroys a
+  working credential to report something that is not an error.
+
+`POST /keys` returns the key **once** — only its hash is stored — so it is
+handed straight up to be saved at the moment it arrives, with nothing that can
+throw in between.
+
+The plan balance (T3.1) rides on the same session: `GET /me` has the number, and
+`planSummary` turns it into one status-bar line. Its two nullable fields are the
+whole difficulty — `remaining_tokens` and `percent_used` are **null on an
+unmetered plan, not zero**, and a `?? 0` anywhere on that path tells the
+customer paying the most that they have run out. `chip()` therefore promises a
+figure only when it has one; anything less certain draws nothing, because the
+majority path is still somebody who pasted a key and never signed in, and their
+status bar must look exactly as it did before this existed.
+
 ### Where MCP sits inside that rule
 
 `.vylo/mcp.json` lives in the *project*, so it arrives with the project. A
@@ -126,9 +168,10 @@ three are absent from the tool schema, which is what makes that safe.
 - `npm test` — the pure logic: diffs, SSE assembly, ranking, context fitting,
   syntax spans, the navigation trail, retry policy, learned model limits, the
   message queue, the environment block, the parse check, the chat store,
-  project memory and the filesystem-watch policy — plus a dead-code scan
+  project memory, the filesystem-watch policy and the account/session layer —
+  plus a dead-code scan
   (`scripts/orphans.mjs`) and one end-to-end test that drives a whole turn
-  against a scripted gateway on localhost, over a real folder (1397)
+  against a scripted gateway on localhost, over a real folder (1639)
 - `cd src-tauri && cargo test` — 109, including the stale-write guard and the
   shared ignore-aware walk
 - `scripts/gate.sh` — all three of the above plus `notices.sh --check`,
