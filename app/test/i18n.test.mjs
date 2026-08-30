@@ -1,14 +1,21 @@
-// The translation catalogues, checked against the source that uses them.
+// Everything this product ships in four languages, checked for agreement.
 //
-// These are the failures this catches, all of which have actually happened:
-// a key added to one language and forgotten in the others; a key added twice
-// in the same dictionary (a TypeScript error, but only if you build); a string
-// whose UI was removed, left behind in three languages; and an entry whose key
-// and value sit on separate lines being half-deleted by a line-based edit.
+// Two surfaces, one failure mode: something changed in one language and
+// forgotten in the other three, silently, for as long as nobody happens to read
+// them. Part one is `src/i18n.ts`. Part two, at the bottom, is the four SAFETY
+// documents.
+//
+// These are the catalogue failures this catches, all of which have actually
+// happened: a key added to one language and forgotten in the others; a key
+// added twice in the same dictionary (a TypeScript error, but only if you
+// build); a string whose UI was removed, left behind in three languages; and an
+// entry whose key and value sit on separate lines being half-deleted by a
+// line-based edit.
 //
 // It reads the file as text rather than importing it, because the dictionaries
 // are module-private and the point is to check the file, not the runtime.
-import { readFileSync, readdirSync } from 'fs';
+import { readFileSync, readdirSync, existsSync } from 'fs';
+import { join, resolve as resolvePath } from 'path';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -93,6 +100,88 @@ ok('every string the UI hands to t() is in the catalogues',
 // The parser above is the thing most likely to be wrong, so prove it saw a
 // realistic number of entries rather than silently matching nothing.
 ok('the file parsed to a plausible catalogue', base.size > 50, `${base.size} keys`);
+
+// ─── the SAFETY documents ─────────────────────────────────────────────────
+//
+// SAFETY.md makes checkable claims about what the code does, and three
+// translations make the same claims to people who will never read the English.
+// Nothing held them together: a correction to SAFETY.md left `SAFETY.ar.md`,
+// `SAFETY.ckb.md` and `SAFETY.kmr.md` stating the old, wrong thing. That is
+// worse than a stale README, because the document's whole value is that a
+// reader can check it — and four of its claims were found false at once, which
+// then had to be repaired in four files by hand.
+//
+// A translation cannot be diffed against its source, so this checks the parts
+// that do not translate:
+//
+//   1. the set of backticked identifiers — every file path, command name and
+//      storage key the document cites. This is the load-bearing check. A
+//      sentence naming `read_text_attachment` in English and not in Arabic is
+//      exactly the desync that matters.
+//   2. the section and table shape. A paragraph added to one file and not the
+//      others almost always moves one of these counts.
+//   3. the version each document says it describes, against package.json.
+//
+// It deliberately does not check prose. There is no way to, and pretending
+// otherwise would make this a test people learn to work around.
+{
+  const REPO = resolvePath('..');
+  const SOURCE = 'SAFETY.md';
+  const TRANSLATIONS = ['SAFETY.ar.md', 'SAFETY.ckb.md', 'SAFETY.kmr.md'];
+
+  // Fenced blocks are excluded throughout. They hold the CSP and the tool
+  // schema, whose *labels* are translated while the identifiers inside them are
+  // not, so comparing them as text would fail for a reason that is not a bug.
+  const doc = (f) => {
+    const p = join(REPO, f);
+    return existsSync(p) ? nl(readFileSync(p, 'utf8')).replace(/```[\s\S]*?```/g, '') : null;
+  };
+  const cited = (text) =>
+    new Set([...text.matchAll(/`([^`\n]+)`/g)].map((m) => m[1].trim()));
+  const shape = (text) => ({
+    h2: (text.match(/^## /gm) || []).length,
+    h3: (text.match(/^### /gm) || []).length,
+    rows: (text.match(/^\|/gm) || []).length,
+  });
+
+  for (const f of [SOURCE, ...TRANSLATIONS]) ok(`${f} is present`, doc(f) !== null);
+
+  const src = doc(SOURCE);
+  if (src) {
+    const srcCited = cited(src);
+    const srcShape = shape(src);
+
+    // A document that cites nothing cannot be checked, and an empty set would
+    // make every comparison below pass. So the count is asserted, not assumed.
+    ok('SAFETY.md cites a plausible number of identifiers',
+       srcCited.size > 80, `${srcCited.size} cited`);
+
+    for (const f of TRANSLATIONS) {
+      const text = doc(f);
+      if (!text) continue;
+      const theirs = cited(text);
+      ok(`${f} names everything SAFETY.md names`,
+         [...srcCited].every((i) => theirs.has(i)),
+         [...srcCited].filter((i) => !theirs.has(i)).join(' | '));
+      ok(`${f} names nothing SAFETY.md does not`,
+         [...theirs].every((i) => srcCited.has(i)),
+         [...theirs].filter((i) => !srcCited.has(i)).join(' | '));
+      const s = shape(text);
+      for (const k of ['h2', 'h3', 'rows']) {
+        ok(`${f} has SAFETY.md's ${k} count`, s[k] === srcShape[k],
+           `got ${s[k]}, want ${srcShape[k]}`);
+      }
+    }
+
+    // "It describes version X" and "Last checked against X" are the two places
+    // a stale document gives itself away, and the two a version bump forgets.
+    const version = JSON.parse(readFileSync('package.json', 'utf8')).version;
+    for (const f of [SOURCE, ...TRANSLATIONS]) {
+      const text = doc(f);
+      if (text) ok(`${f} says it describes ${version}`, text.includes(version));
+    }
+  }
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

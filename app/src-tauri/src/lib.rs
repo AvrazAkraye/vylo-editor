@@ -463,17 +463,6 @@ fn sha256_hex(bytes: &[u8]) -> String {
     h.finalize().iter().map(|b| format!("{b:02x}")).collect()
 }
 
-/// Hash of a file as it is on disk right now, or `None` if it is not there.
-#[tauri::command]
-fn file_hash(root: String, path: String) -> Result<Option<String>, String> {
-    let p = resolve(&root, &path)?;
-    match fs::read(&p) {
-        Ok(bytes) => Ok(Some(sha256_hex(&bytes))),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("{path}: {e}")),
-    }
-}
-
 /// Write a file. **Only the approval flow calls this.**
 ///
 /// There is no tool named `apply_write` in the schema the model is given, so a
@@ -1400,7 +1389,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
-            apply_write, file_hash, read_for_editor, git_state, run_command, git_create_branch, git_commit,
+            apply_write, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             create_file, create_dir, rename_path, delete_path,
             git_status, git_file_head,
             checkpoint_save, checkpoint_list, checkpoint_restore, checkpoint_redo, find_symbol,
@@ -1543,7 +1532,7 @@ mod tests {
         let root = tmp.to_string_lossy().to_string();
         fs::write(tmp.join("a.txt"), "original\n").unwrap();
 
-        let prepared = file_hash(root.clone(), "a.txt".into()).unwrap().unwrap();
+        let prepared = sha256_hex(&fs::read(tmp.join("a.txt")).unwrap());
 
         // Nothing has changed: the write lands.
         apply_write_in(None, &root, "a.txt", "agent edit\n".into(), Some(prepared.clone()))

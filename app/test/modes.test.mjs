@@ -75,10 +75,25 @@ const ABSENT = [
   'create_file', 'create_dir', 'rename_path', 'delete_path',
   'git_create_branch', 'git_commit',
   // Writes an unsaved buffer to app data as you type, and clears drafts.
-  'draft_save',
+  //
+  // `draft_clear` is here because it deletes a folder's whole draft directory
+  // (`fs::remove_dir_all` in drafts.rs) and `checkpoint_save` because it writes
+  // there -- both meet the description at the top of this list, and both were
+  // absent from the schema by nobody's decision until this line. The comment on
+  // `checkpoint_save` in lib.rs already claims it is "absent from the tool
+  // schema"; this is what makes that true rather than merely currently-the-case.
+  'draft_save', 'draft_clear', 'checkpoint_save',
   // Stops a third-party server. Starting one is already here; stopping one is
   // the same authority in the other direction.
   'mcp_stop',
+  // The two reads that sit OUTSIDE `resolve()`. They take a raw absolute path
+  // and are safe only because the human picked the file in a drop or a picker,
+  // which their own doc comments in lib.rs say. That is a different reason from
+  // the rest of this list -- they throw nothing away -- but it fails the same
+  // way: a model-supplied path reaching either of them is containment gone,
+  // silently. SAFETY.md enumerates exactly these two as the containment
+  // exceptions; this is the line that keeps that enumeration true.
+  'read_image', 'read_text_attachment',
 ];
 // `run_command` is deliberately NOT on this list. It is IN the schema, and that
 // is the whole design: the model may ask, and a human approves the exact string

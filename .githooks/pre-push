@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+#
+# pre-push — all three gates. The last moment before it is somebody else's
+# problem.
+#
+# Installed and skipped exactly like pre-commit:
+#
+#     git config core.hooksPath .githooks     opt in
+#     git push --no-verify                    skip once
+#     VYLO_SKIP_GATE=1 git push               skip once, without the flag
+#
+# WHY THIS REPEATS WHAT PRE-COMMIT ALREADY DID
+#
+# Because pre-commit may not have run. It is opt-in, it is skippable by design,
+# it is skipped outright for a commit that touches nothing under app/, and a
+# rebase or a merge produces commits no pre-commit ever saw. The failure this
+# exists to stop is precisely that one: a red `npm test` reached main, and the
+# only thing that ever ran the suite was CI, after the push.
+#
+# So this runs the full gate — `npm test`, `npm run build`, `cargo test`, and
+# `scripts/notices.sh --check`. `cargo test` lives here rather than in pre-commit
+# because it is the one whose cost is unbounded on a cold target/. A push is rare
+# enough to pay for it.
+#
+# The notices check is here for a different reason: it can only be falsified by
+# a lockfile change, and it is the difference between shipping a binary whose
+# third-party notices are current and shipping one whose notices are a version
+# behind. That is a compliance question, so a push is the right place to ask it
+# and a commit is not.
+#
+# Like pre-commit, this gates the WORKING TREE and not the commits being pushed;
+# testing those in isolation needs a clean checkout, which is what CI is.
+
+set -uo pipefail
+
+if [ -n "${VYLO_SKIP_GATE:-}" ]; then
+  echo "pre-push: VYLO_SKIP_GATE is set — gate skipped"
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+GATE="$ROOT/scripts/gate.sh"
+
+if [ ! -x "$GATE" ]; then
+  echo "pre-push: scripts/gate.sh is missing or not executable — gate skipped"
+  exit 0
+fi
+
+# git feeds this hook one line per ref on stdin:
+#
+#     <local ref> <local sha> <remote ref> <remote sha>
+#
+# A deletion (`git push --delete branch`) has an all-zero local sha and carries
+# no code at all, so a push made entirely of deletions is not gated. Anything
+# else — including a push whose refs we could not parse — is.
+DELETIONS_ONLY=1
+SAW_A_REF=0
+while read -r _local_ref local_sha _remote_ref _remote_sha; do
+  [ -z "${local_sha:-}" ] && continue
+  SAW_A_REF=1
+  case "$local_sha" in
+    *[!0]*) DELETIONS_ONLY=0 ;;
+  esac
+done
+if [ "$SAW_A_REF" = 1 ] && [ "$DELETIONS_ONLY" = 1 ]; then
+  echo "pre-push: deleting refs only — gate skipped"
+  exit 0
+fi
+
+exec "$GATE"

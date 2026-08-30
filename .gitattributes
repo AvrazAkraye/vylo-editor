@@ -1,0 +1,11 @@
+# Shell scripts and git hooks must be LF on every platform.
+#
+# A default Windows clone has core.autocrlf=true, which rewrites these on
+# checkout. bash then reads the first line as `#!/usr/bin/env bash\r` and fails
+# with `bash\r: No such file or directory` — for the gate, the hooks, and the
+# release scripts, none of which is obviously a line-endings problem when you
+# are looking at it. There is no matching rule for the rest of the tree on
+# purpose: `* text=auto` would renormalise files this has nothing to do with.
+*.sh                 text eol=lf
+.githooks/pre-commit text eol=lf
+.githooks/pre-push   text eol=lf

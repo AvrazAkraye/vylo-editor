@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+#
+# pre-commit — the frontend gate, before the commit rather than after it in CI.
+#
+# NOT INSTALLED BY A CLONE. It runs only once you opt in, from the repo root:
+#
+#     git config core.hooksPath .githooks
+#
+# That setting is local config, never committed, so nobody inherits it. Undo it
+# with `git config --unset core.hooksPath`.
+#
+# HOW TO SKIP IT, because a hook that cannot be skipped gets deleted rather
+# than fixed:
+#
+#     git commit --no-verify        git honours this itself; this file is not run
+#     VYLO_SKIP_GATE=1 git commit   for clients that give you no way to pass -n
+#
+# Both are supported on purpose. There is a legitimate reason to commit a red
+# tree — bisecting, or handing a broken state to somebody else on a branch —
+# and a gate you have to fight is one people route around permanently.
+#
+# WHY THIS RUNS TWO GATES AND NOT ALL OF THEM
+#
+# `npm test` and `npm run build` are about five seconds together on a warm
+# machine, which is under the threshold where a person starts reaching for -n.
+# `cargo test` is about two and a half seconds warm and MINUTES cold — a cleared
+# or cold target/ rebuilds the whole Tauri dependency tree — and a commit hook
+# whose worst case is unbounded is one that gets removed. It runs in pre-push
+# instead, where the wait is rarer and the stake is higher. So does the
+# third-party notices check, which nothing but a lockfile change can falsify.
+#
+# WHAT IT CHECKS IS THE WORKING TREE, NOT THE INDEX
+#
+# This deliberately does NOT stash unstaged changes to test the staged state in
+# isolation. That is the textbook approach and it is the wrong trade here: a
+# stashing hook that is interrupted loses uncommitted work, and this repo is
+# routinely edited by more than one agent at once, each with unstaged changes it
+# would sweep up. So the gate runs against what is on disk. For a partially
+# staged commit that is not exactly what you are committing — nothing local
+# closes that gap, and CI, which has a clean checkout and time, is the right
+# place for it to be closed.
+
+set -uo pipefail
+
+if [ -n "${VYLO_SKIP_GATE:-}" ]; then
+  echo "pre-commit: VYLO_SKIP_GATE is set — gate skipped"
+  exit 0
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+GATE="$ROOT/scripts/gate.sh"
+
+# An absent gate must not block a commit. Checking out a commit from before this
+# script existed is a normal thing to do, and a hook that fails because its own
+# tooling is missing teaches people to pass -n by reflex.
+if [ ! -x "$GATE" ]; then
+  echo "pre-commit: scripts/gate.sh is missing or not executable — gate skipped"
+  exit 0
+fi
+
+# What the frontend gate reads: app/, and scripts/. The second half is newer than
+# this hook — `app/test/orphans.test.mjs` imports `scripts/orphans.mjs`, so a
+# commit touching only that file can turn `npm test` red on its own (an edited
+# ALLOW entry, a scanner regex that has stopped matching, a syntax error), and
+# for a while this filter skipped the gate for exactly that file. `scripts/` also
+# holds `gate.sh` itself. A commit touching neither — and most of this repo's
+# history is docs, README and CI — cannot change the outcome, so it is not made
+# to wait. If the staged list cannot be read for any reason, the list is empty
+# and the gate runs; the conservative direction.
+STAGED="$(git diff --cached --name-only 2>/dev/null)"
+if [ -n "$STAGED" ] && ! printf '%s\n' "$STAGED" | grep -qE '^(app|scripts)/'; then
+  echo "pre-commit: nothing staged under app/ or scripts/ — frontend gate skipped"
+  exit 0
+fi
+
+exec "$GATE" frontend

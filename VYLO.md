@@ -115,18 +115,37 @@ the agent could see all three disagree.
 
 Every path the model supplies is resolved with `canonicalize` against the open
 folder and rejected if it escapes — `..` and symlinks resolve rather than being
-pattern-matched. `read_image` is the one deliberate exception: a human dragging
-a file in has chosen it explicitly.
+pattern-matched. Three commands sit outside `resolve()`, and all three take a
+path a human chose: `read_image` and `read_text_attachment` read a file dragged
+in or picked, and `export_write` writes to what the OS save panel returned. All
+three are absent from the tool schema, which is what makes that safe.
 
 ## Commands
 
 - `npm run build` — typecheck and bundle the frontend
 - `npm test` — the pure logic: diffs, SSE assembly, ranking, context fitting,
   syntax spans, the navigation trail, retry policy, learned model limits, the
-  message queue, the environment block, the parse check, the chat store and the
-  filesystem-watch policy (1230)
+  message queue, the environment block, the parse check, the chat store,
+  project memory and the filesystem-watch policy — plus a dead-code scan
+  (`scripts/orphans.mjs`) and one end-to-end test that drives a whole turn
+  against a scripted gateway on localhost, over a real folder (1397)
 - `cd src-tauri && cargo test` — 109, including the stale-write guard and the
   shared ignore-aware walk
+- `scripts/gate.sh` — all three of the above plus `notices.sh --check`,
+  cheapest first, stopping at the first failure. `notices` runs last on
+  purpose: it is a compliance check rather than a check on the code, and it
+  shells out to `cargo metadata`, so it wants the registry warm. It exits 3 when
+  its inputs cannot be gathered on this machine, which `gate.sh` reports and
+  forgives. `.githooks/` runs it, opt-in via
+  `git config core.hooksPath .githooks`. **Do not run two gates in one
+  checkout at once**: the Rust watch tests build fixtures at a fixed
+  `$TMPDIR/vylo_watch_<name>` and clear it on the way in, so a second run
+  deletes the first one’s tree mid-test.
+- `scripts/notices.sh` — regenerates `THIRD_PARTY_NOTICES.md`;
+  `--check` exits 1 when it is stale and 3 when it could not look. That file is
+  **generated, never hand-edited** — a correction belongs in the script. It
+  carries the MPL-2.0 source offer that five crates in the tree require, which
+  is the one obligation reproducing a licence text does not discharge.
 - `npx tauri build` — produces the `.app` and `.dmg`
 
 Release with `scripts/publish-macos.sh`, then `scripts/publish-windows.sh`
@@ -199,13 +218,19 @@ blocks, which is a complete request.
 
 ## What is kept outside the project, and why
 
-Four stores live in the Tauri app data directory and never in the folder being
+Three stores live in the Tauri app data directory and never in the folder being
 edited: drafts (unsaved buffers), checkpoints (the file contents before an
-approved write, plus the conversation tail so a redo can put it back), local
+approved write, plus the conversation tail so a redo can put it back), and local
 file history (every version this app has written, so a human saving over their
-own work can get it back), and clipboard history.
+own work can get it back).
 
-The last one carries a rule worth keeping in front of anyone who touches it:
+**Clipboard history is not one of them.** It is `localStorage`, under
+`vylo.clips.v1` — `localClips` in `src/clips.ts`. This was written down wrong
+here and in `SAFETY.md` for a while, which matters because the storage section
+of `SAFETY.md` exists so a privacy-conscious person can find and delete their
+data, and deleting the app data directory does not clear the clips.
+
+It carries a rule worth keeping in front of anyone who touches it:
 **it does not poll the OS clipboard.** A history that polls records whatever a
 password manager put there thirty seconds ago. It records only what is pasted
 *into* this app, skips what the OS marks concealed, and has a visible clear.
@@ -220,9 +245,13 @@ Both are the human authoring their own input, like the terminal and the memory
 editor. Dictation puts text in the composer for a person to read and send — it
 is deliberately not "voice commands", because letting recognised speech *run*
 something would be putting text into a shell that no human read. And
-`capture.rs` takes an enum, never a string: the program is an absolute path and
-every flag is a `&'static str`, so there is no argument for anything to reach.
-The user drags the crosshair themselves, which is what makes the capture theirs.
+`capture.rs` takes an enum, never a string: every flag is a `&'static str`, so
+there is no argument for anything to reach. On macOS the program is an absolute
+path (`/usr/sbin/screencapture`) precisely so a `screencapture` earlier in the
+user's `PATH` cannot be what runs; the Windows plan is
+`cmd /C start "" ms-screenclip:`, which does go through `PATH` like any other
+Windows launch. The user drags the crosshair themselves, which is what makes the
+capture theirs.
 
 ## Gotchas that have already cost time
 
