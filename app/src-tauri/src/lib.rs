@@ -28,19 +28,14 @@ mod index;
 mod mcp;
 mod pty;
 mod summon;
+mod walk;
+mod watch;
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
-
-/// Directories that are never worth showing an agent and are expensive to walk.
-const SKIP_DIRS: &[&str] = &[
-    ".git", "node_modules", "target", "dist", "build", ".next", ".venv",
-    "__pycache__", ".cache", "vendor", "Pods", ".gradle", ".idea",
-];
 
 /// Refuse to read anything that is not plausibly source. Binary content wastes
 /// context and can wreck the model's output.
@@ -58,6 +53,34 @@ pub struct Hit {
     path: String,
     line: usize,
     text: String,
+}
+
+/// What `list_tree` answers with.
+///
+/// The count is not decoration. `walk` honours `.gitignore`, `.ignore` and the
+/// user's own `~/.config/git/ignore`, and that last one can remove a file from
+/// every listing the agent ever sees in a project that says nothing about it.
+/// Reporting how many paths were left out turns "the agent says my file does
+/// not exist" into "the agent says it skipped 41 paths", which is a question
+/// somebody can answer.
+#[derive(Serialize)]
+pub struct Tree {
+    entries: Vec<Entry>,
+    skipped: usize,
+    /// `max_entries` cut the list short. The entries kept are the shallowest
+    /// ones, so what survives is the top of the tree rather than an arbitrary
+    /// slice of whichever directory the walk happened to finish first.
+    truncated: bool,
+}
+
+/// What `search` answers with. Same reasoning as [`Tree`] for the count.
+#[derive(Serialize)]
+pub struct Search {
+    hits: Vec<Hit>,
+    skipped: usize,
+    /// The scan stopped before the whole project was read — either at the
+    /// gather cap or at the walker's own ceiling.
+    truncated: bool,
 }
 
 /// Resolve `rel` inside `root`, or explain why it is not allowed.
@@ -93,50 +116,29 @@ pub(crate) fn resolve(root: &str, rel: &str) -> Result<PathBuf, String> {
     Ok(probe)
 }
 
-fn skipped(name: &str) -> bool {
-    SKIP_DIRS.contains(&name)
-}
-
-/// List the tree, breadth-limited, so the agent can orient itself cheaply.
+/// List the tree so the agent can orient itself cheaply.
+///
+/// There is no depth limit. The old one stopped at 8 while the symbol index
+/// walked to 12, so `find_symbol` could name a file in a monorepo that
+/// `list_tree` and `search` both denied existed. What the cap was really
+/// controlling was cost, and `walk` controls that where the cost is — the
+/// generated directories — rather than by refusing to look down.
 #[tauri::command]
-fn list_tree(root: String, max_entries: Option<usize>) -> Result<Vec<Entry>, String> {
+fn list_tree(root: String, max_entries: Option<usize>) -> Result<Tree, String> {
     let cap = max_entries.unwrap_or(2000);
     let base = Path::new(&root)
         .canonicalize()
         .map_err(|e| format!("workspace root is unreadable: {e}"))?;
-    let mut out = Vec::new();
 
-    for e in WalkDir::new(&base)
-        .max_depth(8)
+    let walked = walk::walk(&base, walk::MAX_WALK, true);
+    let truncated = walked.truncated || walked.found.len() > cap;
+    let entries = walked
+        .found
         .into_iter()
-        .filter_entry(|e| {
-            e.depth() == 0
-                || !e
-                    .file_name()
-                    .to_str()
-                    .map(skipped)
-                    .unwrap_or(false)
-        })
-        .filter_map(Result::ok)
-    {
-        if e.depth() == 0 {
-            continue;
-        }
-        let rel = match e.path().strip_prefix(&base) {
-            Ok(r) => r.to_string_lossy().to_string(),
-            Err(_) => continue,
-        };
-        let md = e.metadata().ok();
-        out.push(Entry {
-            path: rel,
-            is_dir: e.file_type().is_dir(),
-            size: md.map(|m| m.len()).unwrap_or(0),
-        });
-        if out.len() >= cap {
-            break;
-        }
-    }
-    Ok(out)
+        .take(cap)
+        .map(|f| Entry { path: f.rel, is_dir: f.is_dir, size: f.size })
+        .collect();
+    Ok(Tree { entries, skipped: walked.skipped, truncated })
 }
 
 /// Read one file as UTF-8. Size-capped, and binary is rejected rather than
@@ -343,7 +345,7 @@ fn search(
     max_hits: Option<usize>,
     case_insensitive: Option<bool>,
     whole_word: Option<bool>,
-) -> Result<Vec<Hit>, String> {
+) -> Result<Search, String> {
     // Ranking is looked up here and the walk stays a plain function, so the
     // search itself can be tested without a Tauri app around it.
     let scores = index::with_index(&state, &root, |i| i.rank(&query)).ok();
@@ -357,7 +359,7 @@ fn search_in(
     case_insensitive: Option<bool>,
     whole_word: Option<bool>,
     scores: Option<&std::collections::HashMap<String, f64>>,
-) -> Result<Vec<Hit>, String> {
+) -> Result<Search, String> {
     if query.trim().is_empty() {
         return Err("search query is empty".into());
     }
@@ -372,30 +374,25 @@ fn search_in(
     let base = Path::new(root)
         .canonicalize()
         .map_err(|e| format!("workspace root is unreadable: {e}"))?;
+    // The same walk `list_tree` and the index get. Three exclusions were three
+    // different answers to "what is in this project", and the agent could see
+    // all three.
+    let walked = walk::walk(&base, walk::MAX_WALK, true);
     let mut hits = Vec::new();
+    let mut stopped_early = false;
 
-    for e in WalkDir::new(&base)
-        .max_depth(8)
-        .into_iter()
-        .filter_entry(|e| {
-            e.depth() == 0
-                || !e.file_name().to_str().map(skipped).unwrap_or(false)
-        })
-        .filter_map(Result::ok)
-    {
-        if !e.file_type().is_file() {
+    'files: for f in &walked.found {
+        // `is_file`, not `!is_dir`: a symlink is listed by the tree and never
+        // opened here. It can point anywhere on the disk, and reading through
+        // one would put a file from outside the open folder into the model's
+        // context without a path ever having been checked.
+        if !f.is_file || f.size > MAX_READ_BYTES {
             continue;
         }
-        if e.metadata().map(|m| m.len()).unwrap_or(0) > MAX_READ_BYTES {
-            continue;
-        }
-        let Ok(text) = fs::read_to_string(e.path()) else {
+        let Ok(text) = fs::read_to_string(&f.path) else {
             continue; // binary or unreadable: skip quietly, this is a search
         };
-        let rel = match e.path().strip_prefix(&base) {
-            Ok(r) => r.to_string_lossy().to_string(),
-            Err(_) => continue,
-        };
+        let rel = &f.rel;
         for (i, line) in text.lines().enumerate() {
             // Case folding changes byte offsets in general, so word boundaries
             // are checked against whichever string the offset came from.
@@ -428,8 +425,14 @@ fn search_in(
                     line: i + 1,
                     text: line.chars().take(300).collect(),
                 });
+                // Leaving the whole walk, not just this file. The old code
+                // broke the line loop and then went on reading every remaining
+                // file for hits it had already decided not to keep, which was
+                // survivable at depth 8 and is not now that the walk reaches
+                // the bottom of a monorepo.
                 if hits.len() >= gather {
-                    break;
+                    stopped_early = true;
+                    break 'files;
                 }
             }
         }
@@ -437,8 +440,9 @@ fn search_in(
 
     // Order by how much each file is actually about the query, keeping line
     // order within a file. The sort is stable, so files the index knows nothing
-    // about keep the order the walk found them in — which is the old behaviour,
-    // and what happens when the index is empty or the query is punctuation.
+    // about keep the order the walk found them in — shallowest first, then
+    // alphabetical, which is a defined order rather than whichever directory a
+    // thread finished first.
     if let Some(scores) = scores.filter(|s| !s.is_empty()) {
         hits.sort_by(|a, b| {
             let sa = scores.get(&a.path).copied().unwrap_or(0.0);
@@ -446,8 +450,9 @@ fn search_in(
             sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
         });
     }
+    let truncated = walked.truncated || stopped_early || hits.len() > cap;
     hits.truncate(cap);
-    Ok(hits)
+    Ok(Search { hits, skipped: walked.skipped, truncated })
 }
 
 /// Lowercase hex sha-256, the form the frontend compares against.
@@ -1313,6 +1318,30 @@ fn history_forget_all(app: tauri::AppHandle, root: String) -> Result<(), String>
     history::forget_all_at(&store(&app)?, &root)
 }
 
+/// Write a text file the user has just chosen in a save dialog.
+///
+/// Deliberately not `apply_write`: that one resolves inside the open workspace
+/// and keeps a version of what it replaced, and neither applies to a file a
+/// person picked somewhere else on their own disk. So this takes an absolute
+/// path and does not contain it, which reads like a hole and is not one — like
+/// `apply_write` and the pty commands it is **absent from the tool schema**
+/// (`test/modes.test.mjs` names it), so no tool call reaches it however the
+/// model is prompted. Both of its arguments come from the human side: the path
+/// from the OS save panel, and the text from `exportMarkdown`, which renders a
+/// transcript the person pressing the button has been reading.
+///
+/// It creates no directories, for `apply_write`'s reason: the save panel only
+/// offers places that exist, so a missing parent means something is wrong
+/// rather than something to fix silently.
+#[tauri::command]
+fn export_write(path: String, text: String) -> Result<(), String> {
+    let p = PathBuf::from(&path);
+    if p.is_dir() {
+        return Err(format!("{path}: is a directory"));
+    }
+    fs::write(&p, text).map_err(|e| format!("{path}: {e}"))
+}
+
 /// Bind the global shortcut to `accel`, or unbind it when `accel` is null.
 ///
 /// Called from Settings as the field changes, so a new chord takes effect
@@ -1349,6 +1378,10 @@ pub fn run() {
         .manage(index::Indexes::default())
         .manage(mcp::Servers::default())
         .manage(summon::Bound::default())
+        // T2.5. One filesystem watch, for the folder that is open. It is here
+        // rather than started on demand so that closing a folder can stop the
+        // previous watch before the next one begins; see `watch.rs`.
+        .manage(watch::Watching::default())
         // Shells outlive the window they were opened from unless something says
         // otherwise, and a `npm run dev` still holding port 5173 after the app
         // is gone is a genuinely confusing thing to debug.
@@ -1377,6 +1410,8 @@ pub fn run() {
             history_list, history_read, history_restore, history_forget, history_forget_all,
             capture_screenshot,
             set_global_shortcut,
+            export_write,
+            watch::watch_start, watch::watch_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close
         ])
         .run(tauri::generate_context!())
@@ -1483,7 +1518,7 @@ mod tests {
         fs::write(tmp.join("a.txt"), "TODO: one\ntodo: two\nautodoc\nautodoc todo\n").unwrap();
         let root = tmp.to_string_lossy().to_string();
         let find = |q: &str, fold: Option<bool>, words: Option<bool>| {
-            search_in(&root, q, None, fold, words, None).unwrap().len()
+            search_in(&root, q, None, fold, words, None).unwrap().hits.len()
         };
 
         // Default: exactly what the model asked for, as before.
@@ -1572,6 +1607,30 @@ mod tests {
         assert_eq!(fs::read_to_string(work.join("a.txt")).unwrap(), "first\n");
 
         let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Exporting writes wherever the save panel said, so the only two things
+    /// worth pinning are that it writes what it was given and that it refuses a
+    /// directory rather than reporting a success nothing came of.
+    ///
+    /// The prefix is this test's own. Rust tests share a process, so
+    /// `std::process::id()` does not separate two tests' temp files and the
+    /// name is what has to.
+    #[test]
+    fn export_write_writes_the_text_and_refuses_a_directory() {
+        let dir = std::env::temp_dir().join(format!("vylo_exportwrite_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+
+        let file = dir.join("session.md");
+        export_write(file.to_string_lossy().into(), "# Session\n".into()).expect("should write");
+        assert_eq!(fs::read_to_string(&file).unwrap(), "# Session\n");
+
+        let err = export_write(dir.to_string_lossy().into(), "x".into())
+            .expect_err("a directory is not a file to write");
+        assert!(err.contains("is a directory"), "{err}");
+
+        let _ = fs::remove_dir_all(&dir);
     }
 
     /// A prefix is only safe to show because the editor cannot save it. This
@@ -1689,6 +1748,66 @@ mod tests {
     fn a_clean_tree_parses_to_nothing() {
         assert!(parse_status("").is_empty());
         assert!(parse_status("\0\0").is_empty());
+    }
+
+    /// The two halves of the item, through the command the agent actually
+    /// calls: a file the old `max_depth(8)` hid is reachable, and a directory
+    /// the project's own `.gitignore` names is not — in the same tree, so
+    /// neither result can be the other's accident.
+    #[test]
+    fn search_reaches_the_bottom_of_the_tree_and_stops_at_the_ignore_file() {
+        let tmp = std::env::temp_dir().join("vylo_deepsearch");
+        let _ = fs::remove_dir_all(&tmp);
+        let deep = tmp.join("a/b/c/d/e/f/g/h/i/j");
+        fs::create_dir_all(&deep).unwrap();
+        fs::create_dir_all(tmp.join("generated")).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        fs::write(tmp.join(".gitignore"), "generated/\n").unwrap();
+        fs::write(deep.join("buried.ts"), "export const needle = 1;\n").unwrap();
+        fs::write(tmp.join("generated/bundle.js"), "var needle = 1;\n").unwrap();
+
+        let out = search_in(&root, "needle", None, None, None, None).unwrap();
+        let paths: Vec<&str> = out.hits.iter().map(|h| h.path.as_str()).collect();
+        assert_eq!(out.hits.len(), 1, "{paths:?}");
+        assert!(paths[0].ends_with("buried.ts"), "depth 11 must be searchable: {paths:?}");
+        assert_eq!(
+            out.skipped, 1,
+            "the one path the ignore file removed has to be reported, not hidden",
+        );
+        assert!(!out.truncated);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// `list_tree` answers with the same walk, so the two tools cannot disagree
+    /// about what is in the project — which is the whole defect.
+    #[test]
+    fn the_tree_and_the_search_see_the_same_project() {
+        let tmp = std::env::temp_dir().join("vylo_treewalk");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(tmp.join("node_modules/left-pad")).unwrap();
+        fs::create_dir_all(tmp.join("src")).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+        fs::write(tmp.join("src/a.ts"), "export const marker = 1;\n").unwrap();
+        fs::write(tmp.join("node_modules/left-pad/index.js"), "var marker = 1;\n").unwrap();
+
+        // No .gitignore at all: the floor is the only thing keeping a
+        // dependency tree out, and it still does.
+        let tree = list_tree(root.clone(), None).unwrap();
+        let listed: Vec<&str> = tree.entries.iter().map(|e| e.path.as_str()).collect();
+        assert!(listed.iter().any(|p| p.ends_with("a.ts")), "{listed:?}");
+        assert!(
+            !listed.iter().any(|p| p.contains("left-pad")),
+            "node_modules is skipped with no ignore file to say so: {listed:?}",
+        );
+        assert!(tree.skipped >= 1, "the skipped directory is counted: {}", tree.skipped);
+        assert!(!tree.truncated);
+
+        let found = search_in(&root, "marker", None, None, None, None).unwrap();
+        assert_eq!(found.hits.len(), 1, "{:?}", found.hits.iter().map(|h| &h.path).collect::<Vec<_>>());
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     #[test]

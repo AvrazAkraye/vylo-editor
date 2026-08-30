@@ -8,7 +8,7 @@
 // refusing *visibly*: a message that vanishes without a word looks exactly like
 // one that was sent and ignored.
 import {
-  MAX_QUEUED, NO_QUEUE, add, clear, convo, drain, interrupts, isFull, list, merge, remove,
+  MAX_QUEUED, NO_QUEUE, add, clear, convo, drain, interrupts, isFull, isStale, list, merge, remove,
 } from '../.test-build/queue.js';
 
 let pass = 0, fail = 0;
@@ -186,6 +186,40 @@ ok('clearing it is likewise a no-op', clear(NO_QUEUE) === NO_QUEUE);
      texts(d.take).join() === 'and the migration file' && d.stale.length === 0);
 }
 
+// ── saying so before the turn ends, not after ─────────────────────────────
+{
+  // The refusal happens at drain, which is the end of a turn that may have ten
+  // hops left in it. The pending list has to be able to say "this one is not
+  // going anywhere" while the person can still do something about it.
+  const B = convo('c_beta', 0);
+  let q = add(NO_QUEUE, 'written in A', A, 'after');
+  q = add(q, 'written in B', B, 'after');
+  const [inA, inB] = list(q);
+
+  ok('a row written in this conversation is not marked stale', !isStale(inB, B));
+  ok('a row written in another one is', isStale(inA, B));
+
+  // Two definitions of "the conversation moved" is one definition free to
+  // drift, and the drift would show as a row drawn as sendable and then
+  // refused, or the reverse.
+  const d = drain(q, B);
+  ok('and what the list marks is exactly what the drain refuses',
+     d.stale.every((i) => isStale(i, B)) && d.take.every((i) => !isStale(i, B)));
+
+  // The recovery a marked row exists to offer.
+  ok('a row marked stale can still be taken out by hand before the turn ends',
+     list(remove(q, inA.id)).length === 1 && !isStale(list(remove(q, inA.id))[0], B));
+}
+
+{
+  // Queueing *after* the switch is the ordinary case and must not be caught by
+  // any of this: the message was written against the chat now open.
+  const B = convo('c_beta', 0);
+  const q = add(NO_QUEUE, 'written after the switch', B, 'after');
+  ok('a message queued after a chat switch belongs to the chat switched into',
+     !isStale(list(q)[0], B) && drain(q, B).take.length === 1);
+}
+
 // ── the token ─────────────────────────────────────────────────────────────
 {
   ok('the same chat at the same revision is the same conversation',
@@ -214,6 +248,25 @@ ok('clearing it is likewise a no-op', clear(NO_QUEUE) === NO_QUEUE);
   ok('one message on its own is merged into itself unchanged',
      merge([take[0]]) === 'check the config');
   ok('and nothing merges to nothing', merge([]) === '');
+
+  // A queued message can itself be two paragraphs — the separator is a blank
+  // line, so a message containing one must survive it intact. Joining on
+  // anything the text can contain is how two sentences become three.
+  const para = drain(add(add(NO_QUEUE, 'one\n\ntwo', A, 'after'), 'three', A, 'after'), A).take;
+  ok('a message that is itself two paragraphs is not taken apart by the join',
+     merge(para) === 'one\n\ntwo\n\nthree', merge(para));
+}
+
+// ── ids are unique for the life of the process, not of one queue ──────────
+{
+  // Two queues built independently — a queue cleared and started again is the
+  // real case. Ids that restarted would collide as React keys and, worse, make
+  // `remove` take a message the person did not point at.
+  let one = NO_QUEUE, two = NO_QUEUE;
+  for (const s of ['a', 'b', 'c']) one = add(one, s, A, 'after');
+  for (const s of ['a', 'b', 'c']) two = add(two, s, A, 'after');
+  const ids = [...list(one), ...list(two)].map((i) => i.id);
+  ok('two separately built queues share no ids', new Set(ids).size === ids.length, ids.join());
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

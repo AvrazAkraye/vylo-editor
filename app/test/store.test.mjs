@@ -13,8 +13,8 @@
 // reads as a sentence, and that the model-facing tool results are not.
 import {
   MAX_TITLE,
-  chatsIn, cleanTitle, commandsRun, exportFileName, exportMarkdown, filesWritten,
-  loadChat, renameChat, saveChat, searchChats, titleFrom,
+  chatsIn, cleanTitle, commandsRun, deleteChat, exportFileName, exportMarkdown,
+  filesWritten, loadChat, renameChat, saveChat, searchChats, titleFrom,
 } from '../.test-build/store.js';
 
 let pass = 0, fail = 0;
@@ -84,6 +84,32 @@ const titles = (hits) => hits.map((h) => h.chat.title);
   saveChat({ ...now, title: titleFrom(now.lines), lines: [...now.lines, said('because of the index')] });
   ok('the typed name survives the next turn saving over it',
      loadChat('a').title === 'Startup profiling', loadChat('a').title);
+
+  // cleanTitle is what bounds it, and the store has to be the thing that calls
+  // it — a caller passing a pasted paragraph would otherwise put it in every
+  // list that draws a title, and in the one localStorage quota.
+  ok('a pasted paragraph is cut on the way into the store',
+     renameChat('a', 'y'.repeat(400)) === true && loadChat('a').title.length === MAX_TITLE);
+}
+
+// ── deleting, the one thing here with no undo ─────────────────────
+{
+  fresh();
+  saveChat(chat({ id: 'keep', folder: '/a', title: 'New chat', lines: [you('keep me')] }));
+  saveChat(chat({ id: 'go', folder: '/a', title: 'New chat', lines: [you('delete me')] }));
+
+  deleteChat('go');
+  ok('deleting a chat removes it', loadChat('go') === null);
+  ok('and leaves every other chat alone', loadChat('keep') !== null);
+  ok('and it is gone from the folder listing',
+     chatsIn('/a').map((c) => c.id).join('|') === 'keep', chatsIn('/a').map((c) => c.id));
+
+  // A row can outlive its record — a second window, or a chat the size cap
+  // dropped — and the button passes whatever id the row was carrying. Deleting
+  // nothing must not be deleting everything.
+  deleteChat('never-existed');
+  ok('deleting a chat that is not there leaves the rest of the store standing',
+     chatsIn('/a').length === 1);
 }
 
 // ── searching ─────────────────────────────────────────────────────────────
@@ -113,6 +139,8 @@ const titles = (hits) => hits.map((h) => h.chat.title);
 
   ok('a query matching neither a name nor a word said finds nothing',
      searchChats('zzqjx', all).length === 0);
+  ok('case is not part of the query, the same as it is not in cmd-P',
+     searchChats('STARTUP', all).map((h) => h.chat.id).join('|') === 's');
   ok('a chat with no lines at all is simply not a text match',
      !searchChats('composer', all).some((h) => h.chat.id === 'n'));
   ok('but it is still findable by its name',
@@ -131,6 +159,15 @@ const titles = (hits) => hits.map((h) => h.chat.title);
        id: 'm', title: 'Unrelated',
        lines: [said('the index is rebuilt'), said('and the index is read on open')],
      })]).length === 1);
+
+  // A reply arrives as one line holding newlines, and a snippet spanning them
+  // would be a paragraph squeezed into a sidebar row. The split is what makes
+  // the snippet the sentence that matched.
+  const para = chat({ id: 'p', title: 'Unrelated', lines: [said(
+    'The first thing I did was read the file.\nThe index is rebuilt on save.\nThat is why it was slow.')] });
+  ok('the snippet is the line that matched, not the whole reply',
+     searchChats('rebuilt', [para])[0].snippet === 'The index is rebuilt on save.',
+     searchChats('rebuilt', [para])[0].snippet);
 
   const long = 'padding text '.repeat(30) + 'the needle is here' + ' trailing'.repeat(30);
   const far = searchChats('needle', [chat({ id: 'f', title: 'Unrelated', lines: [said(long)] })]);

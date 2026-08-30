@@ -62,7 +62,12 @@ export const READ_TOOLS = [
   {
     name: 'list_tree',
     description:
-      'List files and directories in the open folder. Use this first to orient yourself. Skips .git, node_modules, target, dist and similar.',
+      'List files and directories in the open folder. Use this first to orient yourself. '
+      + 'Returns { entries, skipped, truncated }. Generated directories are left out — '
+      + '.gitignore and .ignore decide, plus dependency and cache trees like node_modules. '
+      + 'There is no depth limit. `skipped` is how many paths that removed: if the user '
+      + 'expects a file you cannot find and skipped is not zero, say so rather than '
+      + 'reporting the file absent.',
     input_schema: {
       type: 'object',
       properties: {
@@ -98,9 +103,11 @@ export const READ_TOOLS = [
   {
     name: 'search',
     description:
-      'Find a literal substring across the open folder. Returns path, line number and the matching line. '
-      + 'Not a regex. Results are ordered by how much each file is about the query, so the first few are '
-      + 'usually the ones worth reading. Use find_symbol instead when you want a declaration.',
+      'Find a literal substring across the open folder. Returns { hits, skipped, truncated }; each hit '
+      + 'has a path, a line number and the matching line. Not a regex. Hits are ordered by how much each '
+      + 'file is about the query, so the first few are usually the ones worth reading. `skipped` is how '
+      + 'many paths the ignore rules kept out of the search, and search now covers the same paths as '
+      + 'list_tree and find_symbol. Use find_symbol instead when you want a declaration.',
     input_schema: {
       type: 'object',
       properties: {
@@ -377,6 +384,12 @@ export interface RunOptions {
   askToRun: AskToRun;
   /** Runs an already-approved command in a visible terminal tab. */
   runInTerminal?: (command: string) => Promise<CommandResult>;
+  /**
+   * Facts about the OS, the shell `run_command` actually spawns, and this
+   * project's manifests — built by `environment.ts` from disk and the host.
+   * Empty when no folder is open.
+   */
+  environment?: string;
   /** Project memory block, appended to the system prompt. Empty when there is none. */
   memory?: string;
   /** Called as the loop progresses so the UI can show work in flight. */
@@ -503,6 +516,11 @@ function toolsFor(o: RunOptions): unknown[] {
 function system(o: RunOptions, summary = ''): string {
   const base = o.mode === 'ask' ? `${BASE_SYSTEM}\n${ASK_NOTE}` : BASE_SYSTEM;
   const parts = [base];
+  // Before the memory, because it is the more stable of the two. The memory
+  // file changes the moment a `remember` is approved, and everything after a
+  // change falls outside the cached prefix; the environment only changes when
+  // the project's shape does.
+  if (o.environment) parts.push(o.environment);
   if (o.memory) parts.push(o.memory);
   // After the memory: what the model was just told about the project outranks
   // an account of a conversation it can no longer see.

@@ -1,4 +1,6 @@
 import { explain } from './errors';
+import { applyWrite } from './disk';
+import { sha256Hex } from './hash';
 import { useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { EditorState, Prec, type Extension, Compartment } from '@codemirror/state';
@@ -53,11 +55,6 @@ export interface EditorHandle {
   goto(line: number): void;
   /** Where the caret is, 1-based. What the navigation trail records. */
   line(): number;
-}
-
-export async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 export function languageName(path: string): string {
@@ -409,7 +406,7 @@ export function Editor({
         const text = v.state.doc.toString();
         // The baseline is what this editor last saw on disk. Passing it means a
         // change made outside the app is reported rather than overwritten.
-        await invoke('apply_write', { root, path, content: text, expectSha256: base.current });
+        await applyWrite(root, path, text, base.current);
         clean.current = text;
         base.current = await sha256Hex(text);
         dirtyNow.current = false;

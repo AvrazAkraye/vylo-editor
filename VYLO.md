@@ -63,6 +63,25 @@ whose side effects nothing about their names reveals.
 
 `mcp_start` and `mcp_call` are absent from the tool schema, like `apply_write`.
 
+### Where exporting a chat sits inside that rule
+
+`export_write` takes an absolute path and does not contain it, which reads like
+a hole and is not one. It is absent from the tool schema, so no tool call
+reaches it; its path comes from the OS save panel, so no string the model
+produced chooses where it writes; and its content is a markdown transcript of a
+conversation the person pressing the button has been reading. It is the same
+shape as the editor's save and the terminal's keystrokes: the human is the
+author, and what it produces is a record, not code that anything runs.
+
+### Where the message queue sits inside that rule
+
+A message typed into the composer while a turn runs is a human's own sentence
+travelling the same path as any other user message: it becomes one `user` turn
+and nothing else. It authorises no write, approves no command and skips no
+dialog. The direction that would matter is the reverse, and it does not exist —
+nothing the model produces can be put in the queue, and `queue.ts`'s `add` is
+called from exactly one place, a keystroke in the textarea.
+
 ### Where the terminal sits inside that rule
 
 The integrated terminal (`src-tauri/src/pty.rs`) runs a real shell with no
@@ -76,6 +95,22 @@ What holds the line is that `pty_open` / `pty_write` / `pty_resize` /
 the model into a terminal. The bridge is one-way: a human can press *Send to
 chat* to hand terminal output to the agent. Do not add the reverse.
 
+## The disk moves underneath this app
+
+It ships its own terminal, so `git checkout`, `git pull` and `npm install` all
+happen inside it. `src-tauri/src/watch.rs` watches the canonicalised root and
+`src/watch.ts` decides what a batch means: a clean buffer is reloaded, a **dirty
+one is asked about and never reloaded** — a reload is a full-document replace
+and would destroy unsaved work with no undo entry — a staged proposal whose file
+moved is re-based rather than dropped, and the app's own writes are muted for
+1.5 s so saving a file does not send your own caret to the end of it.
+
+`list_tree`, `search` and the symbol index now share one walk
+(`src-tauri/src/walk.rs`) with one set of ignore rules: the project's own
+`.gitignore` first, a floor of dependency and cache trees underneath it, and no
+depth cap. Three walkers were three answers to "what is in this project", and
+the agent could see all three disagree.
+
 ## Containment
 
 Every path the model supplies is resolved with `canonicalize` against the open
@@ -87,8 +122,11 @@ a file in has chosen it explicitly.
 
 - `npm run build` — typecheck and bundle the frontend
 - `npm test` — the pure logic: diffs, SSE assembly, ranking, context fitting,
-  syntax spans, the navigation trail, retry policy (806)
-- `cd src-tauri && cargo test` — 83, including the stale-write guard
+  syntax spans, the navigation trail, retry policy, learned model limits, the
+  message queue, the environment block, the parse check, the chat store and the
+  filesystem-watch policy (1230)
+- `cd src-tauri && cargo test` — 109, including the stale-write guard and the
+  shared ignore-aware walk
 - `npx tauri build` — produces the `.app` and `.dmg`
 
 Release with `scripts/publish-macos.sh`, then `scripts/publish-windows.sh`
@@ -140,6 +178,24 @@ summarise older turns into the system prompt, then keep fewer turns.
 the app always sent — because a `max_tokens` above what a model accepts fails
 the request outright, and guessing high on an unfamiliar id breaks the one case
 where someone is doing something deliberate.
+
+That table is only the opening guess. `app/src/limits.ts` learns a model's real
+numbers from the 400s that name them — `prompt is too long: … > 200000 maximum`
+and `max_tokens: … > 32000, which is the maximum allowed for this model` — keeps
+them per model id in `vylo.limits.v1`, and `runAgent` sends the same request
+again immediately with the corrected budget. The parsing is anchored on the
+wording of each error and not on `a > b`, because a rate-limit message has the
+same shape and learning a per-minute quota as a context window would be silent
+and permanent. Values are bounded on the way in *and* on the way out of the
+store: a learned context below 10,000 is refused, so a corrupted store cannot
+brick every future request.
+
+Reaching the twelve-hop cap no longer throws the turn away. `runAgent` raises
+`HopLimit`, which carries the messages exactly as `Stopped` does, and the
+transcript offers **Continue** — a human press every time, because a cap that
+continues by itself is a pause with extra steps. Nothing is appended to the
+conversation on resume: it already ends with a user message of `tool_result`
+blocks, which is a complete request.
 
 ## What is kept outside the project, and why
 

@@ -14,8 +14,10 @@
 // a comparison: a grammar that cannot read the file already on disk is not
 // allowed an opinion about the file after the change. The tests at the bottom
 // pin that, using constructs the grammars genuinely reject.
-import { checkParse, hunksWithParseError } from '../.test-build/parses.js';
-import { loadGrammars, grammarsReady } from '../.test-build/highlight.js';
+import {
+  checkParse, hunksWithParseError, loadGrammars, grammarsReady,
+} from '../.test-build/parses.js';
+// Stateless, so a second bundle of it is the same function.
 import { diffRows, hunks } from '../.test-build/pending.js';
 
 let pass = 0, fail = 0;
@@ -61,10 +63,22 @@ ok('the grammars report themselves ready', grammarsReady());
 // ── the empty file ────────────────────────────────────────────────────────
 {
   const c = proposed('', 'src/a.ts');
-  ok('an empty file parses, because it is valid in every language',
-     c.verdict === 'parses', c);
+  ok('an empty TypeScript file parses', c.verdict === 'parses', c);
   const w = proposed('   \n\n', 'src/a.ts');
   ok('and so does one that is only whitespace', w.verdict === 'parses', w);
+}
+{
+  // The awkward one. An empty document is not valid JSON, so a new `.json` file
+  // whose absent `before` was parsed as a baseline would disqualify the grammar
+  // and go unchecked — on one of the two languages here strict enough to be
+  // worth checking at all.
+  ok('an empty document is not valid JSON', proposed('', 'x.json').verdict === 'broken');
+  const c = checkParse('', '{"a": 1}\n', 'x.json');
+  ok('so a brand new JSON file is judged on its own, not against nothing there',
+     c.verdict === 'parses' && c.reason === 'checked', c);
+  const bad = checkParse('', '{"a": 1,}\n', 'x.json');
+  ok('and a broken new JSON file is still reported',
+     bad.verdict === 'broken' && bad.lines[0] === 1, bad);
 }
 
 // ── a language with no grammar ────────────────────────────────────────────
@@ -83,6 +97,57 @@ ok('a file with no extension at all is not checked',
   const c = proposed('} } } not markdown at all {{{\n', 'README.md');
   ok('markdown is not checked, because a grammar that accepts every byte cannot fail',
      c.verdict === 'unchecked' && c.reason === 'no-signal', c);
+}
+
+// ── the grammar that looks like a checker and is not one ──────────────────
+// HTML is bundled, so it would have been checked by default, and the default
+// was wrong. Its grammar recovers from exactly the breakage an `edit_file`
+// causes, so the badge would have read "parses" on the failure it exists to
+// catch — which is worse than no badge at all.
+{
+  const unclosed = '<div class="a">\n  <p>hi</p>\n';
+  const c = proposed(unclosed, 'page.html');
+  ok('html is not checked either', c.verdict === 'unchecked' && c.reason === 'no-signal', c);
+  ok('and the reason is not "no grammar" — there is one, it just cannot fail usefully',
+     c.reason !== 'no-grammar', c);
+  ok('the same file is not reported as a pass, which is what excluding it prevents',
+     c.verdict !== 'parses', c);
+  ok('a mismatched closing tag is not checked rather than passed',
+     proposed('<div>hi</span>\n', 'page.html').reason === 'no-signal');
+  ok('and the extensions that share the html grammar go with it',
+     ['a.vue', 'a.svelte', 'a.xml', 'a.htm'].every((p) => proposed('<div>\n', p).reason === 'no-signal'));
+}
+{
+  // The counterpart, and the reason html had to be singled out rather than
+  // every markup language written off: CSS is bundled too and is a real
+  // checker, so it stays in.
+  ok('css with an unclosed rule does not parse',
+     proposed('.a{ color:red;\n', 'a.css').verdict === 'broken');
+  ok('css with a spare closing brace does not parse',
+     proposed('.a{ color:red; }\n}\n', 'a.css').verdict === 'broken');
+  ok('and valid css parses', proposed('.a{ color:red; }\n', 'a.css').verdict === 'parses');
+}
+{
+  // Every language that is checked rejects both a missing terminator and a
+  // spare one. This is the list the header claims, asserted rather than
+  // described, so removing a grammar from the excluded set has to be deliberate.
+  const cases = [
+    ['a.ts', 'function f() {\n', 'function f() {}\n}\n', 'function f() {}\n'],
+    ['a.js', 'function f() {\n', 'function f() {}\n}\n', 'function f() {}\n'],
+    ['a.py', 'def f(:\n', 'def f():\nreturn 1\n', 'def f():\n    return 1\n'],
+    ['a.rs', 'fn f() {\n', 'fn f() {}\n}\n', 'fn f() {}\n'],
+    ['a.json', '{"a": 1\n', '{"a": 1}}\n', '{"a": 1}\n'],
+    ['a.css', '.a{ color:red;\n', '.a{ color:red; }\n}\n', '.a{ color:red; }\n'],
+  ];
+  ok('every checked language rejects an unterminated file',
+     cases.every(([p, open]) => proposed(open, p).verdict === 'broken'),
+     cases.filter(([p, open]) => proposed(open, p).verdict !== 'broken').map(([p]) => p));
+  ok('and a spare terminator',
+     cases.every(([p, , extra]) => proposed(extra, p).verdict === 'broken'),
+     cases.filter(([p, , extra]) => proposed(extra, p).verdict !== 'broken').map(([p]) => p));
+  ok('and accepts the valid version of the same file',
+     cases.every(([p, , , good]) => proposed(good, p).verdict === 'parses'),
+     cases.filter(([p, , , good]) => proposed(good, p).verdict !== 'parses').map(([p]) => p));
 }
 
 // ── too large ─────────────────────────────────────────────────────────────

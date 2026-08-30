@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { applyWrite } from './disk';
 import { MEMORY_FILE, readMemory, type Memory } from './memory';
 
 const TEMPLATE = `# Project memory
@@ -39,7 +39,10 @@ export function MemoryEditor({ root, memory, onSaved, t }: Props) {
     setSaving(true);
     setNote(null);
     try {
-      await invoke('apply_write', { root, path: file, content: text });
+      // No `expectSha256`: the person typing is the person whose text is on
+      // screen. The write also acknowledges the file, so saving it here is
+      // what makes it memory.
+      await applyWrite(root, file, text);
       onSaved(await readMemory(root));
       setNote(t('Saved. It applies from your next message.'));
     } catch (e) {

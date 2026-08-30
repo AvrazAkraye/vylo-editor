@@ -16,7 +16,18 @@ tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-walkdir = "2"
+# T2.4. ripgrep's directory walker, in place of `walkdir`, which is now gone.
+# The agent's three walks -- list_tree, search and the symbol index -- each
+# carried a hardcoded list of directory names, and a list is wrong in both
+# directions at once: it walked `coverage/` and `.terraform/` because they were
+# not on it, and hid `dist/` from the projects that check it in because they
+# were. A `.gitignore` is the project's own statement of what in it is
+# generated, and this is the crate that reads it -- plus `.ignore`,
+# `.git/info/exclude` and the user's global file -- with the per-directory
+# precedence git itself uses. Hand-writing that is a nested matcher stack and a
+# glob engine. It also walks on every core, which is what pays for removing the
+# depth cap.
+ignore = "0.4"
 base64 = "0.22"
 tauri-plugin-updater = "2.10.1"
 tauri-plugin-process = "2.3.1"
@@ -30,6 +41,21 @@ tauri-plugin-global-shortcut = "2.3.2"
 # header of `src/notify.ts` for why a notification that could approve a command
 # would be the security invariant broken by convenience.
 tauri-plugin-notification = "2.3.3"
+# T2.5. The filesystem watcher behind `watch.rs`.
+#
+# The reason it is a dependency and not fifty lines here: there is no portable
+# way to be told a file changed. macOS has FSEvents, Windows has
+# ReadDirectoryChangesW, and the two disagree about almost everything -- whether
+# a watch is recursive, whether a rename arrives as one event or two, whether
+# the path is delivered at all. This app ships its own terminal, so the disk
+# moves under it constantly (`git checkout`, `npm install`, a build), and the
+# alternative to an event source is polling the tree, which is the walk this
+# crate exists to avoid doing every second.
+#
+# Only the backends are taken. Debouncing, the ignore rules and the batching are
+# in `watch.rs`, where the reasons for them can be read -- `notify-debouncer-full`
+# would have been a second crate to save about thirty lines.
+notify = "8"
 
 [profile.release]
 codegen-units = 1

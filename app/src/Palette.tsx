@@ -218,10 +218,10 @@ export function FindInFiles({ root, onOpen, onClose, onReplace, t }: FindProps) 
     let cancelled = false;
     const h = window.setTimeout(() => {
       setBusy(true);
-      invoke<Hit[]>('search', {
+      invoke<{ hits: Hit[] }>('search', {
         root, query: q, maxHits: 300, caseInsensitive: fold, wholeWord: words,
       })
-        .then((r) => { if (!cancelled) { setHits(r); setErr(null); setActive(0); } })
+        .then((r) => { if (!cancelled) { setHits(r.hits); setErr(null); setActive(0); } })
         .catch((e) => { if (!cancelled) { setHits([]); setErr(String(e)); } })
         .finally(() => { if (!cancelled) setBusy(false); });
     }, 180);

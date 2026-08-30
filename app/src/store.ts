@@ -31,6 +31,14 @@ export interface Line {
    * offers the button — an old one would re-run a question two answers back.
    */
   retry?: boolean;
+  /**
+   * Set on the line reporting that a turn ran out of hops. The work is not
+   * lost — `history` holds it — so this line offers Continue rather than a
+   * retry, and continuing costs one budget of hops from where it stopped
+   * instead of buying the same twelve again. Cleared with `retry`, and for the
+   * same reason.
+   */
+  more?: boolean;
 }
 
 export interface Chat {
@@ -198,14 +206,14 @@ export function ago(ts: number): string {
  *
  * A chat list that only grows is write-only: a name the app invented, no way
  * to correct it, and nothing to do with a thread afterwards but open it or
- * lose it. The four functions below are the record made usable — rename,
- * delete (which was already here), search, and one chat written out as a
- * document.
+ * lose it. What follows is the record made usable — a rename, a search over
+ * both the names and what was said, and one chat written out as a document.
+ * Deleting was already here.
  *
- * All of them except `renameChat` are pure functions over a `Chat`, which is
- * why they are here rather than in the component: the awkward cases — an empty
- * name, a query that matches nothing, a thread with no lines at all — are the
- * reason to write them down, and none of them are reachable through a React
+ * Everything except `renameChat` is a pure function over a `Chat`, which is
+ * why it is here and not in the component: the awkward cases — an empty name,
+ * a query that matches nothing, a thread with no lines at all — are the reason
+ * to write these down at all, and none of them are reachable through a React
  * tree.
  * ──────────────────────────────────────────────────────────────────────── */
 

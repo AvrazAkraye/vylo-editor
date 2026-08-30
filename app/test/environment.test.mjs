@@ -18,7 +18,7 @@
 // every project not on it), so it is pinned by a test rather than by a comment.
 import {
   MANIFESTS, LOCKS, MAX_BLOCK_CHARS, NO_FACTS,
-  classify, declaresTasks, taskNames, environmentPrompt, hostOs,
+  classify, declaresTasks, taskNames, environmentPrompt, hostOs, treeFiles,
 } from '../.test-build/environment.js';
 import { estimateText } from '../.test-build/budget.js';
 
@@ -61,6 +61,39 @@ const block = (over = {}) => environmentPrompt(facts(over));
 }
 ok('an unrecognised user agent is treated as POSIX rather than as Windows',
    hostOs() === 'linux' || hostOs() === 'macos');
+
+// ── reading what list_tree answered ───────────────────────────────────────
+// The seam between this file and the Tauri command. It exists because it was
+// wrong once: `list_tree` grew a `{ entries, skipped, truncated }` envelope and
+// this call site went on reading a bare array, which throws, which the caller's
+// catch reports as "the folder could not be listed". Nothing said the project
+// half of the block had gone missing. Both shapes are pinned here so the next
+// change to the command fails a test instead of quietly emptying the block.
+{
+  const entries = [
+    { path: 'package.json', is_dir: false, size: 12 },
+    { path: 'src', is_dir: true, size: 0 },
+    { path: 'src/App.tsx', is_dir: false, size: 40 },
+  ];
+  ok('the current envelope is unwrapped, not treated as a list',
+     JSON.stringify(treeFiles({ entries, skipped: 41, truncated: true }))
+     === JSON.stringify(['package.json', 'src/App.tsx']),
+     treeFiles({ entries, skipped: 41, truncated: true }));
+  ok('a bare array still works, so the shape it had before does not break the block',
+     JSON.stringify(treeFiles(entries)) === JSON.stringify(['package.json', 'src/App.tsx']));
+  ok('directories are dropped — a manifest is a file, and `src` is not one',
+     !treeFiles({ entries }).includes('src'));
+  ok('a shape nobody expected answers nothing rather than throwing',
+     [null, undefined, 'nope', 7, {}, { entries: 'nope' }]
+       .every((r) => treeFiles(r).length === 0));
+  ok('an entry that is not an object is skipped rather than crashing the listing',
+     JSON.stringify(treeFiles({ entries: [null, 'x', { path: 'a.js', is_dir: false }] }))
+     === JSON.stringify(['a.js']));
+  ok('an entry with no path is skipped, so no empty string reaches classify',
+     treeFiles({ entries: [{ path: '', is_dir: false }, { is_dir: false }] }).length === 0);
+  ok('the envelope\'s counts are not mistaken for paths',
+     !treeFiles({ entries: [], skipped: 41, truncated: true }).length);
+}
 
 // ── what is on disk ───────────────────────────────────────────────────────
 {

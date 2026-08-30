@@ -5,7 +5,7 @@ import {
   recognitionLang, speechAvailable, type State as DictState,
 } from './dictate';
 import {
-  runAgent, Stopped, type Mode,
+  runAgent, HopLimit, Stopped, type Mode,
   type Block, type CommandRequest, type CommandResult, type Msg, type RunChoice,
 } from './agent';
 import {
@@ -23,9 +23,15 @@ import {
   type Chat, type Line as SavedLine,
 } from './store';
 import { memoryPrompt, readMemory, type Memory } from './memory';
+import { environmentPrompt, readEnvironment } from './environment';
 import { MemoryEditor } from './MemoryEditor';
 import { FileHistory } from './FileHistory';
+import { Chats } from './Chats';
 import { cutPoints, redoTarget } from './checkpoints';
+import {
+  SelfWrites, mergeAsks, plan as diskPlan, start as watchFolder,
+  type Batch as DiskBatch, type Change as DiskChange,
+} from './watch';
 import { FileTree, type Entry } from './FileTree';
 // CodeMirror is a few hundred KB and the chat tab needs none of it, so the
 // editor loads the first time a file is opened.
@@ -47,6 +53,11 @@ import {
 } from './mentions';
 import { rank } from './fuzzy';
 import {
+  NO_QUEUE, convo, drain, interrupts, isFull, isStale,
+  add as enqueue, clear as clearQueue, list as queued, merge as mergeQueued,
+  remove as unqueue, type Queue, type SendMode,
+} from './queue';
+import {
   clear as clearClips, history as clipHistory, localClips, preview as clipPreview,
   privateField, remember as rememberClip, shortened, type Clip,
 } from './clips';
@@ -65,6 +76,10 @@ import {
   accelerator, bind, chordFrom, isCancel, label as chordLabel, loadBinding,
   problem, refusal, saveBinding, SUMMONED,
 } from './shortcut';
+import {
+  again, loadPrefs, raise, savePrefs, summons, watchFocus,
+  type Level as NotifyLevel, type Moment, type Prefs as NotifyPrefs,
+} from './notify';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
   watchSystem, type Theme,
@@ -114,6 +129,17 @@ export function App() {
   // The turn in flight, so it can be stopped. Streaming makes a long turn
   // visible, which makes not being able to interrupt one obvious.
   const abort = useRef<AbortController | null>(null);
+  /**
+   * Whether the turn that just ended left a decision on screen — a failure with
+   * Try again, or the hop cap with Continue.
+   *
+   * Read by the queue drain. Sending a queued message straight after one of
+   * those buries the button under a new turn and buys another twelve hops
+   * nobody agreed to; the queue waits instead, visible, and goes in after the
+   * press that actually finishes the turn. A ref rather than state because
+   * nothing renders from it and a render is not wanted when it changes.
+   */
+  const needsDecision = useRef(false);
   // Index of the reply currently being written to, so deltas append to it
   // instead of each one becoming its own line.
   const openLine = useRef<number | null>(null);
@@ -125,6 +151,18 @@ export function App() {
   const [recording, setRecording] = useState(false);
   /** An English sentence out of `shortcut.ts`, translated where it is drawn. */
   const [summonErr, setSummonErr] = useState('');
+  // T2.1. What may interrupt somebody who is in another window, and how loudly.
+  const [notifyPrefs, setNotifyPrefs] = useState<NotifyPrefs>(() => loadPrefs(localStorage));
+  // Read through a ref where it is used: `askToRun` is handed to `runAgent`
+  // once and then held for the length of a turn, so a setting changed during a
+  // twelve-hop turn would otherwise not be seen until the next one.
+  const notifyNow = useRef(notifyPrefs);
+  notifyNow.current = notifyPrefs;
+  // Only the window knows whether it is in front, and it starts in front --
+  // which is what a window that has just been opened is.
+  const focused = useRef(true);
+  /** When each kind of summons last went out, so six staged files are one banner. */
+  const raised = useRef<Partial<Record<Moment['kind'], number>>>({});
   const [shots, setShots] = useState<Attached[]>([]);
   const [dragging, setDragging] = useState(false);
   const [changes, setChanges] = useState<Change[]>([]);
@@ -148,8 +186,26 @@ export function App() {
   const [updating, setUpdating] = useState<number | null | 'done'>(null);
   const [recents, setRecents] = useState(() => folders());
   const [chatId, setChatId] = useState<string>(() => newChatId());
+  // Messages typed while a turn is running. Never persisted: a queue means
+  // something only while a turn is in flight, and no turn survives a restart.
+  const [queue, setQueue] = useState<Queue>(NO_QUEUE);
+  /**
+   * How many times this chat has been cut out from under itself — a checkpoint
+   * undo, or the redo that puts one back.
+   *
+   * Paired with the chat id it is the token `queue.ts` compares, and it is the
+   * half the chat id cannot supply: an undo rewrites the files and truncates
+   * the transcript without changing which chat you are in, so a message queued
+   * before it would pass a chat-id check and arrive addressed to work that has
+   * just been undone.
+   */
+  const [rev, setRev] = useState(0);
+  /** The conversation a message typed right now would be written against. */
+  const convoNow = convo(chatId, rev);
   const [chats, setChats] = useState<Chat[]>([]);
   const [memory, setMemory] = useState<Memory>({ file: null, text: '' });
+  // The environment block for the system prompt, or '' before a folder is open.
+  const [environment, setEnvironment] = useState('');
   const [tree, setTree] = useState<Entry[]>([]);
   const [tabs, setTabs] = useState<string[]>([]);          // open file paths
   const [active, setActive] = useState<string>('chat');    // 'chat' | a path
@@ -183,6 +239,30 @@ export function App() {
   const keys = useRef({ back: () => {}, fwd: () => {}, sym: () => {}, fileSym: () => {}, clips: () => {} });
   const editors = useRef(new Map<string, EditorHandle>());
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  /**
+   * Files that changed on disk while they were open *and dirty*.
+   *
+   * A separate list from `dirty` because it is a question rather than a state:
+   * a reload is a full-document replace, so running one against unsaved work
+   * destroys it silently. Clean tabs are reloaded without asking and never
+   * appear here; see `src/watch.ts`.
+   */
+  const [asks, setAsks] = useState<DiskChange[]>([]);
+  /**
+   * Bumped when the watcher says the folder moved.
+   *
+   * The tree, `git_state` and `git_status` are already effects keyed on the
+   * things that change them, and this is one more of those things. Invoking all
+   * three by hand from the watcher instead would be the same three calls
+   * written a second time, with a second set of cancellation bugs.
+   */
+  const [diskTick, setDiskTick] = useState(0);
+  /**
+   * What this app has just written, so the watcher's report of it can be
+   * dropped. Without it, saving a file reloads the buffer you are typing in and
+   * CodeMirror maps your caret through the replacement to the end of the file.
+   */
+  const selfWrites = useRef(new SelfWrites());
   /**
    * The folder whose stored tabs have already been read back.
    *
@@ -432,6 +512,39 @@ export function App() {
     return () => { void stop.then((off) => off()); };
   }, []);
 
+  // T2.1. Focus is the first thing the policy reads, and it is the *window's*
+  // focus rather than the document's: `document.hasFocus()` is a webview's
+  // opinion of itself and says nothing about the app being behind three others.
+  useEffect(() => watchFocus((f) => { focused.current = f; }), []);
+
+  /**
+   * Say that the agent is waiting, if the person is not here to see it.
+   *
+   * Whether anything fires at all is `notify.ts`; this is only where the app's
+   * three facts meet. Nothing about the command, the file or the model's words
+   * is passed, because `Moment` has no field for any of them -- a banner that
+   * could carry a proposed command would be a shell command approved from the
+   * notification centre with the string never on screen.
+   *
+   * Failing to raise a banner is never a reason to interrupt a turn.
+   */
+  function raiseSummons(m: Moment) {
+    const last = raised.current[m.kind];
+    const now = Date.now();
+    if (!again(m.kind, last === undefined ? Infinity : now - last)) return;
+    const s = summons(m, focused.current, notifyNow.current);
+    if (!s) return;
+    raised.current[m.kind] = now;
+    void raise(s, t, IS_MAC).catch(() => { /* the OS said no; the window is still there */ });
+  }
+
+  /** Change one notification setting and store it, like every other one here. */
+  function setNotifyTo(patch: Partial<NotifyPrefs>) {
+    const next = { ...notifyNow.current, ...patch };
+    setNotifyPrefs(next);
+    savePrefs(localStorage, next);
+  }
+
   /** Bind `accel`, or release the chord when it is null. Stored only if the OS agreed. */
   async function setSummonTo(accel: string | null) {
     try {
@@ -496,11 +609,64 @@ export function App() {
   useEffect(() => {
     if (!root) { setTree([]); return; }
     let cancelled = false;
-    void invoke<Entry[]>('list_tree', { root, maxEntries: 4000 })
-      .then((e) => { if (!cancelled) setTree(e); })
+    void invoke<{ entries: Entry[]; skipped: number; truncated: boolean }>(
+      'list_tree', { root, maxEntries: 4000 },
+    )
+      .then((r) => { if (!cancelled) setTree(r.entries); })
       .catch(() => { if (!cancelled) setTree([]); });
     return () => { cancelled = true; };
-  }, [root, written]);
+  }, [root, written, diskTick]);
+
+  /**
+   * What one batch from the filesystem watcher means for what is on screen.
+   *
+   * The decisions are all in `plan`, which is pure and tested; this is only the
+   * carrying out. Three of them are worth naming: a clean buffer is reloaded, a
+   * dirty one is *asked* about, and a staged proposal is re-based rather than
+   * dropped — somebody running `git pull` must not throw away a turn's work.
+   */
+  async function applyDiskBatch(b: DiskBatch) {
+    const p = diskPlan(b, {
+      tabs: tabs.filter((x) => x !== '__memory__').map((path) => ({ path, dirty: dirty.has(path) })),
+      staged: pending.current.list().map((c) => c.path),
+      ours: selfWrites.current,
+    });
+    if (p.tree || p.git) setDiskTick((n) => n + 1);
+    for (const path of p.reload) await editors.current.get(path)?.reload().catch(() => {});
+    for (const path of p.restage) await pending.current.restage(root, path).catch(() => null);
+    if (p.restage.length) setChanges(pending.current.list());
+    // Clean and gone: nothing to reload and nothing to lose. `closeTab` asks
+    // before discarding unsaved work, and a dirty tab is never in this list.
+    for (const path of p.close) closeTab(path);
+    if (p.ask.length) setAsks((prev) => mergeAsks(prev, p.ask));
+  }
+  // Reassigned every render. The subscription below is registered once per
+  // folder and would otherwise hold the first render's tabs — the same trap the
+  // quit guard fell into.
+  const disk = useRef(applyDiskBatch);
+  disk.current = applyDiskBatch;
+
+  /**
+   * Watch the open folder.
+   *
+   * Vylo ships its own terminal, so `git checkout`, `git pull` and `npm install`
+   * all happen inside the app and used to be invisible until the folder was
+   * reopened. `watch.rs` canonicalises the root exactly as `resolve` does and
+   * refuses anything that is not under it, so a symlink out of the folder
+   * cannot become a watch on somebody's home directory.
+   *
+   * A folder that cannot be watched still opens: this is the push, and every
+   * refresh it triggers is also reachable by the actions that already existed.
+   */
+  useEffect(() => {
+    if (!root) return;
+    let off: (() => void) | null = null;
+    let gone = false;
+    void watchFolder(root, (b) => { void disk.current(b); })
+      .then((stop) => { if (gone) stop(); else off = stop; })
+      .catch(() => { /* a folder that cannot be watched still opens */ });
+    return () => { gone = true; off?.(); selfWrites.current.clear(); };
+  }, [root]);
 
   // Sidebar width, dragged from the divider.
   useEffect(() => {
@@ -778,7 +944,7 @@ export function App() {
       .then((c) => { if (!cancelled) setTracked(c); })
       .catch(() => { if (!cancelled) setTracked([]); });
     return () => { cancelled = true; };
-  }, [root, git?.is_repo, git?.branch, written, changes]);
+  }, [root, git?.is_repo, git?.branch, written, changes, diskTick]);
 
   /**
    * Open a working-tree change as a diff against its committed version.
@@ -840,6 +1006,20 @@ export function App() {
     return () => { cancelled = true; };
   }, [root, written]);
 
+  // What machine and what project the model is working on. Re-read on the same
+  // trigger as memory, because an approved write can create the very first
+  // package.json and a block still saying there is none is a fact that is
+  // wrong rather than one that is missing. Recomputing costs nothing when the
+  // project has not moved: environmentPrompt is deterministic, so an unchanged
+  // folder produces the identical string, React bails out of the render, and
+  // the cached prompt prefix survives untouched.
+  useEffect(() => {
+    if (!root) { setEnvironment(''); return; }
+    let cancelled = false;
+    void readEnvironment(root).then((f) => { if (!cancelled) setEnvironment(environmentPrompt(f)); });
+    return () => { cancelled = true; };
+  }, [root, written]);
+
   // Bring back the conversation for this folder. Runs on mount too, so
   // reopening the app lands you where you left off.
   useEffect(() => {
@@ -894,7 +1074,7 @@ export function App() {
     if (!root) { setGit(null); return; }
     void invoke<{ is_repo: boolean; branch: string; dirty: number }>('git_state', { root })
       .then(setGit).catch(() => setGit(null));
-  }, [root, changes]);
+  }, [root, changes, diskTick]);
 
   // The redo stack belongs to the chat, not to this component, so switching
   // chats has to ask again rather than carrying the last one's answer over.
@@ -972,11 +1152,21 @@ export function App() {
     }, 0);
   }
 
-  /** Turn every mention in the message into something the model can read. */
-  async function resolveAttachments(): Promise<{ items: Attached[]; errors: string[] }> {
+  /**
+   * Turn every mention in the message into something the model can read.
+   *
+   * `list` defaults to the mentions in the box because that is what an ordinary
+   * send carries. A queued message is not in the box any more, so it brings its
+   * own — `@other/file.ts` is most of what a correction typed mid-turn says,
+   * and resolving the live box instead would attach whatever is being typed
+   * next.
+   */
+  async function resolveAttachments(
+    list: ReturnType<typeof findMentions> = mentioned,
+  ): Promise<{ items: Attached[]; errors: string[] }> {
     const items: Attached[] = [];
     const errors: string[] = [];
-    for (const m of mentioned) {
+    for (const m of list) {
       try {
         if (m.kind === 'terminal') {
           const text = termText.current?.() ?? '';
@@ -1231,11 +1421,11 @@ export function App() {
   ): Promise<number> {
     // A wider net than the display cap: the panel shows 300 hits, but a replace
     // has to touch every file that matches, not the first few hundred lines.
-    const hits = await invoke<{ path: string }[]>('search', {
+    const found = await invoke<{ hits: { path: string }[] }>('search', {
       root, query: find, maxHits: 5000, caseInsensitive: opts.fold, wholeWord: opts.words,
-    }).catch(() => [] as { path: string }[]);
+    }).catch(() => ({ hits: [] as { path: string }[] }));
 
-    const paths = [...new Set(hits.map((h) => h.path))];
+    const paths = [...new Set(found.hits.map((h) => h.path))];
     let changed = 0;
     let total = 0;
     for (const path of paths) {
@@ -1388,6 +1578,10 @@ export function App() {
   function askToRun(req: CommandRequest): Promise<RunChoice> {
     if (trusted.current.has(req.command)) return Promise.resolve('pipe');
     setAskRun(req);
+    // The loop is suspended on the promise below until somebody clicks, so this
+    // is the one moment the app is genuinely stuck. `req.command` is not passed
+    // and there is nowhere to put it: the dialog is what the human reads.
+    raiseSummons({ kind: 'approval', mcp: req.kind === 'mcp' });
     return new Promise<RunChoice>((resolve) => {
       decide.current = (choice) => {
         decide.current = null;
@@ -1411,6 +1605,10 @@ export function App() {
     // nobody asked for.
     pending.current.clear();
     setChanges([]);
+    // Both are about the folder that was open: a question about a file in it,
+    // and a claim that this app wrote one. Neither means anything now.
+    setAsks([]);
+    selfWrites.current.clear();
     setShots([]);
     // "Always allow" was granted against one project, not all of them.
     trusted.current.clear();
@@ -1434,6 +1632,9 @@ export function App() {
         && !window.confirm(t('Close without saving?') + `\n\n${path}`)) return;
     editors.current.delete(path);
     setDirty((p) => { const n = new Set(p); n.delete(path); return n; });
+    // Otherwise reopening the file later brings back a bar asking about a
+    // change that was decided when the buffer was thrown away.
+    setAsks((p) => p.filter((x) => x.path !== path));
     setTabs((prev) => prev.filter((p) => p !== path));
     setActive((cur) => (cur === path ? 'chat' : cur));
     // Otherwise reopening the file later in the same session drops the caret at
@@ -1501,6 +1702,7 @@ export function App() {
       // contents only exist in the staged change, which it then discards.
       const cp = await snapshot(paths);
       const done = await pending.current.apply(root, paths);
+      for (const p of done) selfWrites.current.note(p);
       setChanges(pending.current.list());
       setWritten((prev) => [...new Set([...prev, ...done])]);
       if (!commitMsg && done.length) {
@@ -1547,6 +1749,7 @@ export function App() {
     setBusy(true);
     try {
       await pending.current.applyPartial(root, path, content);
+      selfWrites.current.note(path);
       setChanges(pending.current.list());
       setWritten((prev) => [...new Set([...prev, path])]);
       if (!commitMsg) setCommitMsg(`Update ${path.split('/').pop() || path}`);
@@ -1641,12 +1844,21 @@ export function App() {
       const done = await invoke<string[]>('checkpoint_restore', {
         chatId: cpChat(), seq: cp.seq, root, tails,
       });
+      // This function reloads every editor below, so the watcher reporting the
+      // same files a moment later would reload them a second time and move
+      // every caret in the app.
+      for (const p of done) selfWrites.current.note(p);
       // Staged changes were proposed against files that no longer look like
       // that, so keeping them would offer a diff against a version that is gone.
       pending.current.clear();
       setChanges([]);
       history.current = history.current.slice(0, cp.hist);
       setLines((p) => p.slice(0, index));
+      // The conversation a queued message was written against is now gone.
+      // Bumping the revision is what makes `drain` hand that message back
+      // instead of sending it into a transcript that was just cut away — the
+      // chat id has not changed and cannot see this.
+      setRev((r) => r + 1);
       setWritten([]);
       // Reload every open buffer, or the editor keeps showing the version that
       // was just rolled back and would write it straight over the restore.
@@ -1692,8 +1904,12 @@ export function App() {
       // transcript is the UI's business and nothing in Rust looks inside it. A
       // missing cut takes nothing off, which is the whole conversation — what
       // the newest checkpoint of an undo gets anyway.
+      for (const p of back.paths) selfWrites.current.note(p);
       history.current = (back.conversation?.history ?? []).slice(0, back.ends?.hist);
       setLines((back.conversation?.lines ?? []).slice(0, back.ends?.upto));
+      // A redo replaces the transcript exactly as an undo cut it, so it moves
+      // the conversation out from under a queued message in the same way.
+      setRev((r) => r + 1);
       setWritten([]);
       for (const h of editors.current.values()) await h.reload().catch(() => {});
       await refreshRedo();
@@ -1718,19 +1934,38 @@ export function App() {
     });
   }
 
-  async function send() {
-    const text = prompt.trim();
+  /**
+   * Send a message.
+   *
+   * `queued` is everything drained out of the message queue when a turn ended,
+   * already merged into one string — see `queue.ts`. It arrives as an argument
+   * rather than through `prompt` because `setPrompt` and then `send()` in one
+   * tick reads the box as it was *before* the set, and would send whatever was
+   * there a moment ago. The box is also not the queue's to borrow: it holds the
+   * message being written now, and a drain must not take a half-typed sentence
+   * with it.
+   *
+   * A queued message is text and its own mentions. Attachments stay in the tray
+   * for the message being written — a screenshot dragged in while the agent
+   * worked belongs to whatever is typed next, not to something queued three
+   * hops ago.
+   */
+  async function send(queued?: string) {
+    const text = (queued ?? prompt).trim();
+    const carriedShots = queued ? [] : shots;
     // An image on its own is a legitimate message -- "what is wrong here?"
     // with a screenshot needs no words.
-    if ((!text && shots.length === 0) || busy) return;
+    if ((!text && carriedShots.length === 0) || busy) return;
     if (!root) { push({ kind: 'error', text: t('Open a folder first.') }); return; }
     if (!apiKey) { push({ kind: 'error', text: t('Add your gateway API key in Settings.') }); setShowSettings(true); return; }
 
-    // The message is gone; anything still being said belongs to the next one,
-    // not to the empty box left behind.
-    dictation.current?.stop();
-    setPrompt('');
-    push({ kind: 'you', text, shots: shots.length ? [...shots] : undefined });
+    if (!queued) {
+      // The message is gone; anything still being said belongs to the next one,
+      // not to the empty box left behind.
+      dictation.current?.stop();
+      setPrompt('');
+    }
+    push({ kind: 'you', text, shots: carriedShots.length ? [...carriedShots] : undefined });
     setBusy(true);
 
     // Images ride in the same user turn as the question, before the text, so
@@ -1739,9 +1974,11 @@ export function App() {
     // written turn with a header saying which file each one is.
     // Mentions are read at send time from the text as it finally stands, so a
     // file named and then deleted from the message is never attached.
-    const { items: fromMentions, errors: mentionErrors } = await resolveAttachments();
+    const { items: fromMentions, errors: mentionErrors } = await resolveAttachments(
+      queued ? findMentions(queued, resolveMention, termMounted) : mentioned,
+    );
     for (const e of mentionErrors) push({ kind: 'error', text: e });
-    const carried = [...fromMentions, ...shots];
+    const carried = [...fromMentions, ...carriedShots];
 
     const images = carried.filter(isImage);
     const files = carried.filter(isText);
@@ -1750,7 +1987,7 @@ export function App() {
       ? [...images.map(toImageBlock), { type: 'text' as const, text: written_ }]
       : written_;
     history.current.push({ role: 'user', content });
-    setShots([]);
+    if (!queued) setShots([]);
 
     await converse();
   }
@@ -1765,8 +2002,13 @@ export function App() {
    */
   async function converse() {
     // Only the newest failure offers a retry; an older one would re-ask a
-    // question two answers back.
-    setLines((p) => (p.some((l) => l.retry) ? p.map((l) => (l.retry ? { ...l, retry: undefined } : l)) : p));
+    // question two answers back. Continue goes the same way: it resumes the
+    // conversation as it stands, so a button left on an older line would
+    // silently resume from somewhere else.
+    setLines((p) => (p.some((l) => l.retry || l.more)
+      ? p.map((l) => (l.retry || l.more ? { ...l, retry: undefined, more: undefined } : l))
+      : p));
+    needsDecision.current = false;
     setBusy(true);
     const controller = new AbortController();
     abort.current = controller;
@@ -1794,13 +2036,29 @@ export function App() {
           setShowTerm(true);
           return termRun.current(command);
         },
+        environment,
         memory: memoryPrompt(memory),
         onDelta: stream,
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
-        onStaged: () => setChanges(pending.current.list()),
+        onStaged: () => {
+          setChanges(pending.current.list());
+          // Fires once per file, so the quiet window in `again()` is what turns
+          // a six-file turn into one banner rather than six.
+          raiseSummons({ kind: 'staged' });
+        },
         onRetry: (n, of) => push({
           kind: 'result',
           text: `${t('The gateway did not answer — trying again')} (${n}/${of})`,
+        }),
+        // A model's real limit, learned from the 400 that named it and applied
+        // to the same request rather than reported as a failure. Said out loud
+        // because it changes how much the agent will remember from here on,
+        // and a silent change to that is how a tool loses trust.
+        onLimit: (kind, value) => push({
+          kind: 'result',
+          text: `${kind === 'context'
+            ? t('This model accepts a different context size. Corrected it and sent the request again.')
+            : t('This model accepts a different reply length. Corrected it and sent the request again.')} (${value})`,
         }),
         // The half-written reply is on screen and is about to be asked for
         // again. Take it back, or the answer appears twice.
@@ -1811,6 +2069,9 @@ export function App() {
         }),
         signal: controller.signal,
       });
+      // A turn that ran to the end. News rather than a decision, so it only
+      // fires at the "everything" level.
+      raiseSummons({ kind: 'finished' });
     } catch (e) {
       // Stopping is a choice, not a failure, and reporting it as an error would
       // read like something went wrong. What was said before the stop is kept:
@@ -1820,11 +2081,36 @@ export function App() {
       if (e instanceof Stopped) {
         history.current = e.messages;
         push({ kind: 'result', text: t('Stopped.') });
+      } else if (e instanceof HopLimit) {
+        // Everything this turn read is on the exception, so keep it. The old
+        // behaviour threw it away and offered Try again, which bought the same
+        // twelve hops to reach the same wall — on a metered plan, twice the
+        // bill for one answer. Continue re-enters `converse()` with exactly
+        // this conversation, which ends with tool results and is a complete
+        // request as it stands; nothing is appended to it. And it is a press:
+        // a cap that continues by itself is not a cap.
+        history.current = e.messages;
+        push({
+          kind: 'result',
+          text: t('Reached the step limit for this turn. Nothing is lost — press Continue to carry on.'),
+          more: true,
+        });
+        // Which is also why the queue must not drain over it: a queued message
+        // would press Continue on the user's behalf and buy the hops.
+        needsDecision.current = true;
       } else {
         // Retryable in the sense that the same request can be sent again: the
         // history still ends with the user's message. Whether it will work is
         // the gateway's business, and the button says nothing about that.
         push({ kind: 'error', text: explain(e, t('send the message')), retry: true });
+        // There is a Try again on screen now, and the queue must not send over
+        // the top of it -- see `needsDecision`.
+        needsDecision.current = true;
+        // Deliberately not in the `Stopped` branch above: Stop is a button in
+        // this window, so whoever pressed it was looking at the app a moment
+        // ago, and telling somebody that what they just asked for has happened
+        // is how notifications get switched off.
+        raiseSummons({ kind: 'failed' });
       }
     } finally {
       abort.current = null;
@@ -1832,6 +2118,70 @@ export function App() {
       setBusy(false);
     }
   }
+
+  /**
+   * Put what is in the box into the queue instead of sending it.
+   *
+   * Reachable only while a turn is running; the same chord sends when one is
+   * not. Nothing here is a new way for anything to reach the disk or a shell.
+   * The sentence goes on to be one `user` message like any other, and every
+   * write and every command it leads to is staged and approved exactly as it
+   * would have been had it been typed a minute later.
+   */
+  function queueMessage(mode: SendMode) {
+    if (!prompt.trim()) return;
+    // Say the queue is full rather than swallowing the keystroke. Clearing the
+    // box and losing the sentence to a cap nobody mentioned is the silent drop
+    // this whole feature is built to avoid, one step earlier.
+    if (isFull(queue)) {
+      push({ kind: 'error', text: t('Nothing more can be queued until this turn ends.') });
+      return;
+    }
+    const next = enqueue(queue, prompt, convoNow, mode);
+    setQueue(next);
+    dictation.current?.stop();
+    setPrompt('');
+    // Stop only once the message is safely in the queue. Aborting first ends
+    // the turn, the effect below drains a queue that does not yet hold this
+    // message, and the one sentence not sent is the one that asked for the
+    // interruption.
+    if (interrupts(next)) abort.current?.abort();
+  }
+
+  /**
+   * Queued messages go in when the turn ends. Two guards, each with a failure
+   * behind it.
+   *
+   * `drain` refuses anything written against a conversation that has since
+   * moved — another chat, another folder, a checkpoint undo — and hands it back
+   * rather than dropping it, because a sentence that vanishes without a word
+   * looks exactly like one that was sent and ignored.
+   *
+   * The second is `needsDecision`: a turn that failed, or hit the hop cap, put
+   * a button on screen that the person has to press. Sending a queued message
+   * then buries it under a new turn and buys hops nobody agreed to. So the
+   * queue is left where it is — on screen, with its remove controls — and goes
+   * in after the retry that actually finishes the turn.
+   *
+   * A turn the person stopped by hand is *not* one of those. Every message in
+   * the queue was put there by a ⌘↵ that means send; Stop ends the turn, not
+   * the intentions queued behind it. Anyone who wants them gone has a remove on
+   * every row and a Clear beside them.
+   */
+  useEffect(() => {
+    if (busy || needsDecision.current || !queued(queue).length) return;
+    const { take, stale, queue: left } = drain(queue, convoNow);
+    setQueue(left);
+    for (const i of stale) {
+      push({
+        kind: 'error',
+        text: `${t('Not sent, because this conversation has moved on since it was written:')} ${i.text}`,
+      });
+    }
+    // One drain, one turn. Three queued messages sent as three turns would be
+    // three hop budgets started with nobody watching.
+    if (take.length) void send(mergeQueued(take));
+  }, [busy, queue, convoNow]);
 
   const folderName = root ? root.split(/[/\\]/).filter(Boolean).pop() : null;
   // '__memory__' is a tab but not a file on the editor stack.
@@ -1929,6 +2279,24 @@ export function App() {
                 : t('Off until you set one. Press it anywhere to bring Vylo forward and start a message.')}
             </span>
           </div>
+          <label>{t('Notifications')}
+            <select value={notifyPrefs.level}
+                    onChange={(e) => setNotifyTo({ level: e.target.value as NotifyLevel })}>
+              <option value="needed">{t('When the agent needs me')}</option>
+              <option value="all">{t('For everything, including when a turn ends')}</option>
+              <option value="off">{t('Off')}</option>
+            </select>
+          </label>
+          <label>{t('Notification sound')}
+            <select value={notifyPrefs.sound ? 'on' : 'off'}
+                    onChange={(e) => setNotifyTo({ sound: e.target.value === 'on' })}>
+              <option value="off">{t('Off')}</option>
+              <option value="on">{t('On')}</option>
+            </select>
+          </label>
+          <p className="hint">
+            {t('Only while Vylo is in the background. The banner brings the window forward; nothing is approved from it.')}
+          </p>
           <label>{t('Theme')}
             <select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
               <option value="system">{t('Match system')}</option>
@@ -2104,19 +2472,9 @@ export function App() {
 
             {rail === 'chats' && (
               <>
-                {chats.length === 0
-                  ? <p className="ft-empty">{t('No saved conversations.')}</p>
-                  : chats.map((c) => (
-                      <div key={c.id} className={`ft-row ft-file chat-row ${c.id === chatId ? 'on' : ''}`}>
-                        <button className="chat-open" onClick={() => openChat(c)} title={c.title}>
-                          <span className="ft-icon"><Icon name="chat" size={13} /></span>
-                          <span className="ft-name">{c.title}</span>
-                          <span className="rc-meta">{ago(c.updatedAt)}</span>
-                        </button>
-                        <button className="chat-x" onClick={() => removeChat(c.id)}
-                                aria-label={`Delete ${c.title}`}><Icon name="close" size={12} /></button>
-                      </div>
-                    ))}
+                <Chats chats={chats} current={chatId} t={t}
+                       onOpen={openChat} onDelete={removeChat}
+                       onRenamed={() => { setChats(chatsIn(root)); setRecents(folders()); }} />
                 {recents.length > 0 && (
                   <>
                     <div className="sb-sub">{t('Projects')}</div>
@@ -2179,6 +2537,36 @@ export function App() {
             ))}
           </div>
 
+          {/* The disk moved under a file with unsaved edits in it. A watcher
+              that reloaded this on its own would destroy work with no undo
+              entry and no warning, so it is a question. Clean tabs never reach
+              here — they have already been reloaded. */}
+          {asks.filter((a) => a.path === active).map((a) => (
+            <div key={a.path} className="staged-bar stale disk-bar">
+              <Icon name="warning" size={13} />
+              <span>
+                {a.kind === 'removed'
+                  ? t('This file was deleted on disk.')
+                  : t('This file changed on disk while you were editing it.')}
+              </span>
+              <span className="bar-sp" />
+              {a.kind === 'changed' && (
+                <button className="approve"
+                        onClick={() => {
+                          void editors.current.get(a.path)?.reload()
+                            .catch((e) => push({ kind: 'error', text: explain(e, t('reload the file')) }));
+                          setAsks((p) => p.filter((x) => x.path !== a.path));
+                        }}>
+                  {t('Reload')}
+                </button>
+              )}
+              <button className="ghost"
+                      onClick={() => setAsks((p) => p.filter((x) => x.path !== a.path))}>
+                {t('Keep mine')}
+              </button>
+            </div>
+          ))}
+
           {!root ? null : active === '__memory__' ? (
             <MemoryEditor root={root} memory={memory} onSaved={setMemory} t={t} />
           ) : active !== 'chat' ? null : (
@@ -2225,6 +2613,11 @@ export function App() {
             {item.retry && (
               <button className="undo-cp" disabled={busy} onClick={() => void converse()}>
                 <Icon name="restore" size={12} />{t('Try again')}
+              </button>
+            )}
+            {item.more && (
+              <button className="undo-cp" disabled={busy} onClick={() => void converse()}>
+                <Icon name="send" size={12} />{t('Continue')}
               </button>
             )}
           </div>
@@ -2275,7 +2668,16 @@ export function App() {
                     if (isDirty) next.add(path); else next.delete(path);
                     return next;
                   })}
-                  onSaved={(path) => setWritten((prev) => [...new Set([...prev, path])])}
+                  onSaved={(path) => {
+                    // Ours, so the watcher's report of it is dropped: reloading
+                    // the buffer somebody is typing in sends their caret to the
+                    // end of the file.
+                    selfWrites.current.note(path);
+                    // And saving is the answer to "this changed on disk" —
+                    // whichever way it was answered, the question is settled.
+                    setAsks((p) => p.filter((x) => x.path !== path));
+                    setWritten((prev) => [...new Set([...prev, path])]);
+                  }}
                   onError={(m) => push({ kind: 'error', text: m })}
                 />
               ))}
@@ -2504,7 +2906,36 @@ export function App() {
 
       {root && (
       <div className="composer">
-        <div className={`cmp-card ${busy ? 'busy' : ''}`}>
+        <div className="cmp-card">
+          {/* What is waiting, in the order it will be sent. Inside the card
+              rather than in the transcript: none of it has been said to the
+              agent yet, and drawing it in the conversation would show the agent
+              being told something it has not been told. */}
+          {queued(queue).length > 0 && (
+            <div className="qlist" role="group" aria-label={t('Queued')}>
+              <div className="qhead">
+                <span>{t('Queued')}</span>
+                <button className="qclear" onClick={() => setQueue(clearQueue)}>{t('Clear')}</button>
+              </div>
+              {queued(queue).map((item) => {
+                // Said now rather than when the turn ends: a refusal you can
+                // still do something about is worth more than one you are told
+                // about nine hops later.
+                const gone = isStale(item, convoNow);
+                return (
+                  <div key={item.id} className={`qrow ${item.mode === 'now' ? 'now' : ''} ${gone ? 'gone' : ''}`}>
+                    <Icon name={item.mode === 'now' ? 'stop' : 'pause'} size={12} />
+                    <span className="qtext" title={item.text}>{item.text}</span>
+                    {gone && <span className="qwhy">{t('Written in another conversation')}</span>}
+                    <button className="qx" onClick={() => setQueue((p) => unqueue(p, item.id))}
+                            title={t('Remove from the queue')} aria-label={t('Remove from the queue')}>
+                      <Icon name="close" size={11} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
                   {(shots.length > 0 || mentioned.length > 0) && (
             <div className="tray">
               {/* Derived from the text, so deleting the word removes the chip. */}
@@ -2558,11 +2989,17 @@ export function App() {
                 if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); chooseMention(mentionHits[mentionPick].path); return; }
                 if (e.key === 'Escape') { e.preventDefault(); setMention(null); return; }
               }
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); void send(); }
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                // One chord, doing whichever of the two things the state of the
+                // app makes sensible: send when nothing is running, queue when
+                // something is. Shift makes it the kind that stops the turn.
+                if (busy) queueMessage(e.shiftKey ? 'now' : 'after');
+                else void send();
+              }
             }}
-            placeholder={t('Ask about this codebase…')}
+            placeholder={t(busy ? 'Queue a message for when this turn ends…' : 'Ask about this codebase…')}
             rows={2}
-            disabled={busy}
           />
 
           <div className="cmp-bar">
@@ -2620,9 +3057,13 @@ export function App() {
             </span>
 
             <span className="cmp-model">
+              {/* Live while a turn runs. `runAgent` was handed the model when
+                  the turn started, so changing it now decides the next one —
+                  which is exactly the decision you make when you can see this
+                  one going wrong. */}
               <select value={MODELS.some((m) => m.id === model) ? model : 'custom'}
                       onChange={(e) => { if (e.target.value !== 'custom') setModel(e.target.value); }}
-                      disabled={busy} aria-label={t('Model')}>
+                      aria-label={t('Model')}>
                 {MODELS.map((m) => <option key={m.id} value={m.id}>{m.short}</option>)}
                 {!MODELS.some((m) => m.id === model) && <option value="custom">{model}</option>}
               </select>
@@ -2632,9 +3073,21 @@ export function App() {
             <span className="cmp-hint">{SEND_KEY}</span>
 
             {busy ? (
-              <button className="send stop" onClick={() => abort.current?.abort()}>
-                <Icon name="stop" size={13} />{t('Stop')}
-              </button>
+              <>
+                {/* Only while there is something to queue. A disabled button
+                    beside Stop on every turn is a control that does nothing
+                    almost all the time. */}
+                {prompt.trim().length > 0 && (
+                  <button className="send queue"
+                          onClick={(e) => queueMessage(e.shiftKey ? 'now' : 'after')}
+                          title={t('Send this when the turn ends · hold Shift to stop the turn and send it now')}>
+                    {t('Queue')}<Icon name="pause" size={13} />
+                  </button>
+                )}
+                <button className="send stop" onClick={() => abort.current?.abort()}>
+                  <Icon name="stop" size={13} />{t('Stop')}
+                </button>
+              </>
             ) : (
               <button className="send" onClick={() => void send()}
                       disabled={!prompt.trim() && shots.length === 0}>

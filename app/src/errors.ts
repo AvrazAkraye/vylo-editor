@@ -16,6 +16,11 @@
 const ADVICE: { when: RegExp; then: string }[] = [
   { when: /changed on disk/i, then: 'Reload the file and try again.' },
   { when: /workspace root is unreadable/i, then: 'The folder may have been moved or deleted — open it again.' },
+  // The watcher is the one failure whose consequence outlasts its message: the
+  // tree, the branch and the open buffers stop following the disk for the rest
+  // of the session, and every one of them still looks current. So the advice
+  // names what has quietly stopped being true rather than saying it failed.
+  { when: /could not watch this folder|root is not a folder/i, then: 'The file tree will not refresh by itself until the folder is opened again.' },
   { when: /escapes the (workspace|open folder)|outside the open folder/i, then: 'Only files inside the open folder can be reached.' },
   { when: /not valid UTF-8|binary/i, then: 'This looks like a binary file rather than text.' },
   // Reached only when the estimate in budget.ts was optimistic, or the model

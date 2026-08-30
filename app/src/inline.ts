@@ -3,6 +3,7 @@ import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemir
 import { SSEDecoder, TurnAssembler } from './sse';
 import { diffRows } from './pending';
 import { limitsFor } from './budget';
+import { learnedFor } from './limits';
 import { highlightRange, spansToDOM, type Span } from './highlight';
 
 /**
@@ -260,7 +261,10 @@ export async function askRaw(
       // A selection rewrite is bounded by the selection, but a 300-line one
       // needs more than 4096 tokens to come back, and a reply cut off
       // mid-function is applied as if it were the whole answer.
-      max_tokens: limitsFor(gw.model).maxOutput,
+      // What the agent loop learned from a 400 that named this model's real
+      // cap. ⌘K is a single request with nowhere to recover to, so it takes
+      // the corrected number rather than discovering it the expensive way.
+      max_tokens: limitsFor(gw.model, learnedFor(gw.model)).maxOutput,
       system,
       messages: [{ role: 'user', content: user }],
       stream: true,

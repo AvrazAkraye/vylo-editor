@@ -38,6 +38,17 @@ ok('a stale write says to reload',
    advises('a.txt changed on disk since this was prepared', 'Reload the file'), explain('a.txt changed on disk', 'x'));
 ok('a missing folder says to reopen it',
    advises('workspace root is unreadable: No such file or directory', 'open it again'));
+// The watcher is the failure whose cost is silence: nothing on screen changes,
+// and the tree, the branch and the open buffers all stop following the disk.
+// The message has to say that, not just that a watch failed.
+ok('a folder that cannot be watched says the tree has stopped refreshing',
+   advises('could not watch this folder: No space left on device (os error 28)',
+           'will not refresh by itself'));
+ok('and the same for a root that is not a folder',
+   advises('the workspace root is not a folder', 'will not refresh by itself'));
+ok('a watch failure still carries the reason the OS gave',
+   explain('could not watch this folder: No space left on device (os error 28)',
+           'watch this folder for changes').includes('No space left on device'));
 ok('a rejected key points at Settings',
    advises('The gateway rejected the API key. (401)', 'Check the key in Settings'));
 ok('a rate limit says to wait',

@@ -418,6 +418,37 @@ export function environmentPrompt(facts: EnvFacts): string {
 }
 
 /**
+ * The file paths out of whatever `list_tree` answered with.
+ *
+ * This is pulled out of `readEnvironment` because it is the one piece of
+ * judgement in a function no unit test can call — `invoke` needs a webview — and
+ * it has already been wrong once. `list_tree` used to return a bare array and
+ * now returns `{ entries, skipped, truncated }`, and the call site here still
+ * read the old shape for a whole round without anything reporting it: calling
+ * `.filter` on the envelope throws, the `catch` below treats a throw as "the
+ * folder could not be listed", and the block degrades to the OS and the shell
+ * with no sign that the project half went missing.
+ *
+ * So it reads the envelope, accepts a bare array as well, and answers `[]` for
+ * anything else rather than throwing. Both shapes are pinned by test, which is
+ * the part that makes the next change to `list_tree` visible here.
+ */
+export function treeFiles(reply: unknown): string[] {
+  const entries = Array.isArray(reply)
+    ? reply
+    : reply && typeof reply === 'object' && Array.isArray((reply as { entries?: unknown }).entries)
+      ? (reply as { entries: unknown[] }).entries
+      : [];
+  const out: string[] = [];
+  for (const e of entries) {
+    if (!e || typeof e !== 'object') continue;
+    const { path, is_dir: isDir } = e as { path?: unknown; is_dir?: unknown };
+    if (typeof path === 'string' && path && !isDir) out.push(path);
+  }
+  return out;
+}
+
+/**
  * Gather the facts from the open folder.
  *
  * Uses the `list_tree` and `read_file` commands the agent already has — this
@@ -438,10 +469,7 @@ export async function readEnvironment(root: string, os: Os = hostOs()): Promise<
 
   let paths: string[] = [];
   try {
-    const entries = await invoke<{ path: string; is_dir: boolean }[]>(
-      'list_tree', { root, maxEntries: 4000 },
-    );
-    paths = entries.filter((e) => !e.is_dir).map((e) => e.path);
+    paths = treeFiles(await invoke('list_tree', { root, maxEntries: 4000 }));
   } catch {
     // A folder that cannot be listed still gets the OS and the shell, which is
     // the half that costs money to get wrong.

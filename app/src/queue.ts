@@ -169,6 +169,23 @@ export const clear = (q: Queue): Queue => (q.items.length ? NO_QUEUE : q);
  */
 export const interrupts = (q: Queue): boolean => q.items.some((i) => i.mode === 'now');
 
+/**
+ * Whether this item can no longer be sent, given the conversation now open.
+ *
+ * The same comparison {@link drain} makes, exported so the pending list can
+ * make it too. Without it a refusal is only discovered when the turn ends: you
+ * switch chats on hop three and the rows sit there looking like they are still
+ * going to be sent, for as long as the turn has left to run. Marking them the
+ * moment the conversation moves is the difference between a refusal a person
+ * can act on — remove it, or switch back — and one they are told about
+ * afterwards.
+ *
+ * It is also the only copy of the rule. A UI that wrote `i.convo !== current`
+ * inline would be a second definition of what "the conversation moved" means,
+ * free to drift from the one that actually decides.
+ */
+export const isStale = (item: Queued, current: string): boolean => item.convo !== current;
+
 export interface Drained {
   /** To send, oldest first. */
   take: Queued[];
@@ -204,8 +221,8 @@ export function drain(q: Queue, current: string): Drained {
   // idle render does not set state and re-run itself.
   if (!q.items.length) return { take: [], stale: [], queue: q };
   return {
-    take: q.items.filter((i) => i.convo === current),
-    stale: q.items.filter((i) => i.convo !== current),
+    take: q.items.filter((i) => !isStale(i, current)),
+    stale: q.items.filter((i) => isStale(i, current)),
     queue: NO_QUEUE,
   };
 }

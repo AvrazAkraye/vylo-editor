@@ -58,7 +58,31 @@ const ABSENT = [
   'checkpoint_restore', 'checkpoint_redo', 'mcp_start', 'mcp_call',
   'capture_screenshot', 'set_global_shortcut',
   'history_restore', 'history_forget', 'history_forget_all',
+  // The filesystem watcher. The frontend subscribes to it; the model has no
+  // reason to know the disk moved and no way to ask.
+  'watch_start', 'watch_stop',
+  // Writes a markdown transcript wherever the OS save panel said. Absent for
+  // apply_write's reason: it takes an absolute path and does not contain it,
+  // which is safe only while nothing the model produces can reach it.
+  'export_write',
+  // The file operations and the git writes. These have been absent from the
+  // schema since G1 and M-whatever respectively, and until now they were absent
+  // by nobody's decision — no test said they had to be. `create_file`'s own doc
+  // comment in lib.rs claims "**Human action only**, like every other write:
+  // absent from the tool schema", and this is the line that makes that true
+  // rather than merely currently-the-case. `delete_path` calls
+  // `fs::remove_dir_all`, which is the most destructive thing in the app.
+  'create_file', 'create_dir', 'rename_path', 'delete_path',
+  'git_create_branch', 'git_commit',
+  // Writes an unsaved buffer to app data as you type, and clears drafts.
+  'draft_save',
+  // Stops a third-party server. Starting one is already here; stopping one is
+  // the same authority in the other direction.
+  'mcp_stop',
 ];
+// `run_command` is deliberately NOT on this list. It is IN the schema, and that
+// is the whole design: the model may ask, and a human approves the exact string
+// before anything runs. A gate you can see is not the same as a missing one.
 for (const forbidden of ABSENT) {
   ok(`${forbidden} is absent from the schema`, !TOOLS.some((t) => t.name === forbidden));
 }

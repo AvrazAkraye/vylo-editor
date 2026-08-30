@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildPartial, diffRows, hunks, type Change, type Hunk, type Row } from './pending';
 import { DiffRows } from './DiffRows';
 import { highlightLines, type Span } from './highlight';
+import { checkParse, hunksWithParseError, type Check, type Reason } from './parses';
 import { useGrammars } from './useGrammars';
 import { Icon } from './Icon';
 
@@ -52,14 +53,26 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
    * documents and cannot share one parse.
    */
   const diffs = useMemo(() => {
-    const m = new Map<string, { rows: Row[]; list: Hunk[]; a: Span[][]; b: Span[][] }>();
+    const m = new Map<string, {
+      rows: Row[]; list: Hunk[]; a: Span[][]; b: Span[][];
+      parse: Check | null; badHunks: Set<number>;
+    }>();
     for (const c of changes) {
       const rows = diffRows(c.before, c.after);
+      const list = hunks(rows);
+      // The same parse the highlighting above pays for, walked for error nodes
+      // instead of tags. `null` until the grammars land, so the pane never
+      // flashes "not checked" at a file it is about to check.
+      const parse = ready ? checkParse(c.before, c.after, c.path) : null;
       m.set(c.path, {
         rows,
-        list: hunks(rows),
+        list,
         a: ready ? highlightLines(c.before, c.path) : [],
         b: ready ? highlightLines(c.after, c.path) : [],
+        parse,
+        // CONTEXT, so a hunk is marked when the error is anywhere in the block
+        // drawn under it rather than only on a line that changed.
+        badHunks: parse ? hunksWithParseError(rows, list, parse.lines, CONTEXT) : new Set<number>(),
       });
     }
     return m;
@@ -72,8 +85,9 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
 
   if (!changes.length) return null;
 
-  const { rows, list, a: beforeLines, b: afterLines } =
-    diffs.get(open.path) ?? { rows: [], list: [], a: [], b: [] };
+  const { rows, list, a: beforeLines, b: afterLines, parse, badHunks } =
+    diffs.get(open.path)
+    ?? { rows: [], list: [], a: [], b: [], parse: null, badHunks: new Set<number>() };
   const skipped = off.get(open.path) ?? new Set<number>();
   const accepted = new Set(list.filter((h) => !skipped.has(h.index)).map((h) => h.index));
 
@@ -149,11 +163,18 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
           {changes.map((c) => {
             const d = diffs.get(c.path);
             const n = (d?.list ?? []).reduce((s, h) => ({ added: s.added + h.added, removed: s.removed + h.removed }), { added: 0, removed: 0 });
+            // Only the failure is marked in this column. "parses" and "not
+            // checked" need each other to mean anything, and three words will
+            // not fit beside a path and two counts in 250px — they are on the
+            // bar, which is where clicking here takes you.
             return (
               <li key={c.path}>
                 <button className={c.path === open.path ? 'on' : ''} onClick={() => setOpenPath(c.path)}>
                   <span className="fp">{c.path}</span>
                   {c.isNew && <span className="new">{t('new')}</span>}
+                  {d?.parse?.verdict === 'broken' && (
+                    <span className="fp-bad">{t('does not parse')}</span>
+                  )}
                   <span className="mini">
                     <span className="add">+{n.added}</span><span className="del">−{n.removed}</span>
                   </span>
@@ -166,6 +187,7 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
         <div className="rv-diff">
           <div className="rv-diff-bar">
             <code>{open.path}</code>
+            {parse && <ParseNote check={parse} partial={partial} t={t} />}
             <span className="rv-keys">
               <kbd>j</kbd><kbd>k</kbd> {t('move')} · <kbd>space</kbd> {t('toggle')} · <kbd>↵</kbd> {t('write')}
             </span>
@@ -195,6 +217,7 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
                       {on && <Icon name="check" size={12} />}
                     </span>
                     <span className="hunk-n">{t('Change')} {n + 1}</span>
+                    {badHunks.has(h.index) && <span className="hunk-bad">{t('does not parse')}</span>}
                     <span className="mini"><span className="add">+{h.added}</span><span className="del">−{h.removed}</span></span>
                     {!on && <span className="hunk-skip">{t('not included')}</span>}
                   </button>
@@ -209,4 +232,68 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
       </div>
     </section>
   );
+}
+
+/**
+ * What the parse says about the file being proposed.
+ *
+ * Two rules decide whether this helps or hurts, and both are wording rather
+ * than code.
+ *
+ * It says "parses", never "correct". A clean parse is not a type check, a lint
+ * or a review — it means the braces balance. A badge that reads like approval
+ * is a badge that gets people to stop reading the diff underneath it, and then
+ * the feature has cost more than everything it catches.
+ *
+ * And it is advisory in both directions. Nothing here touches Approve, Write or
+ * Discard: they are the same buttons, enabled the same way, whatever this says.
+ * A parse that could stop a write would make this a second authority over the
+ * disk, and there is exactly one — the person reading the diff. A parse that
+ * could *wave one through* would be worse.
+ */
+function ParseNote({ check, partial, t }: {
+  check: Check; partial: boolean; t: (s: string) => string;
+}) {
+  const broken = check.verdict === 'broken';
+  // A broken verdict always carries at least one line — see `Check` — so the
+  // number is not conditional on anything the reader has to look for.
+  const label = broken
+    ? `${t('does not parse')} · ${t('line')} ${check.lines[0]}`
+    : check.verdict === 'parses' ? t('parses') : t('not checked');
+
+  const said = check.verdict === 'parses'
+    ? t('The proposed file parses. This is not a type check.')
+    : broken ? t('The parser reached this line and could not continue.')
+    : why(check.reason, t);
+  // The ticked subset is a different document from the one that was parsed, so
+  // the claim has to be qualified rather than quietly left standing.
+  const caveat = partial && check.verdict !== 'unchecked'
+    ? ' ' + t('Only some changes are ticked, so this is not the file that will be written.')
+    : '';
+
+  // No modifier for "not checked": the neutral base is what it looks like, and
+  // a class with no rule behind it is the orphaned selector this stylesheet has
+  // been caught carrying before.
+  const tone = broken ? ' bad' : check.verdict === 'parses' ? ' ok' : '';
+  return (
+    <span className={`rv-parse${tone}`} title={said + caveat}>{label}</span>
+  );
+}
+
+/** Why nothing was checked. Every reason gets its own sentence: "not checked"
+ *  on its own invites the reading that something went wrong, and most of these
+ *  are ordinary. */
+function why(reason: Reason, t: (s: string) => string): string {
+  switch (reason) {
+    case 'no-grammar':
+      return t('No parser is available for this kind of file.');
+    case 'no-signal':
+      return t('The parser for this kind of file accepts almost anything, so a pass would mean nothing.');
+    case 'too-large':
+      return t('This file is too large to parse here.');
+    case 'already-broken':
+      return t('This file did not parse before the change either, so the parser cannot judge it.');
+    default:
+      return t('The parser did not finish.');
+  }
 }

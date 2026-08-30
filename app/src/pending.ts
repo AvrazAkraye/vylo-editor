@@ -1,4 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
+import { applyWrite } from './disk';
+import { sha256Hex } from './hash';
 
 /**
  * Staged edits.
@@ -22,11 +24,10 @@ export interface Change {
   isNew: boolean;
 }
 
-/** Lowercase hex sha-256, matching what the Rust side computes. */
-export async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
-}
+// Re-exported because callers have always found it here, and it is the same
+// digest `expect_sha256` is compared against; the implementation moved to
+// `hash.ts` when a second feature needed it.
+export { sha256Hex };
 
 export class Pending {
   private map = new Map<string, Change>();
@@ -129,7 +130,7 @@ export class Pending {
       // hash of an empty file that does.
       const expectSha256 = c.isNew ? '' : await sha256Hex(c.before);
       try {
-        await invoke('apply_write', { root, path, content: c.after, expectSha256 });
+        await applyWrite(root, path, c.after, expectSha256);
       } catch (e) {
         if (done.length) {
           throw new Error(`${String(e)} (${done.length} other file(s) were written)`);
@@ -154,7 +155,7 @@ export class Pending {
     const c = this.map.get(path);
     if (!c) return;
     const expectSha256 = c.isNew ? '' : await sha256Hex(c.before);
-    await invoke('apply_write', { root, path, content, expectSha256 });
+    await applyWrite(root, path, content, expectSha256);
     if (content === c.after) this.map.delete(path);
     else this.map.set(path, { path, before: content, after: c.after, isNew: false });
   }

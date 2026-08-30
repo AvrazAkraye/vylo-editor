@@ -23,7 +23,6 @@
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::Path;
-use walkdir::WalkDir;
 
 const K1: f64 = 1.2;
 const B: f64 = 0.75;
@@ -203,40 +202,27 @@ pub fn symbols_in(path: &str, text: &str) -> Vec<Symbol> {
     out
 }
 
-fn skipped(name: &str) -> bool {
-    matches!(
-        name,
-        ".git" | "node_modules" | "target" | "dist" | "build" | ".next" | ".venv"
-            | "__pycache__" | "vendor" | ".test-build" | "coverage"
-    )
-}
-
 /// Every indexable file and its mtime. The cheap half of the work, and enough
 /// to tell whether the expensive half needs doing again.
+///
+/// The walk is `crate::walk`, which is also what `list_tree` and `search` use.
+/// It used to be a second one with its own depth (12, against their 8) and its
+/// own list of names to skip (which had `coverage` and `.test-build` that
+/// theirs did not, and lacked `Pods`, `.gradle` and `.idea` that theirs had).
+/// Two walkers meant two answers to "what is in this project", and the agent
+/// could see both: `find_symbol` named files `search` denied existed.
+///
+/// The skip count is not collected here. This runs on *every* `search`,
+/// `find_symbol` and `list_symbols` to decide whether the index is stale, and
+/// counting costs an extra `read_dir` per directory for a number no caller of
+/// this function reports.
 fn stamp_of(root: &Path) -> Vec<(String, u64)> {
-    let mut out = Vec::new();
-    for e in WalkDir::new(root)
-        .max_depth(12)
+    let mut out: Vec<(String, u64)> = crate::walk::walk(root, crate::walk::MAX_WALK, false)
+        .found
         .into_iter()
-        .filter_entry(|e| e.depth() == 0 || !e.file_name().to_str().map(skipped).unwrap_or(false))
-        .filter_map(Result::ok)
-    {
-        if !e.file_type().is_file() {
-            continue;
-        }
-        let Ok(md) = e.metadata() else { continue };
-        if md.len() > MAX_FILE {
-            continue;
-        }
-        let Ok(rel) = e.path().strip_prefix(root) else { continue };
-        let secs = md
-            .modified()
-            .ok()
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        out.push((rel.to_string_lossy().to_string(), secs));
-    }
+        .filter(|f| f.is_file && f.size <= MAX_FILE)
+        .map(|f| (f.rel, f.mtime))
+        .collect();
     out.sort();
     out
 }
@@ -397,6 +383,55 @@ mod tests {
         // A term nobody uses scores nothing at all, rather than ranking noise.
         let none = with_index(&state, &root, |i| i.rank("zzzqqq")).unwrap();
         assert!(none.is_empty(), "{none:?}");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The other half of the disagreement. `search` now reaches depth 11, and
+    /// the index has to reach exactly as far or `find_symbol` goes back to
+    /// naming files `search` denies exist — only with the two swapped.
+    #[test]
+    fn the_index_reaches_as_deep_as_the_search_does() {
+        // A prefix, not a pid: these tests share a process, and two of them on
+        // one path delete each other's files.
+        let tmp = std::env::temp_dir().join("vylo_idx_deep");
+        let _ = std::fs::remove_dir_all(&tmp);
+        let deep = tmp.join("a/b/c/d/e/f/g/h/i/j");
+        std::fs::create_dir_all(&deep).unwrap();
+        std::fs::write(deep.join("buried.rs"), "pub fn buried_symbol() {}\n").unwrap();
+
+        let state = Indexes::default();
+        let root = tmp.to_string_lossy().to_string();
+        let names = with_index(&state, &root, |i| {
+            i.symbols.iter().map(|s| s.name.clone()).collect::<Vec<_>>()
+        })
+        .unwrap();
+        assert!(names.contains(&"buried_symbol".to_string()), "{names:?}");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// A generated directory is generated for the index too. Indexing it would
+    /// put a minified bundle's identifiers into the term statistics and offer
+    /// its declarations as somewhere to go.
+    #[test]
+    fn a_directory_named_in_gitignore_is_not_indexed() {
+        let tmp = std::env::temp_dir().join("vylo_idx_ignored");
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("generated")).unwrap();
+        std::fs::create_dir_all(tmp.join("src")).unwrap();
+        std::fs::write(tmp.join(".gitignore"), "generated/\n").unwrap();
+        std::fs::write(tmp.join("generated/bundle.rs"), "pub fn generated_thing() {}\n").unwrap();
+        std::fs::write(tmp.join("src/real.rs"), "pub fn real_thing() {}\n").unwrap();
+
+        let state = Indexes::default();
+        let root = tmp.to_string_lossy().to_string();
+        let names = with_index(&state, &root, |i| {
+            i.symbols.iter().map(|s| s.name.clone()).collect::<Vec<_>>()
+        })
+        .unwrap();
+        assert!(names.contains(&"real_thing".to_string()), "{names:?}");
+        assert!(!names.contains(&"generated_thing".to_string()), "{names:?}");
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
