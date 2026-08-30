@@ -62,3 +62,10 @@ codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+
+# macOS only, and already in the tree: tauri pulls objc2 through tao. Three
+# selector calls in src/mac.rs hide the native window buttons so the app can
+# draw its own, which is cheaper than the alternative -- `decorations: false`
+# would take the window's rounded corners with them.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"

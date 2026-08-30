@@ -20,6 +20,7 @@
 //!    shows a diff; nothing touches the disk until a human clicks. That is why
 //!    the dangerous verb can exist at all — it is not wired to the model.
 
+mod mac;
 mod capture;
 mod checkpoint;
 mod drafts;
@@ -1387,6 +1388,16 @@ pub fn run() {
                 }
             }
         })
+        // The app draws its own window buttons, so macOS's are hidden as soon
+        // as there is a window to hide them on. `mac.rs` explains why this is
+        // not `decorations: false`.
+        .setup(|app| {
+            use tauri::Manager;
+            if let Some(w) = app.get_webview_window("main") {
+                mac::hide_window_buttons(&w);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_tree, read_file, search, path_kind, read_image, read_text_attachment,
             apply_write, read_for_editor, git_state, run_command, git_create_branch, git_commit,
@@ -1394,6 +1405,7 @@ pub fn run() {
             git_status, git_file_head,
             checkpoint_save, checkpoint_list, checkpoint_restore, checkpoint_redo, find_symbol,
             list_symbols, symbols_in_text,
+            mac::hide_traffic_lights,
             mcp_servers, mcp_start, mcp_call, mcp_stop,
             draft_save, draft_list, draft_read, draft_clear,
             history_list, history_read, history_restore, history_forget, history_forget_all,

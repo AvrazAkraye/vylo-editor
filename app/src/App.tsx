@@ -71,6 +71,7 @@ import {
 import { applyMessages, applyTarget, parseApply } from './apply';
 import { askRaw } from './inline';
 import { IS_MAC, Shortcuts, Welcome } from './Welcome';
+import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { listen } from '@tauri-apps/api/event';
 import {
   accelerator, bind, chordFrom, isCancel, label as chordLabel, loadBinding,
@@ -491,6 +492,11 @@ export function App() {
       window.removeEventListener('resize', onResize);
     };
   }, []);
+
+  // macOS rebuilds the title bar entering and leaving full screen, and its own
+  // window buttons come back with it. Hiding them once at startup is not
+  // enough.
+  useEffect(() => { if (IS_MAC) rehideNativeButtons(); }, [full]);
 
   // One check on launch, deliberately silent on failure -- an update check is
   // never a good reason to greet someone with an error.
@@ -2190,6 +2196,8 @@ export function App() {
   return (
     <div className={`shell ${full ? 'fullscreen' : ''}`}>
       <header className="bar" data-tauri-drag-region>
+        {IS_MAC && <TrafficLights full={full} t={t}
+                                 onFullscreen={() => void toggleFullscreen().then(setFull)} />}
         <div className="brand">
           <svg viewBox="0 0 64 64" aria-hidden="true">
             <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#g)" />

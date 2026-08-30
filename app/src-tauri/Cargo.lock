@@ -4916,6 +4916,7 @@ dependencies = [
  "base64 0.22.1",
  "ignore",
  "notify",
+ "objc2",
  "portable-pty",
  "serde",
  "serde_json",

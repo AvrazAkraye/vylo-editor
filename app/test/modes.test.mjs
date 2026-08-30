@@ -94,6 +94,11 @@ const ABSENT = [
   // silently. SAFETY.md enumerates exactly these two as the containment
   // exceptions; this is the line that keeps that enumeration true.
   'read_image', 'read_text_attachment',
+  // Hides three buttons on a window so the app can draw its own. There is
+  // nothing here a model needs and nothing it could do with it — but the rule
+  // this list exists for is that a command is absent from the schema by
+  // somebody's decision, not by nobody having thought about it.
+  'hide_traffic_lights',
 ];
 // `run_command` is deliberately NOT on this list. It is IN the schema, and that
 // is the whole design: the model may ask, and a human approves the exact string
