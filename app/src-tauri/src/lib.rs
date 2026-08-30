@@ -1308,6 +1308,136 @@ fn history_forget_all(app: tauri::AppHandle, root: String) -> Result<(), String>
     history::forget_all_at(&store(&app)?, &root)
 }
 
+/// One of the three stores this app keeps in the app data directory.
+///
+/// An enum, never a path. `store_empty` deletes a directory tree, and a
+/// command that took the directory *name* from the frontend would be one typo
+/// — or one string that arrived from somewhere else — away from deleting
+/// something nobody asked about. There are exactly three answers it accepts,
+/// and anything else fails to deserialise before the function body is reached.
+/// Same reasoning as `capture.rs`'s mode, which is an enum for the same reason.
+///
+/// The names are the directories `drafts.rs`, `checkpoint.rs` and `history.rs`
+/// file their work under, and the ones the storage table in `SAFETY.md` lists.
+#[derive(serde::Deserialize, Clone, Copy, PartialEq, Debug)]
+#[serde(rename_all = "camelCase")]
+enum LocalStore {
+    Drafts,
+    Checkpoints,
+    FileHistory,
+}
+
+impl LocalStore {
+    fn dir(self) -> &'static str {
+        match self {
+            LocalStore::Drafts => "drafts",
+            LocalStore::Checkpoints => "checkpoints",
+            LocalStore::FileHistory => "history",
+        }
+    }
+}
+
+/// What each store is using, in bytes.
+///
+/// Renamed on the way out for the same reason the enum is renamed on the way
+/// in: the frontend spells this store `fileHistory` everywhere else, and one
+/// field arriving as `file_history` would read as undefined and render as a
+/// store using no space at all.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StoreSizes {
+    drafts: u64,
+    checkpoints: u64,
+    file_history: u64,
+}
+
+/// Every byte under `dir`, following directories and nothing else.
+///
+/// Symlinks are not followed: `read_dir` reports them, and `symlink_metadata`
+/// answers about the link rather than its target, so a link pointing at a
+/// 40 GB volume counts as the handful of bytes the link itself takes. These
+/// stores contain only what this app wrote and hold no links today; the guard
+/// is here because "how big is this directory" is exactly the walk that gets
+/// pointed somewhere unexpected later.
+///
+/// A missing directory is zero rather than an error. A store nobody has used
+/// yet has no directory, and that is the ordinary state on a fresh install.
+fn dir_bytes(dir: &Path) -> u64 {
+    let Ok(entries) = fs::read_dir(dir) else { return 0 };
+    let mut total = 0u64;
+    for e in entries.flatten() {
+        let Ok(md) = fs::symlink_metadata(e.path()) else { continue };
+        if md.is_dir() {
+            total = total.saturating_add(dir_bytes(&e.path()));
+        } else if md.is_file() {
+            total = total.saturating_add(md.len());
+        }
+    }
+    total
+}
+
+/// How much disk each of the three local stores is using, right now.
+///
+/// Measured rather than estimated. The Storage tab in Settings offers to empty
+/// these, and a number the UI guessed at would make "412 KB" a claim the app
+/// cannot stand behind — the person deciding whether to throw away their undo
+/// history deserves the real figure.
+///
+/// Whole-store, across every folder and every chat, because that is the
+/// question Settings is asking: what is this app keeping on my machine. The
+/// per-folder and per-chat caps in `SAFETY.md` bound the parts; this is the
+/// total.
+///
+/// Read-only, and still absent from the tool schema (`test/modes.test.mjs`
+/// names it). It reveals nothing dangerous, and it is absent by that decision
+/// rather than by nobody having made one — the same reason
+/// `hide_traffic_lights` is on that list.
+#[tauri::command]
+fn store_sizes(app: tauri::AppHandle) -> Result<StoreSizes, String> {
+    let base = store(&app)?;
+    Ok(StoreSizes {
+        drafts: dir_bytes(&base.join(LocalStore::Drafts.dir())),
+        checkpoints: dir_bytes(&base.join(LocalStore::Checkpoints.dir())),
+        file_history: dir_bytes(&base.join(LocalStore::FileHistory.dir())),
+    })
+}
+
+/// Throw one whole store away.
+///
+/// This is the button `SAFETY.md`'s storage table used to lack. Its own row for
+/// `checkpoints/` said "no in-app button — delete the directory", which is an
+/// honest admission and a bad answer: the storage section exists so somebody
+/// who wants their data gone can make it gone, and telling them to find a
+/// hashed directory in `~/Library/Application Support` is telling them to do
+/// the app's job with a file manager.
+///
+/// What each one costs is named in the confirmation the person reads first, in
+/// `SettingsPanel.tsx`:
+///
+/// - `drafts` — the crash copies of unsaved buffers. What is open in the editor
+///   is untouched, and starts being copied again on the next keystroke.
+/// - `checkpoints` — the contents recorded before approved writes. Undo can no
+///   longer put those files back. The files themselves are not touched.
+/// - `fileHistory` — every version this app has written. Again, the files
+///   themselves are not touched.
+///
+/// Absent from the tool schema and named in `test/modes.test.mjs`, like every
+/// other command that throws something away. `fs::remove_dir_all` on a path the
+/// model could choose is `delete_path` with no containment, and the enum above
+/// is what stops that being what this is.
+#[tauri::command]
+fn store_empty(app: tauri::AppHandle, store_id: LocalStore) -> Result<(), String> {
+    let dir = store(&app)?.join(store_id.dir());
+    match fs::remove_dir_all(&dir) {
+        Ok(()) => Ok(()),
+        // A store that was never written has no directory, and "empty it" has
+        // already happened. Reporting that as a failure would put an error in
+        // front of somebody whose store is in exactly the state they asked for.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!("could not empty {}: {e}", store_id.dir())),
+    }
+}
+
 /// Write a text file the user has just chosen in a save dialog.
 ///
 /// Deliberately not `apply_write`: that one resolves inside the open workspace
@@ -1409,6 +1539,7 @@ pub fn run() {
             mcp_servers, mcp_start, mcp_call, mcp_stop,
             draft_save, draft_list, draft_read, draft_clear,
             history_list, history_read, history_restore, history_forget, history_forget_all,
+            store_sizes, store_empty,
             capture_screenshot,
             set_global_shortcut,
             export_write,
@@ -1820,5 +1951,59 @@ mod tests {
         assert!(resolve(&root, "../../etc/passwd").is_err());
         assert!(resolve(&root, "/etc/passwd").is_err());
         assert!(resolve(&root, "notes.txt").is_ok());
+    }
+
+    /// The Storage tab reports a number and then offers to act on it, so the
+    /// number has to be the whole store rather than its top level. Both stores
+    /// here nest — `drafts/<hash of the folder>/<hash of the path>.json` — so a
+    /// walk that stopped at the first level would report zero for a directory
+    /// holding megabytes.
+    #[test]
+    fn a_store_is_measured_all_the_way_down() {
+        let base = std::env::temp_dir().join(format!("vylo_sizes_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let deep = base.join("drafts").join("a1b2").join("nested");
+        fs::create_dir_all(&deep).unwrap();
+        fs::write(base.join("drafts").join("a1b2").join("one.json"), "0123456789").unwrap();
+        fs::write(deep.join("two.json"), "01234").unwrap();
+
+        assert_eq!(dir_bytes(&base.join("drafts")), 15);
+        // A store nobody has used has no directory at all, and that is zero
+        // rather than a failure — it is the state of every fresh install.
+        assert_eq!(dir_bytes(&base.join("checkpoints")), 0);
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    /// The three names the frontend may send, against the three directories
+    /// `SAFETY.md` documents. `test/stores.test.mjs` reads this file to check
+    /// the other end of the same wire.
+    #[test]
+    fn each_store_names_the_directory_it_lives_in() {
+        assert_eq!(LocalStore::Drafts.dir(), "drafts");
+        assert_eq!(LocalStore::Checkpoints.dir(), "checkpoints");
+        // The odd one: the store is called "file history" everywhere a person
+        // reads it, and `history` on disk.
+        assert_eq!(LocalStore::FileHistory.dir(), "history");
+    }
+
+    /// Nothing outside the named directory may go, and nothing may be named
+    /// but those three. A store id is a closed enum precisely so that the
+    /// answer to "what can this delete" is a list somebody can read.
+    #[test]
+    fn a_store_id_is_one_of_three_and_nothing_else() {
+        for (json, want) in [
+            ("\"drafts\"", LocalStore::Drafts),
+            ("\"checkpoints\"", LocalStore::Checkpoints),
+            ("\"fileHistory\"", LocalStore::FileHistory),
+        ] {
+            assert_eq!(serde_json::from_str::<LocalStore>(json).unwrap(), want);
+        }
+        for bad in ["\"history\"", "\"../..\"", "\"\"", "\"Drafts\"", "\"chats\"", "null"] {
+            assert!(
+                serde_json::from_str::<LocalStore>(bad).is_err(),
+                "{bad} should not deserialise to a store",
+            );
+        }
     }
 }

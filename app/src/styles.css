@@ -13,6 +13,7 @@
      attach button and file chips · status-bar button
      command palette (⌘P, ⌘⇧F) · editor · icons · working tree
      clipboard history · file history · global shortcut · queued messages
+     settings dialog
  */
 
 /* Vylo Editor — desktop chrome.
@@ -193,26 +194,9 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .folder:hover,.ghost:hover{ border-color:var(--rule); color:var(--ink); }
 
-.settings{
-  display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:var(--sp-6);
-  padding:var(--sp-7); border-bottom:1px solid var(--rule); background:var(--panel-2);
-}
-.settings label{ display:grid; gap:var(--sp-3); font-size:var(--fs-3); color:var(--mute); text-transform:uppercase; letter-spacing:.07em; }
-.settings input{
-  font:inherit; font-family:var(--mono); font-size:var(--fs-4); padding:var(--sp-4) var(--sp-5);
-  border-radius:var(--r-2); border:1px solid var(--rule); background:var(--panel); color:var(--ink);
-}
-.settings .hint{ grid-column:1/-1; margin:0; font-size:var(--fs-3); color:var(--mute); text-transform:none; letter-spacing:0; }
-
-/* The one setting that is a key capture rather than a value. It is a div and
-   not a label like its neighbours, because a label wrapping a button forwards
-   a click on its own text to that button and the recorder would toggle twice. */
-.settings .fld{ display:grid; gap:var(--sp-3); }
-.settings .fld-lbl{ font-size:var(--fs-3); color:var(--mute); text-transform:uppercase; letter-spacing:.07em; }
-.sc-row{ display:flex; align-items:center; gap:var(--sp-4); }
-/* An email address, which is longer than any other value in this panel and is
-   allowed to break rather than widen it. */
-.settings .acct{ font-size:var(--fs-3); color:var(--ink-2); overflow-wrap:anywhere; }
+/* The global-shortcut capture. A button and not a label-wrapped field, because
+   a label forwards a click on its own text to its control and the recorder
+   would toggle twice. The rest of Settings is under "settings dialog" below. */
 .sc-key{
   flex:1; min-width:0; text-align:left; cursor:pointer;
   font:inherit; font-family:var(--mono); font-size:var(--fs-4);
@@ -223,8 +207,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 /* Recording is a mode, and a mode that is not visible is a keystroke going
    somewhere the user did not expect. */
 .sc-key.rec{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); color:var(--brand); }
-.sc-why{ font-size:var(--fs-3); color:var(--mute); text-transform:none; letter-spacing:0; }
-.sc-why.err{ color:var(--err); }
 
 .log{ flex:1; overflow-y:auto; padding:var(--sp-8); display:flex; flex-direction:column; gap:var(--sp-5); }
 .empty{ margin:auto; max-width:46ch; text-align:center; color:var(--ink-2); line-height:1.6; }
@@ -527,11 +509,6 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .commit input:focus{ outline:2px solid var(--brand); outline-offset:-1px; }
 .commit .ghost{ border:1px solid var(--rule); font-size:var(--fs-4); }
-.settings select{
-  font:inherit; font-size:var(--fs-4); padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
-  border:1px solid var(--rule); background:var(--panel); color:var(--ink);
-}
-
 /* ── update banner ───────────────────────────────────────────────────── */
 .update{
   display:flex; align-items:center; gap:var(--sp-6); flex-wrap:wrap;
@@ -893,7 +870,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .line, .toolrun{ animation:rise .18s ease-out; }
 @keyframes rise{ from{ opacity:0; transform:translateY(3px); } to{ opacity:1; transform:none; } }
 @media (prefers-reduced-motion: reduce){
-  .line, .toolrun, .dot, .cmp-btn.mic.on::after{ animation:none; }
+  .line, .toolrun, .dot, .cmp-btn.mic.on::after, .set-back{ animation:none; }
   *{ transition-duration:.001ms !important; }
 }
 
@@ -1324,7 +1301,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .rail-btn:focus-visible, .hunk-bar:focus-visible, .rv-files button:focus-visible,
 .chat-open:focus-visible, .chat-x:focus-visible, .tsl-pick:focus-visible,
 .tsl-x:focus-visible, .st-btn:focus-visible, .cmp-model select:focus-visible,
-.sb-act:focus-visible, .tsl-add:focus-visible{
+.sb-act:focus-visible, .tsl-add:focus-visible, .set-cat:focus-visible{
   outline-offset:-2px;
   border-radius:0;
 }
@@ -1475,15 +1452,8 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 
 /* ── MCP servers ─────────────────────────────────────────────────────── */
-.mcp{ grid-column:1/-1; padding-top:var(--sp-3); border-top:1px solid var(--rule); }
-.mcp h3{
-  margin:0 0 var(--sp-2); font-size:var(--fs-2); font-weight:600;
-  letter-spacing:.09em; text-transform:uppercase; color:var(--mute);
-}
-.mcp-note{
-  margin:0 0 var(--sp-5); max-width:78ch; font-size:var(--fs-3); line-height:1.55;
-  color:var(--mute); text-transform:none; letter-spacing:0;
-}
+/* The heading and the note that used to sit above this list are the Settings
+   category heading and the row's own hint now, so the list is only the list. */
 .mcp-err{
   margin:0 0 var(--sp-4); padding:var(--sp-3) var(--sp-5); border-radius:var(--r-2);
   background:var(--err-wash); color:var(--err);
@@ -1711,4 +1681,143 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 @media (max-width:760px){
   .fh-body{ flex-direction:column; }
   .fh-list{ width:auto; max-height:110px; border-right:0; border-bottom:1px solid var(--rule); }
+}
+
+
+/* ── settings dialog ─────────────────────────────────────────────────── */
+/*
+ * Settings was a flat block of nine controls that unrolled under the header and
+ * pushed the whole application down the page. This is the same controls as a
+ * modal: a rail of categories on the left, rows of label-and-control on the
+ * right. `SettingsPanel.tsx` says why the rail keeps its empty categories and
+ * why the pane follows the search.
+ *
+ * Everything here is on the existing scales and the existing tokens, so it
+ * inherits both themes without defining a colour of its own.
+ */
+.set-back{
+  position:fixed; inset:0; z-index:60; display:flex; align-items:center;
+  justify-content:center; padding:var(--sp-8);
+  background:rgb(0 0 0 / .32); backdrop-filter:blur(2px);
+  animation:set-fade .12s ease-out;
+}
+@keyframes set-fade{ from{ opacity:0 } to{ opacity:1 } }
+
+/* Two columns and a fixed height, so the rail never moves as the pane's
+   content changes length -- the same reason the activity rail exists. */
+.set{
+  position:relative; display:grid; grid-template-columns:212px minmax(0, 1fr);
+  width:min(880px, 94vw); height:min(640px, 86vh);
+  background:var(--panel); border:1px solid var(--rule-2); border-radius:var(--r-4);
+  box-shadow:var(--shadow); overflow:hidden;
+}
+.set-x{
+  position:absolute; top:var(--sp-5); right:var(--sp-5); z-index:1;
+  width:28px; height:28px; display:flex; align-items:center; justify-content:center;
+  border:0; border-radius:var(--r-2); background:transparent; color:var(--mute); cursor:pointer;
+}
+.set-x:hover{ background:var(--panel-3); color:var(--ink); }
+
+.set-rail{
+  display:flex; flex-direction:column; gap:var(--sp-1); min-height:0; overflow-y:auto;
+  padding:var(--sp-5) var(--sp-4); background:var(--panel-2); border-right:1px solid var(--rule);
+}
+.set-find{
+  flex:none; font:inherit; font-size:var(--fs-4); width:100%;
+  padding:var(--sp-4) var(--sp-5); margin-bottom:var(--sp-3);
+  border-radius:var(--r-2); border:1px solid var(--rule);
+  background:var(--panel); color:var(--ink);
+}
+.set-cap{
+  flex:none; padding:var(--sp-3) var(--sp-5) var(--sp-2);
+  font-size:var(--fs-2); font-weight:600; letter-spacing:.09em;
+  text-transform:uppercase; color:var(--mute);
+}
+.set-cat{
+  display:flex; align-items:center; gap:var(--sp-5); width:100%; text-align:left;
+  font:inherit; font-size:var(--fs-4); padding:var(--sp-4) var(--sp-5);
+  border:0; border-radius:var(--r-2); background:transparent; color:var(--ink-2);
+  cursor:pointer; transition:background .12s ease, color .12s ease;
+}
+.set-cat:hover{ background:var(--panel-3); color:var(--ink); }
+/* Filled rather than washed: this is the one row saying which pane you are
+   looking at, and it has a whole column of siblings to be distinct from. */
+.set-cat.on, .set-cat.on:hover{ background:var(--fill); color:var(--on-fill); }
+/* A category the search found nothing in. Dimmed and not removed -- a rail
+   whose rows vanish as you type jumps under the cursor. */
+.set-cat.nil{ opacity:.38; cursor:default; }
+.set-cat.nil:hover{ background:transparent; color:var(--ink-2); }
+.set-cat-t{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* About, pinned away from the rest the way the activity rail pins Settings. */
+.set-foot{ margin-top:auto; }
+
+.set-pane{ min-height:0; overflow-y:auto; padding:var(--sp-9) var(--sp-10) var(--sp-10); }
+.set-head{
+  margin:0 0 var(--sp-3); font-size:var(--fs-7); font-weight:600; color:var(--ink);
+}
+.set-none{
+  margin:0; padding:var(--sp-10) 0; text-align:center;
+  font-size:var(--fs-4); color:var(--mute);
+}
+
+/* Label left, control right, a hairline between. `+` rather than a border on
+   every row, so the first one does not sit under a line of its own. */
+.set-row{
+  display:flex; align-items:center; gap:var(--sp-8);
+  padding:var(--sp-7) 0;
+}
+.set-row + .set-row{ border-top:1px solid var(--rule); }
+/* The three controls that are lists rather than values -- the key map, the MCP
+   servers, the safety note. Squeezed into the right-hand third they become a
+   column of single words, so they drop under the label and take the width. */
+.set-row.wide{ flex-direction:column; align-items:stretch; gap:var(--sp-5); }
+
+.set-what{ flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+.set-lbl{ font-size:var(--fs-5); color:var(--ink); }
+/* The line under the label, which is where this screen says the things it has
+   nowhere else to say. Measured rather than full-width: past about sixty
+   characters a line stops being read. */
+.set-hint{ max-width:58ch; font-size:var(--fs-3); line-height:1.55; color:var(--mute); }
+.set-hint.bad{ color:var(--err); }
+
+.set-ctl{ flex:none; display:flex; align-items:center; justify-content:flex-end; gap:var(--sp-4); }
+/* `flex:none` in the column direction, not `flex:1`. A flex-basis of 0 down the
+   main axis of an auto-height container collapses the item to nothing and lets
+   its content overflow -- and the three wide rows are the tallest here. */
+.set-row.wide .set-what, .set-row.wide .set-ctl{ flex:none; }
+.set-row.wide .set-ctl{ display:block; }
+
+.set-in{
+  font:inherit; font-family:var(--mono); font-size:var(--fs-4); width:min(280px, 42vw);
+  padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
+  border:1px solid var(--rule); background:var(--panel); color:var(--ink);
+}
+.set-sel{
+  font:inherit; font-size:var(--fs-4); max-width:min(280px, 42vw);
+  padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
+  border:1px solid var(--rule); background:var(--panel); color:var(--ink);
+}
+/* An email address is the longest value here and is allowed to break rather
+   than widen the dialog. */
+.set-val{ margin:0; font-size:var(--fs-4); color:var(--ink-2); text-align:right; overflow-wrap:anywhere; }
+.set-row.wide .set-val{ text-align:left; }
+.set-mono{ font-family:var(--mono); font-size:var(--fs-3); }
+.set-btn{ flex:none; font-size:var(--fs-3); padding:var(--sp-3) var(--sp-5); border-color:var(--rule); }
+.set-btn:disabled{ opacity:.45; cursor:default; }
+.set-btn:disabled:hover{ border-color:var(--rule); color:var(--mute); }
+
+/* A value and the button that acts on it: a store's size and Empty, a chord and
+   Clear, a version and Install. */
+.set-pair{ display:flex; align-items:center; gap:var(--sp-5); }
+/* Right-aligned in a fixed column, so four sizes read as a column of numbers
+   rather than four differently-indented strings. */
+.set-size{
+  min-width:7ch; text-align:right;
+  font-family:var(--mono); font-size:var(--fs-3); color:var(--mute);
+}
+
+/* The rule the whole design rests on, quoted rather than paraphrased. */
+.set-quote{
+  margin:0 0 var(--sp-4); max-width:64ch; padding-left:var(--sp-6);
+  border-left:2px solid var(--brand); font-size:var(--fs-4); line-height:1.6; color:var(--ink-2);
 }

@@ -431,6 +431,52 @@ const ar: Dict = {
   'No microphone was found.': 'لم يُعثر على ميكروفون.',
   'Dictation needs a connection, and there was none.': 'يحتاج الإملاء إلى اتصال، ولا يوجد اتصال.',
   'Dictation does not have that language.': 'الإملاء لا يدعم هذه اللغة.',
+  'Appearance': 'الشكل والمظهر',
+  'Editor': 'المحرِّر',
+  'Shortcuts': 'لوحة المفاتيح',
+  'Extensions': 'الإضافات',
+  'Storage': 'التخزين',
+  'About': 'حول التطبيق',
+  'Plan': 'الخطة',
+  'When to notify me': 'متى تُنبّهني',
+  'Drafts': 'المسودّات',
+  'Checkpoints': 'نقاط الاستعادة',
+  'Version': 'الإصدار',
+  'Check for updates': 'التحقق من التحديثات',
+  'Safety': 'الأمان',
+  'Your key keeps working. It was minted for this machine, and signing out does not revoke it.':
+    'مفتاحك يبقى صالحاً. أُنشئ لهذا الجهاز، وتسجيل الخروج لا يُبطله.',
+  'Unsaved editor buffers, so a crash does not lose them.':
+    'محتوى المحرِّر غير المحفوظ، حتى لا يضيع عند تعطُّل التطبيق.',
+  'What files held before an approved write, so an undo can put them back.':
+    'ما كانت تحويه الملفات قبل كتابة موافَق عليها، حتى يستطيع التراجع إعادتها.',
+  'Every version this app has written, so saving over your own work is recoverable.':
+    'كل نسخة كتبها هذا التطبيق، حتى يمكن استرجاع عملك إذا حفظت فوقه.',
+  'What you pasted into Vylo. It never reads the system clipboard on its own.':
+    'ما لصقته داخل Vylo. لا يقرأ حافظة النظام من تلقاء نفسه أبداً.',
+  'Every update is signed. One that fails the check is discarded before it runs.':
+    'كل تحديث موقَّع. وأي تحديث يفشل في التحقق يُرفض قبل تشغيله.',
+  'What this app can do to this machine, what it keeps, and where.':
+    'ما يستطيع هذا التطبيق فعله بهذا الجهاز، وما يحتفظ به، وأين.',
+  'Search settings…': 'ابحث في الإعدادات…',
+  'Nothing in settings matches that.': 'لا شيء في الإعدادات يطابق ذلك.',
+  'Where model requests go. Change this only if you were told to.':
+    'الوجهة التي تذهب إليها طلبات النموذج. لا تغيّرها إلا إذا طُلب منك ذلك.',
+  'Empty': 'إفراغ',
+  'Empty this store?': 'إفراغ هذا المخزن؟',
+  'Unsaved work in open editors stays where it is; only the copy that would survive a crash goes.':
+    'العمل غير المحفوظ في المحرِّرات المفتوحة يبقى كما هو؛ الذي يُحذف هو النسخة التي كانت ستنجو من تعطُّل.',
+  'Undo stops being able to put those files back. The files themselves are not touched.':
+    'لن يعود التراجع قادراً على إعادة تلك الملفات. أما الملفات نفسها فلا تُمس.',
+  'Every earlier version this app kept goes. The files themselves are not touched.':
+    'تذهب كل نسخة سابقة احتفظ بها هذا التطبيق. أما الملفات نفسها فلا تُمس.',
+  'Everything you pasted into Vylo is forgotten. Nothing else is touched.':
+    'يُنسى كل ما لصقته داخل Vylo. ولا يُمس أي شيء آخر.',
+  'Check now': 'تحقّق الآن',
+  'Up to date': 'مُحدَّث',
+  'No model output reaches disk or a shell without a human having read and approved that exact content or string.':
+    'لا يصل أي مُخرَج من النموذج إلى القرص أو إلى الطرفية دون أن يكون إنسان قد قرأ ووافق على ذلك المحتوى أو النص بعينه.',
+  'None': 'لا شيء',
 };
 
 const ckb: Dict = {
@@ -841,6 +887,52 @@ const ckb: Dict = {
   'No microphone was found.': 'هیچ مایکرۆفۆنێک نەدۆزرایەوە.',
   'Dictation needs a connection, and there was none.': 'نووسین بە دەنگ پێویستی بە پەیوەندییە، و هیچ پەیوەندییەک نەبوو.',
   'Dictation does not have that language.': 'نووسین بە دەنگ ئەو زمانەی نییە.',
+  'Appearance': 'دەرکەوتن',
+  'Editor': 'دەسکاریکەر',
+  'Shortcuts': 'تەختەکلیل',
+  'Extensions': 'پێوەکراوەکان',
+  'Storage': 'هەڵگرتن',
+  'About': 'دەربارە',
+  'Plan': 'پلان',
+  'When to notify me': 'کەی ئاگادارم بکەیتەوە',
+  'Drafts': 'ڕەشنووسەکان',
+  'Checkpoints': 'خاڵەکانی گەڕانەوە',
+  'Version': 'وەشان',
+  'Check for updates': 'پشکنین بۆ نوێکردنەوە',
+  'Safety': 'سەلامەتی',
+  'Your key keeps working. It was minted for this machine, and signing out does not revoke it.':
+    'کلیلەکەت هەر کار دەکات. بۆ ئەم ئامێرە دروستکراوە، و دەرچوون پووچەڵی ناکاتەوە.',
+  'Unsaved editor buffers, so a crash does not lose them.':
+    'ئەو شتانەی لە دەسکاریکەر پاشەکەوت نەکراون، تاکو لە کاتی تێکچووندا لەدەست نەچن.',
+  'What files held before an approved write, so an undo can put them back.':
+    'ئەوەی فایلەکان پێش نووسینێکی پەسەندکراو هەیانبوو، تاکو گەڕانەوە بتوانێت بیانگەڕێنێتەوە.',
+  'Every version this app has written, so saving over your own work is recoverable.':
+    'هەموو وەشانێک کە ئەم ئەپە نووسیویەتی، تاکو ئەگەر بەسەر کارەکەی خۆتدا پاشەکەوت بکەیت بگەڕێتەوە.',
+  'What you pasted into Vylo. It never reads the system clipboard on its own.':
+    'ئەوەی لە Vylo دا لکاندووتە. هەرگیز لەخۆیەوە کلیپبۆردی سیستەم ناخوێنێتەوە.',
+  'Every update is signed. One that fails the check is discarded before it runs.':
+    'هەموو نوێکردنەوەیەک واژووکراوە. ئەوەی لە پشکنیندا سەرکەوتوو نەبێت پێش کارکردن فڕێدەدرێت.',
+  'What this app can do to this machine, what it keeps, and where.':
+    'ئەم ئەپە چی دەتوانێت بەم ئامێرە بکات، چی هەڵدەگرێت، و لە کوێ.',
+  'Search settings…': 'لە ڕێکخستنەکان بگەڕێ…',
+  'Nothing in settings matches that.': 'هیچ شتێک لە ڕێکخستنەکاندا لەگەڵ ئەوە ناگونجێت.',
+  'Where model requests go. Change this only if you were told to.':
+    'ئەو شوێنەی داواکاریەکانی مۆدێل بۆی دەچن. تەنها ئەگەر پێت وترابێت بیگۆڕە.',
+  'Empty': 'بەتاڵکردن',
+  'Empty this store?': 'ئەم کۆگایە بەتاڵ بکرێت؟',
+  'Unsaved work in open editors stays where it is; only the copy that would survive a crash goes.':
+    'ئەو کارەی پاشەکەوت نەکراوە لە دەسکاریکەرە کراوەکاندا وەک خۆی دەمێنێتەوە؛ تەنها ئەو کۆپییە دەڕوات کە لە تێکچوون ڕزگاری دەبوو.',
+  'Undo stops being able to put those files back. The files themselves are not touched.':
+    'گەڕانەوە چیتر ناتوانێت ئەو فایلانە بگەڕێنێتەوە. خودی فایلەکان دەست لێ نادرێت.',
+  'Every earlier version this app kept goes. The files themselves are not touched.':
+    'هەموو وەشانێکی پێشووتر کە ئەم ئەپە هەڵیگرتووە دەڕوات. خودی فایلەکان دەست لێ نادرێت.',
+  'Everything you pasted into Vylo is forgotten. Nothing else is touched.':
+    'هەموو ئەوەی لە Vylo دا لکاندووتە لەبیر دەکرێت. هیچی تر دەست لێ نادرێت.',
+  'Check now': 'ئێستا بپشکنە',
+  'Up to date': 'نوێترین وەشانە',
+  'No model output reaches disk or a shell without a human having read and approved that exact content or string.':
+    'هیچ دەرئەنجامێکی مۆدێل ناگاتە دیسک یان شێڵ بەبێ ئەوەی مرۆڤێک هەمان ناوەڕۆک یان دەق خوێندبێتیەوە و پەسەندی کردبێت.',
+  'None': 'هیچ',
 };
 
 const kmr: Dict = {
@@ -1251,6 +1343,52 @@ const kmr: Dict = {
   'No microphone was found.': 'چو مایکرۆفۆن نەهاتنە دیتن.',
   'Dictation needs a connection, and there was none.': 'نڤیسینا ب دەنگی پێدڤی ب گرێدانەکێ هەیە، و چو گرێدان نەبوون.',
   'Dictation does not have that language.': 'نڤیسینا ب دەنگی وی زمانی نینە.',
+  'Appearance': 'رووخسار',
+  'Editor': 'ئێدیتۆر',
+  'Shortcuts': 'تەختەکلیل',
+  'Extensions': 'پێڤەکری',
+  'Storage': 'هەلگرتن',
+  'About': 'دەربارەی',
+  'Plan': 'پلان',
+  'When to notify me': 'کەنگی من ئاگەهدار بکەی',
+  'Drafts': 'ڕەشنڤیس',
+  'Checkpoints': 'خالێن ڤەگەڕانێ',
+  'Version': 'وەشان',
+  'Check for updates': 'ل نویکرنان بگەڕە',
+  'Safety': 'سەلامەتی',
+  'Your key keeps working. It was minted for this machine, and signing out does not revoke it.':
+    'کلیلا تە هەر دخەبتیت. بۆ ڤێ ئامێرێ هاتیە چێکرن، و دەرکەڤتن وێ پووچ ناکەت.',
+  'Unsaved editor buffers, so a crash does not lose them.':
+    'ئەوێن د ئێدیتۆرێ دا نەهاتینە پاراستن، دا ب تێکچوونێ ژ دەست نەچن.',
+  'What files held before an approved write, so an undo can put them back.':
+    'ئەوا دەفتەران بەری نڤیسینەکا پەسەندکری هەبوو، دا ڤەگەڕان بشێت وان ڤەگەڕینیت.',
+  'Every version this app has written, so saving over your own work is recoverable.':
+    'هەر وەشانەکا ڤێ ئەپێ نڤیسی، دا ئەگەر تو ل سەر کارێ خۆ بپارێزی ب دەست ڤە بێت.',
+  'What you pasted into Vylo. It never reads the system clipboard on its own.':
+    'ئەوا تە د Vylo دا زەلیقاندی. ب سەرێ خۆ چو جاران کلیپبۆردا سیستەمێ ناخوینیت.',
+  'Every update is signed. One that fails the check is discarded before it runs.':
+    'هەر نویکرنەک هاتیە ئیمزەکرن. ئەوا د پشکنینێ دا سەرنەکەڤیت بەری بخەبتیت تێتە ئاڤێتن.',
+  'What this app can do to this machine, what it keeps, and where.':
+    'ڤێ ئەپێ چ دشێت ب ڤێ ئامێرێ بکەت، چ دپارێزیت، و ل کیڤە.',
+  'Search settings…': 'ل ڕێکخستنان بگەڕە…',
+  'Nothing in settings matches that.': 'چو تشت د ڕێکخستنان دا ل گەل وێ ناگونجیت.',
+  'Where model requests go. Change this only if you were told to.':
+    'ئەو جهێ داخوازیێن مۆدێلێ دچنێ. تنێ ئەگەر ژ تە هاتبیتە خواستن بگوهۆڕە.',
+  'Empty': 'ڤالاکرن',
+  'Empty this store?': 'ئەڤ کۆگەهە ڤالا بکەین؟',
+  'Unsaved work in open editors stays where it is; only the copy that would survive a crash goes.':
+    'کارێ نەپاراستی د ئێدیتۆرێن ڤەکری دا وەکی خۆ دمینیت؛ تنێ ئەو کۆپیا دێ ژ تێکچوونێ فلیتیا دچیت.',
+  'Undo stops being able to put those files back. The files themselves are not touched.':
+    'ڤەگەڕان ئێدی نەشێت وان دەفتەران ڤەگەڕینیت. دەفتەر ب خۆ دەست ل ناهێنە دان.',
+  'Every earlier version this app kept goes. The files themselves are not touched.':
+    'هەر وەشانەکا بەرێ یا ڤێ ئەپێ پاراستی دچیت. دەفتەر ب خۆ دەست ل ناهێنە دان.',
+  'Everything you pasted into Vylo is forgotten. Nothing else is touched.':
+    'هەر تشتێ تە د Vylo دا زەلیقاندی تێتە ژبیرکرن. چو تشتێ دی دەست ل ناهێتە دان.',
+  'Check now': 'نها بپشکنە',
+  'Up to date': 'وەشانا نویترین',
+  'No model output reaches disk or a shell without a human having read and approved that exact content or string.':
+    'چو دەرئەنجامێن مۆدێلێ ناگەهنە دیسکێ یان شێلێ، بێی ئەوێ مرۆڤەکی هەمان ناڤەڕۆک یان دەق خواندبیت و پەسەند کربیت.',
+  'None': 'چو',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

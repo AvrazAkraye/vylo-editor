@@ -15,7 +15,7 @@ import {
 import { Pending, type Change } from './pending';
 import { Review } from './Review';
 import { invoke } from '@tauri-apps/api/core';
-import { LANGS, storedLang, storeLang, translator, type Lang } from './i18n';
+import { storedLang, storeLang, translator, type Lang } from './i18n';
 import { checkForUpdate, type Available } from './updates';
 import { Markdown } from './Markdown';
 import {
@@ -47,6 +47,7 @@ import { groupLines, ToolRun } from './ToolRun';
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
 import { Rail, type RailId } from './Rail';
+import { SettingsPanel } from './SettingsPanel';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
   applyMention, findMentions, folderListing, mentionQuery, treeResolver, TERMINAL,
@@ -65,7 +66,7 @@ import { detailOf, explain } from './errors';
 import { add, NO_USAGE, summarise, compact, total, type Usage } from './usage';
 import { replaceAll } from './replace';
 import {
-  commandLine, isEnabled, listServers, setEnabled, startServer, stopServer, toSchema,
+  isEnabled, listServers, setEnabled, startServer, stopServer, toSchema,
   type McpTool, type ServerSpec,
 } from './mcp';
 import { applyMessages, applyTarget, parseApply } from './apply';
@@ -79,12 +80,12 @@ import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { listen } from '@tauri-apps/api/event';
 import {
-  accelerator, bind, chordFrom, isCancel, label as chordLabel, loadBinding,
+  accelerator, bind, chordFrom, isCancel, loadBinding,
   problem, refusal, saveBinding, SUMMONED,
 } from './shortcut';
 import {
   again, loadPrefs, raise, savePrefs, summons, watchFocus,
-  type Level as NotifyLevel, type Moment, type Prefs as NotifyPrefs,
+  type Moment, type Prefs as NotifyPrefs,
 } from './notify';
 import {
   applyTheme, isFullscreen, resolved, storeTheme, storedTheme, toggleFullscreen,
@@ -2326,129 +2327,76 @@ export function App() {
         <button className="ghost" onClick={() => setShowSettings((s) => !s)}>{t('Settings')}</button>
       </header>
 
+      {/* Settings, as a modal over a dimmed window rather than a block that
+          unrolled under the header and pushed the whole app down. The controls
+          are the same ones and no longer a flat list; `settings.ts` is the
+          catalogue and `SettingsPanel.tsx` draws it. */}
       {showSettings && (
-        <div className="settings">
-          <label>{t('Gateway')}
-            <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} spellCheck={false} />
-          </label>
-          <label>{t('API key')}
-            <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
-                   placeholder="sk-vylo-…" spellCheck={false} />
-          </label>
-          {/* The account, and the one thing there is to do with it. Signing out
-              clears the session and *not* the API key: the key is a separate
-              credential that goes on working, it was minted for this machine,
-              and throwing it away because somebody closed a session panel would
-              take the app offline for a reason nobody asked for. Revoking a key
-              is a decision for the keys page. */}
-          <div className="fld">
-            <span className="fld-lbl">{t('Account')}</span>
-            <div className="sc-row">
-              <span className="acct">
-                {token ? (signedInAs || t('Signed in')) : t('Not signed in')}
-              </span>
-              {token && (
-                <button className="ghost" onClick={() => {
-                  const dead = token;
-                  const next = signedOut({ apiKey, token });
-                  setToken(next.token);
-                  setApiKey(next.apiKey);
-                  void signOut(localStorage, baseUrl, dead);
-                }}>{t('Sign out')}</button>
-              )}
-            </div>
-          </div>
-          <label>{t('Language')}
-            <select value={lang} onChange={(e) => setLang(e.target.value as Lang)}>
-              {LANGS.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
-            </select>
-          </label>
-          <label>{t('Inline completion')}
-            <select value={autocomplete ? 'on' : 'off'}
-                    onChange={(e) => setAutocomplete(e.target.value === 'on')}>
-              <option value="on">{t('On — suggest as I type, Tab to accept')}</option>
-              <option value="off">{t('Off')}</option>
-            </select>
-          </label>
-          <div className="fld">
-            <span className="fld-lbl">{t('Global shortcut')}</span>
-            <div className="sc-row">
-              <button type="button"
-                      className={`sc-key ${recording ? 'rec' : ''} ${summon ? '' : 'unset'}`}
-                      onClick={() => { setSummonErr(''); setRecording((r) => !r); }}
-                      onKeyDown={(e) => { if (recording) recordSummon(e); }}
-                      onBlur={() => setRecording(false)}>
-                {recording ? t('Press a combination…')
-                  : summon ? chordLabel(summon, IS_MAC) : t('Not set')}
-              </button>
-              {summon && !recording && (
-                <button type="button" className="ghost" onClick={() => void setSummonTo(null)}>
-                  {t('Clear')}
-                </button>
-              )}
-            </div>
-            <span className={`sc-why ${summonErr ? 'err' : ''}`}>
-              {summonErr ? t(summonErr)
-                : t('Off until you set one. Press it anywhere to bring Vylo forward and start a message.')}
-            </span>
-          </div>
-          <label>{t('Notifications')}
-            <select value={notifyPrefs.level}
-                    onChange={(e) => setNotifyTo({ level: e.target.value as NotifyLevel })}>
-              <option value="needed">{t('When the agent needs me')}</option>
-              <option value="all">{t('For everything, including when a turn ends')}</option>
-              <option value="off">{t('Off')}</option>
-            </select>
-          </label>
-          <label>{t('Notification sound')}
-            <select value={notifyPrefs.sound ? 'on' : 'off'}
-                    onChange={(e) => setNotifyTo({ sound: e.target.value === 'on' })}>
-              <option value="off">{t('Off')}</option>
-              <option value="on">{t('On')}</option>
-            </select>
-          </label>
-          <p className="hint">
-            {t('Only while Vylo is in the background. The banner brings the window forward; nothing is approved from it.')}
-          </p>
-          <label>{t('Theme')}
-            <select value={theme} onChange={(e) => setTheme(e.target.value as Theme)}>
-              <option value="system">{t('Match system')}</option>
-              <option value="light">{t('Light')}</option>
-              <option value="dark">{t('Dark')}</option>
-            </select>
-          </label>
-          {(mcpServers.length > 0 || mcpError) && (
-            <div className="mcp">
-              <h3>{t('MCP servers')}</h3>
-              <p className="mcp-note">
-                {t('Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.')}
-              </p>
-              {mcpError && <p className="mcp-err">{mcpError}</p>}
-              {mcpServers.map((sv) => {
-                const on = isEnabled(root, sv);
-                const tools = mcpTools[sv.name];
-                return (
-                  <div className={`mcp-row ${on ? 'on' : ''}`} key={sv.name}>
-                    <div className="mcp-what">
-                      <b>{sv.name}</b>
-                      <code>{commandLine(sv)}</code>
-                      {Object.keys(sv.env ?? {}).length > 0 && (
-                        <span className="mcp-env">{t('sets')} {Object.keys(sv.env).join(', ')}</span>
-                      )}
-                      {on && tools && (
-                        <span className="mcp-tools">{tools.length} {tools.length === 1 ? t('tool') : t('tools')}</span>
-                      )}
-                    </div>
-                    <button className={on ? 'ghost' : 'approve'} onClick={() => void toggleServer(sv)}>
-                      {on ? t('Disable') : t('Enable')}
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          <p className="hint">{t('Stored in this app only, on this machine.')}</p>
-        </div>
+        <SettingsPanel
+          t={t}
+          onClose={() => setShowSettings(false)}
+          baseUrl={baseUrl}
+          onBaseUrl={setBaseUrl}
+          apiKey={apiKey}
+          onApiKey={setApiKey}
+          token={token}
+          signedInAs={signedInAs}
+          plan={planChip}
+          onSignOut={() => {
+            // Signing out clears the session and *not* the API key: the key is
+            // a separate credential that goes on working, it was minted for
+            // this machine, and throwing it away because somebody pressed a
+            // button labelled Sign out would take the app offline for a reason
+            // nobody asked for. Revoking a key is a decision for the keys page.
+            const dead = token;
+            const next = signedOut({ apiKey, token });
+            setToken(next.token);
+            setApiKey(next.apiKey);
+            void signOut(localStorage, baseUrl, dead);
+          }}
+          theme={theme}
+          onTheme={setTheme}
+          lang={lang}
+          onLang={setLang}
+          autocomplete={autocomplete}
+          onAutocomplete={setAutocomplete}
+          notify={notifyPrefs}
+          onNotify={setNotifyTo}
+          summon={summon}
+          summonErr={summonErr}
+          recording={recording}
+          onRecording={(on) => { if (on) setSummonErr(''); setRecording(on); }}
+          onSummonKey={recordSummon}
+          onClearSummon={() => void setSummonTo(null)}
+          root={root}
+          mcpServers={mcpServers}
+          mcpTools={mcpTools}
+          mcpError={mcpError}
+          onToggleServer={(s) => void toggleServer(s)}
+          clips={clips}
+          onEmptied={(id) => {
+            // The window is still standing on these stores, and that is the
+            // half of the Storage tab that would fail silently: Redo would
+            // offer to put back contents that are gone, and the recovery
+            // banner would offer drafts that no longer exist. Emptying the
+            // clipboard history *is* this call rather than something that
+            // follows one -- it is localStorage, not a directory Rust can see.
+            if (id === 'clipboardHistory') { clearClips(localClips); setClips([]); }
+            if (id === 'drafts') setDrafts([]);
+            if (id === 'checkpoints') setRedoable(null);
+          }}
+          update={update}
+          updating={updating}
+          onCheckUpdates={() => checkForUpdate().then(setUpdate)}
+          onInstall={() => {
+            if (!update) return;
+            setUpdating(0);
+            update.install((pct) => setUpdating(pct)).catch((e) => {
+              setUpdating(null);
+              push({ kind: 'error', text: explain(e, t('install the update')) });
+            });
+          }}
+        />
       )}
 
       <div className="body">

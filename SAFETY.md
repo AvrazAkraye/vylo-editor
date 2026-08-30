@@ -173,8 +173,11 @@ item, and every one of them is absent from the tool schema below:
 - `history_restore`, `checkpoint_restore`, `checkpoint_redo` — putting a file
   back to a version this app already recorded, from the File History panel or an
   undo button.
-- `draft_save`, `draft_clear`, `checkpoint_save` — these write in the app data
-  directory, never in your project. See *What is stored outside your project*.
+- `draft_save`, `draft_clear`, `checkpoint_save`, `store_empty` — these write
+  in the app data directory, never in your project. `store_empty` is the one
+  that only removes: it is the Storage tab in Settings emptying one whole store,
+  and it takes a three-valued enum rather than a path, so there is no directory
+  name for it to be pointed at. See *What is stored outside your project*.
 
 **And the model cannot call it.** The tool schema in `app/src/agent.ts` has
 exactly eight names:
@@ -188,6 +191,7 @@ everything:  write_file   edit_file   run_command   remember
 `rename_path`, `delete_path`, `git_create_branch`, `git_commit`, `export_write`,
 `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
 `history_forget_all`, `checkpoint_save`, `checkpoint_restore`, `checkpoint_redo`,
+`store_sizes`, `store_empty`,
 `capture_screenshot`, `set_global_shortcut`, `watch_start`, `watch_stop`,
 `mcp_start`, `mcp_stop`, `mcp_call`, or any of `pty_open` / `pty_write` /
 `pty_resize` / `pty_close`. Every one of those exists in Rust and is reachable
@@ -318,17 +322,22 @@ That is Tauri's `app_data_dir()` for this app's identifier — `store()` in
 `app/src-tauri/src/lib.rs` asks for it, and `identifier` in `tauri.conf.json` is
 what names it.
 
+**Settings → Storage** lists all four, says how much each is using, and empties
+any of them behind a confirmation that names what goes. Until 0.27.0 the
+checkpoint store had no such button, and the last column of this table said so.
+It has one now.
+
 | Store | What it holds | Cap | How to clear it |
 |---|---|---|---|
-| `drafts/` | unsaved editor buffers, so a crash does not lose them | swept after 30 days untouched | **Discard them** on the recovery banner; also cleared on a clean quit |
-| `checkpoints/` | the contents of files before an approved write, plus the conversation tail, so an undo puts both back | 60 per chat, 32 MB per chat, chat directories removed after 30 days untouched | no in-app button — delete the directory |
-| `history/` | every version this app has written, so saving over your own work is recoverable | 32 MB per folder, 30 days; a single version over 4 MB is not recorded | **Forget this file’s history** / **Forget everything in this folder**, in the File History panel |
+| `drafts/` | unsaved editor buffers, so a crash does not lose them | swept after 30 days untouched | **Empty** in Settings → Storage; **Discard them** on the recovery banner; also cleared on a clean quit |
+| `checkpoints/` | the contents of files before an approved write, plus the conversation tail, so an undo puts both back | 60 per chat, 32 MB per chat, chat directories removed after 30 days untouched | **Empty** in Settings → Storage |
+| `history/` | every version this app has written, so saving over your own work is recoverable | 32 MB per folder, 30 days; a single version over 4 MB is not recorded | **Empty** in Settings → Storage; or **Forget this file’s history** / **Forget everything in this folder**, in the File History panel |
 
 **Clipboard history is not one of them**, which matters if you came to this
 section to delete it. It is kept in the webview's `localStorage` under the key
 `vylo.clips.v1` (`localClips` in `app/src/clips.ts`) — 20 entries, 7 days, 4096
-characters each, emptied by **Clear** in the clipboard picker. Deleting the app
-data directory does not clear it.
+characters each, emptied by **Empty** in Settings → Storage or by **Clear** in
+the clipboard picker. Deleting the app data directory does not clear it.
 
 It is worth reading twice: **it does not poll the OS clipboard.** A history
 that polls records whatever your password manager put there thirty seconds ago.

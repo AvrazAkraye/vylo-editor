@@ -83,6 +83,15 @@ const ABSENT = [
   // `checkpoint_save` in lib.rs already claims it is "absent from the tool
   // schema"; this is what makes that true rather than merely currently-the-case.
   'draft_save', 'draft_clear', 'checkpoint_save',
+  // The Storage tab in Settings. `store_empty` calls `fs::remove_dir_all` on
+  // one of the three directories in the app data folder, which is the most
+  // destructive thing in this app after `delete_path` -- it takes a closed
+  // enum rather than a path for exactly that reason, and it is here because a
+  // command that throws a whole store away must not be reachable by a tool
+  // call however the model is prompted. `store_sizes` only measures, and is
+  // here for `hide_traffic_lights`'s reason: a command is absent from the
+  // schema by somebody's decision rather than by nobody having made one.
+  'store_empty', 'store_sizes',
   // Stops a third-party server. Starting one is already here; stopping one is
   // the same authority in the other direction.
   'mcp_stop',
@@ -99,6 +108,15 @@ const ABSENT = [
   // this list exists for is that a command is absent from the schema by
   // somebody's decision, not by nobody having thought about it.
   'hide_traffic_lights',
+  // The Storage tab. `store_empty` calls `fs::remove_dir_all` on a whole store,
+  // which makes it the most destructive command added since `delete_path`. It
+  // is contained by *type* rather than by a check — it takes a `LocalStore`
+  // enum whose `dir()` returns a fixed string, so there is no caller-supplied
+  // path for anything to reach. That is the right design and it is still not a
+  // reason to leave it off this list: the rule is that a command is absent from
+  // the schema by somebody's decision. `store_sizes` only reads, and is here
+  // because knowing how much a person keeps is not the agent's business either.
+  'store_empty', 'store_sizes',
 ];
 // `run_command` is deliberately NOT on this list. It is IN the schema, and that
 // is the whole design: the model may ask, and a human approves the exact string
