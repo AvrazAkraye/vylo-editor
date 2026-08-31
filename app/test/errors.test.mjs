@@ -69,6 +69,16 @@ ok('and is not mistaken for a file that is too large',
    !advises('prompt is too long: 249890 tokens > 200000 maximum', 'read part of it'));
 ok('a rejected max_tokens points at the model picker',
    advises('max_tokens: 16384 > 8192, which is the maximum allowed', 'choose another model'));
+// The gateway gained this on /v1/messages in 0.30; before that a Starter key was
+// served Opus and told nothing, which is the more expensive bug of the two.
+ok('a model outside the plan says which way to fix it',
+   advises('Model "claude-opus-4-8" is not included in Starter. Available: claude-haiku-4-5, claude-sonnet-5',
+           'Pick one of those in the composer'));
+ok('and offers the other half, which is the plan',
+   advises('Model "claude-opus-4-8" is not included in Starter. Available: claude-haiku-4-5',
+           'upgrade at chat.vylo-tech.com'));
+ok('a plan with no models listed is not mistaken for it',
+   !advises('No active subscription. Choose a plan', 'Pick one of those'));
 
 // ── not saying it twice ───────────────────────────────────────────────────
 {

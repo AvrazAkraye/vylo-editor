@@ -80,7 +80,9 @@ export type Tail =
   /** The plan has no ceiling. Says so; never draws a zero. */
   | 'no-limit'
   /** There is a name and nothing to say about a balance. */
-  | 'none';
+  | 'none'
+  /** The plan lapses in `days`, and that is scarcer than the tokens. */
+  | 'days';
 
 export interface Chip {
   /** The extra class on `.planm`, and `''` for the ordinary case. */
@@ -95,6 +97,11 @@ export interface Chip {
    * where a balance should be.
    */
   left: string | null;
+  /**
+   * Whole days until the plan lapses. **Non-null exactly when `tail` is
+   * `days`**, for the same reason `left` is: the renderer interpolates it.
+   */
+  days: number | null;
 }
 
 /**
@@ -121,18 +128,66 @@ export interface Chip {
  *   other wrong answer — this plan has one, it is just not known — so the name
  *   alone is what is true.
  */
-export function chip(plan: PlanSummary | null): Chip | null {
+/**
+ * Whole days until a plan lapses, or null when it does not.
+ *
+ * Rounded *down*, so eleven hours left says 0 rather than 1. Generous rounding
+ * is what lets somebody plan around a number that has in fact already run out.
+ * MySQL hands back `2026-09-30 20:19:37` with no zone; the server keeps
+ * everything in UTC, so that is what it is read as.
+ */
+export function daysLeft(renews: string | null, now: number): number | null {
+  if (!renews) return null;
+  const end = Date.parse(renews.includes('T') ? renews : `${renews.replace(' ', 'T')}Z`);
+  if (Number.isNaN(end)) return null;
+  return Math.max(0, Math.floor((end - now) / 86_400_000));
+}
+
+/**
+ * A plan runs out two ways, and only one of them was ever shown.
+ *
+ * The token count has been in the status bar since 0.27.0. The *date* arrived
+ * in the same response, was parsed into `renews`, and was never rendered — so
+ * somebody on a fourteen-day trial with most of their tokens unspent saw a
+ * comfortable number right up to the morning it stopped working. That is how
+ * the owner found out: mid-turn, with a 402.
+ *
+ * Which of the two to show is decided by which is scarcer *as a fraction of
+ * itself*. Twelve percent of the tokens with nine days left is a token problem;
+ * eighty percent of the tokens with two days left is a calendar one. Showing
+ * both needs twice the room in a bar that has none, and showing the wrong one
+ * is worse than showing neither.
+ */
+export function chip(plan: PlanSummary | null, now = Date.now()): Chip | null {
   if (!plan || plan.level === 'unknown') return null;
   // A number is only claimed when there is one. `metered` says a ceiling
   // exists; `left` is the only thing that says what is under it, and the two
   // come apart when the server describes a plan by percentage alone.
   const counted = plan.metered && plan.left !== null;
+
+  const days = daysLeft(plan.renews, now);
+  // A week is where a renewal stops being background and becomes a thing to do
+  // something about.
+  const closing = days !== null && days <= 7;
+  // `percent` is how much is *used*, so what remains is its complement. A
+  // fortnight is the window a trial is measured against, which makes one day
+  // a fourteenth of it.
+  const tokenShare = plan.percent === null ? 1 : (100 - plan.percent) / 100;
+  const dayShare = days === null ? 1 : Math.min(1, days / 14);
+  const byDate = closing && dayShare < tokenShare;
+
   return {
-    level: plan.level === 'low' ? 'low' : plan.level === 'out' ? 'out' : '',
+    level: plan.level === 'low' ? 'low'
+      : plan.level === 'out' ? 'out'
+      : closing ? 'low' : '',
     name: plan.name,
     // A ceiling is the only thing worth a number. Without one there is either a
     // plan with no limit to report, or no plan at all.
-    tail: counted ? 'left' : !plan.metered && plan.name ? 'no-limit' : 'none',
-    left: counted ? plan.left : null,
+    tail: byDate ? 'days'
+      : counted ? 'left'
+      : !plan.metered && plan.name ? 'no-limit'
+      : 'none',
+    left: !byDate && counted ? plan.left : null,
+    days: byDate ? days : null,
   };
 }

@@ -19,7 +19,7 @@
 // The plan fixtures are built through `planSummary` rather than hand-written,
 // so the two halves cannot drift into agreeing with each other and disagreeing
 // with the server.
-import { adopted, chip, signedOut } from '../.test-build/session.js';
+import { adopted, chip, signedOut, daysLeft} from '../.test-build/session.js';
 import { planSummary } from '../.test-build/account.js';
 
 let pass = 0, fail = 0;
@@ -175,6 +175,70 @@ ok('nothing signed in draws no chip', chip(null) === null);
   ok('and no balance either', c.tail === 'none', c);
   ok('and is not coloured as a problem', c.level === '', c);
 }
+
+// ── the date, which is the other way a plan runs out ──────────────────────
+//
+// The token count shipped in 0.27.0. The date came back in the same response,
+// was parsed, and was never rendered — so a fourteen-day trial with most of its
+// tokens unspent showed a comfortable number right up to the morning it
+// stopped working.
+const DAY = 86_400_000;
+const T0 = Date.parse('2026-09-01T00:00:00Z');
+
+ok('no renewal date, no countdown', daysLeft(null, T0) === null);
+ok('a date MySQL shape is understood', daysLeft('2026-09-11 00:00:00', T0) === 10);
+ok('an ISO date is understood too', daysLeft('2026-09-11T00:00:00Z', T0) === 10);
+ok('nonsense is null rather than NaN days', daysLeft('soon', T0) === null);
+// Eleven hours is not a day. Rounding up would let somebody plan around a
+// number that has in fact already run out.
+ok('part of a day rounds down', daysLeft('2026-09-01T11:00:00Z', T0) === 0);
+ok('a date already past is zero, never negative', daysLeft('2026-08-01T00:00:00Z', T0) === 0);
+
+const plan = (over = {}) => ({
+  name: 'Starter', trial: false, metered: true, left: '1.2M', used: '800k',
+  allowance: '2M', percent: 40, level: 'ok', renews: null, ...over,
+});
+
+ok('a plan with no date behaves exactly as before', (() => {
+  const c = chip(plan(), T0);
+  return c.tail === 'left' && c.days === null && c.level === '';
+})());
+ok('a renewal far off is not mentioned', (() => {
+  const c = chip(plan({ renews: '2026-10-01 00:00:00' }), T0);
+  return c.tail === 'left' && c.level === '';
+})());
+// 80% of the tokens left and two days on the clock: the calendar is scarcer.
+ok('two days left outranks a healthy balance', (() => {
+  const c = chip(plan({ renews: '2026-09-03 00:00:00', percent: 20 }), T0);
+  return c.tail === 'days' && c.days === 2 && c.left === null && c.level === 'low';
+})());
+// 12% of the tokens with six days left: the tokens are scarcer, so they win
+// even though the renewal is inside the week.
+ok('but a nearly-spent allowance still outranks the calendar', (() => {
+  const c = chip(plan({ renews: '2026-09-07 00:00:00', percent: 88, level: 'low' }), T0);
+  return c.tail === 'left' && c.days === null;
+})());
+ok('a closing renewal warns even when the tokens are fine', (() => {
+  const c = chip(plan({ renews: '2026-09-05 00:00:00', percent: 10 }), T0);
+  return c.level === 'low';
+})());
+ok('out of tokens still says out, whatever the date', (() => {
+  const c = chip(plan({ renews: '2026-09-02 00:00:00', percent: 100, level: 'out' }), T0);
+  return c.level === 'out';
+})());
+// The renderer interpolates both, so a null reaching either prints the word.
+ok('days and left are never both set, and never both null on a metered plan', (() => {
+  for (const [renews, percent] of [['2026-09-02 00:00:00', 10], ['2026-10-01 00:00:00', 40], [null, 40]]) {
+    const c = chip(plan({ renews, percent }), T0);
+    if (c.tail === 'days' && (c.days === null || c.left !== null)) return false;
+    if (c.tail === 'left' && (c.left === null || c.days !== null)) return false;
+  }
+  return true;
+})());
+ok('an unmetered plan close to renewal still says no limit rather than a number', (() => {
+  const c = chip(plan({ metered: false, left: null, percent: null, renews: '2026-09-02 00:00:00' }), T0);
+  return c.tail === 'days' ? c.days === 1 : c.tail === 'no-limit';
+})());
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -15,7 +15,7 @@ import {
 import { Pending, type Change } from './pending';
 import { Review } from './Review';
 import { invoke } from '@tauri-apps/api/core';
-import { storedLang, storeLang, translator, type Lang } from './i18n';
+import { storedLang, storeLang, translator, type Lang, fill} from './i18n';
 import { checkForUpdate, type Available } from './updates';
 import { Markdown } from './Markdown';
 import {
@@ -3327,6 +3327,9 @@ export function App() {
                 title={t('What your plan has left this period')}>
             <b>{planChip.name ?? t('No plan')}</b>
             {planChip.tail === 'left' ? ` ${planChip.left} ${t('left')}`
+              : planChip.tail === 'days' && planChip.days !== null
+                ? ` ${fill(planChip.days === 0 ? t('ends today')
+                    : planChip.days === 1 ? t('1 day left') : t('{n} days left'), { n: planChip.days })}`
               : planChip.tail === 'no-limit' ? ` ${t('no limit')}` : ''}
           </span>
         )}

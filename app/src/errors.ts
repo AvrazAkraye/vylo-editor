@@ -32,6 +32,11 @@ const ADVICE: { when: RegExp; then: string }[] = [
   { when: /rejected the API key|authentication_error|invalid api key/i, then: 'Check the key in Settings.' },
   { when: /rate limit/i, then: 'Wait a moment, or check your plan at chat.vylo-tech.com.' },
   { when: /no active subscription/i, then: 'Choose a plan at chat.vylo-tech.com.' },
+  // The gateway enforces each plan's model list. Before 0.30 it did so on two
+  // endpoints out of three and not on the one the app uses, so this message is
+  // new to most people and needs to say which half to change: the model is a
+  // click away in the composer, the plan is a purchase.
+  { when: /is not included in .*Available:/i, then: 'Pick one of those in the composer, or upgrade at chat.vylo-tech.com.' },
   { when: /is not running/i, then: 'Enable it in Settings first.' },
   { when: /did not answer/i, then: 'The server may have failed to start — check its command in Settings.' },
   { when: /old_string not found/i, then: 'The file has changed since it was read; ask the agent to read it again.' },
