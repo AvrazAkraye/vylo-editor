@@ -204,7 +204,7 @@ export function FileHistory({ root, path, dirty, onClose, onRestored, t }: Props
            role="dialog" aria-modal="true" aria-label={t('File history')}>
         <div className="fh-bar">
           <Icon name="restore" size={13} />
-          <code>{path}</code>
+          <code title={path}>{path}</code>
           <span className="fh-sp" />
           {/* Where the clipboard picker puts its Clear, and for the same
               reason. A convenience feature that quietly becomes a credential
@@ -235,7 +235,7 @@ export function FileHistory({ root, path, dirty, onClose, onRestored, t }: Props
               <button key={v.seq} role="option" aria-selected={v.seq === chosen}
                       className={`pal-row fh-row ${v.seq === chosen ? 'on' : ''}`}
                       onClick={() => setChosen(v.seq)}>
-                <span className="pal-name">{ago(v.at * 1000)}</span>
+                <span className="pal-name">{ago(v.at * 1000, t)}</span>
                 <span className="fh-sp" />
                 <span className="pal-dir">{size(v.bytes)}</span>
               </button>

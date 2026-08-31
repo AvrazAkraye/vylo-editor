@@ -96,7 +96,7 @@ export function QuickOpen({ entries, onOpen, onClose, t }: QuickOpenProps) {
                     onMouseEnter={() => setActive(i)}
                     onClick={() => { onOpen(path); onClose(); }}>
               <span className="pal-name"><Marked text={path.slice(cut + 1)} query={q} /></span>
-              <span className="pal-dir">{cut > 0 ? path.slice(0, cut) : ''}</span>
+              <span className="pal-dir" title={path}>{cut > 0 ? path.slice(0, cut) : ''}</span>
             </button>
           );
         })}
@@ -175,7 +175,7 @@ export function Symbols({ symbols, scope, onOpen, onClose, t }: SymbolProps) {
                   onClick={() => { onOpen(s.path, s.line); onClose(); }}>
             <span className="pal-kind">{s.kind}</span>
             <span className="pal-name"><Marked text={s.name} query={q} /></span>
-            <span className="pal-dir">{scope ? `:${s.line}` : `${s.path}:${s.line}`}</span>
+            <span className="pal-dir" title={`${s.path}:${s.line}`}>{scope ? `:${s.line}` : `${s.path}:${s.line}`}</span>
           </button>
         ))}
       </div>
@@ -195,14 +195,24 @@ interface FindProps {
    * the same review as anything the agent proposes.
    */
   onReplace: (find: string, to: string, opts: { fold: boolean; words: boolean }) => Promise<number>;
+  /** The term to open on, when a recent search in the rail asked for one. */
+  initial?: string;
+  /**
+   * The query this panel ended on, if it matched anything. One call per opening
+   * of the panel, on the way out: the search runs per debounced keystroke, so
+   * reporting each one would fill the rail with every prefix of every word
+   * anybody typed. A query that found nothing is not reported at all — that is
+   * a mistake, not something worth offering back.
+   */
+  onSearched?: (q: string) => void;
   t: (s: string) => string;
 }
 
-export function FindInFiles({ root, onOpen, onClose, onReplace, t }: FindProps) {
+export function FindInFiles({ root, onOpen, onClose, onReplace, initial, onSearched, t }: FindProps) {
   const [replacement, setReplacement] = useState('');
   const [showReplace, setShowReplace] = useState(false);
   const [replacing, setReplacing] = useState(false);
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(initial ?? '');
   const [fold, setFold] = useState(true);
   const [words, setWords] = useState(false);
   const [hits, setHits] = useState<Hit[]>([]);
@@ -210,6 +220,9 @@ export function FindInFiles({ root, onOpen, onClose, onReplace, t }: FindProps) 
   const [err, setErr] = useState<string | null>(null);
   const [active, setActive] = useState(0);
   const list = useScrollIntoView(active);
+  // The last query that found something, handed up when the panel closes.
+  const matched = useRef('');
+  useEffect(() => () => { if (matched.current) onSearched?.(matched.current); }, []);
 
   // Debounced, because each search walks the tree: firing per keystroke would
   // queue a full walk behind every character of a word.
@@ -221,7 +234,11 @@ export function FindInFiles({ root, onOpen, onClose, onReplace, t }: FindProps) 
       invoke<{ hits: Hit[] }>('search', {
         root, query: q, maxHits: 300, caseInsensitive: fold, wholeWord: words,
       })
-        .then((r) => { if (!cancelled) { setHits(r.hits); setErr(null); setActive(0); } })
+        .then((r) => {
+          if (cancelled) return;
+          setHits(r.hits); setErr(null); setActive(0);
+          if (r.hits.length > 0) matched.current = q;
+        })
         .catch((e) => { if (!cancelled) { setHits([]); setErr(String(e)); } })
         .finally(() => { if (!cancelled) setBusy(false); });
     }, 180);
@@ -246,12 +263,17 @@ export function FindInFiles({ root, onOpen, onClose, onReplace, t }: FindProps) 
       <div className="pal-head">
         <input className="pal-in" autoFocus value={q} placeholder={t('Search the project…')}
                onChange={(e) => setQ(e.target.value)} onKeyDown={key} spellCheck={false} />
+        {/* `aria-label` as well as `title`, and `aria-pressed` because all three
+            are modes rather than actions: the accessible name of the Replace
+            toggle was the character `⇄`, and nothing at all announced whether
+            any of them was on. */}
         <button className={`pal-tog ${fold ? '' : 'on'}`} onClick={() => setFold((v) => !v)}
-                title={t('Match case')}>Aa</button>
+                title={t('Match case')} aria-label={t('Match case')} aria-pressed={!fold}>Aa</button>
         <button className={`pal-tog ${words ? 'on' : ''}`} onClick={() => setWords((v) => !v)}
-                title={t('Whole word')}>|ab|</button>
-        <button className={`pal-tog ${showReplace ? 'on' : ''}`}
-                onClick={() => setShowReplace((v) => !v)} title={t('Replace')}>⇄</button>
+                title={t('Whole word')} aria-label={t('Whole word')} aria-pressed={words}>|ab|</button>
+        <button className={`pal-tog ${showReplace ? 'on' : ''}`} aria-pressed={showReplace}
+                onClick={() => setShowReplace((v) => !v)}
+                title={t('Replace')} aria-label={t('Replace')}>⇄</button>
       </div>
 
       {showReplace && (
@@ -278,7 +300,7 @@ export function FindInFiles({ root, onOpen, onClose, onReplace, t }: FindProps) 
                   onMouseEnter={() => setActive(i)}
                   onClick={() => { onOpen(h.path, h.line); onClose(); }}>
             <span className="pal-where">{h.path.split(/[/\\]/).pop()}<i>:{h.line}</i></span>
-            <span className="pal-line">{h.text.trim()}</span>
+            <span className="pal-line" title={h.text.trim()}>{h.text.trim()}</span>
           </button>
         ))}
       </div>

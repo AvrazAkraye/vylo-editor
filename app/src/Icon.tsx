@@ -60,6 +60,10 @@ const ICONS: Record<string, Stroke[]> = {
   ],
   clipboard: [{ d: 'M9 4.5H7a1.5 1.5 0 0 0-1.5 1.5v13A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V6A1.5 1.5 0 0 0 17 4.5h-2M9.5 3h5a1 1 0 0 1 1 1v1.5a1 1 0 0 1-1 1h-5a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM9 11h6M9 15h4' }],
   mic: [{ d: 'M12 3.5a2.8 2.8 0 0 0-2.8 2.8v5a2.8 2.8 0 0 0 5.6 0v-5A2.8 2.8 0 0 0 12 3.5zM5.8 11a6.2 6.2 0 0 0 12.4 0M12 17.2v3.3' }],
+  // Rename. There was no pencil, so `chevron` was doing the job — in the file
+  // tree that put the expand caret and the rename button in the same row as the
+  // same glyph, one pointing at the row's children and one meaning "edit this".
+  pencil: [{ d: 'M4.6 19.4l.7-3.5a2 2 0 0 1 .55-1.02L15.9 4.7a2.2 2.2 0 0 1 3.4 2.77l-.28.33-10.03 10.03a2 2 0 0 1-1.02.55zM14.4 6.2l3.4 3.4' }],
 };
 
 export type IconName = keyof typeof ICONS;

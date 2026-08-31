@@ -186,7 +186,7 @@ export function Review({ changes, onApprove, onApproveHunks, onReject, busy, t }
 
         <div className="rv-diff">
           <div className="rv-diff-bar">
-            <code>{open.path}</code>
+            <code title={open.path}>{open.path}</code>
             {parse && <ParseNote check={parse} partial={partial} t={t} />}
             <span className="rv-keys">
               <kbd>j</kbd><kbd>k</kbd> {t('move')} · <kbd>space</kbd> {t('toggle')} · <kbd>↵</kbd> {t('write')}

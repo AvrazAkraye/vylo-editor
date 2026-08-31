@@ -123,21 +123,21 @@ export function Chats({ chats, current, onOpen, onDelete, onRenamed, t }: Props)
       )}
 
       {hits.map(({ chat: c, snippet }) => (
-        <div key={c.id} className={`ft-row ft-file chat-row ${c.id === current ? 'on' : ''}`}>
+        <div key={c.id} className={`ft-row chat-row ${c.id === current ? 'on' : ''}`}>
           <button className="chat-open" onClick={() => onOpen(c)} title={c.title}>
             <span className="ft-icon"><Icon name="chat" size={13} /></span>
             <span className="ch-text">
               <span className="ft-name">{c.title}</span>
               {/* Why this chat came back, when its name gives no clue. */}
-              {snippet && <span className="ch-snip">{snippet}</span>}
+              {snippet && <span className="ch-snip" title={snippet}>{snippet}</span>}
             </span>
-            <span className="rc-meta">{ago(c.updatedAt)}</span>
+            <span className="rc-meta">{ago(c.updatedAt, t)}</span>
           </button>
           <span className="ft-acts">
             <button className="ft-act" onClick={() => rename(c)}
                     title={`${t('Rename this chat')} — ${c.title}`}
                     aria-label={`${t('Rename this chat')} — ${c.title}`}>
-              <Icon name="chevron" size={11} />
+              <Icon name="pencil" size={11} />
             </button>
             <button className="ft-act" onClick={() => void exportChat(c)}
                     title={`${t('Export as Markdown')} — ${c.title}`}

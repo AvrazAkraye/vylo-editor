@@ -5,11 +5,16 @@
  * (Sorani) and Badini — Northern Kurdish as written in Duhok, in Arabic script
  * rather than the Latin one Kurmanji usually takes.
  *
- * Layout stays left-to-right in every language, matching the decision made for
- * the OTP dashboard. Arabic-script text still shapes right-to-left within each
- * line; that is the browser's bidi algorithm and is not something `dir`
- * controls. Only the interface is translated — the agent answers in whatever
- * language you write to it.
+ * Three of the four are right to left, and the interface turns round with
+ * them. That is not decided here: `src/rtl.ts` owns the mapping and derives
+ * `dir` from whatever `lang` the document is carrying, so adding a language to
+ * `LANGS` below is also a decision about its direction, and `test/rtl.test.mjs`
+ * fails if a fifth code arrives without one.
+ *
+ * Bidi reorders glyphs within a line on its own and is not what `dir` is for
+ * here — `dir` is what moves the rail, the sidebar and every trailing element
+ * to the other edge. Only the interface is translated; the agent answers in
+ * whatever language you write to it.
  */
 
 export type Lang = 'en' | 'ar' | 'ckb' | 'kmr';
@@ -417,7 +422,7 @@ const ar: Dict = {
   'new': 'جديد',
   'Commit message': 'رسالة الالتزام',
   'Not now': 'ليس الآن',
-  '+ branch': '+ فرع',
+  'New branch': 'فرع جديد',
   'New branch name': 'اسم الفرع الجديد',
   'Drop a folder to open it, or files to attach': 'أفلت مجلداً لفتحه، أو ملفات لإرفاقها',
   'Open a folder, or drop one here': 'افتح مجلداً، أو أفلت واحداً هنا',
@@ -477,6 +482,37 @@ const ar: Dict = {
   'No model output reaches disk or a shell without a human having read and approved that exact content or string.':
     'لا يصل أي مُخرَج من النموذج إلى القرص أو إلى الطرفية دون أن يكون إنسان قد قرأ ووافق على ذلك المحتوى أو النص بعينه.',
   'None': 'لا شيء',
+  'No folder open': 'لا مجلد مفتوح',
+  'Create a branch and switch to it': 'أنشئ فرعاً وانتقل إليه',
+  'already modified before the agent touched anything': 'معدَّلة قبل أن يمسّ الوكيل أي شيء',
+  'Working tree is clean': 'شجرة العمل نظيفة',
+  'modified': 'معدَّل',
+  'error': 'خطأ',
+  'Command approval': 'الموافقة على أمر',
+  'file written': 'ملف كُتب',
+  'files written': 'ملفات كُتبت',
+  'Commit to': 'التزام إلى',
+  'Remove': 'إزالة',
+  'Recent searches': 'عمليات البحث الأخيرة',
+  'Committed': 'تم الالتزام',
+  'Switched to branch': 'تم الانتقال إلى الفرع',
+  'Wrote': 'كُتب',
+  'Wrote part of': 'كُتب جزء من',
+  'Discarded': 'تم التجاهل',
+  'New file in {path}': 'ملف جديد في {path}',
+  'Rename {path}': 'إعادة تسمية {path}',
+  'Delete {path}': 'حذف {path}',
+  'has staged changes': 'به تغييرات جاهزة',
+  'No files indexed yet.': 'لا توجد ملفات مفهرسة بعد.',
+  'No terminals open.': 'لا توجد طرفيات مفتوحة.',
+  'just now': 'الآن',
+  '{n}m ago': 'قبل {n} د',
+  '{n}h ago': 'قبل {n} س',
+  '{n}d ago': 'قبل {n} ي',
+  '{n}s': '{n} ث',
+  '{n}m': '{n} د',
+  '{n}h': '{n} س',
+  '{n}d': '{n} ي',
 };
 
 const ckb: Dict = {
@@ -873,7 +909,7 @@ const ckb: Dict = {
   'new': 'نوێ',
   'Commit message': 'پەیامی کۆمیت',
   'Not now': 'ئێستا نا',
-  '+ branch': '+ لق',
+  'New branch': 'لقی نوێ',
   'New branch name': 'ناوی لقی نوێ',
   'Drop a folder to open it, or files to attach': 'بوخچەیەک فڕێبدە بۆ کردنەوەی، یان فایل بۆ هاوپێچکردن',
   'Open a folder, or drop one here': 'بوخچەیەک بکەرەوە، یان یەکێک لێرە فڕێبدە',
@@ -933,6 +969,37 @@ const ckb: Dict = {
   'No model output reaches disk or a shell without a human having read and approved that exact content or string.':
     'هیچ دەرئەنجامێکی مۆدێل ناگاتە دیسک یان شێڵ بەبێ ئەوەی مرۆڤێک هەمان ناوەڕۆک یان دەق خوێندبێتیەوە و پەسەندی کردبێت.',
   'None': 'هیچ',
+  'No folder open': 'هیچ بوخچەیەک کراوە نییە',
+  'Create a branch and switch to it': 'لقێک دروست بکە و بگوازەرەوە بۆی',
+  'already modified before the agent touched anything': 'پێشتر گۆڕدراون پێش ئەوەی ئەیجەنت دەستی لە شتێک بدات',
+  'Working tree is clean': 'دارە کارییەکە پاکە',
+  'modified': 'گۆڕدراو',
+  'error': 'هەڵە',
+  'Command approval': 'پەسەندکردنی فەرمان',
+  'file written': 'فایل نووسرا',
+  'files written': 'فایل نووسران',
+  'Commit to': 'تۆمارکردن بۆ',
+  'Remove': 'لابردن',
+  'Recent searches': 'گەڕانە دواییەکان',
+  'Committed': 'تۆمارکرا',
+  'Switched to branch': 'گوازرایەوە بۆ لقی',
+  'Wrote': 'نووسرا',
+  'Wrote part of': 'بەشێک نووسرا لە',
+  'Discarded': 'فڕێدرا',
+  'New file in {path}': 'فایلی نوێ لە {path}',
+  'Rename {path}': 'ناولێنانەوەی {path}',
+  'Delete {path}': 'سڕینەوەی {path}',
+  'has staged changes': 'گۆڕانکاری ئامادەکراوی هەیە',
+  'No files indexed yet.': 'هێشتا هیچ فایلێک ئیندێکس نەکراوە.',
+  'No terminals open.': 'هیچ تێرمیناڵێکی کراوە نییە.',
+  'just now': 'هەر ئێستا',
+  '{n}m ago': '{n} خولەک پێش',
+  '{n}h ago': '{n} کاتژمێر پێش',
+  '{n}d ago': '{n} ڕۆژ پێش',
+  '{n}s': '{n}چ',
+  '{n}m': '{n}خ',
+  '{n}h': '{n}ک',
+  '{n}d': '{n}ڕ',
 };
 
 const kmr: Dict = {
@@ -1329,7 +1396,7 @@ const kmr: Dict = {
   'new': 'نوی',
   'Commit message': 'پەیاما کۆمیتێ',
   'Not now': 'نە نوکە',
-  '+ branch': '+ چق',
+  'New branch': 'چقێ نوی',
   'New branch name': 'ناڤێ چقێ نوی',
   'Drop a folder to open it, or files to attach': 'بوخچەیەکێ بئاڤێژە بۆ ڤەکرنێ، یان دەفتەران بۆ پێڤەکرنێ',
   'Open a folder, or drop one here': 'بوخچەیەکێ ڤەکە، یان یەکێ ل ڤێرێ بئاڤێژە',
@@ -1389,6 +1456,37 @@ const kmr: Dict = {
   'No model output reaches disk or a shell without a human having read and approved that exact content or string.':
     'چو دەرئەنجامێن مۆدێلێ ناگەهنە دیسکێ یان شێلێ، بێی ئەوێ مرۆڤەکی هەمان ناڤەڕۆک یان دەق خواندبیت و پەسەند کربیت.',
   'None': 'چو',
+  'No folder open': 'چو فولدەر نەهاتییە ڤەکرن',
+  'Create a branch and switch to it': 'چقەکێ چێکە و بۆ وی بگوهۆڕە',
+  'already modified before the agent touched anything': 'بەری ئەوێ ئەیجەنتی دەست ل چو تشتی بدەتە هاتینە گوهۆڕین',
+  'Working tree is clean': 'دارا کاری یا پاقژە',
+  'modified': 'گوهۆڕی',
+  'error': 'شاشی',
+  'Command approval': 'پەسەندکرنا فەرمانێ',
+  'file written': 'دەفتەر هاتە نڤیسین',
+  'files written': 'دەفتەر هاتنە نڤیسین',
+  'Commit to': 'تۆمارکرن بۆ',
+  'Remove': 'ژێبرن',
+  'Recent searches': 'لێگەریانێن دوماهیێ',
+  'Committed': 'هاتە تۆمارکرن',
+  'Switched to branch': 'هاتە گوهاستن بۆ چقێ',
+  'Wrote': 'هاتە نڤیسین',
+  'Wrote part of': 'پارچەیەک هاتە نڤیسین ژ',
+  'Discarded': 'هاتە ئاڤێتن',
+  'New file in {path}': 'دەفتەرەکێ نوی د {path} دا',
+  'Rename {path}': 'ناڤێ {path} بگوهۆڕە',
+  'Delete {path}': 'ژێبرنا {path}',
+  'has staged changes': 'گوهۆڕینێن ئامادەکری هەنە',
+  'No files indexed yet.': 'هێشتا چ دەفتەر نەهاتینە ئیندێکسکرن.',
+  'No terminals open.': 'چ تێرمیناڵ ڤەکری نینن.',
+  'just now': 'نوکە',
+  '{n}m ago': '{n} خولەک بەرێ',
+  '{n}h ago': '{n} دەمژمێر بەرێ',
+  '{n}d ago': '{n} ڕۆژ بەرێ',
+  '{n}s': '{n}چ',
+  '{n}m': '{n}خ',
+  '{n}h': '{n}د',
+  '{n}d': '{n}ڕ',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
@@ -1411,4 +1509,25 @@ export function storeLang(l: Lang): void {
 export function translator(lang: Lang): (s: string) => string {
   const table = TABLES[lang];
   return (s: string) => table[s] ?? s;
+}
+
+/**
+ * A translated sentence with its variable parts put back in.
+ *
+ * The alternative, and what the app did everywhere before this, is to
+ * concatenate: `` `${t('Staged')} ${n} ${t('edits')}` ``. That works in English
+ * and only in English — it fixes the word order at the call site, so a language
+ * that puts the number first, or the verb last, cannot be translated into it.
+ * Three of the four languages here are one of those.
+ *
+ * So a key that carries a value carries a `{name}` where the value goes, and
+ * the translator moves it. `fill` is deliberately dumb: it replaces every
+ * occurrence of each `{name}` and leaves anything it was not given alone, so a
+ * translation that drops a placeholder loses a value rather than throwing, and
+ * one that repeats it gets it twice.
+ */
+export function fill(s: string, vars: Record<string, string | number>): string {
+  let out = s;
+  for (const [k, v] of Object.entries(vars)) out = out.split(`{${k}}`).join(String(v));
+  return out;
 }

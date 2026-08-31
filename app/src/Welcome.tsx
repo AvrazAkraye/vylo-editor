@@ -16,10 +16,18 @@ import { SignIn } from './SignIn';
  * wording it well.
  */
 
-/** macOS writes ⌘; everywhere else it is Ctrl, and showing ⌘ there is a lie. */
+/**
+ * macOS writes ⌘; everywhere else it is Ctrl, and showing ⌘ there is a lie.
+ *
+ * Exported, because these are not the key map's private business: anywhere a
+ * shortcut is printed — the composer hint, a button's `kbd`, a tooltip — has
+ * the same two choices to make, and a hardcoded ⌘ in one of them tells a
+ * Windows user to press a key their keyboard does not have. Import these
+ * rather than typing the glyph.
+ */
 export const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
-const MOD = IS_MAC ? '⌘' : 'Ctrl';
-const ALT = IS_MAC ? '⌃' : 'Ctrl';
+export const MOD = IS_MAC ? '⌘' : 'Ctrl';
+export const ALT = IS_MAC ? '⌃' : 'Ctrl';
 
 /**
  * Only shortcuts that actually work. An unbuilt one advertised here is a bug —
@@ -111,7 +119,7 @@ export function Welcome({ recents, onOpen, onOpenFolder, apiKey, baseUrl, onSign
                     ellipsis instead of the useless leading /Users/… */}
                 <span className="wc-path">{r.folder}</span>
                 <span className="wc-meta">
-                  {r.chats} {r.chats === 1 ? t('chat') : t('chats')} · {ago(r.updatedAt)}
+                  {r.chats} {r.chats === 1 ? t('chat') : t('chats')} · {ago(r.updatedAt, t)}
                 </span>
               </button>
             ))}

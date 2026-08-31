@@ -23,6 +23,8 @@
  * running, so that is what the line says.
  */
 
+import { fill } from './i18n';
+
 export type State =
   /** A shell, still running. */
   | 'live'
@@ -65,14 +67,20 @@ export function titleOf(s: Session, term = 'Terminal'): { text: string; mono: bo
  * Seconds up to a minute, then minutes, then hours. Deliberately coarse: this
  * sits under a title at eleven pixels and the difference between 41 and 44
  * minutes has never changed anybody's mind about which terminal to click.
+ *
+ * `t` is required for `ago()`'s reason one file over: `s`, `m`, `h` and `d` are
+ * English abbreviations, they render beside a state word that *is* translated,
+ * and an optional translator is one the next call site forgets. The unit is
+ * carried by the whole key rather than concatenated onto the number, so a
+ * language that writes it the other way round can.
  */
-export function since(born: number, now: number): string {
+export function since(born: number, now: number, t: (s: string) => string): string {
   const s = Math.max(0, Math.floor((now - born) / 1000));
-  if (s < 60) return `${s}s`;
+  if (s < 60) return fill(t('{n}s'), { n: s });
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m`;
+  if (m < 60) return fill(t('{n}m'), { n: m });
   const h = Math.floor(m / 60);
-  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`;
+  return h < 24 ? fill(t('{n}h'), { n: h }) : fill(t('{n}d'), { n: Math.floor(h / 24) });
 }
 
 /**

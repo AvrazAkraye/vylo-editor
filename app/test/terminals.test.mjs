@@ -40,14 +40,19 @@ ok('a closed shell is reported the same way', stateOf(shell(1, { dead: true, cod
 ok('the word Terminal is translatable', titleOf(shell(2), 'تێرمینال').text === 'تێرمینال 2');
 
 // ── age ───────────────────────────────────────────────────────────────────
-ok('seconds, under a minute', since(0, 41_000) === '41s');
-ok('just opened reads as zero rather than blank', since(0, 200) === '0s');
-ok('minutes, over one', since(0, 61_000) === '1m' && since(0, 59 * 60_000) === '59m');
-ok('hours, over sixty minutes', since(0, 60 * 60_000) === '1h');
-ok('days, over a day', since(0, 25 * 3600_000) === '1d');
+// The identity translator: English is the key, so this is what `since` returns
+// with no translation, which is what the assertions below were written against.
+const en = (s) => s;
+ok('seconds, under a minute', since(0, 41_000, en) === '41s');
+ok('just opened reads as zero rather than blank', since(0, 200, en) === '0s');
+ok('minutes, over one', since(0, 61_000, en) === '1m' && since(0, 59 * 60_000, en) === '59m');
+ok('hours, over sixty minutes', since(0, 60 * 60_000, en) === '1h');
+ok('days, over a day', since(0, 25 * 3600_000, en) === '1d');
+// And a translated one moves the unit rather than having it stuck on the end.
+ok('the unit is the translated part', since(0, 61_000, (s) => s.replace('{n}m', 'د {n}')) === 'د 1');
 // Clocks move backwards — a laptop waking, an NTP correction — and a negative
 // age would render as "-3s" on a row that is fine.
-ok('a clock that went backwards does not render a negative age', since(5000, 0) === '0s');
+ok('a clock that went backwards does not render a negative age', since(5000, 0, en) === '0s');
 
 // ── filtering ─────────────────────────────────────────────────────────────
 {

@@ -1,5 +1,8 @@
 <!doctype html>
-<html lang="en">
+<!-- `dir` beside `lang` so the first paint, before any script runs, is not
+     directionless. `src/rtl.ts` replaces both from the stored language in
+     `main.tsx`, still before React's first render. -->
+<html lang="en" dir="ltr">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

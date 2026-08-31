@@ -8,6 +8,12 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
  * value is 'system', and no `data-theme` attribute is stamped at all — CSS then
  * resolves through `prefers-color-scheme` on its own, and a live listener is
  * only needed to repaint anything JS-side.
+ *
+ * `src/rtl.ts` is this module's sibling on the other axis: one attribute on the
+ * document element, stamped before the first paint from `main.tsx` and kept in
+ * step by a watcher, deciding how the whole stylesheet resolves. If you are
+ * adding a third thing of this shape, it goes in a module of its own beside
+ * these two rather than into either of them.
  */
 
 export type Theme = 'light' | 'dark' | 'system';

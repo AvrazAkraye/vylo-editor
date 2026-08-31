@@ -1,4 +1,5 @@
 import type { Block, Msg } from './agent';
+import { fill } from './i18n';
 import { positions, rank } from './fuzzy';
 
 /**
@@ -191,14 +192,27 @@ export function folders(): { folder: string; name: string; updatedAt: number; ch
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-export function ago(ts: number): string {
+/**
+ * How long ago, in the interface language.
+ *
+ * `t` is a required parameter and not an optional one on purpose: this is the
+ * most-repeated text in the product — every chat row, every recent folder on
+ * the welcome screen, every version in the file history — and it returned raw
+ * English in all three of those places. An optional parameter would have let
+ * the next call site keep doing that, silently, in an interface that is
+ * otherwise entirely translated.
+ *
+ * The number is a `{n}` inside the translated string rather than concatenated
+ * around it, so a language that puts it elsewhere in the phrase can.
+ */
+export function ago(ts: number, t: (s: string) => string): string {
   const s = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (s < 60) return 'just now';
+  if (s < 60) return t('just now');
   const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60) return fill(t('{n}m ago'), { n: m });
   const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
-  return `${Math.round(h / 24)}d ago`;
+  if (h < 24) return fill(t('{n}h ago'), { n: h });
+  return fill(t('{n}d ago'), { n: Math.round(h / 24) });
 }
 
 /* ────────────────────────────────────────────────────────────────────────

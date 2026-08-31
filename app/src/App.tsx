@@ -71,7 +71,7 @@ import {
 } from './mcp';
 import { applyMessages, applyTarget, parseApply } from './apply';
 import { askRaw } from './inline';
-import { IS_MAC, Shortcuts, Welcome } from './Welcome';
+import { ALT, IS_MAC, MOD, Shortcuts, Welcome } from './Welcome';
 import {
   forgetToken, loadToken, me, planSummary, saveToken, signOut,
   type PlanSummary,
@@ -115,6 +115,35 @@ const RAIL_W = 46;
 
 /** Shown in the composer, so the shortcut is learnable without a manual. */
 const SEND_KEY = IS_MAC ? '⌘↵' : 'Ctrl+↵';
+
+/**
+ * Searches that found something, newest first.
+ *
+ * The Search panel was two buttons and a sentence in a column the height of the
+ * window. What belongs in that space is the thing the panel is about, and the
+ * only thing it knows: what has been searched for. Only searches that *matched*
+ * are kept — offering back a term that found nothing is offering back a
+ * mistake — and only the query, never a result, so nothing about the contents
+ * of the folder is written to `localStorage`.
+ */
+const SEARCHES = 'vylo.searches.v1';
+const MAX_SEARCHES = 8;
+
+/**
+ * A stored value is input, not memory: `localStorage` is editable by hand, so
+ * anything that is not a list of non-empty strings is discarded rather than
+ * rendered.
+ */
+function loadSearches(): string[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(SEARCHES) || '[]');
+    if (!Array.isArray(raw)) return [];
+    const clean = raw.filter((q): q is string => typeof q === 'string' && q.trim().length > 0);
+    return [...new Set(clean)].slice(0, MAX_SEARCHES);
+  } catch {
+    return [];
+  }
+}
 
 const LS = {
   base: 'vylo.baseUrl',
@@ -254,6 +283,10 @@ export function App() {
   const [full, setFull] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
   const [palette, setPalette] = useState<'open' | 'find' | 'symbols' | 'fileSymbols' | 'defs' | null>(null);
+  // What the search palette opens with. Every route in sets it, so ⌘⇧F always
+  // starts on a blank field and only a recent search seeds one.
+  const [findSeed, setFindSeed] = useState('');
+  const [searches, setSearches] = useState<string[]>(() => loadSearches());
   // The file whose earlier versions are on screen. A path rather than a flag:
   // the panel is about one file, and `active` can move under it.
   const [versionsFor, setVersionsFor] = useState<string | null>(null);
@@ -452,12 +485,27 @@ export function App() {
   useEffect(() => { localStorage.setItem('vylo.rail', rail); }, [rail]);
   useEffect(() => { localStorage.setItem('vylo.mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('vylo.railopen', railOpen ? '1' : '0'); }, [railOpen]);
+  useEffect(() => { localStorage.setItem(SEARCHES, JSON.stringify(searches)); }, [searches]);
   useEffect(() => { if (root) localStorage.setItem(LS.root, root); }, [root]);
   useEffect(() => {
     storeLang(lang);
-    // Tells the OS text stack which script to shape and which fonts to prefer.
-    // dir stays ltr in every language, matching the OTP dashboard: only the
-    // text runs right-to-left, and the browser does that on its own.
+    // Tells the OS text stack which script to shape and which fonts to prefer,
+    // and — through `watchLang` in `rtl.ts`, which observes this attribute —
+    // which way round to lay the interface out.
+    //
+    // The comment that stood here said layout stays left-to-right in every
+    // language because "only the text runs right-to-left, and the browser does
+    // that on its own". Half of that is true: bidi reorders glyphs *within a
+    // line*. It does not move the activity rail to the other edge, flip the
+    // sidebar, mirror the tab strip, turn the back caret round, or move a
+    // `margin-inline-start:auto`. Three of the four languages are right to
+    // left, so that was the whole interface on the wrong side for most of the
+    // people it was translated for.
+    //
+    // `dir` is deliberately NOT set here. It is derived from `lang` in one
+    // place, so a second call site that sets the language cannot forget the
+    // direction — which is exactly how the two came to disagree.
+    // `test/rtl.test.mjs` fails if any module but `rtl.ts` writes it.
     document.documentElement.lang = lang;
   }, [lang]);
 
@@ -538,7 +586,7 @@ export function App() {
         keys.current.clips();
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'f') {
         e.preventDefault();
-        setPalette('find');
+        openFind();
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 's') {
         e.preventDefault();
         void saveActive();
@@ -1064,7 +1112,7 @@ export function App() {
       const r = await invoke<{ sha: string; summary: string }>('git_commit', {
         root, message: commitMsg.trim(), paths,
       });
-      push({ kind: 'result', text: `Committed ${r.sha} — ${r.summary}` });
+      push({ kind: 'result', text: `${t('Committed')} ${r.sha} — ${r.summary}` });
       setPicked(new Set());
       setCommitMsg('');
       setWritten([]);
@@ -1338,6 +1386,26 @@ export function App() {
     openLine.current = p.length;
     return [...p, { at: Date.now(), kind: 'text' as const, text }];
   });
+
+  /**
+   * Open the project search, blank or on a term that has been searched before.
+   *
+   * Every way in goes through here so the seed is always set deliberately:
+   * leaving the previous query behind would mean ⌘⇧F reopening on whatever was
+   * last typed, which is a different feature and not the one the shortcut
+   * promises.
+   */
+  function openFind(seed = '') {
+    setFindSeed(seed);
+    setPalette('find');
+  }
+
+  /** A search that matched, kept so the panel has something to offer back. */
+  function rememberSearch(q: string) {
+    const term = q.trim();
+    if (!term) return;
+    setSearches((prev) => [term, ...prev.filter((p0) => p0 !== term)].slice(0, MAX_SEARCHES));
+  }
 
   /** Open a file and, when it came from a search hit, scroll to the line. */
   function openAt(path: string, line?: number) {
@@ -1635,7 +1703,7 @@ export function App() {
     try {
       await invoke('git_create_branch', { root, name });
       setGit(await invoke('git_state', { root }));
-      push({ kind: 'result', text: `Switched to branch ${name}` });
+      push({ kind: 'result', text: `${t('Switched to branch')} ${name}` });
     } catch (e) {
       push({ kind: 'error', text: explain(e, `${t('create the branch')} ${name}`) });
     }
@@ -1648,7 +1716,7 @@ export function App() {
       const r = await invoke<{ sha: string; summary: string }>('git_commit', {
         root, message: commitMsg.trim(), paths: written,
       });
-      push({ kind: 'result', text: `Committed ${r.sha} — ${r.summary}` });
+      push({ kind: 'result', text: `${t('Committed')} ${r.sha} — ${r.summary}` });
       setWritten([]);
       setCommitMsg('');
       setGit(await invoke('git_state', { root }));
@@ -1802,7 +1870,7 @@ export function App() {
       }
       push({
         kind: 'result',
-        text: `Wrote ${done.length} file${done.length === 1 ? '' : 's'}: ${done.join(', ')}`,
+        text: `${t('Wrote')} ${done.length} ${done.length === 1 ? t('file') : t('files')}: ${done.join(', ')}`,
         cp: cp ?? undefined,
       });
       // Tell the agent what landed, so a follow-up turn knows the state of the
@@ -1843,7 +1911,7 @@ export function App() {
       setChanges(pending.current.list());
       setWritten((prev) => [...new Set([...prev, path])]);
       if (!commitMsg) setCommitMsg(`Update ${path.split('/').pop() || path}`);
-      push({ kind: 'result', text: `Wrote part of ${path}.` });
+      push({ kind: 'result', text: `${t('Wrote part of')} ${path}.` });
       history.current.push({
         role: 'user',
         content: `[The user approved part of your change to ${path} and wrote it. The rest of that change is still staged and NOT on disk. Re-read the file before editing it again.]`,
@@ -2017,7 +2085,10 @@ export function App() {
   function reject(paths: string[]) {
     paths.forEach((p) => pending.current.drop(p));
     setChanges(pending.current.list());
-    push({ kind: 'result', text: `Discarded ${paths.length} proposed change${paths.length === 1 ? '' : 's'}.` });
+    push({
+      kind: 'result',
+      text: `${t('Discarded')} ${paths.length} ${paths.length === 1 ? t('proposed change') : t('proposed changes')}.`,
+    });
     history.current.push({
       role: 'user',
       content: `[The user discarded your proposed changes to: ${paths.join(', ')}. Do not re-apply them unless asked.]`,
@@ -2299,34 +2370,42 @@ export function App() {
           </svg>
           <b>Vylo Editor</b>
         </div>
-        <button className="folder" onClick={pickFolder} title={root || 'No folder open'}>
+        <button className="folder" onClick={pickFolder} title={root || t('No folder open')}>
           <Icon name="folder" size={14} />{folderName || t('Open folder…')}
         </button>
         {git?.is_repo && (
-          <button className="ghost br" onClick={() => void newBranch()} title="Create a branch and switch to it">
-            {t('+ branch')}
+          <button className="ghost" onClick={() => void newBranch()}
+                  title={t('Create a branch and switch to it')}>
+            <Icon name="plus" size={11} />{t('New branch')}
           </button>
         )}
         {git?.is_repo && (
           <span className={`git ${git.dirty ? 'dirty' : ''}`}
-                title={git.dirty ? `${git.dirty} file(s) already modified before the agent touched anything` : 'Working tree is clean'}>
-            {git.branch}{git.dirty ? ` · ${git.dirty} modified` : ''}
+                title={git.dirty
+                  ? `${git.dirty} ${git.dirty === 1 ? t('file') : t('files')} `
+                    + t('already modified before the agent touched anything')
+                  : t('Working tree is clean')}>
+            {git.branch}{git.dirty ? ` · ${git.dirty} ${t('modified')}` : ''}
           </span>
         )}
         <span className="bar-sp" />
         <button className={`ghost icon ${showTerm ? 'on' : ''}`} onClick={toggleTerm}
-                title={`${t('Terminal')}  ⌃\``} aria-label={t('Terminal')}
+                title={`${t('Terminal')} · ${ALT}\``} aria-label={t('Terminal')}
                 aria-pressed={showTerm}><Icon name="terminal" /></button>
         <div className="seg" role="group" aria-label={t('Theme')}>
-          {(['light', 'system', 'dark'] as Theme[]).map((v) => (
-            <button key={v} className={theme === v ? 'on' : ''} onClick={() => setTheme(v)}
-                    title={t(v === 'light' ? 'Light' : v === 'dark' ? 'Dark' : 'Match system')}>
-              <Icon name={v === 'light' ? 'sun' : v === 'dark' ? 'moon' : 'auto'} size={14} />
-            </button>
-          ))}
+          {(['light', 'system', 'dark'] as Theme[]).map((v) => {
+            const name = t(v === 'light' ? 'Light' : v === 'dark' ? 'Dark' : 'Match system');
+            return (
+              <button key={v} className={theme === v ? 'on' : ''} onClick={() => setTheme(v)}
+                      title={name} aria-label={name} aria-pressed={theme === v}>
+                <Icon name={v === 'light' ? 'sun' : v === 'dark' ? 'moon' : 'auto'} size={14} />
+              </button>
+            );
+          })}
         </div>
         <button className="ghost icon" onClick={() => void toggleFullscreen().then(setFull)}
-                title={t(full ? 'Leave full screen' : 'Full screen')} aria-pressed={full}>
+                title={t(full ? 'Leave full screen' : 'Full screen')}
+                aria-label={t(full ? 'Leave full screen' : 'Full screen')} aria-pressed={full}>
           <Icon name={full ? 'restore' : 'maximise'} />
         </button>
         <button className="ghost" onClick={() => setShowSettings((s) => !s)}>{t('Settings')}</button>
@@ -2468,23 +2547,64 @@ export function App() {
 
           <div className="sb-panel">
             {rail === 'files' && (root
-              ? <FileTree entries={tree} openPath={active === 'chat' ? null : active}
+              ? <FileTree entries={tree} openPath={active === 'chat' ? null : active} t={t}
                           onOpen={openFile} changed={new Set(changes.map((c) => c.path))}
                           onRename={(p) => void renameEntry(p)}
                           onDelete={(p, d) => void deleteEntry(p, d)}
                           onNewIn={(d) => void newFile(d)} />
-              : <p className="ft-empty">{t('Open a folder, or drop one here')}</p>)}
+              : (
+                <div className="sb-cta">
+                  <p className="ft-empty">{t('Open a folder, or drop one here')}</p>
+                  <button className="ghost bordered" onClick={pickFolder}>
+                    <Icon name="folder" size={13} />
+                    <span className="cta-label">{t('Open a folder')}</span>
+                  </button>
+                </div>
+              ))}
 
+            {/* Icon, label, then the shortcut against the far edge — the shape
+                every list of this kind has. The label is its own element so the
+                `kbd` has something to be pushed away from; see the note on
+                `.ghost.bordered` in the stylesheet. */}
             {rail === 'search' && (
-              <div className="sb-cta">
-                <p className="ft-empty">{t('Search every file in the project.')}</p>
-                <button className="ghost bordered" onClick={() => setPalette('find')}>
-                  <Icon name="search" size={13} />{t('Search')} <kbd>⌘⇧F</kbd>
-                </button>
-                <button className="ghost bordered" onClick={() => setPalette('open')}>
-                  <Icon name="file" size={13} />{t('Go to file…')} <kbd>⌘P</kbd>
-                </button>
-              </div>
+              <>
+                <div className="sb-cta">
+                  <p className="ft-empty">{t('Search every file in the project.')}</p>
+                  <button className="ghost bordered" onClick={() => openFind()}>
+                    <Icon name="search" size={13} />
+                    <span className="cta-label">{t('Search')}</span>
+                    <kbd>{MOD}⇧F</kbd>
+                  </button>
+                  <button className="ghost bordered" onClick={() => setPalette('open')}>
+                    <Icon name="file" size={13} />
+                    <span className="cta-label">{t('Go to file…')}</span>
+                    <kbd>{MOD}P</kbd>
+                  </button>
+                </div>
+
+                {/* The rest of the column, which was empty. A search you have
+                    run before is the one thing this panel knows about, and
+                    picking it up again is a click rather than remembering the
+                    term. Absent until there is one, so a first run shows the
+                    two buttons and nothing pretending to be a list. */}
+                {searches.length > 0 && (
+                  <>
+                    <div className="sb-sub">{t('Recent searches')}</div>
+                    {searches.map((q) => (
+                      <button key={q} className="ft-row sb-search" title={q}
+                              onClick={() => openFind(q)}>
+                        <span className="ft-icon"><Icon name="search" size={12} /></span>
+                        <span className="ft-name">{q}</span>
+                      </button>
+                    ))}
+                    <div className="sb-cta sb-forget">
+                      <button className="ghost" onClick={() => setSearches([])}>
+                        {t('Clear')}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </>
             )}
 
             {rail === 'changes' && (
@@ -2493,7 +2613,7 @@ export function App() {
                 {changes.length === 0
                   ? <p className="ft-empty">{t('No proposed changes.')}</p>
                   : changes.map((c) => (
-                      <button key={c.path} className="ft-row ft-file changed" onClick={() => openFile(c.path)} title={c.path}>
+                      <button key={c.path} className="ft-row changed" onClick={() => openFile(c.path)} title={c.path}>
                         <span className="ft-icon"><Icon name="diff" size={13} /></span>
                         <span className="ft-name">{c.path.split('/').pop()}</span>
                         <span className="ft-dot" />
@@ -2506,7 +2626,7 @@ export function App() {
                     {tracked.length === 0
                       ? <p className="ft-empty">{t('Nothing changed since the last commit.')}</p>
                       : tracked.map((c) => (
-                          <div key={c.path} className="ft-row ft-file wt-row" title={c.from ? `${c.from} → ${c.path}` : c.path}>
+                          <div key={c.path} className="ft-row wt-row" title={c.from ? `${c.from} → ${c.path}` : c.path}>
                             <button className="wt-tick" aria-pressed={picked.has(c.path)}
                                     aria-label={`${t('Select')} ${c.path}`}
                                     onClick={() => setPicked((p) => {
@@ -2542,7 +2662,7 @@ export function App() {
 
             {rail === 'memory' && (
               <>
-                <button className={`ft-row ft-file ${active === '__memory__' ? 'on' : ''}`}
+                <button className={`ft-row ${active === '__memory__' ? 'on' : ''}`}
                         onClick={() => { setTabs((p) => p.includes('__memory__') ? p : [...p, '__memory__']); setActive('__memory__'); }}>
                   <span className="ft-icon"><Icon name="memory" size={13} /></span>
                   <span className="ft-name">{memory.file ?? t('Create memory file')}</span>
@@ -2564,7 +2684,7 @@ export function App() {
                   <>
                     <div className="sb-sub">{t('Projects')}</div>
                     {recents.map((r) => (
-                      <button key={r.folder} className={`ft-row ft-file ${r.folder === root ? 'on' : ''}`}
+                      <button key={r.folder} className={`ft-row ${r.folder === root ? 'on' : ''}`}
                               onClick={() => openFolder(r.folder)} title={r.folder}>
                         <span className="ft-icon"><Icon name="folder" size={13} /></span>
                         <span className="ft-name">{r.name}</span>
@@ -2625,7 +2745,8 @@ export function App() {
                   {path === '__memory__' ? (memory.file ?? t('Memory')) : path.split('/').pop()}
                   {dirty.has(path) && <i className="tab-dot" aria-label={t('Unsaved')} />}
                 </button>
-                <button className="tab-x" onClick={() => closeTab(path)} aria-label={`Close ${path}`}><Icon name="close" size={12} /></button>
+                <button className="tab-x" onClick={() => closeTab(path)}
+                        aria-label={`${t('Close')} ${path}`}><Icon name="close" size={12} /></button>
               </span>
             ))}
           </div>
@@ -2684,7 +2805,7 @@ export function App() {
                 ))}
               </div>
             )}
-            {item.kind === 'error' && <span className="tag err">error</span>}
+            {item.kind === 'error' && <span className="tag err">{t('error')}</span>}
             {item.kind === 'text'
               ? (
                 <div className="body">
@@ -2852,7 +2973,7 @@ export function App() {
       )}
 
       {askRun && (
-        <div className="ask" role="alertdialog" aria-label="Command approval">
+        <div className="ask" role="alertdialog" aria-label={t('Command approval')}>
           <div className="ask-in">
             <div className="ask-txt">
               <span className="ask-lbl">
@@ -2888,18 +3009,18 @@ export function App() {
       {git?.is_repo && written.length > 0 && (
         <div className="commit">
           <span className="cm-lbl">
-            {written.length} file{written.length > 1 ? 's' : ''} written
+            {written.length} {written.length === 1 ? t('file written') : t('files written')}
           </span>
           <input
             value={commitMsg}
             onChange={(e) => setCommitMsg(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void commit(); }}
             placeholder={t('Commit message')}
-            aria-label="Commit message"
+            aria-label={t('Commit message')}
           />
           <button className="ghost" onClick={() => setWritten([])} disabled={busy}>{t('Not now')}</button>
           <button className="approve" onClick={() => void commit()} disabled={busy || !commitMsg.trim()}>
-            Commit to {git.branch}
+            {t('Commit to')} {git.branch}
           </button>
         </div>
       )}
@@ -2944,7 +3065,8 @@ export function App() {
                  onOpen={navigateTo} onClose={() => setPalette(null)} t={t} />
       )}
       {palette === 'find' && (
-        <FindInFiles root={root} onOpen={openAt} onClose={() => setPalette(null)}
+        <FindInFiles root={root} initial={findSeed} onSearched={rememberSearch}
+                     onOpen={openAt} onClose={() => setPalette(null)}
                      onReplace={replaceEverywhere} t={t} />
       )}
 
@@ -2960,9 +3082,9 @@ export function App() {
               {clips.map((c, i) => (
                 <button key={`${c.at}_${c.full}_${i}`} className="pal-row clip-row"
                         autoFocus={i === 0} onClick={() => insertClip(c.text)}>
-                  <span className="clip-text">{clipPreview(c.text)}</span>
+                  <span className="clip-text" title={c.text}>{clipPreview(c.text)}</span>
                   <span className="clip-meta">
-                    <span>{ago(c.at)}</span>
+                    <span>{ago(c.at, t)}</span>
                     {shortened(c) && (
                       <b title={t('Only the first part of this paste was kept.')}>{t('shortened')}</b>
                     )}
@@ -3043,7 +3165,7 @@ export function App() {
                   {isImage(a) ? <img src={previewUrl(a)} alt="" /> : <span className="doc"><Icon name="file" size={14} /></span>}
                   <span className="nm">{a.name}</span>
                   <button onClick={() => setShots((p) => p.filter((x) => x.id !== a.id))}
-                          aria-label={`Remove ${a.name}`}><Icon name="close" size={12} /></button>
+                          aria-label={`${t('Remove')} ${a.name}`}><Icon name="close" size={12} /></button>
                 </div>
               ))}
             </div>
@@ -3143,6 +3265,7 @@ export function App() {
             <span className="seg cmp-mode" role="group" aria-label={t('Mode')}>
               {(['ask', 'agent'] as Mode[]).map((m) => (
                 <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}
+                        aria-pressed={mode === m}
                         title={t(m === 'ask' ? 'Reads only — cannot change anything' : 'Can propose edits and ask to run commands')}>
                   {t(m === 'ask' ? 'Ask' : 'Agent')}
                 </button>
@@ -3207,7 +3330,9 @@ export function App() {
               : planChip.tail === 'no-limit' ? ` ${t('no limit')}` : ''}
           </span>
         )}
-        {git?.is_repo && <span><b>{git.branch}</b>{git.dirty ? ` ${git.dirty}±` : ''}</span>}
+        {git?.is_repo && (
+          <span><b>{git.branch}</b>{git.dirty ? ` ${git.dirty} ${t('modified')}` : ''}</span>
+        )}
         <span>{root ? folderName : t('No folder')}</span>
         {changes.length > 0 && <span><b>{changes.length}</b> {t('to review')}</span>}
         {total(lastTurn) > 0 && (
@@ -3239,17 +3364,17 @@ export function App() {
             <Icon name="restore" size={12} />{t('History')}
           </button>
         )}
-        <button className="st-btn" onClick={() => setPalette('find')}>
+        <button className="st-btn" onClick={() => openFind()}>
           <Icon name="search" size={12} />{t('Search')}
         </button>
         <button className="st-btn" onClick={toggleTerm}>
           <Icon name="terminal" size={12} />{t('Terminal')}
         </button>
         {active !== 'chat' && active !== '__memory__' && (
-          <span>{active}{dirty.has(active) && <Icon name="dot" size={9} />}</span>
+          <span title={active}>{active}{dirty.has(active) && <Icon name="dot" size={9} />}</span>
         )}
         <span>{model}</span>
-        <span>{resolved(theme)}</span>
+        <span>{resolved(theme) === 'dark' ? t('Dark') : t('Light')}</span>
       </footer>
     </div>
   );

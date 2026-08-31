@@ -490,6 +490,7 @@ function Control({ row, ...p }: ControlProps) {
                 keystroke going somewhere you did not expect. */}
             <button type="button"
                     className={`sc-key ${p.recording ? 'rec' : ''} ${p.summon ? '' : 'unset'}`}
+                    aria-pressed={p.recording}
                     onClick={() => p.onRecording(!p.recording)}
                     onKeyDown={(e) => { if (p.recording) p.onSummonKey(e); }}
                     onBlur={() => p.onRecording(false)}>

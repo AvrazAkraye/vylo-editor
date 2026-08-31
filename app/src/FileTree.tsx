@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Icon } from './Icon';
+import { fill } from './i18n';
 
 export interface Entry { path: string; is_dir: boolean; size: number }
 
@@ -74,9 +75,16 @@ interface Props {
   onDelete: (path: string, isDir: boolean) => void;
   /** New file inside a folder, so the path is prefilled with where you clicked. */
   onNewIn: (dir: string) => void;
+  /**
+   * This component took no translator at all, so the explorer — the panel that
+   * is open the whole time — was the one part of the interface still speaking
+   * English inside a right-to-left one: three button labels, the staged-changes
+   * marker, and its empty state.
+   */
+  t: (s: string) => string;
 }
 
-export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelete, onNewIn }: Props) {
+export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelete, onNewIn, t }: Props) {
   const tree = useMemo(() => build(entries), [entries]);
   // Top level starts open; everything deeper starts closed, so a big repo does
   // not unfold into thousands of rows on first sight.
@@ -101,16 +109,22 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
   const actions = (path: string, isDir: boolean) => (
     <span className="ft-acts">
       {isDir && (
-        <button className="ft-act" title={`${'New file'} in ${path}`} aria-label={`New file in ${path}`}
+        <button className="ft-act" title={fill(t('New file in {path}'), { path })}
+                aria-label={fill(t('New file in {path}'), { path })}
                 onClick={(e) => { e.stopPropagation(); onNewIn(path); }}>
           <Icon name="plus" size={11} />
         </button>
       )}
-      <button className="ft-act" title={`Rename ${path}`} aria-label={`Rename ${path}`}
+      {/* A pencil, not the caret. This button and the expand caret sit in the
+          same row, and until `Icon.tsx` had a pencil they were the same glyph
+          pointing two different ways. */}
+      <button className="ft-act" title={fill(t('Rename {path}'), { path })}
+              aria-label={fill(t('Rename {path}'), { path })}
               onClick={(e) => { e.stopPropagation(); onRename(path); }}>
-        <Icon name="chevron" size={11} />
+        <Icon name="pencil" size={11} />
       </button>
-      <button className="ft-act danger" title={`Delete ${path}`} aria-label={`Delete ${path}`}
+      <button className="ft-act danger" title={fill(t('Delete {path}'), { path })}
+              aria-label={fill(t('Delete {path}'), { path })}
               onClick={(e) => { e.stopPropagation(); onDelete(path, isDir); }}>
         <Icon name="close" size={11} />
       </button>
@@ -119,7 +133,13 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
 
   const render = (nodes: Node[], depth: number): JSX.Element[] =>
     nodes.flatMap((n) => {
-      const pad = { paddingLeft: `${6 + depth * 12}px` };
+      // `paddingInlineStart`, not `paddingLeft`: this is the one indent in the
+      // app that is computed rather than written in the stylesheet, so
+      // `test/rtl.test.mjs` — which scans `styles.css` — cannot see it, and a
+      // physical one would leave the whole file tree indented from the wrong
+      // edge in the three right-to-left languages. On the space scale for the
+      // same reason everything else is: 6px is --sp-3, 12px is --sp-6.
+      const pad = { paddingInlineStart: `calc(var(--sp-3) + ${depth} * var(--sp-6))` };
       if (n.isDir) {
         const open = expanded.has(n.path);
         return [
@@ -135,18 +155,18 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
       }
       return [
         <div key={n.path}
-             className={`ft-row ft-file ${n.path === openPath ? 'on' : ''} ${changed.has(n.path) ? 'changed' : ''}`}
+             className={`ft-row ${n.path === openPath ? 'on' : ''} ${changed.has(n.path) ? 'changed' : ''}`}
              style={pad}>
           <button className="ft-hit" onClick={() => onOpen(n.path)} title={n.path}>
             <span className="ft-icon">{iconFor(n.name)}</span>
             <span className="ft-name">{n.name}</span>
-            {changed.has(n.path) && <span className="ft-dot" aria-label="has staged changes" />}
+            {changed.has(n.path) && <span className="ft-dot" aria-label={t('has staged changes')} />}
           </button>
           {actions(n.path, false)}
         </div>,
       ];
     });
 
-  if (!entries.length) return <p className="ft-empty">No files indexed yet.</p>;
+  if (!entries.length) return <p className="ft-empty">{t('No files indexed yet.')}</p>;
   return <div className="ft">{render(tree, 0)}</div>;
 }

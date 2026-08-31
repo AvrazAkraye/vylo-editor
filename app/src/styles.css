@@ -9,11 +9,11 @@
      memory editor · native window chrome · status bar
      theme + fullscreen controls · collapsed tool runs
      scrollbars, so they belong to the app rather than the OS default
-     motion, kept subtle and opt-out · terminal panel
+     motion, kept subtle and opt-out · hover and press · terminal panel
      attach button and file chips · status-bar button
      command palette (⌘P, ⌘⇧F) · editor · icons · working tree
      clipboard history · file history · global shortcut · queued messages
-     settings dialog
+     settings dialog · right to left
  */
 
 /* Vylo Editor — desktop chrome.
@@ -57,7 +57,11 @@
   --syn-kw:#6D3FA8;
   --syn-str:#17694C;
   --syn-num:#96620F;
-  --syn-com:#8B87A0;
+  /* Comments were #8B87A0: 3.09:1 on --panel-2, below AA at the size code is
+     set in, and 3.03 in dark. This is --mute exactly, in each theme -- the
+     colour the rest of the app already gives text that is present but
+     secondary, which is what a comment is. */
+  --syn-com:#6F6C84;
   --syn-fn:#23458F;
   --syn-type:#0F6A72;
   --syn-var:#16151D;
@@ -88,6 +92,13 @@
   --r-2: 7px;   /* buttons, inputs */
   --r-3: 9px;   /* cards, panels, the composer */
   --r-4: 12px;  /* overlays */
+
+  /* One disabled fade. It was six values between .35 and .55, each decided a
+     control at a time. A ratio rather than a colour, so it is not repeated in
+     the dark blocks. The two filled buttons are deliberately not on it: fading
+     white on violet fades the label into its own background, so `.send` and
+     `.approve` carry a disabled treatment instead. */
+  --dim: .45;
 
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -125,7 +136,7 @@
     --syn-kw:#C4A9FF;
     --syn-str:#6BD6AE;
     --syn-num:#E0AE5C;
-    --syn-com:#6B6880;
+    --syn-com:#8B87A0;
     --syn-fn:#8FB8FF;
     --syn-type:#6FD8DC;
     --syn-var:#ECEAF5;
@@ -161,7 +172,7 @@
   --syn-kw:#C4A9FF;
   --syn-str:#6BD6AE;
   --syn-num:#E0AE5C;
-  --syn-com:#6B6880;
+  --syn-com:#8B87A0;
   --syn-fn:#8FB8FF;
   --syn-type:#6FD8DC;
   --syn-var:#ECEAF5;
@@ -183,7 +194,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .brand svg{ width:22px; height:22px; border-radius:var(--r-1); display:block; }
 .folder{
   display:inline-flex; align-items:center; gap:var(--sp-4);
-  margin-left:auto; font:inherit; font-size:var(--fs-4); padding:var(--sp-3) var(--sp-6);
+  margin-inline-start:auto; font:inherit; font-size:var(--fs-4); padding:var(--sp-3) var(--sp-6);
   border-radius:var(--r-2); border:1px solid var(--rule); background:var(--panel-2);
   color:var(--ink); cursor:pointer; max-width:46ch; overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap;
@@ -198,7 +209,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
    a label forwards a click on its own text to its control and the recorder
    would toggle twice. The rest of Settings is under "settings dialog" below. */
 .sc-key{
-  flex:1; min-width:0; text-align:left; cursor:pointer;
+  flex:1; min-width:0; text-align:start; cursor:pointer;
   font:inherit; font-family:var(--mono); font-size:var(--fs-4);
   padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
   border:1px solid var(--rule); background:var(--panel); color:var(--ink);
@@ -207,6 +218,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 /* Recording is a mode, and a mode that is not visible is a keystroke going
    somewhere the user did not expect. */
 .sc-key.rec{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); color:var(--brand); }
+.sc-key:hover:not(.rec){ border-color:var(--rule-2); }
 
 .log{ flex:1; overflow-y:auto; padding:var(--sp-8); display:flex; flex-direction:column; gap:var(--sp-5); }
 .empty{ margin:auto; max-width:46ch; text-align:center; color:var(--ink-2); line-height:1.6; }
@@ -216,7 +228,10 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .line .body{ white-space:pre-wrap; word-break:break-word; min-width:0; }
 .line.you{
   align-self:flex-end; max-width:76%; background:var(--fill); color:var(--on-fill);
-  padding:var(--sp-4) var(--sp-6); border-radius:var(--r-4) 12px 3px 12px;
+  padding:var(--sp-4) var(--sp-6);
+  /* The tail is on the corner nearest the person who typed it, so it belongs
+     to the trailing edge rather than to the right-hand one. */
+  border-radius:var(--r-4); border-end-end-radius:var(--r-1);
 }
 .line.you .body{ color:var(--on-fill); }
 .line.text{ max-width:82%; }
@@ -253,12 +268,14 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   color:var(--ink); min-height:52px; max-height:260px; overflow-y:auto;
 }
 /* The card draws the ring on :focus-within, so a second one on the textarea
-   would be a box inside a box. */
-.composer textarea:focus{ outline:none; }
+   would be a box inside a box. `:focus-visible` rather than `:focus` for the
+   reason the focus section gives -- a text field matches both, so this is the
+   same rule, and the file now has no bare `:focus` left to copy. */
+.composer textarea:focus-visible{ outline:none; }
 
 .cmp-bar{
   display:flex; align-items:center; gap:var(--sp-3);
-  padding:var(--sp-2) var(--sp-3) var(--sp-3) var(--sp-4);
+  padding-block:var(--sp-2) var(--sp-3); padding-inline:var(--sp-4) var(--sp-3);
 }
 .cmp-btn{
   display:inline-flex; align-items:center; justify-content:center;
@@ -266,7 +283,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   background:transparent; color:var(--mute); cursor:pointer;
 }
 .cmp-btn:hover:not(:disabled){ background:var(--panel-2); color:var(--ink); }
-.cmp-btn:disabled{ opacity:.4; cursor:default; }
+.cmp-btn:disabled{ opacity:var(--dim); cursor:default; }
 
 /* Dictation. A microphone that is on and does not look on is the wrong thing
    to be wrong about, so the listening state is a filled control plus a live
@@ -274,7 +291,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .cmp-btn.mic{ position:relative; }
 .cmp-btn.mic.on{ background:var(--brand-wash); color:var(--brand); }
 .cmp-btn.mic.on::after{
-  content:''; position:absolute; top:2px; right:2px;
+  content:''; position:absolute; top:2px; inset-inline-end:2px;
   width:6px; height:6px; border-radius:50%; background:var(--err);
   animation:mic-live 1.4s ease-in-out infinite;
 }
@@ -297,21 +314,28 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .cmp-model{ display:inline-flex; align-items:center; gap:var(--sp-1); color:var(--mute); }
 .cmp-model select{
   appearance:none; -webkit-appearance:none; font:inherit; font-size:var(--fs-3);
-  padding:var(--sp-2) var(--sp-1) var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-1);
+  padding-block:var(--sp-2); padding-inline:var(--sp-3) var(--sp-1); border:0; border-radius:var(--r-1);
   background:transparent; color:var(--ink-2); cursor:pointer;
 }
 .cmp-model select:hover{ color:var(--ink); }
 .cmp-model:hover{ color:var(--ink); }
 .cmp-model .ic{ pointer-events:none; }
 
-.cmp-hint{ margin-left:auto; font-family:var(--mono); font-size:var(--fs-2); color:var(--mute); }
+.cmp-hint{ margin-inline-start:auto; font-family:var(--mono); font-size:var(--fs-2); color:var(--mute); }
 
 .send{
   font:inherit; font-size:var(--fs-4); font-weight:600;
   padding:var(--sp-3) var(--sp-6); border-radius:var(--r-2); border:0;
   background:var(--fill); color:var(--on-fill); cursor:pointer;
 }
-.send:disabled{ opacity:.45; cursor:default; }
+/* A treatment rather than a fade. `.send` is white on saturated violet, and an
+   opacity fades the label into its own background: 1.20:1 in the light theme,
+   which is this button's resting state, because Send is disabled whenever the
+   composer is empty. A disabled control still has to say what it would do. */
+.send:disabled{
+  background:var(--panel-2); color:var(--mute); box-shadow:inset 0 0 0 1px var(--rule);
+  cursor:default;
+}
 /* Same shape as Send, one step quieter: queueing is what the button does while
    the loud thing on the bar is Stop. */
 .send.queue{ background:var(--brand-wash); color:var(--brand); }
@@ -322,7 +346,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .qlist{ display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-4) var(--sp-4) 0; }
 .qhead{ display:flex; align-items:center; gap:var(--sp-4); font-size:var(--fs-3); color:var(--mute); }
 .qhead .qclear{
-  margin-left:auto; font:inherit; font-size:var(--fs-3); padding:0;
+  margin-inline-start:auto; font:inherit; font-size:var(--fs-3); padding:0;
   border:0; background:transparent; color:var(--mute); cursor:pointer;
 }
 .qhead .qclear:hover{ color:var(--err); }
@@ -358,7 +382,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   padding:var(--sp-4) var(--sp-4) 0;
 }
 .chip{
-  display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-3);
+  display:flex; align-items:center; gap:var(--sp-4); padding-block:var(--sp-3); padding-inline:var(--sp-3) var(--sp-4);
   border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel-2);
   max-width:210px;
 }
@@ -415,8 +439,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .rv-title .stat{ font-family:var(--mono); font-size:var(--fs-4); display:flex; gap:var(--sp-4); }
 .rv-title .note{ color:var(--mute); font-size:var(--fs-3); }
 .add{ color:var(--ok); } .del{ color:var(--err); }
-.rv-actions,.rv-one{ margin-left:auto; display:flex; gap:var(--sp-4); }
-.rv-one{ margin-left:auto; }
+.rv-actions,.rv-one{ margin-inline-start:auto; display:flex; gap:var(--sp-4); }
+.rv-one{ margin-inline-start:auto; }
 .approve,.reject{
   font:inherit; font-size:var(--fs-4); font-weight:600; padding:var(--sp-3) var(--sp-7);
   border-radius:var(--r-2); border:1px solid var(--rule); cursor:pointer;
@@ -424,20 +448,35 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .approve{ background:var(--fill); color:var(--on-fill); border-color:transparent; }
 .reject{ background:transparent; color:var(--mute); }
 .reject:hover{ color:var(--err); border-color:var(--err); }
-.approve:disabled,.reject:disabled{ opacity:.5; cursor:default; }
+/* `.send:disabled`'s reason and its own measurement: 1.08:1 in light.
+   `.approve` is the primary button of the whole app -- Approve, Write, Run,
+   Commit, Put this version back -- and every one of those opens disabled.
+   `.reject` is not filled, so the fade is still the right thing for it. */
+.approve:disabled{
+  background:var(--panel-2); color:var(--mute); border-color:var(--rule); cursor:default;
+}
+.reject:disabled{ opacity:var(--dim); cursor:default; }
 
 .rv-body{ display:flex; min-height:0; flex:1; }
 .rv-files{
   list-style:none; margin:0; padding:var(--sp-3); width:250px; flex:none;
-  overflow-y:auto; border-right:1px solid var(--rule); background:var(--panel-2);
+  overflow-y:auto; border-inline-end:1px solid var(--rule); background:var(--panel-2);
 }
 .rv-files button{
-  display:flex; align-items:center; gap:var(--sp-3); width:100%; text-align:left;
+  display:flex; align-items:center; gap:var(--sp-3); width:100%; text-align:start;
   font:inherit; font-size:var(--fs-4); padding:var(--sp-3) var(--sp-4); border:0; border-radius:var(--r-2);
   background:transparent; color:var(--ink-2); cursor:pointer;
 }
 .rv-files button:hover{ background:var(--panel); }
 .rv-files button.on{ background:var(--panel); color:var(--ink); }
+/* PHYSICAL ON PURPOSE -- and not language direction. `direction:rtl` here is
+   the trick that moves the ellipsis to the *head* of the string, so a long path
+   is truncated as `…/src/agent.ts` and keeps the part that identifies the file
+   instead of `/Users/…/very/long/pre`. `text-align:left` is the other half of
+   it: it holds the shortened text against the leading edge of a box that is now
+   nominally right-to-left. Converting either to a logical property inverts the
+   trick and eats exactly the tail it exists to keep. Leave both, and leave the
+   name alone -- there is nothing rtl about this but the mechanism. */
 .rv-files .fp{
   font-family:var(--mono); font-size:var(--fs-3); overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left;
@@ -446,7 +485,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   font-size:var(--fs-1); letter-spacing:.06em; text-transform:uppercase; flex:none;
   padding:var(--sp-1) var(--sp-3); border-radius:var(--r-1); background:var(--fill); color:var(--on-fill);
 }
-.rv-files .mini{ margin-left:auto; font-family:var(--mono); font-size:var(--fs-2); display:flex; gap:var(--sp-3); flex:none; }
+.rv-files .mini{ margin-inline-start:auto; font-family:var(--mono); font-size:var(--fs-2); display:flex; gap:var(--sp-3); flex:none; }
 
 .rv-diff{ flex:1; min-width:0; display:flex; flex-direction:column; }
 .rv-diff-bar{
@@ -463,11 +502,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .row{ display:flex; white-space:pre; }
 .row .ln{
-  width:38px; flex:none; text-align:right; padding-right:var(--sp-4);
+  width:38px; flex:none; text-align:end; padding-inline-end:var(--sp-4);
   color:var(--mute); opacity:.65; user-select:none;
 }
 .row .mk{ width:14px; flex:none; text-align:center; user-select:none; }
-.row .tx{ flex:1; padding-right:var(--sp-6); }
+.row .tx{ flex:1; padding-inline-end:var(--sp-6); }
 .row.add{ background:color-mix(in srgb, var(--ok) 13%, transparent); }
 .row.add .mk{ color:var(--ok); }
 .row.del{ background:color-mix(in srgb, var(--err) 13%, transparent); }
@@ -475,29 +514,41 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 
 @media (max-width:760px){
   .rv-body{ flex-direction:column; }
-  .rv-files{ width:auto; max-height:110px; border-right:0; border-bottom:1px solid var(--rule); }
+  .rv-files{ width:auto; max-height:110px; border-inline-end:0; border-bottom:1px solid var(--rule); }
 }
 
 /* ── command approval ────────────────────────────────────────────────── */
 .ask{ border-top:1px solid var(--rule); background:var(--panel-2); }
 .ask-in{
   display:flex; align-items:center; gap:var(--sp-7); flex-wrap:wrap; padding:var(--sp-6) var(--sp-7);
-  border-left:3px solid var(--brand);
+  border-inline-start:3px solid var(--brand);
 }
 .ask-txt{ display:flex; align-items:center; gap:var(--sp-5); flex-wrap:wrap; min-width:0; }
 .ask-lbl{ font-size:var(--fs-4); font-weight:600; }
+/* `.mcp-what code`'s treatment, and its reason, which this file already states
+   there: the command is the thing being agreed to, so it is shown in full
+   rather than truncated to fit -- a command you cannot read is not one you can
+   approve. The 52ch ellipsis was on the one approval that the whole design
+   rests on, and a `title` is not the fix: a tooltip is not how somebody reads a
+   command before authorising it. */
 .ask-txt code{
   font-family:var(--mono); font-size:var(--fs-4); padding:var(--sp-3) var(--sp-5); border-radius:var(--r-2);
   background:var(--panel); border:1px solid var(--rule); color:var(--ink);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:52ch;
+  white-space:pre-wrap; word-break:break-all; max-width:100%;
 }
 .ask-why{ font-size:var(--fs-4); color:var(--ink-2); }
 .ask-dir{ font-size:var(--fs-3); color:var(--mute); font-family:var(--mono); }
-.ask-btns{ margin-left:auto; display:flex; gap:var(--sp-4); }
+.ask-btns{ margin-inline-start:auto; display:flex; gap:var(--sp-4); }
 .ask-btns .keep{ font-size:var(--fs-4); border:1px solid var(--rule); }
 
 /* ── commit bar ──────────────────────────────────────────────────────── */
-.br{ font-family:var(--mono); font-size:var(--fs-3); }
+/* `.br` -- the branch-name mono text style -- used to be here. It was being
+   used as a *button* variant by the "+ branch" control, which is why that
+   button was mono at `--fs-3` while every other button in the header was
+   sans at `--fs-4`. The button is a plain `.ghost` with a plus icon now and
+   nothing writes the class. Note for whoever re-adds it: `orphans.mjs` cannot
+   see that it is dead -- its usage test is `(^|[^\w-])br([^\w-]|$)` over the
+   sources, and `<br />` in `Markdown.tsx` keeps the name alive for ever. */
 .commit{
   display:flex; align-items:center; gap:var(--sp-5); flex-wrap:wrap;
   padding:var(--sp-5) var(--sp-7); border-top:1px solid var(--rule); background:var(--panel-2);
@@ -507,7 +558,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   flex:1; min-width:180px; font:inherit; font-size:var(--fs-4); padding:var(--sp-4) var(--sp-5);
   border-radius:var(--r-2); border:1px solid var(--rule); background:var(--panel); color:var(--ink);
 }
-.commit input:focus{ outline:2px solid var(--brand); outline-offset:-1px; }
+/* `:focus-visible`, like everything else in this file. It matches on a click
+   for a text field anyway, so this is the same ring it always drew -- but a
+   bare `:focus` here is how a file ends up with a ring nobody wants, which is
+   how the outlines got removed the last time. */
+.commit input:focus-visible{ outline:2px solid var(--brand); outline-offset:-1px; }
 .commit .ghost{ border:1px solid var(--rule); font-size:var(--fs-4); }
 /* ── update banner ───────────────────────────────────────────────────── */
 .update{
@@ -516,7 +571,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .up-txt{ font-size:var(--fs-4); display:flex; align-items:center; gap:var(--sp-4); flex-wrap:wrap; }
 .up-notes{ opacity:.85; }
-.up-btns{ margin-left:auto; display:flex; gap:var(--sp-4); align-items:center; }
+.up-btns{ margin-inline-start:auto; display:flex; gap:var(--sp-4); align-items:center; }
 .update .ghost{ color:var(--on-fill); border:1px solid var(--on-fill-line); font-size:var(--fs-4); }
 .update .ghost:hover{ background:var(--on-fill-wash); color:var(--on-fill); }
 .update .approve{ background:var(--on-fill); color:var(--fill); }
@@ -528,10 +583,10 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .md-h{ font-weight:700; letter-spacing:-.01em; margin:var(--sp-1) 0 0; }
 .md-h1{ font-size:var(--fs-7); } .md-h2{ font-size:var(--fs-6); }
 .md-h3{ font-size:var(--fs-5); } .md-h4{ font-size:var(--fs-4); color:var(--ink-2); }
-.md-list{ margin:0; padding-left:var(--sp-10); display:flex; flex-direction:column; gap:var(--sp-2); }
+.md-list{ margin:0; padding-inline-start:var(--sp-10); display:flex; flex-direction:column; gap:var(--sp-2); }
 .md-list li{ line-height:1.55; }
 .md code{
-  font-family:var(--mono); font-size:.88em; padding:1.5px var(--sp-3); border-radius:var(--r-1);
+  font-family:var(--mono); font-size:.88em; padding:var(--sp-1) var(--sp-3); border-radius:var(--r-1);
   background:var(--panel-2); border:1px solid var(--rule);
 }
 .md-code{
@@ -543,7 +598,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
    apply to the code element inside it. */
 .md-code code{ background:none; border:0; padding:0; font-size:inherit; }
 .md-lang{
-  position:absolute; top:7px; right:10px; font-size:var(--fs-1); letter-spacing:.08em;
+  position:absolute; top:7px; inset-inline-end:10px; font-size:var(--fs-1); letter-spacing:.08em;
   text-transform:uppercase; color:var(--mute); user-select:none;
 }
 /* Syntax classes, shared with the editor through the --syn-* tokens above.
@@ -564,7 +619,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 /* ── recent folders ──────────────────────────────────────────────────── */
 .recents button{
   display:flex; flex-direction:column; gap:var(--sp-1); align-items:flex-start;
-  font:inherit; text-align:left; padding:var(--sp-4) var(--sp-6); border-radius:var(--r-3);
+  font:inherit; text-align:start; padding:var(--sp-4) var(--sp-6); border-radius:var(--r-3);
   border:1px solid var(--rule); background:var(--panel); color:var(--ink); cursor:pointer;
 }
 .recents button:hover{ border-color:var(--brand); }
@@ -576,11 +631,13 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 
 .sidebar{
   flex:none; display:flex; flex-direction:column; min-height:0;
-  background:var(--panel-2); border-right:1px solid var(--rule);
+  background:var(--panel-2); border-inline-end:1px solid var(--rule);
 }
+/* Four pixels of grab area straddling the border it sits on. `.hdiv` below is
+   the same handle on the other axis and is written to the same numbers. */
 .divider{
-  flex:none; width:4px; cursor:col-resize; background:transparent;
-  margin-left:-2px; margin-right:-2px; z-index:5;
+  flex:none; width:var(--sp-2); cursor:col-resize; background:transparent;
+  margin-inline:calc(var(--sp-1) * -1); z-index:5;
 }
 .divider:hover{ background:var(--brand); opacity:.55; }
 body.resizing{ cursor:col-resize; user-select:none; }
@@ -594,7 +651,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .rail{
   flex:none; width:46px; display:flex; flex-direction:column; align-items:center;
   gap:var(--sp-1); padding:var(--sp-4) 0; background:var(--panel-2);
-  border-right:1px solid var(--rule);
+  border-inline-end:1px solid var(--rule);
 }
 .rail-sp{ margin-top:auto; }
 .rail-btn{
@@ -605,7 +662,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .rail-btn:hover{ color:var(--ink); background:var(--panel-3); }
 .rail-btn.on{ color:var(--brand); background:var(--brand-wash); }
 .rail-badge{
-  position:absolute; top:2px; right:0; min-width:15px; height:15px; padding:0 var(--sp-2);
+  position:absolute; top:2px; inset-inline-end:0; min-width:15px; height:15px; padding:0 var(--sp-2);
   display:flex; align-items:center; justify-content:center;
   border-radius:var(--r-3); background:var(--fill); color:var(--on-fill);
   font-family:var(--mono); font-size:var(--fs-1); font-weight:600;
@@ -613,32 +670,77 @@ body.resizing{ cursor:col-resize; user-select:none; }
 
 .sb-head-bar{
   flex:none; display:flex; align-items:center; gap:var(--sp-3);
-  padding:var(--sp-6) var(--sp-4) var(--sp-4) var(--sp-7); border-bottom:1px solid var(--rule);
+  padding-block:var(--sp-6) var(--sp-4); padding-inline:var(--sp-7) var(--sp-4); border-bottom:1px solid var(--rule);
 }
 .sb-head-bar h2{
   margin:0; flex:1; font-size:var(--fs-2); font-weight:600; letter-spacing:.09em;
   text-transform:uppercase; color:var(--mute);
 }
+/* The header's actions -- New chat, New file, New folder. They had no rule at
+   all and rendered as three native OS buttons in a header where everything else
+   is flat. This is `.tsl-add`'s block, because that is the same control in the
+   same position one panel over, and two answers to "a small icon button in a
+   panel header" is how chrome starts reading as unfinished. (`display` and the
+   centring come from the shared icon-flex list below.) */
+.sb-act{
+  flex:none; width:24px; height:24px;
+  border:0; border-radius:var(--r-2); background:transparent;
+  color:var(--mute); cursor:pointer;
+}
+.sb-act:hover{ background:var(--panel-3); color:var(--ink); }
 .sb-panel{ flex:1; min-height:0; overflow-y:auto; padding:var(--sp-3) 0; }
 .sb-sub{
   padding:var(--sp-6) var(--sp-7) var(--sp-3); font-size:var(--fs-2); font-weight:600; letter-spacing:.09em;
   text-transform:uppercase; color:var(--mute);
 }
-.sb-cta{ display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-6) var(--sp-6); }
+/* `--sp-7` inline, matching `.sb-head-bar` and `.sb-sub`: the heading, the
+   sentence under it and this card all started at a different x. Rows keep
+   `.ft-row`'s `--sp-3`, which is the indent a row *background* is drawn around
+   rather than a text position. */
+.sb-cta{ display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-6) var(--sp-7); }
+/* Inside a card the lead sentence is one of the card's items, so the card's
+   inline padding is already its indent -- its own would add to that and set the
+   sentence in from the button directly underneath it. */
+.sb-cta > .ft-empty{ padding-inline:0; }
+/* Icon, then label, then the shortcut against the far edge -- the shape every
+   list of this kind has. `.ghost` sets no `display` of its own and the shared
+   icon-flex list below names `.ghost.icon`, not this, so without the flex line
+   here three declarations were inert at once: `margin-inline-start:auto` on the
+   kbd had no free space to distribute in an inline formatting context, and the
+   UA's `text-align:center` on `button` centred the whole run -- which is what
+   put the icon hard left, the label adrift in the middle and the shortcut
+   beside it. */
 .ghost.bordered{
-  border-color:var(--rule); background:var(--panel); justify-content:flex-start;
+  display:flex; align-items:center; gap:var(--sp-4); text-align:start;
+  border-color:var(--rule); background:var(--panel);
   width:100%; padding:var(--sp-4) var(--sp-5); font-size:var(--fs-4);
 }
+/* The label takes the slack, so the kbd is pushed to the edge rather than
+   floated there, and a long label ellipsises instead of wrapping the button
+   onto a second line. */
+.cta-label{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* `flex:none` because `Ctrl⇧F` on Windows is half again as wide as `⌘⇧F` and
+   must not be the thing that gives. */
 .ghost.bordered kbd{
-  margin-left:auto; font-family:var(--mono); font-size:var(--fs-2); color:var(--mute);
+  flex:none;
+  margin-inline-start:auto; font-family:var(--mono); font-size:var(--fs-2); color:var(--mute);
   border:1px solid var(--rule); border-radius:var(--r-1); padding:var(--sp-1) var(--sp-3);
 }
+
+/* A recent search. The term was typed into a monospace field, so it is shown in
+   the face it was typed in; the row itself is `.ft-row`, because a list of
+   clickable things in this column has one shape. */
+.sb-search .ft-name{ font-family:var(--mono); font-size:var(--fs-3); }
+/* The clear. Set apart from the rows above it and quieter than the two buttons
+   at the top of the panel: it is an admission that the list is disposable, not
+   a control of the same weight. */
+.sb-forget{ align-items:flex-start; padding-block:var(--sp-2) var(--sp-6); }
 
 /* ── file tree ───────────────────────────────────────────────────────── */
 .ft{ display:flex; flex-direction:column; }
 .ft-row{
-  display:flex; align-items:center; gap:var(--sp-3); width:100%; text-align:left;
-  font:inherit; font-size:var(--fs-4); padding:var(--sp-2) var(--sp-4) var(--sp-2) var(--sp-3);
+  display:flex; align-items:center; gap:var(--sp-3); width:100%; text-align:start;
+  font:inherit; font-size:var(--fs-4); padding-block:var(--sp-2); padding-inline:var(--sp-3) var(--sp-4);
   border:0; background:transparent; color:var(--ink-2); cursor:pointer;
   white-space:nowrap; overflow:hidden;
 }
@@ -653,9 +755,19 @@ body.resizing{ cursor:col-resize; user-select:none; }
   text-align:center; color:var(--mute); letter-spacing:-.02em;
 }
 .ft-row.changed .ft-name{ color:var(--brand); }
-.ft-dot{ flex:none; width:5px; height:5px; border-radius:50%; background:var(--brand); margin-left:auto; }
-.ft-empty{ margin:0; padding:var(--sp-2) var(--sp-6) var(--sp-5); font-size:var(--fs-3); color:var(--mute); }
-.ft-row .rc-meta{ margin-left:auto; padding-left:var(--sp-4); }
+.ft-dot{ flex:none; width:5px; height:5px; border-radius:50%; background:var(--brand); margin-inline-start:auto; }
+/* A single grey sentence flush in the top-left corner of a full-height column
+   reads as a panel that failed to load. When it is the whole panel it is
+   centred instead, which is what "there is nothing here yet" looks like; under
+   a `.sb-sub` heading -- Proposed, Working tree -- it is a caption for that
+   section and stays where it is. */
+.ft-empty{
+  margin:0; padding-block:var(--sp-2) var(--sp-5); padding-inline:var(--sp-7);
+  font-size:var(--fs-3); color:var(--mute); line-height:1.55;
+}
+.sb-panel:has(> .ft-empty:only-child){ display:flex; align-items:center; justify-content:center; }
+.sb-panel > .ft-empty:only-child{ max-width:34ch; text-align:center; }
+.ft-row .rc-meta{ margin-inline-start:auto; padding-inline-start:var(--sp-4); }
 
 /* ── tab strip ───────────────────────────────────────────────────────── */
 .tabs{
@@ -664,25 +776,25 @@ body.resizing{ cursor:col-resize; user-select:none; }
 }
 .tab{
   display:flex; align-items:center; font:inherit; font-size:var(--fs-4);
-  padding:0; border:0; border-right:1px solid var(--rule);
+  padding:0; border:0; border-inline-end:1px solid var(--rule);
   background:transparent; color:var(--mute); cursor:pointer; white-space:nowrap;
 }
 /* Back and forward, at the head of the tab strip. The chevron points forward,
    so it is the *back* one that is flipped -- and the flip lives on the button
    rather than the svg, because the icon is shared. */
-.navb{ display:flex; align-items:stretch; flex:none; border-right:1px solid var(--rule); }
+.navb{ display:flex; align-items:stretch; flex:none; border-inline-end:1px solid var(--rule); }
 .navb button{
   display:flex; align-items:center; padding:0 var(--sp-3); border:0;
   background:transparent; color:var(--mute); cursor:pointer;
 }
 .navb button:first-child{ transform:scaleX(-1); }
 .navb button:hover:not(:disabled){ background:var(--panel); color:var(--ink); }
-.navb button:disabled{ opacity:.35; cursor:default; }
+.navb button:disabled{ opacity:var(--dim); cursor:default; }
 .tab > .tab-name, .tab:not(:has(.tab-name)){ padding:var(--sp-4) var(--sp-6); }
-.tab-name{ font:inherit; font-size:var(--fs-4); border:0; background:transparent; color:inherit; cursor:pointer; padding:var(--sp-4) var(--sp-2) var(--sp-4) var(--sp-6); }
+.tab-name{ font:inherit; font-size:var(--fs-4); border:0; background:transparent; color:inherit; cursor:pointer; padding-block:var(--sp-4); padding-inline:var(--sp-6) var(--sp-2); }
 .tab-x{
   font:inherit; line-height:1; border:0; background:transparent;
-  color:var(--mute); cursor:pointer; padding:0 var(--sp-5) 0 var(--sp-2); align-self:stretch;
+  color:var(--mute); cursor:pointer; padding-block:0; padding-inline:var(--sp-2) var(--sp-5); align-self:stretch;
 }
 .tab-x:hover{ color:var(--err); }
 .tab:hover{ background:var(--panel); color:var(--ink); }
@@ -700,14 +812,18 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .chat-row{ padding:0; }
 .chat-open{
   flex:1; display:flex; align-items:center; gap:var(--sp-3); min-width:0;
-  font:inherit; font-size:var(--fs-4); text-align:left; padding:var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  font:inherit; font-size:var(--fs-4); text-align:start; padding-block:var(--sp-2); padding-inline:var(--sp-3) var(--sp-2);
   border:0; background:transparent; color:inherit; cursor:pointer;
 }
 .chat-x{
   flex:none; font:inherit; line-height:1; padding:0 var(--sp-4);
   border:0; background:transparent; color:transparent; cursor:pointer;
 }
-.chat-row:hover .chat-x{ color:var(--mute); }
+/* `.chat-x` is `color:transparent` until the row is hovered, and it is in the
+   focus-ring list -- so a keyboard user tabbed onto an outline around nothing.
+   Both neighbouring patterns already handle this: `.tsl-x:focus-visible` and
+   `.ft-acts:focus-within`. */
+.chat-row:hover .chat-x, .chat-x:focus-visible{ color:var(--mute); }
 .chat-x:hover{ color:var(--err); }
 
 /* Searching the chat list. The field is inside the panel rather than in the
@@ -726,7 +842,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .ch-find:focus-within{ border-color:var(--brand); }
 /* The name over the line that matched. Two lines only when there is a snippet,
    so an unfiltered list keeps its one-line rows. */
-.ch-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; overflow:hidden; }
+.ch-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--sp-1); overflow:hidden; }
 .ch-snip{
   font-size:var(--fs-2); color:var(--mute);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -741,7 +857,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
 }
 .mem-bar code{ font-family:var(--mono); font-size:var(--fs-4); color:var(--ink); }
 .mem-hint{ font-size:var(--fs-3); color:var(--mute); }
-.mem-btns{ margin-left:auto; display:flex; align-items:center; gap:var(--sp-5); }
+.mem-btns{ margin-inline-start:auto; display:flex; align-items:center; gap:var(--sp-5); }
 .mem-note{ font-size:var(--fs-3); color:var(--ok); }
 .mem-text{
   flex:1; resize:none; border:0; outline:none; padding:var(--sp-7) var(--sp-8);
@@ -757,8 +873,23 @@ body.resizing{ cursor:col-resize; user-select:none; }
    fixed strip for somebody else's — the buttons are a flex child and take the
    width they need. In full screen they are gone and the header starts where
    anything else would. */
+/*
+ * PHYSICAL ON PURPOSE. The next three rules are the only place in this file
+ * where left means left in every language. macOS puts the window's close /
+ * minimise / zoom controls -- and the corner you grab to resize -- at the
+ * physical top-left of the frame, and the frame is not ours to mirror: it does
+ * not turn around because the interface inside it is Arabic. So the inset that
+ * clears them stays `padding-left`, the strip that draws them keeps its own
+ * `direction:ltr` (red, amber, green is an order people recognise, not a
+ * reading order), and in a right-to-left interface the strip is ordered last so
+ * that it still lands on the left of the flex row.
+ */
 .mac .bar{ padding-left:var(--sp-4); }
 .mac .shell.fullscreen .bar{ padding-left:var(--sp-7); }
+:root[dir="rtl"] .tl{ order:1; }  /* `.mac` is the root element itself, so
+                                       this is a descendant selector, not
+                                       `:root.mac` -- and `.tl` renders on
+                                       macOS only in any case. */
 
 /* The account form, opened from Settings rather than only from the welcome
    screen. Wider than the palettes because it holds a form and its explanations,
@@ -773,8 +904,9 @@ body.resizing{ cursor:col-resize; user-select:none; }
    is not focused. Those two are what people recognise; three coloured circles
    on their own read as an imitation. */
 .tl{
-  display:flex; align-items:center; gap:8px; flex:none;
-  padding:0 var(--sp-5) 0 var(--sp-4);
+  display:flex; align-items:center; gap:var(--sp-4); flex:none;
+  /* Physical, with the inset above: this strip is macOS window chrome. */
+  direction:ltr; padding:0 var(--sp-5) 0 var(--sp-4);
   /* The header is the drag region; these are not. */
   -webkit-app-region:no-drag;
 }
@@ -826,7 +958,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
   font-size:var(--fs-2); color:var(--mute); white-space:nowrap; overflow-x:auto;
 }
 .status b{ font-weight:600; color:var(--ink-2); }
-.status .sp{ margin-left:auto; }
+.status .sp{ margin-inline-start:auto; }
 .status .dotm{ width:6px; height:6px; border-radius:50%; background:var(--ok); display:inline-block; }
 .status .dotm.off{ background:var(--mute); }
 
@@ -840,7 +972,10 @@ body.resizing{ cursor:col-resize; user-select:none; }
   background:transparent; color:var(--mute); cursor:pointer;
 }
 .seg button:hover{ color:var(--ink); }
-.seg button.on{ background:var(--panel); color:var(--brand); box-shadow:0 1px 2px rgb(0 0 0 / .07); }
+/* `var(--shadow)`, which is redefined for dark. The hardcoded black shadow
+   that stood here was black on near-black in the dark theme, so the selected
+   button lost the lift that separates it from its two siblings. */
+.seg button.on{ background:var(--panel); color:var(--brand); box-shadow:var(--shadow); }
 
 /* ── collapsed tool runs ─────────────────────────────────────────────── */
 .toolrun{
@@ -848,7 +983,7 @@ body.resizing{ cursor:col-resize; user-select:none; }
   border-radius:var(--r-3); background:var(--panel-2); overflow:hidden;
 }
 .toolrun > button{
-  display:flex; align-items:center; gap:var(--sp-4); width:100%; text-align:left;
+  display:flex; align-items:center; gap:var(--sp-4); width:100%; text-align:start;
   font:inherit; font-family:var(--mono); font-size:var(--fs-3); color:var(--mute);
   padding:var(--sp-3) var(--sp-6); border:0; background:transparent; cursor:pointer;
 }
@@ -882,12 +1017,16 @@ body.resizing{ cursor:col-resize; user-select:none; }
 .toolrun .tr-n{ color:var(--ink-2); font-weight:600; }
 .toolrun .tr-names{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .toolrun .tr-bad{
-  margin-left:auto; flex:none; color:var(--err); font-weight:700;
+  margin-inline-start:auto; flex:none; color:var(--err); font-weight:700;
 }
 
 /* ── terminal panel ──────────────────────────────────────────────────── */
+/* `.divider`'s four pixels of grab area, plus the rule it draws -- `box-sizing`
+   is border-box, so the border is inside the height. The two handles read as
+   one control at one size. */
 .hdiv{
-  flex:none; height:5px; margin-top:-2px; cursor:row-resize; background:transparent;
+  flex:none; height:calc(var(--sp-2) + 1px); margin-top:calc(var(--sp-1) * -1);
+  cursor:row-resize; background:transparent;
   border-top:1px solid var(--rule);
 }
 .hdiv:hover{ background:var(--brand); opacity:.55; }
@@ -897,12 +1036,12 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .panel{ flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; background:var(--bg); }
 
 .panel-bar{
-  flex:none; display:flex; align-items:stretch; gap:var(--sp-4); padding:0 var(--sp-4) 0 var(--sp-2);
+  flex:none; display:flex; align-items:stretch; gap:var(--sp-4); padding-block:0; padding-inline:var(--sp-2) var(--sp-4);
   border-bottom:1px solid var(--rule); background:var(--panel-2);
 }
 .panel-title{
   display:flex; align-items:center; gap:var(--sp-3); flex:none;
-  padding:var(--sp-4) var(--sp-4) var(--sp-4) var(--sp-5);
+  padding-block:var(--sp-4); padding-inline:var(--sp-5) var(--sp-4);
   font-size:var(--fs-3); font-weight:600; color:var(--ink-2);
   letter-spacing:.02em;
 }
@@ -916,11 +1055,11 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .panel-split{ flex:1; min-height:0; display:flex; }
 .tsl{
   flex:none; width:236px; min-width:0; display:flex; flex-direction:column;
-  border-right:1px solid var(--rule); background:var(--panel-2);
+  border-inline-end:1px solid var(--rule); background:var(--panel-2);
 }
 .tsl-head{
   flex:none; display:flex; align-items:center; gap:var(--sp-2);
-  padding:var(--sp-4) var(--sp-3) var(--sp-4) var(--sp-4);
+  padding-block:var(--sp-4); padding-inline:var(--sp-4) var(--sp-3);
   border-bottom:1px solid var(--rule);
 }
 .tsl-find{
@@ -959,8 +1098,8 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .tsl-pick{
   flex:1; min-width:0; display:flex; align-items:center; gap:var(--sp-4);
-  padding:var(--sp-4) var(--sp-2) var(--sp-4) var(--sp-4);
-  font:inherit; text-align:left; border:0; background:transparent;
+  padding-block:var(--sp-4); padding-inline:var(--sp-4) var(--sp-2);
+  font:inherit; text-align:start; border:0; background:transparent;
   color:inherit; cursor:pointer;
 }
 
@@ -972,9 +1111,9 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   background:var(--brand-wash); color:var(--brand);
 }
 .tsl-mark.busy{ color:var(--warn); background:var(--warn-wash); }
-.tsl-mark.failed{ color:var(--err); background:var(--err-wash, var(--panel-3)); }
+.tsl-mark.failed{ color:var(--err); background:var(--err-wash); }
 .tsl-dot{
-  position:absolute; right:-2px; bottom:-2px;
+  position:absolute; inset-inline-end:-2px; bottom:-2px;
   width:13px; height:13px; border-radius:50%;
   display:grid; place-items:center;
   border:2px solid var(--panel-2); background:var(--mute); color:var(--bg);
@@ -988,7 +1127,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .tsl-mark.busy .tsl-dot{ background:var(--warn); }
 .tsl-mark.live .tsl-dot{ background:var(--ok); }
 
-.tsl-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:1px; }
+.tsl-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:var(--sp-1); }
 .tsl-name{
   font-size:var(--fs-4); color:var(--ink); font-weight:500;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
@@ -1000,8 +1139,11 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   display:flex; gap:var(--sp-3); font-size:var(--fs-2); color:var(--mute);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
 }
+/* `--mute` on `--panel-3` is 4.15:1, so the second line of a terminal row lost
+   contrast on hover -- text that gets *less* legible when you point at it. */
+.tsl-row:hover:not(.on) .tsl-sub{ color:var(--ink-2); }
 .tsl-age{ font-variant-numeric:tabular-nums; }
-.tsl-age::before{ content:'·'; margin-right:var(--sp-3); }
+.tsl-age::before{ content:'·'; margin-inline-end:var(--sp-3); }
 
 .tsl-x{
   flex:none; display:grid; place-items:center; width:26px;
@@ -1021,17 +1163,17 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   .tsl-x{ display:none; }
 }
 
-.panel-acts{ margin-left:auto; display:flex; align-items:center; gap:var(--sp-2); flex:none; }
+.panel-acts{ margin-inline-start:auto; display:flex; align-items:center; gap:var(--sp-2); flex:none; }
 .panel-acts .ghost{ font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); }
 
 .panel-body{ flex:1; min-height:0; position:relative; }
-.term-host{ height:100%; padding:var(--sp-3) var(--sp-2) var(--sp-3) var(--sp-5); }
+.term-host{ height:100%; padding-block:var(--sp-3); padding-inline:var(--sp-5) var(--sp-2); }
 .term-host .xterm{ height:100%; }
 .term-host .xterm-viewport{ background:transparent !important; }
 
 /* ── attach button and file chips ────────────────────────────────────── */
 
-.chip.text{ padding-left:var(--sp-5); }
+.chip.text{ padding-inline-start:var(--sp-5); }
 .chip .doc{ font-size:var(--fs-5); color:var(--brand); }
 .filechip{
   display:inline-flex; align-items:center; padding:var(--sp-2) var(--sp-4); border-radius:var(--r-2);
@@ -1062,7 +1204,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   background:var(--panel); border:1px solid var(--rule-2); border-radius:var(--r-4);
   box-shadow:var(--shadow); overflow:hidden;
 }
-.pal-head{ display:flex; align-items:center; gap:var(--sp-2); padding-right:var(--sp-4); border-bottom:1px solid var(--rule); }
+.pal-head{ display:flex; align-items:center; gap:var(--sp-2); padding-inline-end:var(--sp-4); border-bottom:1px solid var(--rule); }
 .pal-head .pal-in{ border-bottom:0; }
 .pal-in{
   flex:1; font:inherit; font-size:var(--fs-6); padding:var(--sp-7) var(--sp-8); border:0;
@@ -1074,14 +1216,23 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   border-radius:var(--r-2); border:1px solid var(--rule); background:var(--panel-2);
   color:var(--mute); cursor:pointer;
 }
+/* Before `.on`, so hovering a toggle that is already on does not take its
+   brand colour off it. */
+.pal-tog:hover{ border-color:var(--rule-2); color:var(--ink); }
 .pal-tog.on{ background:var(--brand-wash); border-color:var(--brand); color:var(--brand); }
 
 .pal-list{ flex:1; overflow-y:auto; padding:var(--sp-3); min-height:0; }
 .pal-row{
-  display:flex; align-items:baseline; gap:var(--sp-5); width:100%; text-align:left;
+  display:flex; align-items:baseline; gap:var(--sp-5); width:100%; text-align:start;
   font:inherit; font-size:var(--fs-4); padding:var(--sp-3) var(--sp-5); border:0; border-radius:var(--r-2);
   background:transparent; color:var(--ink-2); cursor:pointer; overflow:hidden;
 }
+/* Three of the four palettes move `.on` to whatever the mouse is over, so they
+   looked as though they had a hover. The file-history list deliberately does
+   not -- choosing a version there fetches it, and a fetch per row crossed is
+   not a hover -- so its rows answered the pointer with nothing at all. Before
+   `.on`, so pointing at the selected row does not un-select it. */
+.pal-row:hover{ background:var(--panel-2); color:var(--ink); }
 .pal-row.on{ background:var(--brand-wash); color:var(--ink); }
 .pal-name{ flex:none; white-space:nowrap; }
 /* The kind of declaration -- fn, class, struct. Fixed width so the names line
@@ -1091,6 +1242,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   text-transform:uppercase; color:var(--mute); overflow:hidden; text-overflow:ellipsis;
 }
 .pal-name b{ color:var(--brand); font-weight:700; }
+/* Head-truncation, physical on purpose. See `.rv-files .fp`. */
 .pal-dir{
   flex:1; min-width:0; font-size:var(--fs-3); color:var(--mute); direction:rtl; text-align:left;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
@@ -1103,7 +1255,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   text-overflow:ellipsis;
 }
 .pal-none{ margin:0; padding:var(--sp-8); text-align:center; font-size:var(--fs-4); color:var(--mute); }
-.pal-err{ color:var(--err); font-family:var(--mono); font-size:var(--fs-3); text-align:left; }
+.pal-err{ color:var(--err); font-family:var(--mono); font-size:var(--fs-3); text-align:start; }
 .pal-foot{
   flex:none; padding:var(--sp-4) var(--sp-7); border-top:1px solid var(--rule); background:var(--panel-2);
   font-family:var(--mono); font-size:var(--fs-2); color:var(--mute);
@@ -1118,7 +1270,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 
 .tab.dirty .tab-name{ font-style:italic; }
 .tab-dot{
-  display:inline-block; width:6px; height:6px; margin-left:var(--sp-4); border-radius:50%;
+  display:inline-block; width:6px; height:6px; margin-inline-start:var(--sp-4); border-radius:50%;
   background:var(--brand); vertical-align:middle;
 }
 
@@ -1175,7 +1327,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .wc-inner{ width:100%; max-width:520px; margin:auto; }
 
 .wc-head{ text-align:center; }
-.wc-mark{ width:52px; height:52px; border-radius:12px; display:block; margin:0 auto var(--sp-6); }
+.wc-mark{ width:52px; height:52px; border-radius:var(--r-4); display:block; margin:0 auto var(--sp-6); }
 .wc-head h1{ margin:0 0 var(--sp-3); font-size:var(--fs-8); font-weight:650; letter-spacing:-.01em; }
 .wc-head p{
   margin:0 auto; max-width:44ch; font-size:var(--fs-4); line-height:1.65; color:var(--mute);
@@ -1197,7 +1349,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   letter-spacing:.09em; text-transform:uppercase; color:var(--mute);
 }
 .wc-row{
-  display:flex; align-items:center; gap:var(--sp-4); width:100%; text-align:left;
+  display:flex; align-items:center; gap:var(--sp-4); width:100%; text-align:start;
   padding:var(--sp-4) var(--sp-5); margin-bottom:var(--sp-1);
   font:inherit; font-size:var(--fs-4); color:var(--ink-2);
   border:1px solid transparent; border-radius:var(--r-2);
@@ -1205,6 +1357,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .wc-row:hover{ background:var(--panel); border-color:var(--rule); color:var(--ink); }
 .wc-name{ flex:none; font-weight:600; }
+/* Head-truncation, physical on purpose. See `.rv-files .fp`. */
 .wc-path{
   flex:1; min-width:0; font-size:var(--fs-2); color:var(--mute);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left;
@@ -1216,13 +1369,27 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .keys-row{ display:flex; align-items:baseline; gap:var(--sp-4); }
 .keys dt{ flex:none; }
 .keys dd{ margin:0; font-size:var(--fs-3); color:var(--mute); }
+/* The floor has to clear the widest chord, and 34px did not: `F12` is 34px,
+   `Ctrl⇧F` and `Ctrl⇧D` are much wider, and on Windows every one of the eight
+   MOD/ALT rows grows. So each description started wherever its own chord
+   happened to end, and the eleven of them made a ragged edge -- on the first
+   screen a new user sees, again in the empty chat and again in Settings. Same
+   thing `.pal-kind` fixes, the same way.
+   Measured in the kbd's OWN monospace `ch` with `content-box`, so the number
+   says what it is -- room for seven characters -- rather than being a pixel
+   count that has to be re-guessed when the type scale moves. Anything longer
+   still grows rather than clipping.
+   Note for the next pass: making `.keys-row` a two-column grid does NOT do
+   this. `.keys` is the grid whose columns are shared, and it lays out whole
+   rows N-up (the `columns` prop writes its `grid-template-columns` inline); a
+   grid inside each row aligns that row's two cells with nothing. */
 .keys kbd{
-  display:inline-block; min-width:34px; text-align:center;
+  display:inline-block; box-sizing:content-box; min-width:7ch; text-align:center;
   font-family:var(--mono); font-size:var(--fs-2); color:var(--ink-2);
   padding:var(--sp-1) var(--sp-3); border:1px solid var(--rule-2);
   border-bottom-width:2px; border-radius:var(--r-1); background:var(--panel);
 }
-.empty .keys{ margin-top:var(--sp-8); text-align:left; }
+.empty .keys{ margin-top:var(--sp-8); text-align:start; }
 .empty-lead{ font-size:var(--fs-6); font-weight:600; color:var(--ink); }
 
 /* ── review: per-hunk decisions ──────────────────────────────────────── */
@@ -1230,7 +1397,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    the button that writes it are never separated. */
 .rv-diff-bar{ position:sticky; top:0; z-index:2; }
 .rv-keys{
-  margin:0 auto 0 var(--sp-6); font-size:var(--fs-2); color:var(--mute);
+  margin-block:0; margin-inline:var(--sp-6) auto; font-size:var(--fs-2); color:var(--mute);
   display:flex; align-items:center; gap:var(--sp-2); white-space:nowrap;
 }
 .rv-keys kbd{
@@ -1242,11 +1409,11 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .rv-hunks{ flex:1; min-height:0; overflow:auto; padding:var(--sp-3) 0 var(--sp-6); }
 .hunk{ margin:0 var(--sp-4) var(--sp-4); border:1px solid var(--rule); border-radius:var(--r-2); overflow:hidden; }
 .hunk.focus{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
-.hunk.skipped{ opacity:.55; }
+.hunk.skipped{ opacity:var(--dim); }
 .hunk.skipped pre{ filter:saturate(.25); }
 
 .hunk-bar{
-  display:flex; align-items:center; gap:var(--sp-4); width:100%; text-align:left;
+  display:flex; align-items:center; gap:var(--sp-4); width:100%; text-align:start;
   padding:var(--sp-3) var(--sp-5); font:inherit; font-size:var(--fs-3);
   border:0; border-bottom:1px solid var(--rule); background:var(--panel-2);
   color:var(--ink-2); cursor:pointer;
@@ -1258,8 +1425,12 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .hunk-tick.on{ background:var(--fill); border-color:var(--fill); color:var(--on-fill); }
 .hunk-n{ font-weight:600; }
-.hunk-bar .mini{ margin-left:auto; display:flex; gap:var(--sp-3); font-family:var(--mono); font-size:var(--fs-2); }
+.hunk-bar .mini{ margin-inline-start:auto; display:flex; gap:var(--sp-3); font-family:var(--mono); font-size:var(--fs-2); }
 .hunk-skip{ font-size:var(--fs-2); color:var(--mute); }
+/* `.hunk-bar:hover` is `--panel-3`, on which `--mute` is 4.15:1. Same fix as
+   `.tsl-sub`. `.hunk-bad` beside it keeps `--warn`: it is 4.25 there, and a
+   neutral would cost the one thing the chip is for. */
+.hunk-bar:hover .hunk-skip{ color:var(--ink-2); }
 /* Whether the proposed file parses. Warn, never err: this is advisory and
    cannot be anything else — a parse result never gates, blocks or waves through
    a write, and the Write button beside it behaves identically whatever it says.
@@ -1282,6 +1453,31 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .hunk-bad{ font-size:var(--fs-2); color:var(--warn); }
 .hunk pre{ margin:0; overflow-x:auto; }
+
+/* ── hover and press ─────────────────────────────────────────────────── */
+/*
+ * Two gaps, one place, because both are about a control answering the pointer
+ * and answering it the same way everywhere.
+ *
+ * `:active` appeared zero times in this file: 51 hover rules and no pressed
+ * state at all, so every button in the app was inert under the finger and read
+ * as a picture of a button. One rule for the whole family rather than one per
+ * selector. There is no transition on it -- a press is not an animation, it is
+ * the control being where you put it -- so `prefers-reduced-motion` has nothing
+ * to turn off here and needs no entry.
+ *
+ * And three of the filled buttons had no `:hover` at all, `.approve` among them
+ * -- the primary button of the application. `filter:brightness` because that is
+ * what `.wc-open:hover` already does; of the three filled buttons in the app,
+ * one had a hover and two did not.
+ */
+.approve:not(:disabled):hover, .send:not(:disabled):hover{ filter:brightness(1.06); }
+
+.approve:not(:disabled):active, .send:not(:disabled):active,
+.wc-open:active, .st-btn:active, .ghost:active, .cmp-btn:not(:disabled):active,
+.rail-btn:active, .sb-act:active, .set-btn:not(:disabled):active{
+  transform:translateY(1px);
+}
 
 /* ── focus, visible ──────────────────────────────────────────────────── */
 /*
@@ -1323,7 +1519,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* Anchored at the selection, inside the scroller, so it travels with the code
    it is about rather than sitting in a corner referring to it. */
 .kbar{
-  position:absolute; left:var(--sp-8); right:var(--sp-8); z-index:5;
+  position:absolute; inset-inline:var(--sp-8); z-index:5;
   border:1px solid var(--brand); border-radius:var(--r-3);
   background:var(--panel); box-shadow:var(--shadow);
 }
@@ -1333,7 +1529,9 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   flex:1; min-width:0; font:inherit; font-size:var(--fs-4);
   border:0; background:transparent; color:var(--ink);
 }
-.kbar input:focus{ outline:none; }
+/* The bar itself is bordered in `--brand` and opens with this field focused,
+   so the box is the indicator. `:focus-visible` for `.commit input`'s reason. */
+.kbar input:focus-visible{ outline:none; }
 .kbar .approve, .kbar .ghost{ flex:none; font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); }
 .kbar-note{
   padding:0 var(--sp-4) var(--sp-3); font-family:var(--mono);
@@ -1344,23 +1542,23 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* The verdict bar sits at the foot of the editor, not over the code, so it
    never covers the change it is asking about. */
 .kdone{
-  position:absolute; left:var(--sp-8); right:var(--sp-8); bottom:var(--sp-6); z-index:5;
+  position:absolute; inset-inline:var(--sp-8); bottom:var(--sp-6); z-index:5;
   display:flex; align-items:center; gap:var(--sp-5);
   padding:var(--sp-3) var(--sp-5); border:1px solid var(--rule-2);
   border-radius:var(--r-3); background:var(--panel); box-shadow:var(--shadow);
 }
 .kd-stat{ display:flex; gap:var(--sp-3); font-family:var(--mono); font-size:var(--fs-3); }
-.kd-note{ margin-right:auto; font-size:var(--fs-3); color:var(--mute); }
+.kd-note{ margin-inline-end:auto; font-size:var(--fs-3); color:var(--mute); }
 .kdone kbd{
   font-family:var(--mono); font-size:var(--fs-1); padding:0 var(--sp-2);
-  border:1px solid var(--rule-2); border-radius:var(--r-1); margin-left:var(--sp-2);
+  border:1px solid var(--rule-2); border-radius:var(--r-1); margin-inline-start:var(--sp-2);
 }
 
 /* The preview colours come from the app's semantic tokens rather than the
    editor theme, so an accepted edit reads the same green as an approved diff. */
-.ed .cm-now{ background:var(--ok-wash, rgb(23 105 76 / .10)); }
+.ed .cm-now{ background:var(--ok-wash); }
 .ed .cm-was{
-  background:var(--err-wash, rgb(168 51 42 / .09)); color:var(--mute);
+  background:var(--err-wash); color:var(--mute);
   text-decoration:line-through; padding:var(--sp-1) 0;
   font-family:var(--mono); font-size:var(--fs-4); line-height:1.55;
 }
@@ -1374,7 +1572,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   padding:var(--sp-2); border-bottom:1px solid var(--rule);
 }
 .mpick-row{
-  display:flex; align-items:baseline; gap:var(--sp-4); width:100%; text-align:left;
+  display:flex; align-items:baseline; gap:var(--sp-4); width:100%; text-align:start;
   padding:var(--sp-2) var(--sp-4); border:0; border-radius:var(--r-1);
   background:transparent; color:var(--ink-2); font:inherit; font-size:var(--fs-3);
   cursor:pointer; overflow:hidden;
@@ -1383,6 +1581,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .mpick-row .ic{ align-self:center; color:var(--mute); }
 .mpick-row.on .ic{ color:var(--brand); }
 .mpick-name{ flex:none; }
+/* Head-truncation, physical on purpose. See `.rv-files .fp`. */
 .mpick-dir{
   flex:1; min-width:0; font-size:var(--fs-2); color:var(--mute);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:rtl; text-align:left;
@@ -1391,7 +1590,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* A mention chip is derived from the text, so it has no remove button — the
    way to remove it is to delete the word, which is where it came from. */
 .chip.mention{
-  padding-left:var(--sp-4); padding-right:var(--sp-4);
+  padding-inline:var(--sp-4);
   background:var(--brand-wash); border-color:var(--brand);
   color:var(--ink-2);
 }
@@ -1401,26 +1600,26 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* On the line that reported the write, because that is where someone looks
    when they decide they did not want it. */
 .undo-cp{
-  display:inline-flex; align-items:center; gap:var(--sp-2); margin-left:var(--sp-4);
+  display:inline-flex; align-items:center; gap:var(--sp-2); margin-inline-start:var(--sp-4);
   padding:var(--sp-1) var(--sp-3); font:inherit; font-size:var(--fs-2);
   border:1px solid var(--rule); border-radius:var(--r-1);
   background:var(--panel); color:var(--mute); cursor:pointer; vertical-align:middle;
 }
 .undo-cp:hover:not(:disabled){ color:var(--err); border-color:var(--err); }
-.undo-cp:disabled{ opacity:.45; cursor:default; }
+.undo-cp:disabled{ opacity:var(--dim); cursor:default; }
 
 /* Redo has no line of its own to sit on, so it stands at the end of the
    transcript. Going forward is not a destructive-red action the way undo is. */
 .line.redo-row{ display:flex; align-items:center; gap:var(--sp-3); }
 .line.redo-row .body{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.line.redo-row .undo-cp{ margin-left:0; flex:none; }
+.line.redo-row .undo-cp{ margin-inline-start:0; flex:none; }
 .line.redo-row .undo-cp:hover:not(:disabled){ color:var(--brand); border-color:var(--brand); }
 
 /* ── apply-from-chat ─────────────────────────────────────────────────── */
 /* Sits opposite the language tag, on the block it applies. A button in the
    toolbar would mean picking which block it meant. */
 .md-apply{
-  position:absolute; top:var(--sp-2); right:var(--sp-3); z-index:1;
+  position:absolute; top:var(--sp-2); inset-inline-end:var(--sp-3); z-index:1;
   font:inherit; font-family:var(--sans); font-size:var(--fs-2); font-weight:600;
   padding:var(--sp-1) var(--sp-4); border-radius:var(--r-1);
   border:1px solid var(--rule-2); background:var(--panel); color:var(--ink-2);
@@ -1436,7 +1635,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   background:var(--ok-wash); color:var(--ink-2); font-size:var(--fs-3);
 }
 .staged-bar .ic{ color:var(--ok); flex:none; }
-.staged-bar.stale{ background:var(--warn-wash, var(--panel-2)); }
+.staged-bar.stale{ background:var(--warn-wash); }
 .staged-bar.stale .ic{ color:var(--warn); }
 /* The same strip, with a decision on the end of it: the disk moved under a file
    that has unsaved edits, and only a person can say which version wins. */
@@ -1451,8 +1650,8 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   text-decoration-color:var(--err);
 }
 .ed .cm-staged-add{
-  background:var(--ok-wash); border-left:2px solid var(--ok);
-  padding-left:var(--sp-3); font-family:var(--mono);
+  background:var(--ok-wash); border-inline-start:2px solid var(--ok);
+  padding-inline-start:var(--sp-3); font-family:var(--mono);
   font-size:var(--fs-4); line-height:1.55;
 }
 
@@ -1496,10 +1695,10 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    click target so the actions beside it are reachable. */
 .ft-hit{
   flex:1; min-width:0; display:flex; align-items:center; gap:var(--sp-3);
-  font:inherit; font-size:inherit; color:inherit; text-align:left;
+  font:inherit; font-size:inherit; color:inherit; text-align:start;
   border:0; background:transparent; cursor:pointer; padding:0; overflow:hidden;
 }
-.ft-acts{ display:flex; gap:var(--sp-1); flex:none; opacity:0; padding-right:var(--sp-3); }
+.ft-acts{ display:flex; gap:var(--sp-1); flex:none; opacity:0; padding-inline-end:var(--sp-3); }
 .ft-row:hover .ft-acts, .ft-acts:focus-within{ opacity:1; }
 .ft-act{
   display:inline-flex; align-items:center; justify-content:center;
@@ -1577,12 +1776,17 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 
 /* ── working tree ────────────────────────────────────────────────────── */
 .wt-row{ gap:var(--sp-2); }
+/* No inline margin: proposed rows start at `.ft-row`'s `--sp-3` and working-tree
+   rows started 8px further in, one heading apart in the same panel. `.wt-row`'s
+   `gap` already separates the tick from the name. */
 .wt-tick{
-  flex:none; width:15px; height:15px; margin-left:var(--sp-4);
+  flex:none; width:15px; height:15px;
   display:flex; align-items:center; justify-content:center;
   border:1px solid var(--rule-2); border-radius:var(--r-1);
   background:var(--panel); color:var(--on-fill); padding:0; cursor:pointer;
 }
+/* Before the pressed state, for `.pal-tog:hover`'s reason. */
+.wt-tick:hover{ border-color:var(--brand); }
 .wt-tick[aria-pressed="true"]{ background:var(--fill); border-color:var(--fill); }
 /* The porcelain letters, coloured by what they mean rather than decorated:
    green for new, amber for staged, plain for a working-tree edit. */
@@ -1650,12 +1854,12 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   color:var(--mute); cursor:pointer;
 }
 .fh-forget:hover:not(:disabled){ border-color:var(--err); color:var(--err); }
-.fh-forget:disabled{ opacity:.5; cursor:default; }
+.fh-forget:disabled{ opacity:var(--dim); cursor:default; }
 .fh-sp{ flex:1; }
 .fh-body{ display:flex; min-height:0; flex:1; }
 .fh-list{
   width:190px; flex:none; overflow-y:auto; padding:var(--sp-3);
-  border-right:1px solid var(--rule); background:var(--panel-2);
+  border-inline-end:1px solid var(--rule); background:var(--panel-2);
 }
 .fh-row{ gap:var(--sp-3); font-family:var(--mono); font-size:var(--fs-3); }
 .fh-view{ flex:1; min-width:0; display:flex; flex-direction:column; }
@@ -1685,7 +1889,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 
 @media (max-width:760px){
   .fh-body{ flex-direction:column; }
-  .fh-list{ width:auto; max-height:110px; border-right:0; border-bottom:1px solid var(--rule); }
+  .fh-list{ width:auto; max-height:110px; border-inline-end:0; border-bottom:1px solid var(--rule); }
 }
 
 
@@ -1717,7 +1921,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   box-shadow:var(--shadow); overflow:hidden;
 }
 .set-x{
-  position:absolute; top:var(--sp-5); right:var(--sp-5); z-index:1;
+  position:absolute; top:var(--sp-5); inset-inline-end:var(--sp-5); z-index:1;
   width:28px; height:28px; display:flex; align-items:center; justify-content:center;
   border:0; border-radius:var(--r-2); background:transparent; color:var(--mute); cursor:pointer;
 }
@@ -1725,7 +1929,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 
 .set-rail{
   display:flex; flex-direction:column; gap:var(--sp-1); min-height:0; overflow-y:auto;
-  padding:var(--sp-5) var(--sp-4); background:var(--panel-2); border-right:1px solid var(--rule);
+  padding:var(--sp-5) var(--sp-4); background:var(--panel-2); border-inline-end:1px solid var(--rule);
 }
 .set-find{
   flex:none; font:inherit; font-size:var(--fs-4); width:100%;
@@ -1739,7 +1943,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   text-transform:uppercase; color:var(--mute);
 }
 .set-cat{
-  display:flex; align-items:center; gap:var(--sp-5); width:100%; text-align:left;
+  display:flex; align-items:center; gap:var(--sp-5); width:100%; text-align:start;
   font:inherit; font-size:var(--fs-4); padding:var(--sp-4) var(--sp-5);
   border:0; border-radius:var(--r-2); background:transparent; color:var(--ink-2);
   cursor:pointer; transition:background .12s ease, color .12s ease;
@@ -1750,7 +1954,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .set-cat.on, .set-cat.on:hover{ background:var(--fill); color:var(--on-fill); }
 /* A category the search found nothing in. Dimmed and not removed -- a rail
    whose rows vanish as you type jumps under the cursor. */
-.set-cat.nil{ opacity:.38; cursor:default; }
+.set-cat.nil{ opacity:var(--dim); cursor:default; }
 .set-cat.nil:hover{ background:transparent; color:var(--ink-2); }
 .set-cat-t{ min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 /* About, pinned away from the rest the way the activity rail pins Settings. */
@@ -1804,11 +2008,11 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 /* An email address is the longest value here and is allowed to break rather
    than widen the dialog. */
-.set-val{ margin:0; font-size:var(--fs-4); color:var(--ink-2); text-align:right; overflow-wrap:anywhere; }
-.set-row.wide .set-val{ text-align:left; }
+.set-val{ margin:0; font-size:var(--fs-4); color:var(--ink-2); text-align:end; overflow-wrap:anywhere; }
+.set-row.wide .set-val{ text-align:start; }
 .set-mono{ font-family:var(--mono); font-size:var(--fs-3); }
 .set-btn{ flex:none; font-size:var(--fs-3); padding:var(--sp-3) var(--sp-5); border-color:var(--rule); }
-.set-btn:disabled{ opacity:.45; cursor:default; }
+.set-btn:disabled{ opacity:var(--dim); cursor:default; }
 .set-btn:disabled:hover{ border-color:var(--rule); color:var(--mute); }
 
 /* A value and the button that acts on it: a store's size and Empty, a chord and
@@ -1817,12 +2021,80 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* Right-aligned in a fixed column, so four sizes read as a column of numbers
    rather than four differently-indented strings. */
 .set-size{
-  min-width:7ch; text-align:right;
+  min-width:7ch; text-align:end;
   font-family:var(--mono); font-size:var(--fs-3); color:var(--mute);
 }
 
 /* The rule the whole design rests on, quoted rather than paraphrased. */
 .set-quote{
-  margin:0 0 var(--sp-4); max-width:64ch; padding-left:var(--sp-6);
-  border-left:2px solid var(--brand); font-size:var(--fs-4); line-height:1.6; color:var(--ink-2);
+  margin:0 0 var(--sp-4); max-width:64ch; padding-inline-start:var(--sp-6);
+  border-inline-start:2px solid var(--brand); font-size:var(--fs-4); line-height:1.6; color:var(--ink-2);
 }
+
+/* ── right to left ───────────────────────────────────────────────────────
+ *
+ * Three of the four interface languages are written right to left, and until
+ * 0.28.1 the app rendered all four left to right: `lang` was stamped on the
+ * document and `dir` was not. Everything above this section is now written in
+ * logical properties -- `padding-inline-start` rather than `padding-left`,
+ * `text-align:start` rather than `text-align:left`, `inset-inline-end` rather
+ * than `right` -- so `src/rtl.ts` setting one attribute mirrors the whole
+ * interface. `test/rtl.test.mjs` scans this file and fails on a physical one
+ * coming back, which is the only thing that keeps it converted.
+ *
+ * Three kinds of thing are exempt, and each says so where it sits:
+ *
+ *   1. macOS window chrome -- `.mac .bar` and `.tl`, above. The frame does not
+ *      turn around because the interface inside it does.
+ *   2. The path-truncation trick -- the four `direction:rtl` rules above. That
+ *      is a mechanism for putting an ellipsis at the head of a string, not a
+ *      statement about a language.
+ *   3. Code, below.
+ */
+
+/* Source code does not mirror.
+ *
+ * A right-to-left CodeMirror is a serious bug and not a translation: it would
+ * reverse the reading order of every line of a file whose language has no
+ * opinion about the interface it is being edited in. The same is true one step
+ * out -- a diff's line numbers and its +/- gutter are a coordinate system, the
+ * terminal is a grid a program is drawing into by column, and a command waiting
+ * for approval is a string that has to be read exactly as it will be run.
+ *
+ * CodeMirror decides its own `textDirection` from the computed `direction` of
+ * `.cm-content`, and `direction` inherits -- so pinning `.cm-editor` here is
+ * what pins the editor, and `.cm-content` is deliberately not named. The same
+ * inheritance is why the logical properties on the children of these boxes --
+ * the diff gutter's `text-align:end`, the staged-add stripe's
+ * `border-inline-start` -- resolve to the physical left and right they always
+ * did.
+ */
+.ed .cm-editor,                         /* the editor */
+.term-host,                             /* the terminal */
+.rv-diff pre, .fh-pre,                  /* both diffs, and their +/- gutters */
+.md-code,                               /* a fenced block in a reply */
+.pal-line,                              /* the source line a search hit found */
+.ask-txt code, .mcp-what code{          /* a command being approved */
+  direction:ltr;
+}
+
+/* Mirror what points at content, and nothing else.
+ *
+ * A chevron before a collapsed row points at the thing it would reveal, so it
+ * turns around; the brand mark, the file-type badges and the traffic lights are
+ * pictures rather than directions and stay as they are. Each of these is
+ * flipped by hand for that reason -- a blanket `svg{ transform:scaleX(-1) }`
+ * would reverse the logo too.
+ *
+ * The open state is repeated in each pair because it must be: a caret pointing
+ * down is the same caret in both directions, and the RTL selector outweighs
+ * `.ft-caret.open` on its own.
+ */
+:root[dir="rtl"] .ft-caret{ transform:rotate(180deg); }
+:root[dir="rtl"] .ft-caret.open{ transform:rotate(90deg); }
+:root[dir="rtl"] .toolrun .tr-caret{ transform:rotate(180deg); }
+:root[dir="rtl"] .toolrun.open .tr-caret{ transform:rotate(90deg); }
+/* Back and forward. The icon is one chevron pointing forward, so left-to-right
+   it is *back* that is flipped -- and right-to-left it is forward. */
+:root[dir="rtl"] .navb button:first-child{ transform:none; }
+:root[dir="rtl"] .navb button:last-child{ transform:scaleX(-1); }

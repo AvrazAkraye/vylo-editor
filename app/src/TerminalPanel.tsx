@@ -197,7 +197,14 @@ export function TerminalPanel({
           </div>
 
           <div className="tsl-list">
-            {shown.length === 0 && <p className="tsl-none">{t('No session matches that.')}</p>}
+            {/* Two different states, and saying the second when the first is
+                true tells somebody their search failed when they never made
+                one. `Chats.tsx` already draws this distinction. */}
+            {shown.length === 0 && (
+              <p className="tsl-none">
+                {query.trim() ? t('No session matches that.') : t('No terminals open.')}
+              </p>
+            )}
             {shown.map((tab) => {
               const state = stateOf(tab);
               const title = titleOf(tab, t('Terminal'));
@@ -215,13 +222,14 @@ export function TerminalPanel({
                       </i>
                     </span>
                     <span className="tsl-text">
-                      <span className={`tsl-name ${title.mono ? 'mono' : ''}`}>{title.text}</span>
+                      <span className={`tsl-name ${title.mono ? 'mono' : ''}`}
+                            title={title.text}>{title.text}</span>
                       <span className="tsl-sub">
                         {state === 'busy' ? t('running')
                           : state === 'live' ? t('shell')
                           : state === 'ok' ? t('finished')
                           : tab.code === null ? t('stopped') : `${t('exit')} ${tab.code}`}
-                        <span className="tsl-age">{since(tab.born, clock)}</span>
+                        <span className="tsl-age">{since(tab.born, clock, t)}</span>
                       </span>
                     </span>
                   </button>
