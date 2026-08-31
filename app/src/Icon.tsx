@@ -63,6 +63,9 @@ const ICONS: Record<string, Stroke[]> = {
   // Rename. There was no pencil, so `chevron` was doing the job — in the file
   // tree that put the expand caret and the rename button in the same row as the
   // same glyph, one pointing at the row's children and one meaning "edit this".
+  // Replace: one arrow out, one back. Two rows rather than a crossed pair,
+  // which at sixteen pixels reads as a knot.
+  swap: [{ d: 'M4 9h13m-3.2-3.2L17 9l-3.2 3.2' }, { d: 'M20 15H7m3.2-3.2L7 15l3.2 3.2' }],
   pencil: [{ d: 'M4.6 19.4l.7-3.5a2 2 0 0 1 .55-1.02L15.9 4.7a2.2 2.2 0 0 1 3.4 2.77l-.28.33-10.03 10.03a2 2 0 0 1-1.02.55zM14.4 6.2l3.4 3.4' }],
 };
 

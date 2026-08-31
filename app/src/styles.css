@@ -99,6 +99,7 @@
      white on violet fades the label into its own background, so `.send` and
      `.approve` carry a disabled treatment instead. */
   --dim: .45;
+  --press: brightness(.94);
 
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -133,6 +134,9 @@
     --ok:#6BD6AE;
     --warn:#E0AE5C;
     --err:#F0897C;
+    /* Pressed. Dark surfaces lift rather than darken; the same filter in both
+       themes would make one of them look broken. */
+    --press: brightness(1.16);
     --syn-kw:#C4A9FF;
     --syn-str:#6BD6AE;
     --syn-num:#E0AE5C;
@@ -169,6 +173,9 @@
   --ok:#6BD6AE;
   --warn:#E0AE5C;
   --err:#F0897C;
+  /* Pressed. Dark surfaces lift rather than darken; the same filter in both
+     themes would make one of them look broken. */
+  --press: brightness(1.16);
   --syn-kw:#C4A9FF;
   --syn-str:#6BD6AE;
   --syn-num:#E0AE5C;
@@ -601,6 +608,37 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   position:absolute; top:7px; inset-inline-end:10px; font-size:var(--fs-1); letter-spacing:.08em;
   text-transform:uppercase; color:var(--mute); user-select:none;
 }
+/* ── pressed ─────────────────────────────────────────────────────────────
+   Twenty-two of the twenty-eight selectors carrying `cursor:pointer` had no
+   `:active` rule, so nothing in the app moved when it was clicked — which is
+   most of why it read as a web page rather than an application.
+
+   One rule rather than twenty-two, the way the focus ring and the button reset
+   are already one rule each. A filter works whether the element is filled or
+   transparent: a solid button darkens, a ghost one's label does. `:disabled` is
+   excluded because a control that responds to a press it is ignoring is worse
+   than one that does nothing.
+
+   `filter` establishes a containing block for absolutely-positioned
+   descendants. Every one inside these — the terminal row's status badge, the
+   apply button on a code block — sits inside a `position:relative` parent of
+   its own, so none of them moves. Check that before adding a selector here. */
+:is(.approve, .reject, .send, .ghost, .folder, .chat-open, .chat-x, .clip-clear,
+    .ft-act, .ft-row, .hunk-bar, .mpick-row, .pal-row, .pal-tog, .qclear, .qx,
+    .set-cat, .set-x, .tab, .tab-name, .tab-x, .tsl-add, .tsl-pick, .tsl-x,
+    .wc-row, .cmp-btn, .st-btn, .set-btn, .undo-cp, .navb button
+   ):active:not(:disabled){ filter:var(--press); }
+
+/* The two that had no `:hover` either, and are not rows whose parent supplies
+   one. `.approve` is the primary button of the application. */
+.approve:hover:not(:disabled){ background:color-mix(in srgb, var(--fill) 88%, var(--ink)); }
+.pal-tog:hover{ color:var(--ink); background:var(--panel-3); }
+/* `ab` is a label, not a pictograph, so it stays as letters — D1 kept ⌘ and ⇧
+   as typography for the same reason. What read as an icon was the pair of bars
+   drawn around it, which had neither the weight nor the baseline of the real
+   icons beside them. */
+.pal-ab{ font-family:var(--mono); font-size:var(--fs-2); letter-spacing:.06em; }
+
 /* Syntax classes, shared with the editor through the --syn-* tokens above.
    Listed under the four places code appears outside the editor's own document
    rather than left global, so a `syn-` class can never leak onto ordinary UI
@@ -761,9 +799,17 @@ body.resizing{ cursor:col-resize; user-select:none; }
    centred instead, which is what "there is nothing here yet" looks like; under
    a `.sb-sub` heading -- Proposed, Working tree -- it is a caption for that
    section and stays where it is. */
+/* An empty panel is a sentence, and it used to be one grey line flush at the
+   top of a column the height of the window — which reads as something failing
+   to load rather than as an answer. `.empty` in the chat log had the right
+   shape and was used in exactly one place.
+
+   Centred and given room, without the parent having to become a flex column:
+   `margin-inline:auto` and a measure do it wherever the sentence lands. */
 .ft-empty{
-  margin:0; padding-block:var(--sp-2) var(--sp-5); padding-inline:var(--sp-7);
-  font-size:var(--fs-3); color:var(--mute); line-height:1.55;
+  margin:0 auto; max-width:34ch; text-align:center;
+  padding-block:var(--sp-9) var(--sp-6); padding-inline:var(--sp-6);
+  font-size:var(--fs-3); color:var(--mute); line-height:1.6;
 }
 .sb-panel:has(> .ft-empty:only-child){ display:flex; align-items:center; justify-content:center; }
 .sb-panel > .ft-empty:only-child{ max-width:34ch; text-align:center; }

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { positions, rank } from './fuzzy';
+import { Icon } from './Icon';
 import type { Entry } from './FileTree';
 
 /**
@@ -270,10 +271,11 @@ export function FindInFiles({ root, onOpen, onClose, onReplace, initial, onSearc
         <button className={`pal-tog ${fold ? '' : 'on'}`} onClick={() => setFold((v) => !v)}
                 title={t('Match case')} aria-label={t('Match case')} aria-pressed={!fold}>Aa</button>
         <button className={`pal-tog ${words ? 'on' : ''}`} onClick={() => setWords((v) => !v)}
-                title={t('Whole word')} aria-label={t('Whole word')} aria-pressed={words}>|ab|</button>
+                title={t('Whole word')} aria-label={t('Whole word')} aria-pressed={words}>
+          <span className="pal-ab">ab</span></button>
         <button className={`pal-tog ${showReplace ? 'on' : ''}`} aria-pressed={showReplace}
                 onClick={() => setShowReplace((v) => !v)}
-                title={t('Replace')} aria-label={t('Replace')}>⇄</button>
+                title={t('Replace')} aria-label={t('Replace')}><Icon name="swap" size={13} /></button>
       </div>
 
       {showReplace && (
