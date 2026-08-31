@@ -129,6 +129,13 @@ const PER_BLOCK = 6;
  * at the ceiling Anthropic applies to a single image.
  */
 const IMAGE_BYTES_PER_TOKEN = 160;
+/**
+ * A PDF page is about 40 kB and costs roughly 2,000 tokens, which is where this
+ * comes from. Text-heavy documents are denser than that and scans are far
+ * thinner, so it is wrong in both directions — but it is wrong by a factor,
+ * where the six-token fallback it replaced was wrong by three orders.
+ */
+const PDF_BYTES_PER_TOKEN = 20;
 const IMAGE_MAX_TOKENS = 1600;
 
 export function estimateText(s: string): number {
@@ -147,6 +154,16 @@ function estimateBlock(b: Block): number {
       // The name and the id are short; the arguments are not — a `write_file`
       // call carries the whole file in its input.
       return PER_BLOCK + estimateText(b.name) + estimateText(JSON.stringify(b.input ?? {}));
+    case 'document': {
+      // A PDF is charged by the page, at roughly 1,500 to 3,000 tokens each,
+      // and nothing here knows the page count — so it is estimated from the
+      // bytes. This block existed for one release falling through to `default`
+      // below, which valued a fifty-page document at six tokens: `fit` would
+      // then never compact, and the request would 400 on a context nobody had
+      // been told was full. Erring high is the only safe direction.
+      const bytes = Math.floor((b.source?.data?.length ?? 0) * 3 / 4);
+      return PER_BLOCK + Math.ceil(bytes / PDF_BYTES_PER_TOKEN);
+    }
     case 'tool_result':
       return PER_BLOCK + estimateText(b.content ?? '');
     default:

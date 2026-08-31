@@ -10,8 +10,7 @@ import {
 } from './agent';
 import {
   attachAnyPath, attachFromFile, describe, isImage, isText, listenForDrops,
-  pickAttachments, previewUrl, textBlock, toImageBlock, type Attached,
-} from './attachments';
+  pickAttachments, previewUrl, textBlock, toImageBlock, type Attached, isDoc, toDocBlock} from './attachments';
 import { Pending, type Change } from './pending';
 import { Review } from './Review';
 import { invoke } from '@tauri-apps/api/core';
@@ -2142,10 +2141,14 @@ export function App() {
     const carried = [...fromMentions, ...carriedShots];
 
     const images = carried.filter(isImage);
+    const docs = carried.filter(isDoc);
     const files = carried.filter(isText);
     const written_ = files.length ? `${files.map(textBlock).join('\n\n')}\n\n${text}` : text;
-    const content: Block[] | string = images.length
-      ? [...images.map(toImageBlock), { type: 'text' as const, text: written_ }]
+    // Documents before images before the question, which is the order the model
+    // reads them in: the thing being asked about, then the thing being asked.
+    const attached = [...docs.map(toDocBlock), ...images.map(toImageBlock)];
+    const content: Block[] | string = attached.length
+      ? [...attached, { type: 'text' as const, text: written_ }]
       : written_;
     history.current.push({ role: 'user', content });
     if (!queued) setShots([]);

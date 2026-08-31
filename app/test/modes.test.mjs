@@ -102,7 +102,7 @@ const ABSENT = [
   // way: a model-supplied path reaching either of them is containment gone,
   // silently. SAFETY.md enumerates exactly these two as the containment
   // exceptions; this is the line that keeps that enumeration true.
-  'read_image', 'read_text_attachment',
+  'read_image', 'read_document', 'read_text_attachment',
   // Hides three buttons on a window so the app can draw its own. There is
   // nothing here a model needs and nothing it could do with it — but the rule
   // this list exists for is that a command is absent from the schema by

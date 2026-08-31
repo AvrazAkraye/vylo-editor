@@ -2,7 +2,7 @@ import { explain } from './errors';
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
-import type { ImageBlock } from './agent';
+import type { DocumentBlock, ImageBlock } from './agent';
 
 /**
  * Something the user attached to their next message.
@@ -12,7 +12,7 @@ import type { ImageBlock } from './agent';
  * prompt with a header saying where it came from. Keeping them one union means
  * the composer, the tray and the transcript each handle attachments once.
  */
-export type Attached = AttachedImage | AttachedText;
+export type Attached = AttachedImage | AttachedText | AttachedDoc;
 
 export interface AttachedImage {
   kind: 'image';
@@ -32,16 +32,40 @@ export interface AttachedText {
   truncated: boolean;
 }
 
+/**
+ * A PDF, sent whole for the model to read.
+ *
+ * A third kind rather than a `text` one, because a PDF is not text: pulling
+ * words out of it here would lose the layout that makes a table a table, and
+ * whatever this app extracted would be worse than what the model sees when it
+ * is handed the file. It reaches the API as a `document` block beside the
+ * `image` one.
+ */
+export interface AttachedDoc {
+  kind: 'doc';
+  id: string;
+  name: string;
+  /** base64, no `data:` prefix. Always application/pdf today. */
+  data: string;
+  bytes: number;
+}
+
 export const IMAGE_EXT = /\.(png|jpe?g|gif|webp)$/i;
+export const DOC_EXT = /\.pdf$/i;
 
 export const isImage = (a: Attached): a is AttachedImage => a.kind === 'image';
 export const isText = (a: Attached): a is AttachedText => a.kind === 'text';
+export const isDoc = (a: Attached): a is AttachedDoc => a.kind === 'doc';
 
 let seq = 0;
 const nextId = () => `att_${Date.now()}_${seq++}`;
 
 export function toImageBlock(a: AttachedImage): ImageBlock {
   return { type: 'image', source: { type: 'base64', media_type: a.mediaType, data: a.data } };
+}
+
+export function toDocBlock(a: AttachedDoc): DocumentBlock {
+  return { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: a.data } };
 }
 
 export function previewUrl(a: AttachedImage): string {
@@ -73,9 +97,23 @@ export async function attachTextFromPath(path: string): Promise<Attached> {
   return { kind: 'text', id: nextId(), name: r.name, text: r.text, bytes: r.bytes, truncated: r.truncated };
 }
 
-/** One path, routed by what it looks like. */
+/** Read a PDF the user dropped or picked. Rust checks the magic bytes. */
+export async function attachDocFromPath(path: string): Promise<Attached> {
+  const r = await invoke<{ data: string; name: string; bytes: number }>('read_document', { path });
+  return { kind: 'doc', id: nextId(), name: r.name, data: r.data, bytes: r.bytes };
+}
+
+/**
+ * One path, routed by what it looks like.
+ *
+ * By extension, and the Rust side then checks the magic bytes — so a `.pdf`
+ * that is not one is refused with a sentence saying so, rather than reaching
+ * the API and failing there.
+ */
 export function attachAnyPath(path: string): Promise<Attached> {
-  return IMAGE_EXT.test(path) ? attachFromPath(path) : attachTextFromPath(path);
+  if (IMAGE_EXT.test(path)) return attachFromPath(path);
+  if (DOC_EXT.test(path)) return attachDocFromPath(path);
+  return attachTextFromPath(path);
 }
 
 /**

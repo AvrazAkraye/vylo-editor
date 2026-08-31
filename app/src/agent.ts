@@ -25,6 +25,16 @@ export interface ToolCall {
   input: Record<string, unknown>;
 }
 
+/**
+ * A PDF. Anthropic reads it directly — no extraction here, and none wanted:
+ * whatever this app pulled out would be worse than what the model sees, and
+ * would throw away the layout that makes a table a table.
+ */
+export interface DocumentBlock {
+  type: 'document';
+  source: { type: 'base64'; media_type: 'application/pdf'; data: string };
+}
+
 export interface ImageBlock {
   type: 'image';
   source: { type: 'base64'; media_type: string; data: string };
@@ -33,6 +43,7 @@ export interface ImageBlock {
 export type Block =
   | { type: 'text'; text: string }
   | ImageBlock
+  | DocumentBlock
   | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
   | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
 

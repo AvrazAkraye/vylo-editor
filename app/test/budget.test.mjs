@@ -83,6 +83,25 @@ ok('an image is charged something, and not more than the ceiling', (() => {
   const n = estimateMsg(img);
   return n > 100 && n < 2000;
 })(), estimateMsg({ role: 'user', content: [{ type: 'image', source: { data: 'A'.repeat(400_000) } }] }));
+// A PDF is charged by the page and this block fell through to the six-token
+// default for one release — which would have let `fit` leave a fifty-page
+// document uncompacted and 400 on a context nobody was told was full.
+{
+  const pdf = (kb) => ({ role: 'user', content: [{ type: 'document',
+    source: { type: 'base64', media_type: 'application/pdf', data: 'A'.repeat(Math.floor(kb * 1024 * 4 / 3)) } }] });
+  ok('a PDF costs thousands of tokens, not six', estimateMsg(pdf(400)) > 5_000, estimateMsg(pdf(400)));
+  ok('and a bigger one costs proportionally more',
+     estimateMsg(pdf(800)) > estimateMsg(pdf(400)) * 1.8);
+  ok('a document with no data does not crash',
+     estimateMsg({ role: 'user', content: [{ type: 'document', source: {} }] }) > 0);
+  // The whole point: a conversation carrying one is compacted rather than sent.
+  ok('a conversation carrying a large PDF is made to fit', (() => {
+    const f = fit([{ role: 'user', content: 'hi' }, pdf(2000), { role: 'user', content: 'and this' }],
+                  { context: 50_000, maxOutput: 1024 }, 500);
+    return f.tokens <= 50_000 || f.over === true;
+  })());
+}
+
 ok('a conversation costs the sum of its messages',
    estimateAll([ask('one'), say('two')]) === estimateMsg(ask('one')) + estimateMsg(say('two')));
 

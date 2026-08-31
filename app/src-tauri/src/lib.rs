@@ -614,6 +614,54 @@ pub struct Attachment {
 /// into picking a bad one. A human dropping a file on the window has chosen it
 /// explicitly — constraining them to the open folder would break the obvious
 /// case of dragging in a screenshot from the Desktop, and would protect nobody.
+/// A PDF, for the model to read.
+///
+/// Separate from `read_image` rather than a flag on it, because the two differ
+/// in every number: the size that is sensible, the magic bytes that prove it,
+/// and what it costs once it arrives. Anthropic takes a PDF as a `document`
+/// block and charges it by the page, at roughly two thousand tokens each — so
+/// the cap here is a bill as much as a limit.
+///
+/// **Human action only**, like `read_image`: absent from the tool schema, and
+/// safe to take a raw absolute path only because a person picked the file in a
+/// drop or a picker. `test/modes.test.mjs` names it.
+#[tauri::command]
+fn read_document(path: String) -> Result<Attachment, String> {
+    let p = Path::new(&path);
+    let md = fs::metadata(p).map_err(|e| format!("{path}: {e}"))?;
+    if md.is_dir() {
+        return Err(format!("{path}: is a directory"));
+    }
+    // Eight megabytes. The gateway parses a 20 MB JSON body and base64 costs a
+    // third on top, so anything larger would be refused after the wait rather
+    // than before it — and a PDF this size is already most of a context window.
+    const MAX: u64 = 8 * 1024 * 1024;
+    if md.len() > MAX {
+        return Err(format!(
+            "{}: {:.1} MB is over the 8 MB limit for a PDF",
+            p.file_name().unwrap_or_default().to_string_lossy(),
+            md.len() as f64 / 1_048_576.0
+        ));
+    }
+
+    let bytes = fs::read(p).map_err(|e| format!("{path}: {e}"))?;
+    // The magic bytes, not the extension. A renamed file would otherwise fail
+    // upstream with a message about a document that is not one.
+    if !bytes.starts_with(b"%PDF-") {
+        return Err(format!(
+            "{}: this is not a PDF",
+            p.file_name().unwrap_or_default().to_string_lossy()
+        ));
+    }
+
+    Ok(Attachment {
+        media_type: "application/pdf".into(),
+        data: BASE64.encode(&bytes),
+        name: p.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        bytes: bytes.len() as u64,
+    })
+}
+
 #[tauri::command]
 fn read_image(path: String) -> Result<Attachment, String> {
     let p = Path::new(&path);
@@ -1529,7 +1577,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            list_tree, read_file, search, path_kind, read_image, read_text_attachment,
+            list_tree, read_file, search, path_kind, read_image, read_document,
+            read_text_attachment,
             apply_write, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             create_file, create_dir, rename_path, delete_path,
             git_status, git_file_head,
