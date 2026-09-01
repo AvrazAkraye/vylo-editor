@@ -83,6 +83,8 @@ import {
 import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { TodoPanel } from './TodoPanel';
+import { AskHost } from './AskHost';
+import * as ask from './ask';
 import { SignIn } from './SignIn';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -1609,7 +1611,8 @@ export function App() {
    * right shape for something that touches the filesystem.
    */
   async function newFile(dir = '') {
-    const name = window.prompt(t('New file'), dir ? `${dir}/` : '');
+    const name = await ask.text({ title: t('New file'), value: dir ? `${dir}/` : '',
+                                 confirmLabel: t('Create') });
     if (!name?.trim()) return;
     try {
       await invoke('create_file', { root, path: name.trim() });
@@ -1621,7 +1624,8 @@ export function App() {
   }
 
   async function newFolder(dir = '') {
-    const name = window.prompt(t('New folder'), dir ? `${dir}/` : '');
+    const name = await ask.text({ title: t('New folder'), value: dir ? `${dir}/` : '',
+                                 confirmLabel: t('Create') });
     if (!name?.trim()) return;
     try {
       await invoke('create_dir', { root, path: name.trim() });
@@ -1632,7 +1636,7 @@ export function App() {
   }
 
   async function renameEntry(from: string) {
-    const to = window.prompt(t('Rename to'), from);
+    const to = await ask.text({ title: t('Rename to'), value: from });
     if (!to?.trim() || to.trim() === from) return;
     const dest = to.trim();
     try {
@@ -1659,7 +1663,8 @@ export function App() {
     const what = isDir
       ? `${path}/ — ${inside} ${inside === 1 ? t('entry') : t('entries')}`
       : path;
-    if (!window.confirm(`${t('Delete permanently?')}\n\n${what}`)) return;
+    if (!await ask.confirm({ title: t('Delete permanently?'), body: what,
+                             confirmLabel: t('Delete'), danger: true })) return;
     try {
       await invoke('delete_path', { root, path });
       const gone = (x: string) => x === path || x.startsWith(`${path}/`);
@@ -1806,7 +1811,8 @@ export function App() {
 
   async function newBranch() {
     const suggested = `vylo/${new Date().toISOString().slice(0, 10)}`;
-    const name = window.prompt(t('New branch name'), suggested);
+    const name = await ask.text({ title: t('New branch name'), value: suggested,
+                                 confirmLabel: t('Create') });
     if (!name) return;
     try {
       await invoke('git_create_branch', { root, name });
@@ -1918,11 +1924,12 @@ export function App() {
     setActive(path);
   }
 
-  function closeTab(path: string) {
+  async function closeTab(path: string) {
     // Closing a tab destroys its buffer, so unsaved work needs a decision
     // rather than a shrug.
     if (editors.current.get(path)?.isDirty()
-        && !window.confirm(t('Close without saving?') + `\n\n${path}`)) return;
+        && !await ask.confirm({ title: t('Close without saving?'), body: path,
+                                confirmLabel: t('Close'), danger: true })) return;
     editors.current.delete(path);
     setDirty((p) => { const n = new Set(p); n.delete(path); return n; });
     // Otherwise reopening the file later brings back a bar asking about a
@@ -2110,10 +2117,13 @@ export function App() {
     const meta = await invoke<CpMeta[]>('checkpoint_list', { chatId: cpChat() }).catch(() => []);
     const undoing = meta.filter((m) => !m.undone && m.seq >= cp.seq).sort((a, b) => a.seq - b.seq);
     const affected = [...new Set(undoing.flatMap((m) => m.paths))].sort();
-    const ok = window.confirm(
-      `${t('Undo this change and everything after it?')}\n\n${affected.join('\n')}\n\n`
-      + t('These files go back to how they were, losing any edits made since. The conversation is cut back to this point.'),
-    );
+    const ok = await ask.confirm({
+      title: t('Undo this change and everything after it?'),
+      body: `${affected.join('\n')}\n\n`
+        + t('These files go back to how they were, losing any edits made since. The conversation is cut back to this point.'),
+      confirmLabel: t('Undo'),
+      danger: true,
+    });
     if (!ok) return;
 
     // What redo will need: the conversation once, and where each checkpoint
@@ -2173,10 +2183,12 @@ export function App() {
    */
   async function redo() {
     if (!redoable) return;
-    const ok = window.confirm(
-      `${t('Redo this change?')}\n\n${redoable.paths.join('\n')}\n\n`
-      + t('These files go back to the version this write produced, losing any edits made since. The conversation comes back with them.'),
-    );
+    const ok = await ask.confirm({
+      title: t('Redo this change?'),
+      body: `${redoable.paths.join('\n')}\n\n`
+        + t('These files go back to the version this write produced, losing any edits made since. The conversation comes back with them.'),
+      confirmLabel: t('Redo'),
+    });
     if (!ok) return;
 
     setBusy(true);
@@ -2564,6 +2576,12 @@ export function App() {
           unrolled under the header and pushed the whole app down. The controls
           are the same ones and no longer a flat list; `settings.ts` is the
           catalogue and `SettingsPanel.tsx` draws it. */}
+      {/* The one dialog the app draws for itself.  and
+           do nothing in this webview — wry implements none of
+          WKWebView's JavaScript panels — so thirteen actions silently did
+          nothing, or silently answered no. */}
+      <AskHost t={t} />
+
       {signInOpen && (
         <div className="pal-back" onMouseDown={() => setSignInOpen(false)}>
           <div className="pal signin-modal" onMouseDown={(e) => e.stopPropagation()}

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { Icon } from './Icon';
+import * as ask from './ask';
 import { LANGS, type Lang } from './i18n';
 import { commandLine, isEnabled, type McpTool, type ServerSpec } from './mcp';
 import { clipboardBytes, human, isOnDisk, usage, type Sizes, type StoreId } from './stores';
@@ -201,10 +202,11 @@ function StoreRow({ id, label, hint, bytes, onEmpty, t }: {
         <button
           className="ghost set-btn"
           disabled={bytes === 0}
-          onClick={() => {
-            if (!window.confirm(`${t('Empty this store?')}\n\n${label}\n\n${cost}`)) return;
+          onClick={() => void (async () => {
+            if (!await ask.confirm({ title: t('Empty this store?'), body: `${label}\n\n${cost}`,
+                                     confirmLabel: t('Empty'), danger: true })) return;
             onEmpty();
-          }}
+          })()}
         >
           {t('Empty')}
         </button>

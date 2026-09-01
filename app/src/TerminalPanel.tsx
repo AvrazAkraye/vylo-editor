@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
+import * as ask from './ask';
 import { filter, since, stateOf, titleOf } from './terminals';
 import { TagPicker } from './TagPicker';
 import { tagClass, type Tag } from './tags';
@@ -82,8 +83,9 @@ export function TerminalPanel({
    * mistyped past is the right shape for something that replaces a label.
    * Blank restores the default rather than leaving a nameless row.
    */
-  function rename(tab: Tab) {
-    const typed = window.prompt(t('Rename this terminal'), titleOf(tab, t('Terminal')).text);
+  async function rename(tab: Tab) {
+    const typed = await ask.text({ title: t('Rename this terminal'),
+                                  value: titleOf(tab, t('Terminal')).text });
     if (typed === null) return;
     const name = typed.trim();
     setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, name: name || undefined } : x)));

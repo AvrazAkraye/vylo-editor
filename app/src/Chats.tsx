@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { Icon } from './Icon';
+import * as ask from './ask';
 import { explain } from './errors';
 import { move, orderBy } from './reorder';
 import { useReorder } from './useReorder';
@@ -100,8 +101,8 @@ export function Chats({ chats, current, root, onOpen, onDelete, onRenamed, t }: 
     },
   });
 
-  function rename(c: Chat) {
-    const typed = window.prompt(t('Rename this chat'), c.title);
+  async function rename(c: Chat) {
+    const typed = await ask.text({ title: t('Rename this chat'), value: c.title });
     // Cancelled, or emptied. An empty name is refused rather than accepted:
     // the rename overwrites the generated title and nothing can recover it, so
     // a chat called nothing would be unfindable in a list of chats.
@@ -109,11 +110,14 @@ export function Chats({ chats, current, root, onOpen, onDelete, onRenamed, t }: 
     if (renameChat(c.id, typed)) onRenamed();
   }
 
-  function remove(c: Chat) {
-    const ok = window.confirm(
-      `${t('Delete this chat permanently?')}\n\n${c.title}\n\n`
-      + t('The conversation and what it recorded will be gone. The files it changed are not touched.'),
-    );
+  async function remove(c: Chat) {
+    const ok = await ask.confirm({
+      title: t('Delete this chat permanently?'),
+      body: `${c.title}\n\n`
+        + t('The conversation and what it recorded will be gone. The files it changed are not touched.'),
+      confirmLabel: t('Delete'),
+      danger: true,
+    });
     if (ok) onDelete(c.id);
   }
 

@@ -7,6 +7,7 @@ import { useGrammars } from './useGrammars';
 import { explain } from './errors';
 import { ago } from './store';
 import { Icon } from './Icon';
+import * as ask from './ask';
 
 /**
  * The versions of one file, and a way back to one of them.
@@ -163,13 +164,15 @@ export function FileHistory({ root, path, dirty, onClose, onRestored, t }: Props
    * button did what it said.
    */
   async function forget(all: boolean) {
-    const ok = window.confirm(
-      (all
+    const ok = await ask.confirm({
+      title: all
         ? t('Forget every kept version of every file in this folder?')
-        : t('Forget every kept version of this file?'))
-      + `\n\n${all ? root : path}\n\n`
-      + t('This cannot be undone. The files themselves are not touched.'),
-    );
+        : t('Forget every kept version of this file?'),
+      body: `${all ? root : path}\n\n`
+        + t('This cannot be undone. The files themselves are not touched.'),
+      confirmLabel: t('Forget'),
+      danger: true,
+    });
     if (!ok) return;
     setBusy(true);
     try {
