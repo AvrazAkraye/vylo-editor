@@ -4,6 +4,7 @@ import { readable } from './ansi';
 import { Icon } from './Icon';
 import * as ask from './ask';
 import { filter, since, stateOf, titleOf } from './terminals';
+import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
 import { TagPicker } from './TagPicker';
 import { tagClass, type Tag } from './tags';
 import { move } from './reorder';
@@ -70,6 +71,12 @@ export function TerminalPanel({
 }: Props) {
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
+  /**
+   * The panes drawn at once. Every session is mounted whichever of them are
+   * showing — that has always been true, because a terminal is a place you
+   * leave a server running — so this is only about what is on screen.
+   */
+  const [shown, setShown] = useState<string[]>(() => [tabs[0].id]);
   const [query, setQuery] = useState('');
   // One row shows its colours at a time; two open pickers in a 236px column
   // is two rows of swatches nobody can tell apart.
@@ -102,7 +109,6 @@ export function TerminalPanel({
   // go through refs: the getter reads the current tab at call time, and the
   // effect runs once instead of on every render.
   const live = useRef({ active: '', expose, exposeRun, exposeFocus });
-  live.current = { active, expose, exposeRun, exposeFocus };
 
   /** Command panes still waiting to finish, by tab id. */
   const runs = useRef(new Map<string, {
@@ -135,14 +141,36 @@ export function TerminalPanel({
   useEffect(() => { report.current([...tabs]); }, [tabs]);
 
   useEffect(() => {
-    live.current.exposeFocus((id) => { if (tabsRef.current.some((x) => x.id === id)) setActive(id); });
+    live.current.exposeFocus((id) => {
+      if (!tabsRef.current.some((x) => x.id === id)) return;
+      setActive(id);
+      // Focusing a pane that is not drawn would do nothing anybody could see.
+      // An id already on screen keeps the split it is part of.
+      setShown((p) => (p.includes(id) ? p : only(id)));
+    });
     return () => live.current.exposeFocus(null);
   }, []);
 
-  function add() {
+  function add(beside = false) {
     const next = newTab(Math.max(0, ...tabs.map((x) => x.n)) + 1);
     setTabs((p) => [...p, next]);
     setActive(next.id);
+    // A plain new terminal takes the panel, as it always has. One asked for by
+    // Split joins what is already there — that is the whole point of pressing it.
+    setShown((p) => (beside ? togglePane(p, next.id, [...tabs.map((x) => x.id), next.id]) : only(next.id)));
+  }
+
+  /**
+   * Show a second pane beside the one in focus.
+   *
+   * With another session to hand it uses that one; with only one it opens a new
+   * terminal, because a Split button that does nothing when you have a single
+   * terminal is a Split button you press once and never trust again.
+   */
+  function split() {
+    const other = tabs.find((x) => !onScreen.includes(x.id));
+    if (!other) return add(true);
+    setShown(togglePane(onScreen, other.id, tabs.map((x) => x.id)));
   }
 
   function close(id: string) {
@@ -198,7 +226,7 @@ export function TerminalPanel({
   }
 
   function sendToChat() {
-    const text = handles.current.get(active)?.text(200) ?? '';
+    const text = handles.current.get(focus)?.text(200) ?? '';
     if (!text.trim()) return;
     onSendToChat(text);
   }
@@ -216,8 +244,18 @@ export function TerminalPanel({
     onMove: (from, to) => setTabs((p) => move(p, from, to)),
   });
 
-  const dead = tabs.find((x) => x.id === active)?.dead;
-  const shown = filter(tabs, query, t('Terminal'));
+  const rows = filter(tabs, query, t('Terminal'));
+  // Pruned on every render rather than in an effect: a session can close from
+  // the shell exiting, which is not a click and not a state change this
+  // component started, and a pane pointing at it would draw nothing.
+  const onScreen = prune(shown, tabs.map((x) => x.id));
+  // Every bar action applies to one pane, and it has to be one that is showing.
+  const focus = focused(onScreen, active);
+  const dead = tabs.find((x) => x.id === focus)?.dead;
+  // Assigned here rather than beside the ref because it carries `focus`, which
+  // is only known once the visible set is. Effects run after the whole render,
+  // so nothing reads it before this line.
+  live.current = { active: focus, expose, exposeRun, exposeFocus };
 
   return (
     <section className="panel" aria-label={t('Terminal')}>
@@ -231,8 +269,14 @@ export function TerminalPanel({
                   title={t('Copy the selection, or the last of the output, into the message box')}>
             {t('Send to chat')}
           </button>
-          <button className="ghost" onClick={() => handles.current.get(active)?.clear()} disabled={dead}>
+          <button className="ghost" onClick={() => handles.current.get(focus)?.clear()} disabled={dead}>
             {t('Clear')}
+          </button>
+          <button className="ghost icon" onClick={split}
+                  disabled={onScreen.length >= MAX_PANES}
+                  title={t('Show another terminal beside this one')}
+                  aria-label={t('Show another terminal beside this one')}>
+            <Icon name="split" size={14} />
           </button>
           <button className="ghost icon" onClick={onToggleFull} aria-pressed={full}
                   title={t(full ? 'Restore the panel' : 'Fill the window')}
@@ -250,7 +294,7 @@ export function TerminalPanel({
                      placeholder={t('Search sessions…')} aria-label={t('Search sessions…')}
                      spellCheck={false} />
             </span>
-            <button className="tsl-add" onClick={add}
+            <button className="tsl-add" onClick={() => add()}
                     title={t('New terminal')} aria-label={t('New terminal')}>
               <Icon name="plus" size={15} />
             </button>
@@ -260,18 +304,22 @@ export function TerminalPanel({
             {/* Two different states, and saying the second when the first is
                 true tells somebody their search failed when they never made
                 one. `Chats.tsx` already draws this distinction. */}
-            {shown.length === 0 && (
+            {rows.length === 0 && (
               <p className="tsl-none">
                 {query.trim() ? t('No session matches that.') : t('No terminals open.')}
               </p>
             )}
-            {shown.map((tab, i) => {
+            {rows.map((tab, i) => {
               const state = stateOf(tab);
               const title = titleOf(tab, t('Terminal'));
               return (
-                <div key={tab.id} className={`tsl-row ${tagClass(tab.tag)} ${drag.itemClass(i)} ${tab.id === active ? 'on' : ''}`}>
-                  <button className="tsl-pick" onClick={() => setActive(tab.id)}
-                          aria-current={tab.id === active ? 'true' : undefined}>
+                <div key={tab.id} className={`tsl-row ${tagClass(tab.tag)} ${drag.itemClass(i)} ${onScreen.includes(tab.id) ? 'on' : ''}`}>
+                  {/* Clicking a row means "show me this one", as it always has.
+                      Showing it *as well* is the button below, so the ordinary
+                      click never has to be learnt twice. */}
+                  <button className="tsl-pick"
+                          onClick={() => { setActive(tab.id); setShown(only(tab.id)); }}
+                          aria-current={tab.id === focus ? 'true' : undefined}>
                     <span className={`tsl-mark ${state}`}>
                       <Icon name="terminal" size={14} />
                       {/* The badge carries the state, so the second line is free
@@ -292,6 +340,14 @@ export function TerminalPanel({
                         <span className="tsl-age">{since(tab.born, clock, t)}</span>
                       </span>
                     </span>
+                  </button>
+                  <button className={`tsl-x ${onScreen.includes(tab.id) ? 'lit' : ''}`} data-nodrag
+                          onClick={() => { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id))); }}
+                          aria-pressed={onScreen.includes(tab.id)}
+                          disabled={!onScreen.includes(tab.id) && onScreen.length >= MAX_PANES}
+                          title={onScreen.includes(tab.id) ? t('Hide this pane') : t('Show this alongside')}
+                          aria-label={onScreen.includes(tab.id) ? t('Hide this pane') : t('Show this alongside')}>
+                    <Icon name="split" size={12} />
                   </button>
                   <button className="tsl-x" data-nodrag onClick={() => rename(tab)}
                           title={t('Rename this terminal')} aria-label={t('Rename this terminal')}>
@@ -319,20 +375,44 @@ export function TerminalPanel({
           </div>
         </div>
 
-      <div className="panel-body">
-        {tabs.map((tab) => (
-          <TerminalView
-            key={tab.id}
-            cwd={root}
-            dark={dark}
-            visible={tab.id === active}
-            onReady={(h) => { if (h) handles.current.set(tab.id, h); else handles.current.delete(tab.id); }}
-            command={tab.command}
-            onExit={(code) => exited(tab, code)}
-            onData={tab.command ? (chunk) => runs.current.get(tab.id)?.buffer.push(chunk) : undefined}
-            onError={onError}
-          />
-        ))}
+      <div className={`panel-body ${onScreen.length > 1 ? 'split' : ''}`}>
+        {tabs.map((tab) => {
+          const on = onScreen.includes(tab.id);
+          const title = titleOf(tab, t('Terminal'));
+          return (
+            /* Every pane stays mounted whether or not it is drawn — a terminal
+               is a place you leave a server running, so this is display, never
+               unmount. */
+            <div key={tab.id} className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''}`}
+                 style={{ display: on ? 'flex' : 'none' }}
+                 onMouseDown={() => setActive(tab.id)}>
+              {/* Side by side, two panes are two anonymous dark rectangles
+                  without a name on them. One pane needs no label: the row it
+                  came from is already lit in the list beside it. */}
+              {onScreen.length > 1 && (
+                <div className="tpane-head">
+                  <span className={`tpane-name ${title.mono ? 'mono' : ''}`}
+                        title={title.text}>{title.text}</span>
+                  <button className="tsl-x"
+                          onClick={() => setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id)))}
+                          title={t('Hide this pane')} aria-label={`${t('Hide this pane')} — ${title.text}`}>
+                    <Icon name="close" size={11} />
+                  </button>
+                </div>
+              )}
+              <TerminalView
+                cwd={root}
+                dark={dark}
+                visible={on}
+                onReady={(h) => { if (h) handles.current.set(tab.id, h); else handles.current.delete(tab.id); }}
+                command={tab.command}
+                onExit={(code) => exited(tab, code)}
+                onData={tab.command ? (chunk) => runs.current.get(tab.id)?.buffer.push(chunk) : undefined}
+                onError={onError}
+              />
+            </div>
+          );
+        })}
       </div>
       </div>
     </section>

@@ -1378,7 +1378,41 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .panel-acts{ margin-inline-start:auto; display:flex; align-items:center; gap:var(--sp-2); flex:none; }
 .panel-acts .ghost{ font-size:var(--fs-3); padding:var(--sp-2) var(--sp-5); }
 
-.panel-body{ flex:1; min-height:0; position:relative; }
+.panel-body{ flex:1; min-height:0; position:relative; display:flex; }
+
+/* ── Split panes ──────────────────────────────────────────────────────────
+   Two or three terminals at once. Panes are flex children with a basis of
+   zero, so they share the width evenly however many there are, and `min-width`
+   is zeroed because a flex item defaults to `auto` — without it a wide line of
+   output would push its neighbour off the panel instead of scrolling.
+
+   The divider is the container's background showing through a one-pixel gap
+   rather than a border on each pane: a hidden pane creates no gap, so the line
+   only ever falls *between* panes that are actually drawn. A border would need
+   to know which pane is first on screen, which CSS cannot ask. */
+.panel-body.split{ gap:1px; background:var(--rule); }
+.tpane{ flex:1 1 0; min-width:0; flex-direction:column; background:var(--panel); }
+.tpane .term-host{ flex:1 1 0; min-height:0; height:auto; }
+/* One pane fills the panel as it always did, so nothing changes until asked. */
+.panel-body:not(.split) .tpane{ padding:0; }
+
+.tpane-head{
+  display:flex; align-items:center; gap:var(--sp-2);
+  padding-block:var(--sp-1); padding-inline:var(--sp-4) var(--sp-2);
+  border-block-end:1px solid var(--rule); background:var(--panel-2);
+  font-size:11px; color:var(--mute); min-height:26px;
+}
+.tpane-name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tpane-name.mono{ font-family:var(--mono); font-size:10.5px; }
+/* Which pane the bar acts on. A tag colour wins, because somebody who coloured
+   a terminal chose that colour to find it by. */
+.tpane.on .tpane-head{ color:var(--ink); box-shadow:inset 2px 0 0 var(--tag, var(--brand)); }
+.tpane-head .tsl-x{ opacity:.6; }
+.tpane-head .tsl-x:hover{ opacity:1; }
+
+/* The rail's split toggle, lit while its pane is on screen. */
+.tsl-x.lit{ color:var(--brand); opacity:1; }
+.tsl-x:disabled{ opacity:.25; cursor:default; }
 .term-host{ height:100%; padding-block:var(--sp-3); padding-inline:var(--sp-5) var(--sp-2); }
 .term-host .xterm{ height:100%; }
 .term-host .xterm-viewport{ background:transparent !important; }

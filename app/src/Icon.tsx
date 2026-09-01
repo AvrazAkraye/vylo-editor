@@ -50,6 +50,7 @@ const ICONS: Record<string, Stroke[]> = {
     { d: 'M12 5.2a6.8 6.8 0 0 0 0 13.6z', fill: true },
   ],
   dot: [{ d: 'M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7z', fill: true }],
+  split: [{ d: 'M4.5 5.5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1zM12 4.5v15' }],
   bolt: [{ d: 'M13.4 3 5.8 13.4h5.1L10.6 21l7.6-10.4h-5.1z' }],
   pause: [{ d: 'M9.5 5.5v13M14.5 5.5v13' }],
   ellipsis: [{ d: 'M6 12h.01M12 12h.01M18 12h.01' }],
