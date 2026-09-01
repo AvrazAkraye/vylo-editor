@@ -1,3 +1,15 @@
+// Two `#[test]` attributes on one function is an error here, not a warning.
+//
+// It reads as harmless and is not. Inserting a test above another one and
+// anchoring on its `fn` line rather than its attribute slides the new function
+// *under* the old attribute: the new test is then registered twice and runs
+// twice concurrently, and the old test silently stops running at all. That
+// happened to `apply_write_refuses_a_file_that_moved_since_the_change_was_prepared`
+// — the guard on the stale-write check — and the only visible symptom was
+// another test flaking one run in eight, because its two copies were deleting
+// each other's temp directory.
+#![deny(duplicate_macro_attributes)]
+
 //! The agent's tool layer.
 //!
 //! This is what the server-side sandbox used to be. When iOS was a target the
@@ -1916,10 +1928,6 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
     }
 
-    /// The guard that makes an editor safe to have at all: once a person can
-    /// change a file, approving a diff prepared against an older version has to
-    /// fail loudly rather than write over their work.
-    #[test]
     /// The bug: `.vylo/TODO.md` could not be saved in a project that had never
     /// had a to-do list, because `resolve` canonicalized the parent and gave up
     /// when it was not there. Every project is that project the first time.
@@ -2048,6 +2056,10 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
     }
 
+    /// The guard that makes an editor safe to have at all: once a person can
+    /// change a file, approving a diff prepared against an older version has to
+    /// fail loudly rather than write over their work.
+    #[test]
     fn apply_write_refuses_a_file_that_moved_since_the_change_was_prepared() {
         let tmp = std::env::temp_dir().join(format!("vylo_write_{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
