@@ -57,6 +57,8 @@ import type { Theme } from './theme';
 
 interface Props {
   t: (s: string) => string;
+  /** The rail row to open on. Set when a search result chose the row. */
+  initial?: CategoryId;
   onClose: () => void;
 
   // ── Account ──
@@ -212,9 +214,9 @@ function StoreRow({ id, label, hint, bytes, onEmpty, t }: {
 }
 
 export function SettingsPanel(props: Props) {
-  const { t, onClose } = props;
+  const { t, onClose, initial } = props;
   const [query, setQuery] = useState('');
-  const [selected, setSelected] = useState<CategoryId>(FIRST);
+  const [selected, setSelected] = useState<CategoryId>(initial ?? FIRST);
   const { rail, pane, selected: showing } = view(query, selected, t);
 
   /**

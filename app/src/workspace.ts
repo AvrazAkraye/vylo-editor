@@ -70,9 +70,26 @@ export const MAX_TABS = 12;
  */
 export const MAX_FOLDERS = 20;
 
+/**
+ * How many chat ids a folder's remembered order may hold.
+ *
+ * `store.ts` keeps at most forty chats, so this cannot be reached by chats that
+ * exist; it bounds what a hand-edited store can put in the key.
+ */
+const MAX_ORDER = 60;
+
 interface Stored extends Workspace {
   /** Which folder to forget first. A counter, not a clock — see `saveWorkspace`. */
   seq: number;
+  /**
+   * Chat ids in the order somebody dragged them into.
+   *
+   * Here rather than in a second store because it answers the question this key
+   * already answers — what was this folder like when you left it. Records
+   * written before this existed have no such order, and that is the right
+   * meaning rather than an unknown one: nobody had arranged anything.
+   */
+  chats: string[];
 }
 
 type All = Record<string, Stored>;
@@ -113,10 +130,26 @@ function capTabs(tabs: Tab[], active: string | null): Tab[] {
   return it ? [it, ...kept.slice(1)] : kept;
 }
 
+/** A stored order, with everything that is not an id removed. */
+function cleanOrder(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of v) {
+    // An id in two places is not two places. Keeping the first is what
+    // `orderBy` does with the same list.
+    if (typeof id !== 'string' || !id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+    if (out.length >= MAX_ORDER) break;
+  }
+  return out;
+}
+
 /** One folder's stored value, with everything unbelievable removed. */
 function clean(v: unknown, seq: number): Stored | null {
   if (!v || typeof v !== 'object') return null;
-  const raw = v as { tabs?: unknown; active?: unknown };
+  const raw = v as { tabs?: unknown; active?: unknown; chats?: unknown };
   if (!Array.isArray(raw.tabs)) return null;
 
   const tabs: Tab[] = [];
@@ -136,7 +169,7 @@ function clean(v: unknown, seq: number): Stored | null {
   const active = typeof raw.active === 'string' && capped.some((x) => x.path === raw.active)
     ? raw.active
     : null;
-  return { tabs: capped, active, seq };
+  return { tabs: capped, active, seq, chats: cleanOrder(raw.chats) };
 }
 
 function readAll(store: Store): All {
@@ -180,22 +213,23 @@ export function loadWorkspace(store: Store, folder: string): Workspace {
  * closing every tab is a decision, and there is nothing to distinguish the
  * record of it from having no record at all.
  */
-export function saveWorkspace(store: Store, folder: string, ws: Workspace): void {
-  if (!folder) return;
-  const all = readAll(store);
-  const kept = clean(ws, 0);
+/**
+ * Which number the folder being written gets.
+ *
+ * A counter, not `Date.now()`. Ordering is the only thing this number is for,
+ * and a timestamp gets it wrong in exactly the two cases that matter: two saves
+ * inside the same millisecond tie, and a clock that stepped back makes the
+ * folder you just used look like the oldest one.
+ *
+ * Shared with `saveChatOrder`, which writes the same key: two copies of this
+ * would be two answers to which folder is forgotten first.
+ */
+function nextSeq(all: All): number {
+  return Object.values(all).reduce((m, x) => Math.max(m, x.seq), 0) + 1;
+}
 
-  if (!kept || !kept.tabs.length) {
-    delete all[folder];
-  } else {
-    // A counter, not `Date.now()`. Ordering is the only thing this number is
-    // for, and a timestamp gets it wrong in exactly the two cases that matter:
-    // two saves inside the same millisecond tie, and a clock that stepped back
-    // makes the folder you just used look like the oldest one.
-    const next = Object.values(all).reduce((m, x) => Math.max(m, x.seq), 0) + 1;
-    all[folder] = { ...kept, seq: next };
-  }
-
+/** Cap the folders and write, or remove the key when there is nothing left. */
+function flush(store: Store, all: All): void {
   const entries = Object.entries(all)
     .sort((a, b) => b[1].seq - a[1].seq)
     .slice(0, MAX_FOLDERS);
@@ -205,6 +239,52 @@ export function saveWorkspace(store: Store, folder: string, ws: Workspace): void
     if (!entries.length) store.removeItem(KEY);
     else store.setItem(KEY, JSON.stringify(Object.fromEntries(entries)));
   } catch { /* quota, or storage disabled */ }
+}
+
+export function saveWorkspace(store: Store, folder: string, ws: Workspace): void {
+  if (!folder) return;
+  const all = readAll(store);
+  const kept = clean(ws, 0);
+  // The chat order is not this function's to write, and not its to drop either.
+  const chats = all[folder]?.chats ?? [];
+
+  if (!kept || !kept.tabs.length) {
+    // Closing every tab forgets the folder — unless its chats have been
+    // arranged. That is a decision about the folder rather than about its tabs,
+    // and nothing else records it.
+    if (chats.length) all[folder] = { tabs: [], active: null, chats, seq: all[folder].seq };
+    else delete all[folder];
+  } else {
+    all[folder] = { ...kept, chats, seq: nextSeq(all) };
+  }
+  flush(store, all);
+}
+
+/** The order this folder's chats were last dragged into, or nothing. */
+export function loadChatOrder(store: Store, folder: string): string[] {
+  return readAll(store)[folder]?.chats ?? [];
+}
+
+/**
+ * Remember the order this folder's chats are in.
+ *
+ * An empty order forgets it, exactly as an empty tab list forgets the tabs:
+ * there is nothing to distinguish the record of an arrangement nobody made from
+ * having no record at all. A folder with tabs open keeps its entry either way.
+ */
+export function saveChatOrder(store: Store, folder: string, ids: string[]): void {
+  if (!folder) return;
+  const all = readAll(store);
+  const chats = cleanOrder(ids);
+  const had = all[folder];
+  if (!chats.length && !had?.tabs.length) {
+    delete all[folder];
+  } else {
+    all[folder] = {
+      tabs: had?.tabs ?? [], active: had?.active ?? null, chats, seq: nextSeq(all),
+    };
+  }
+  flush(store, all);
 }
 
 /**

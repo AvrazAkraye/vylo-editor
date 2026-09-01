@@ -3,6 +3,8 @@ import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
 import { filter, since, stateOf, titleOf } from './terminals';
+import { move } from './reorder';
+import { useReorder } from './useReorder';
 
 /**
  * The terminal panel: sessions down the left, shells to the right.
@@ -43,6 +45,10 @@ interface Props {
   expose: (getText: (() => string) | null) => void;
   /** Hands the approval flow a way to run a command in a visible pane. */
   exposeRun: (run: ((command: string) => Promise<CommandResult>) | null) => void;
+  /** Reports the pane list upward, so one search field can find a session. */
+  onSessions: (tabs: Tab[]) => void;
+  /** Hands the palette a way to focus a pane it found. */
+  exposeFocus: (focus: ((id: string) => void) | null) => void;
   onError: (message: string) => void;
 }
 
@@ -51,6 +57,7 @@ const newTab = (n: number): Tab => ({ id: `t${++seq}`, n, born: Date.now(), dead
 
 export function TerminalPanel({
   root, dark, t, onSendToChat, onClose, onError, full, onToggleFull, expose, exposeRun,
+  onSessions, exposeFocus,
 }: Props) {
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
@@ -66,8 +73,8 @@ export function TerminalPanel({
   // `active` changes and `expose` is an inline arrow from the parent, so both
   // go through refs: the getter reads the current tab at call time, and the
   // effect runs once instead of on every render.
-  const live = useRef({ active: '', expose, exposeRun });
-  live.current = { active, expose, exposeRun };
+  const live = useRef({ active: '', expose, exposeRun, exposeFocus });
+  live.current = { active, expose, exposeRun, exposeFocus };
 
   /** Command panes still waiting to finish, by tab id. */
   const runs = useRef(new Map<string, {
@@ -91,6 +98,18 @@ export function TerminalPanel({
   // list as it is *now* rather than as it was when the effect ran.
   const tabsRef = useRef<Tab[]>([]);
   tabsRef.current = tabs;
+
+  // The pane list, upward, so the one search field can find a session by the
+  // command it is running. A copy, not the array: the palette must not be able
+  // to hold a reference this component then mutates under it.
+  const report = useRef(onSessions);
+  report.current = onSessions;
+  useEffect(() => { report.current([...tabs]); }, [tabs]);
+
+  useEffect(() => {
+    live.current.exposeFocus((id) => { if (tabsRef.current.some((x) => x.id === id)) setActive(id); });
+    return () => live.current.exposeFocus(null);
+  }, []);
 
   function add() {
     const next = newTab(Math.max(0, ...tabs.map((x) => x.n)) + 1);
@@ -156,6 +175,19 @@ export function TerminalPanel({
     onSendToChat(text);
   }
 
+  /**
+   * Dragging a session to a different place in the list.
+   *
+   * Off while the search box has something in it. The rows on screen are then a
+   * subset of the list, and a drop between two of them is a promise about a
+   * position that is not on screen.
+   */
+  const drag = useReorder({
+    axis: 'y',
+    enabled: !query.trim(),
+    onMove: (from, to) => setTabs((p) => move(p, from, to)),
+  });
+
   const dead = tabs.find((x) => x.id === active)?.dead;
   const shown = filter(tabs, query, t('Terminal'));
 
@@ -196,7 +228,7 @@ export function TerminalPanel({
             </button>
           </div>
 
-          <div className="tsl-list">
+          <div {...drag.strip} className={`tsl-list ${drag.strip.className}`}>
             {/* Two different states, and saying the second when the first is
                 true tells somebody their search failed when they never made
                 one. `Chats.tsx` already draws this distinction. */}
@@ -205,11 +237,11 @@ export function TerminalPanel({
                 {query.trim() ? t('No session matches that.') : t('No terminals open.')}
               </p>
             )}
-            {shown.map((tab) => {
+            {shown.map((tab, i) => {
               const state = stateOf(tab);
               const title = titleOf(tab, t('Terminal'));
               return (
-                <div key={tab.id} className={`tsl-row ${tab.id === active ? 'on' : ''}`}>
+                <div key={tab.id} className={`tsl-row ${drag.itemClass(i)} ${tab.id === active ? 'on' : ''}`}>
                   <button className="tsl-pick" onClick={() => setActive(tab.id)}
                           aria-current={tab.id === active ? 'true' : undefined}>
                     <span className={`tsl-mark ${state}`}>
@@ -233,7 +265,7 @@ export function TerminalPanel({
                       </span>
                     </span>
                   </button>
-                  <button className="tsl-x" onClick={() => close(tab.id)}
+                  <button className="tsl-x" onClick={() => close(tab.id)} data-nodrag
                           title={t('Close')}
                           aria-label={`${t('Close')} ${title.text}`}><Icon name="close" size={12} /></button>
                 </div>

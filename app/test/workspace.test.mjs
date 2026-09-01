@@ -7,7 +7,7 @@
 // on the first screen of the session. Most of what is here is about that.
 import {
   KEY, MAX_TABS, MAX_FOLDERS, NO_TABS,
-  loadWorkspace, saveWorkspace, keepExisting,
+  loadWorkspace, saveWorkspace, keepExisting, loadChatOrder, saveChatOrder,
 } from '../.test-build/workspace.js';
 
 let pass = 0, fail = 0;
@@ -289,6 +289,78 @@ const T = (path, line = 1) => ({ path, line });
   saveWorkspace(s, '/p', { tabs: [T('a.ts', 3)], active: 'a.ts' });
   ok('a save over a corrupt value replaces it',
      loadWorkspace(s, '/p').tabs[0].line === 3, s.map.get(KEY));
+}
+
+// ── the chat order, in the same store ─────────────────────────────────────
+//
+// The chat list is sorted by when each chat was last used and is re-read after
+// every reply, so an order somebody dragged into place has nowhere to live but
+// here. It rides in the folder's own record rather than in a second key: it is
+// an answer to the same question — what was this folder like when you left it.
+{
+  const s = store();
+  ok('a folder nobody has arranged has no order', loadChatOrder(s, '/p').length === 0);
+  saveChatOrder(s, '/p', ['c2', 'c1', 'c3']);
+  ok('an order comes back as it was left', loadChatOrder(s, '/p').join() === 'c2,c1,c3');
+  ok('and belongs to that folder only', loadChatOrder(s, '/q').length === 0);
+}
+{
+  // The two writers share one key, and neither may drop what the other wrote.
+  const s = store();
+  saveChatOrder(s, '/p', ['c1', 'c2']);
+  saveWorkspace(s, '/p', { tabs: [T('a.ts', 4)], active: 'a.ts' });
+  ok('saving tabs keeps the chat order', loadChatOrder(s, '/p').join() === 'c1,c2', raw(s));
+  ok('and the tabs are there too', loadWorkspace(s, '/p').tabs[0].line === 4);
+  saveChatOrder(s, '/p', ['c2', 'c1']);
+  ok('saving the order keeps the tabs', paths(loadWorkspace(s, '/p')).join() === 'a.ts');
+  ok('and the active tab with them', loadWorkspace(s, '/p').active === 'a.ts');
+}
+{
+  // Closing every tab still forgets a folder — unless somebody arranged its
+  // chats, which is a decision about the folder that outlives its tabs.
+  const s = store();
+  saveChatOrder(s, '/p', ['c1']);
+  saveWorkspace(s, '/p', { tabs: [T('a.ts')], active: 'a.ts' });
+  saveWorkspace(s, '/p', { tabs: [], active: null });
+  ok('closing every tab does not throw away the arrangement',
+     loadChatOrder(s, '/p').join() === 'c1', raw(s));
+  ok('and the folder has no tabs left', loadWorkspace(s, '/p').tabs.length === 0);
+  saveChatOrder(s, '/p', []);
+  ok('dragging it all back forgets the folder entirely', s.map.size === 0, [...s.map.keys()]);
+}
+{
+  const s = store();
+  saveChatOrder(s, '', ['c1']);
+  ok('there is nothing to remember with no folder open', s.map.size === 0);
+}
+{
+  // A stored value is input. This one is a list of ids somebody can edit.
+  const s = store(JSON.stringify({ '/p': { tabs: [], active: null, seq: 1, chats: ['a', 7, '', 'a', 'b'] } }));
+  ok('a stored order keeps only the ids in it', loadChatOrder(s, '/p').join() === 'a,b');
+  const long = [];
+  for (let i = 0; i < 200; i++) long.push(`c${i}`);
+  const t = store();
+  saveChatOrder(t, '/p', long);
+  ok('and it is capped, so a hand-edited store cannot grow without end',
+     loadChatOrder(t, '/p').length === 60, loadChatOrder(t, '/p').length);
+}
+{
+  // Records written before any of this existed.
+  const s = store(JSON.stringify({ '/p': { tabs: [{ path: 'a.ts', line: 2 }], active: 'a.ts', seq: 1 } }));
+  ok('a record from before this existed reads as nobody having arranged anything',
+     loadChatOrder(s, '/p').length === 0);
+  ok('and its tabs are untouched', loadWorkspace(s, '/p').tabs[0].line === 2);
+}
+{
+  // Ordering the folders is what the cap uses, so a chat drag has to count as
+  // having touched the folder.
+  const s = store();
+  for (let i = 0; i < MAX_FOLDERS; i++) saveWorkspace(s, `/folder/${i}`, { tabs: [T('a.ts')], active: 'a.ts' });
+  saveChatOrder(s, '/folder/0', ['c1']);
+  saveWorkspace(s, '/newcomer', { tabs: [T('b.ts')], active: 'b.ts' });
+  ok('arranging a folder\'s chats saves it from being the next forgotten',
+     loadWorkspace(s, '/folder/0').tabs.length === 1, raw(s));
+  ok('and the next-oldest went instead', loadWorkspace(s, '/folder/1').tabs.length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

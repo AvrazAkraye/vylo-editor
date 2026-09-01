@@ -171,8 +171,8 @@ three are absent from the tool schema, which is what makes that safe.
   project memory, the filesystem-watch policy and the account/session layer —
   plus a dead-code scan
   (`scripts/orphans.mjs`) and one end-to-end test that drives a whole turn
-  against a scripted gateway on localhost, over a real folder (1639)
-- `cd src-tauri && cargo test` — 109, including the stale-write guard and the
+  against a scripted gateway on localhost, over a real folder (2099)
+- `cd src-tauri && cargo test` — 118, including the stale-write guard and the
   shared ignore-aware walk
 - `scripts/gate.sh` — all three of the above plus `notices.sh --check`,
   cheapest first, stopping at the first failure. `notices` runs last on

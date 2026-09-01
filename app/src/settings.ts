@@ -308,11 +308,38 @@ const SAME: readonly (readonly [RegExp, string])[] = [
   [/\u0629/g, '\u0647'],           // teh marbuta -> heh
 ];
 
-/** One spelling, for the query and the text alike. */
-function fold(s: string): string {
+/**
+ * One spelling, for the query and the text alike.
+ *
+ * Exported because it is the app's fold, not this module's: `everywhere.ts`
+ * searches settings alongside five other kinds and has to fold its own
+ * haystacks the same way. A second fold would be a second answer to "is this
+ * the same word", and the one place that would show is Arabic and Kurdish
+ * input — which is the one place nobody would notice it.
+ */
+export function fold(s: string): string {
   let out = s.normalize('NFKD').replace(MARKS, '');
   for (const [from, to] of SAME) out = out.replace(from, to);
   return out.toLowerCase();
+}
+
+/** A query as the folded words that all have to appear. */
+export function words(query: string): string[] {
+  return fold(query).split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Whether every word of an already-split query appears in `text`.
+ *
+ * Split from `search` so the predicate exists once. `everywhere.ts` matches
+ * commands with it: commands are short labels exactly as settings rows are, and
+ * the reasoning at the top of this file — that a subsequence match over twenty
+ * short labels never narrows — is the same reasoning there.
+ */
+export function matchesWords(text: string, terms: readonly string[]): boolean {
+  if (!terms.length) return true;
+  const hay = fold(text);
+  return terms.every((term) => hay.includes(term));
 }
 
 /** The rail row a setting belongs to, for the category name in its haystack. */
@@ -365,16 +392,17 @@ export interface Group {
  */
 export function search(query: string, t: Translate): Group[] {
   // Folding before the split handles the leading and trailing space for free.
-  const terms = fold(query).split(/\s+/).filter(Boolean);
+  const terms = words(query);
   const groups: Group[] = [];
   for (const category of CATEGORIES) {
     const rows = SETTINGS.filter((s) => {
       if (s.category !== category.id) return false;
+      // The haystack is twenty `t()` calls per row, so the empty query — which
+      // keeps everything — must not pay for one.
       if (!terms.length) return true;
-      const hay = haystack(s, t);
       // Every word, anywhere in the row: "tokens left" finds the plan, and so
       // does "left tokens".
-      return terms.every((term) => hay.includes(term));
+      return matchesWords(haystack(s, t), terms);
     });
     if (rows.length) groups.push({ category, rows });
   }

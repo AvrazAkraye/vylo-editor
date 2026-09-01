@@ -11,6 +11,7 @@ import {
 import {
   attachAnyPath, attachFromFile, describe, isImage, isText, listenForDrops,
   pickAttachments, previewUrl, textBlock, toImageBlock, type Attached, isDoc, toDocBlock} from './attachments';
+import { diffstat, isEmpty as noChanges, type DiffStat } from './diffstat';
 import { Pending, type Change } from './pending';
 import { Review } from './Review';
 import { invoke } from '@tauri-apps/api/core';
@@ -37,9 +38,13 @@ import { FileTree, type Entry } from './FileTree';
 const Editor = lazy(() => import('./Editor'));
 import type { EditorHandle } from './Editor';
 import type { CompleteStatus } from './complete';
-import { FindInFiles, QuickOpen, Symbols, type Symbol as Sym } from './Palette';
+import { Everything, FindInFiles, QuickOpen, Symbols, type Symbol as Sym } from './Palette';
+import type { CategoryId } from './settings';
 import { NO_NAV, back, canBack, canForward, forget, forward, visit, type Nav } from './nav';
 import { keepExisting, loadWorkspace, saveWorkspace, type Workspace } from './workspace';
+import { move } from './reorder';
+import { useReorder } from './useReorder';
+import type { Session } from './terminals';
 import { groupLines, ToolRun } from './ToolRun';
 // xterm is the largest thing in the bundle and the panel starts closed, so it
 // is fetched the first time someone actually opens a terminal.
@@ -208,6 +213,22 @@ export function App() {
   // instead of each one becoming its own line.
   const openLine = useRef<number | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  /**
+   * The settings row a search result chose, or null.
+   *
+   * `SettingsPanel` starts on `FIRST` and nothing could move it, so a settings
+   * row in the one search field would have opened Settings on Account and left
+   * the person to find the row themselves — an affordance that does nothing.
+   */
+  const [settingsAt, setSettingsAt] = useState<CategoryId | null>(null);
+  /**
+   * The terminal panel's pane list, reported upward so one field can find a
+   * session. Empty until the panel has been opened once, which is the honest
+   * answer: before that there are no sessions.
+   */
+  const [sessions, setSessions] = useState<Session[]>([]);
+  /** Set by the terminal panel, so a session row can focus a pane. */
+  const focusSession = useRef<((id: string) => void) | null>(null);
   // The account form, opened from Settings. It lives outside the settings
   // modal rather than inside it because it takes a password and then replaces
   // two stored credentials — that is a screen, not a row.
@@ -235,6 +256,8 @@ export function App() {
   const [dragging, setDragging] = useState(false);
   const [changes, setChanges] = useState<Change[]>([]);
   const [git, setGit] = useState<{ is_repo: boolean; branch: string; dirty: number } | null>(null);
+  /** `+412 −87`, or null when this is not a repo and there is nothing to say. */
+  const [stat, setStat] = useState<DiffStat | null>(null);
   const pending = useRef(new Pending());
   // The command the agent is waiting on, plus the resolver that unblocks it.
   const [askRun, setAskRun] = useState<CommandRequest | null>(null);
@@ -276,12 +299,24 @@ export function App() {
   const [environment, setEnvironment] = useState('');
   const [tree, setTree] = useState<Entry[]>([]);
   const [tabs, setTabs] = useState<string[]>([]);          // open file paths
+
+  /**
+   * Dragging a tab to a different place in the strip.
+   *
+   * There is nothing to persist: the order is this array's own, and the effect
+   * that already saves it per folder saves the arrangement with it. Dropping a
+   * tab outside the strip is a cancel — nothing in this gesture can close one.
+   */
+  const tabDrag = useReorder({
+    axis: 'x',
+    onMove: (from, to) => setTabs((p) => move(p, from, to)),
+  });
   const [active, setActive] = useState<string>('chat');    // 'chat' | a path
   const [sidebarW, setSidebarW] = useState(() => Number(localStorage.getItem('vylo.sbw')) || 248);
   const [theme, setTheme] = useState<Theme>(() => storedTheme());
   const [full, setFull] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
-  const [palette, setPalette] = useState<'open' | 'find' | 'symbols' | 'fileSymbols' | 'defs' | null>(null);
+  const [palette, setPalette] = useState<'all' | 'open' | 'find' | 'symbols' | 'fileSymbols' | 'defs' | null>(null);
   // What the search palette opens with. Every route in sets it, so ⌘⇧F always
   // starts on a blank field and only a recent search seeds one.
   const [findSeed, setFindSeed] = useState('');
@@ -579,7 +614,7 @@ export function App() {
         else toggleTerm();
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'p') {
         e.preventDefault();
-        setPalette('open');
+        setPalette('all');
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'v') {
         e.preventDefault();
         keys.current.clips();
@@ -723,7 +758,7 @@ export function App() {
    * it.
    */
   useEffect(() => {
-    if (palette === 'symbols' && root) {
+    if ((palette === 'symbols' || palette === 'all') && root) {
       let off = false;
       void invoke<Sym[]>('list_symbols', { root })
         .then((list) => { if (!off) setSymbols(list); })
@@ -1213,6 +1248,20 @@ export function App() {
       .then(setGit).catch(() => setGit(null));
   }, [root, changes, diskTick]);
 
+  // How big the afternoon is, refreshed exactly when the branch is. `git` is a
+  // fresh object out of every `git_state` call, so depending on it covers the
+  // periodic refresh, the commit and the new branch in one effect instead of a
+  // line beside each of the four `setGit` call sites.
+  //
+  // The `live` flag is not ceremony: switching folders fires this twice, and
+  // the slower answer is the one about the folder you just left.
+  useEffect(() => {
+    if (!root || !git?.is_repo) { setStat(null); return; }
+    let live = true;
+    void diffstat(root).then((s) => { if (live) setStat(s); });
+    return () => { live = false; };
+  }, [root, git]);
+
   // The redo stack belongs to the chat, not to this component, so switching
   // chats has to ask again rather than carrying the last one's answer over.
   useEffect(() => { void refreshRedo(); }, [chatId]);
@@ -1483,6 +1532,62 @@ export function App() {
     fileSym: () => { if (here()) setPalette('fileSymbols'); },
     clips: () => openClips(),
   };
+
+  /**
+   * What the palette can be told to do.
+   *
+   * Actions this app already has, given a name and a way to be typed rather
+   * than only a shortcut to be remembered. Every label is already a catalogue
+   * key — a command list that invented its own names would be a second set of
+   * words for the same buttons, in three languages.
+   *
+   * The order is the menu order, and it is what the palette shows for `>` with
+   * nothing after it, so it reads top to bottom as a list of what this app
+   * does.
+   */
+  const commands = useMemo(() => [
+    { id: 'openFolder', label: t('Open folder…'), keys: '' },
+    // No keys on these two, and both were caught by the same reading. ⌘P is
+    // the one field now, not Go to file; and ⌘⇧D *switches* the theme, so
+    // printing it against Dark promises Dark to somebody who is already in it.
+    // A shortcut printed on a row has to do what that row does.
+    { id: 'goToFile', label: t('Go to file…'), keys: '' },
+    { id: 'goToSymbol', label: t('Go to symbol in project…'), keys: `${MOD}T` },
+    { id: 'goToFileSymbol', label: t('Go to symbol in file…'), keys: `${MOD}⇧O` },
+    { id: 'searchProject', label: t('Search the project…'), keys: `${MOD}⇧F` },
+    { id: 'terminal', label: t('Terminal'), keys: `${ALT}\`` },
+    { id: 'clips', label: t('Clipboard history'), keys: `${MOD}⇧V` },
+    { id: 'newBranch', label: t('New branch'), keys: '' },
+    { id: 'fullScreen', label: t(full ? 'Leave full screen' : 'Full screen'), keys: 'F11' },
+    { id: 'themeDark', label: t('Dark'), keys: '' },
+    { id: 'themeLight', label: t('Light'), keys: '' },
+    { id: 'themeSystem', label: t('Match system'), keys: '' },
+    { id: 'settings', label: t('Settings'), keys: '' },
+    { id: 'signIn', label: t('Sign in'), keys: '' },
+    { id: 'updates', label: t('Check for updates'), keys: '' },
+  ], [t, full]);
+
+  /** Run one of them. Called after the palette has closed, never before. */
+  function runCommand(id: string) {
+    switch (id) {
+      case 'openFolder': void pickFolder(); break;
+      case 'goToFile': setPalette('open'); break;
+      case 'goToSymbol': keys.current.sym(); break;
+      case 'goToFileSymbol': keys.current.fileSym(); break;
+      case 'searchProject': openFind(); break;
+      case 'terminal': toggleTerm(); break;
+      case 'clips': keys.current.clips(); break;
+      case 'newBranch': void newBranch(); break;
+      case 'fullScreen': void toggleFullscreen().then(setFull); break;
+      case 'themeDark': setTheme('dark'); break;
+      case 'themeLight': setTheme('light'); break;
+      case 'themeSystem': setTheme('system'); break;
+      case 'settings': setShowSettings(true); break;
+      case 'signIn': setSignInOpen(true); break;
+      case 'updates': setShowSettings(true); break;
+      default: break;
+    }
+  }
 
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
   function pickRail(id: RailId) {
@@ -2392,6 +2497,16 @@ export function App() {
           </span>
         )}
         <span className="bar-sp" />
+        {/* One field across the middle, which is the whole of Phase O: seven
+            boxes had seven placeholders and this has one. A button rather than
+            an input — the palette owns the caret. */}
+        <button className="find-field" onClick={() => setPalette('all')}
+                aria-label={t('Search everything…')} aria-haspopup="dialog">
+          <Icon name="search" size={13} />
+          <span>{t('Search everything…')}</span>
+          <kbd>{MOD}P</kbd>
+        </button>
+        <span className="bar-sp" />
         <button className={`ghost icon ${showTerm ? 'on' : ''}`} onClick={toggleTerm}
                 title={`${t('Terminal')} · ${ALT}\``} aria-label={t('Terminal')}
                 aria-pressed={showTerm}><Icon name="terminal" /></button>
@@ -2439,7 +2554,8 @@ export function App() {
       {showSettings && (
         <SettingsPanel
           t={t}
-          onClose={() => setShowSettings(false)}
+          initial={settingsAt ?? undefined}
+          onClose={() => { setShowSettings(false); setSettingsAt(null); }}
           baseUrl={baseUrl}
           onBaseUrl={setBaseUrl}
           apiKey={apiKey}
@@ -2578,10 +2694,13 @@ export function App() {
                     <span className="cta-label">{t('Search')}</span>
                     <kbd>{MOD}⇧F</kbd>
                   </button>
+                  {/* No `kbd`: ⌘P is the one field now, and printing it here
+                      would send somebody to a different palette than the one
+                      this button opens. The button is the way in, and the
+                      `goToFile` command in that field is the other. */}
                   <button className="ghost bordered" onClick={() => setPalette('open')}>
                     <Icon name="file" size={13} />
                     <span className="cta-label">{t('Go to file…')}</span>
-                    <kbd>{MOD}P</kbd>
                   </button>
                 </div>
 
@@ -2680,7 +2799,7 @@ export function App() {
 
             {rail === 'chats' && (
               <>
-                <Chats chats={chats} current={chatId} t={t}
+                <Chats chats={chats} current={chatId} root={root} t={t}
                        onOpen={openChat} onDelete={removeChat}
                        onRenamed={() => { setChats(chatsIn(root)); setRecents(folders()); }} />
                 {recents.length > 0 && (
@@ -2723,7 +2842,8 @@ export function App() {
                      }} />
           )}
 
-          <div className={`tabs ${!root || (showTerm && termFull) ? 'gone' : ''}`}>
+          <div {...tabDrag.strip}
+               className={`tabs ${tabDrag.strip.className} ${!root || (showTerm && termFull) ? 'gone' : ''}`}>
             {/* Shown only once there is a trail. A pair of permanently greyed
                 arrows is chrome; a pair that appears when it can do something
                 is an answer to "how do I get back". */}
@@ -2742,13 +2862,13 @@ export function App() {
             <button className={`tab ${active === 'chat' ? 'on' : ''}`} onClick={() => setActive('chat')}>
               {t('Chat')}
             </button>
-            {tabs.map((path) => (
-              <span key={path} className={`tab ${active === path ? 'on' : ''} ${dirty.has(path) ? 'dirty' : ''}`}>
+            {tabs.map((path, i) => (
+              <span key={path} className={`tab ${tabDrag.itemClass(i)} ${active === path ? 'on' : ''} ${dirty.has(path) ? 'dirty' : ''}`}>
                 <button className="tab-name" onClick={() => setActive(path)} title={path}>
                   {path === '__memory__' ? (memory.file ?? t('Memory')) : path.split('/').pop()}
                   {dirty.has(path) && <i className="tab-dot" aria-label={t('Unsaved')} />}
                 </button>
-                <button className="tab-x" onClick={() => closeTab(path)}
+                <button className="tab-x" onClick={() => closeTab(path)} data-nodrag
                         aria-label={`${t('Close')} ${path}`}><Icon name="close" size={12} /></button>
               </span>
             ))}
@@ -2915,9 +3035,17 @@ export function App() {
                   onSendToChat={fromTerminal}
                   expose={(getText) => { termText.current = getText; }}
                   exposeRun={(run: ((c: string) => Promise<CommandResult>) | null) => { termRun.current = run; }}
+                  onSessions={setSessions}
+                  exposeFocus={(f) => { focusSession.current = f; }}
                   full={termFull}
                   onToggleFull={() => setTermFull((v) => !v)}
-                  onClose={(drop) => { setShowTerm(false); if (drop) setTermMounted(false); }}
+                  onClose={(drop) => {
+                    setShowTerm(false);
+                    // `drop` tears the panel down, so its panes are gone. The
+                    // list has to go with them or the one search field offers
+                    // sessions that no longer exist and cannot be focused.
+                    if (drop) { setTermMounted(false); setSessions([]); }
+                  }}
                   onError={(m) => push({ kind: 'error', text: m })}
                 />
                 </Suspense>
@@ -3062,6 +3190,34 @@ export function App() {
 
       {palette === 'open' && (
         <QuickOpen entries={tree} onOpen={(p) => openAt(p)} onClose={() => setPalette(null)} t={t} />
+      )}
+      {palette === 'all' && (
+        <Everything
+          root={root}
+          t={t}
+          sources={{
+            files: tree.filter((e) => !e.is_dir).map((e) => e.path),
+            symbols,
+            chats,
+            sessions,
+            commands,
+            active: active !== 'chat' && active !== '__memory__' ? active : null,
+            term: t('Terminal'),
+          }}
+          onOpen={(path, line) => openAt(path, line)}
+          onChat={(id) => { const c = chats.find((x) => x.id === id); if (c) openChat(c); }}
+          onTerminal={(id) => { setTermMounted(true); setShowTerm(true); focusSession.current?.(id); }}
+          onSetting={(_id, category) => { setSettingsAt(category); setShowSettings(true); }}
+          onCommand={(id) => {
+            // Deferred by one turn of the loop, which is what makes the note on
+            // `runCommand` true. `Everything` dispatches and *then* closes, so a
+            // command that opens another palette — four of the fifteen do —
+            // would have its `setPalette` overwritten by `onClose`'s in the same
+            // batch, and would silently do nothing.
+            window.setTimeout(() => runCommand(id), 0);
+          }}
+          onClose={() => setPalette(null)}
+        />
       )}
       {(palette === 'symbols' || palette === 'fileSymbols' || palette === 'defs') && (
         <Symbols symbols={symbols} scope={palette === 'fileSymbols' ? active : null}
@@ -3336,8 +3492,26 @@ export function App() {
               : planChip.tail === 'no-limit' ? ` ${t('no limit')}` : ''}
           </span>
         )}
+        {/* Lines, not files. "3 modified" is the count of a thing nobody
+            wonders about — three files could be three characters or three
+            rewrites — and these two numbers are staged and unstaged summed, so
+            they cover what is already `git add`ed as well. A binary file has no
+            line count at all, so it is said out loud rather than folded into
+            the zeros. */}
         {git?.is_repo && (
-          <span><b>{git.branch}</b>{git.dirty ? ` ${git.dirty} ${t('modified')}` : ''}</span>
+          <span><b>{git.branch}</b>
+            {stat && !noChanges(stat) && (
+              <span className="dstat" dir="ltr"
+                    title={t('Lines added and removed, staged and unstaged together')}>
+                <span className="add">+{stat.added}</span>
+                <span className="del">−{stat.removed}</span>
+              </span>
+            )}
+            {stat && stat.binary > 0 && (
+              <span>{fill(stat.binary === 1 ? t('{n} binary file') : t('{n} binary files'),
+                          { n: stat.binary })}</span>
+            )}
+          </span>
         )}
         <span>{root ? folderName : t('No folder')}</span>
         {changes.length > 0 && <span><b>{changes.length}</b> {t('to review')}</span>}

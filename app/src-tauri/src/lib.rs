@@ -991,6 +991,145 @@ fn git_status(root: String) -> Result<Vec<GitChange>, String> {
     Ok(parse_status(&raw))
 }
 
+#[derive(Serialize, Debug, PartialEq)]
+pub struct DiffStat {
+    added: u64,
+    removed: u64,
+    /// Distinct paths behind those two numbers, counted once however many of
+    /// the two diffs they appear in.
+    files: usize,
+    /// How many of those files git would not count, because they are binary.
+    /// Reported rather than folded into the zeros -- see `fold_numstat`.
+    binary: usize,
+}
+
+/// One `--numstat` record: a path, and the lines either side of it.
+struct FileLines {
+    path: String,
+    /// `None` for a binary file, which numstat reports as `-` and `-` rather
+    /// than as numbers.
+    lines: Option<(u64, u64)>,
+}
+
+/// Parse `git diff --numstat -z`.
+///
+/// `-z` for `parse_status`'s reason, which cost a day the first time: without
+/// it git quotes and escapes any path holding a space, a quote or a non-ASCII
+/// character, so the obvious split silently mangles exactly the filenames
+/// people complain about. With `-z` the records are NUL-separated and the paths
+/// are literal.
+///
+/// A rename is the trap, and it is **not the same shape as it is in
+/// `status -z`**. There the old path is one extra field; here the record's own
+/// path field is left *empty* and two further NUL-terminated fields follow, the
+/// old path and then the new one:
+///
+/// ```text
+///   "1\t0\t\0"  "with space.txt\0"  "renamed name.txt\0"
+/// ```
+///
+/// So an empty path field means "consume two more and take the second". A
+/// reader that consumes one, or none, shifts every entry after the rename onto
+/// the wrong path -- and the numbers it sums stay plausible while it does,
+/// which is what makes the shift worth a test rather than a comment.
+fn parse_numstat(raw: &str) -> Vec<FileLines> {
+    let mut out = Vec::new();
+    let mut fields = raw.split('\0');
+    while let Some(entry) = fields.next() {
+        if entry.is_empty() {
+            continue;
+        }
+        let mut parts = entry.splitn(3, '\t');
+        let (added, removed, path) = match (parts.next(), parts.next(), parts.next()) {
+            (Some(a), Some(r), Some(p)) => (a, r, p),
+            _ => continue,
+        };
+        let path = if path.is_empty() {
+            // A rename: the old path, then the new one. Both must be taken
+            // even when the record is going to be dropped.
+            let _old = fields.next();
+            match fields.next() {
+                Some(new) if !new.is_empty() => new.to_string(),
+                _ => continue,
+            }
+        } else {
+            path.to_string()
+        };
+        // A dash is not a zero. Anything else that will not parse is a record
+        // this reader does not understand, and inventing a number for it would
+        // be the same quiet mistake one step along.
+        let lines = if added == "-" && removed == "-" {
+            None
+        } else {
+            match (added.parse::<u64>(), removed.parse::<u64>()) {
+                (Ok(a), Ok(r)) => Some((a, r)),
+                _ => continue,
+            }
+        };
+        out.push(FileLines { path, lines });
+    }
+    out
+}
+
+/// Add several numstat outputs together.
+///
+/// Files are counted by distinct path rather than by record, because a file
+/// that is staged *and* edited again since appears in both diffs and is still
+/// one file. The lines are summed as they come, which is the one place these
+/// two answers differ from `git diff HEAD`: a line changed before `git add` and
+/// changed again after counts in both halves. That is the honest price of
+/// asking two questions instead of one, and it is worth paying -- see
+/// `git_diffstat`.
+///
+/// **A binary file is counted, not scored.** numstat reports `-` for both
+/// numbers, and reading that as zero says "this file changed by nothing" about
+/// the change most likely to be the largest thing in the commit. The count is
+/// carried separately so the UI can say how many there were.
+fn fold_numstat(raws: &[&str]) -> DiffStat {
+    let mut added = 0u64;
+    let mut removed = 0u64;
+    let mut files = std::collections::HashSet::new();
+    let mut binary = std::collections::HashSet::new();
+    for raw in raws {
+        for f in parse_numstat(raw) {
+            match f.lines {
+                Some((a, r)) => {
+                    added += a;
+                    removed += r;
+                }
+                None => {
+                    binary.insert(f.path.clone());
+                }
+            }
+            files.insert(f.path);
+        }
+    }
+    DiffStat { added, removed, files: files.len(), binary: binary.len() }
+}
+
+/// How big the afternoon was: `+412 -87`, staged and unstaged together.
+///
+/// The status bar could already say "3 modified", which is the count of a thing
+/// nobody wonders about. Lines are the number that says how much work is in the
+/// tree.
+///
+/// **Two diffs, summed.** `git diff` alone is worktree against index, so it
+/// misses everything already `git add`ed -- which is most of what somebody is
+/// about to commit, and all of it in the workflow where you stage as you go.
+/// The one-command alternative is `git diff HEAD`, and it is refused here for a
+/// reason that shows up on day one rather than in an edge case: a repository
+/// before its first commit has no HEAD, so that command fails outright, and the
+/// first commit is the biggest diff there is.
+///
+/// An untracked file is in neither diff, deliberately: it is not a change to
+/// anything yet, and `git_status` is what reports it.
+#[tauri::command]
+fn git_diffstat(root: String) -> Result<DiffStat, String> {
+    let staged = git(&root, &["diff", "--cached", "--numstat", "-z"])?;
+    let worktree = git(&root, &["diff", "--numstat", "-z"])?;
+    Ok(fold_numstat(&[&staged, &worktree]))
+}
+
 /// The committed version of a file, or None when it is new.
 ///
 /// Lets the working tree be reviewed with the same diff the agent's proposals
@@ -1581,7 +1720,7 @@ pub fn run() {
             read_text_attachment,
             apply_write, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             create_file, create_dir, rename_path, delete_path,
-            git_status, git_file_head,
+            git_status, git_file_head, git_diffstat,
             checkpoint_save, checkpoint_list, checkpoint_restore, checkpoint_redo, find_symbol,
             list_symbols, symbols_in_text,
             mac::hide_traffic_lights,
@@ -1929,6 +2068,209 @@ mod tests {
     fn a_clean_tree_parses_to_nothing() {
         assert!(parse_status("").is_empty());
         assert!(parse_status("\0\0").is_empty());
+    }
+
+    /// numstat's rename record is a different shape from status's, and getting
+    /// it wrong moves every path after it by one while leaving the totals
+    /// looking entirely reasonable.
+    #[test]
+    fn numstat_reads_a_rename_without_shifting_what_follows_it() {
+        // Byte for byte what `git diff --cached --numstat -z` emitted for a
+        // tree holding a changed binary, a rename with a space in both names,
+        // and an ordinary edit after them.
+        let raw = "-\t-\tbin.dat\0\
+                   1\t0\t\0with space.txt\0renamed name.txt\0\
+                   5\t2\tsrc/\u{0627}.ts\0";
+        let files = parse_numstat(raw);
+        let paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+
+        assert_eq!(files.len(), 3, "{paths:?}");
+        assert!(files[0].lines.is_none(), "a binary file has no numbers to read");
+        assert_eq!(files[1].path, "renamed name.txt", "a rename is filed under where it landed");
+        assert!(
+            !paths.contains(&"with space.txt"),
+            "the old path is a field to consume, not an entry: {paths:?}",
+        );
+        // The one that fails when only one of the rename's two fields is taken.
+        assert_eq!(
+            files[2].lines,
+            Some((5, 2)),
+            "the record after a rename shifted onto the wrong path: {paths:?}",
+        );
+        assert_eq!(files[2].path, "src/\u{0627}.ts", "a non-ASCII path arrives literal under -z");
+    }
+
+    /// The quiet one. A binary file reports dashes, and reading them as zeros
+    /// says "changed by nothing" about the largest thing in the commit.
+    #[test]
+    fn a_binary_file_is_counted_rather_than_scored_as_zero() {
+        let s = fold_numstat(&["-\t-\tone.png\0", "-\t-\ttwo.png\03\t1\ta.ts\0"]);
+        assert_eq!((s.added, s.removed), (3, 1), "only the countable file is scored");
+        assert_eq!(s.binary, 2, "and the two that could not be counted are said out loud");
+        assert_eq!(s.files, 3, "all three changed");
+    }
+
+    /// A file that is staged and then edited again is in both diffs. It is one
+    /// file, and the lines from each half are both real work.
+    #[test]
+    fn a_file_in_both_diffs_is_one_file_and_two_sets_of_lines() {
+        let s = fold_numstat(&["10\t0\ta.ts\0", "5\t2\ta.ts\0"]);
+        assert_eq!(s.files, 1, "counted by path, not by record");
+        assert_eq!((s.added, s.removed), (15, 2));
+
+        let nothing = fold_numstat(&["", ""]);
+        assert_eq!(nothing, DiffStat { added: 0, removed: 0, files: 0, binary: 0 });
+    }
+
+    /// The whole reason the command runs two diffs: a plain `git diff` reports
+    /// only what is not staged yet, which is the smaller half of an afternoon
+    /// and none of it in the workflow where you `git add` as you go.
+    #[test]
+    fn diffstat_sums_what_is_staged_and_what_is_not() {
+        // Separated from the other temp trees by *prefix*: these tests share
+        // one process, so a pid does not tell them apart.
+        let tmp = std::env::temp_dir().join("vylo_diffstat_repo");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "t@example.com"],
+            vec!["config", "user.name", "T"],
+        ] {
+            git(&root, &args).expect("git setup");
+        }
+
+        fs::write(tmp.join("a.txt"), "a\nb\nc\n").unwrap();
+        git(&root, &["add", "-A"]).unwrap();
+        git(&root, &["commit", "-qm", "one"]).unwrap();
+
+        // One line added and staged, one added after that and left in the tree,
+        // and a new binary file in the index.
+        fs::write(tmp.join("a.txt"), "a\nb\nc\nd\n").unwrap();
+        fs::write(tmp.join("logo.bin"), [0u8, 1, 2, 0, 3]).unwrap();
+        git(&root, &["add", "--", "a.txt", "logo.bin"]).unwrap();
+        fs::write(tmp.join("a.txt"), "a\nb\nc\nd\ne\n").unwrap();
+        // Untracked, and in neither diff: it is not a change to anything yet.
+        fs::write(tmp.join("scratch.txt"), "not added\n").unwrap();
+
+        let s = git_diffstat(root.clone()).expect("a repo answers");
+        assert_eq!((s.added, s.removed), (2, 0), "both halves, summed: {s:?}");
+        assert_eq!(s.files, 2, "a.txt once, the binary once, the untracked file not at all");
+        assert_eq!(s.binary, 1, "{s:?}");
+
+        // The same tree through the command this replaces, to show what it
+        // misses rather than to assert it in prose.
+        let worktree_only = fold_numstat(&[&git(&root, &["diff", "--numstat", "-z"]).unwrap()]);
+        assert_eq!(worktree_only.added, 1, "a plain `git diff` sees only the unstaged line");
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Before the first commit there is no HEAD, which is why this is two
+    /// diffs summed rather than one `git diff HEAD` -- and it is exactly when
+    /// somebody has the most staged.
+    #[test]
+    fn diffstat_answers_before_the_first_commit() {
+        let tmp = std::env::temp_dir().join("vylo_diffstat_fresh");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "t@example.com"],
+            vec!["config", "user.name", "T"],
+        ] {
+            git(&root, &args).expect("git setup");
+        }
+        fs::write(tmp.join("new.txt"), "a\nb\n").unwrap();
+        git(&root, &["add", "-A"]).unwrap();
+
+        let s = git_diffstat(root.clone()).expect("a repo with no commits is still a repo");
+        assert_eq!((s.added, s.removed, s.files), (2, 0, 1), "{s:?}");
+
+        // The reason, pinned: the one-command version fails here.
+        assert!(
+            git(&root, &["diff", "HEAD", "--numstat", "-z"]).is_err(),
+            "if `git diff HEAD` ever works without a HEAD, this is two commands for nothing",
+        );
+
+        // A folder that is not a repository is an error, not a zero. The status
+        // bar draws nothing rather than claiming a clean tree.
+        let outside = std::env::temp_dir().join("vylo_diffstat_bare");
+        let _ = fs::remove_dir_all(&outside);
+        fs::create_dir_all(&outside).unwrap();
+        assert!(git_diffstat(outside.to_string_lossy().to_string()).is_err());
+        let _ = fs::remove_dir_all(&outside);
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The rename record, out of a real repository rather than a transcription.
+    ///
+    /// `numstat_reads_a_rename_without_shifting_what_follows_it` pins the parse
+    /// against a fixture string, and a fixture is somebody's memory of what git
+    /// printed. This asks git itself, so the day the record's shape changes
+    /// under us the failure is here rather than in a status bar that is quietly
+    /// one path out of step.
+    ///
+    /// The tree is the four cases the item has to be honest about at once: a
+    /// binary file (dashes, not zeros), a rename (an empty path field and two
+    /// more to consume), a path with a space in it (the reason for `-z`), and
+    /// an ordinary edit *after* the rename — which is the one that moves onto
+    /// the wrong path when the two extra fields are not both taken.
+    #[test]
+    fn diffstat_reads_a_real_rename_beside_a_binary_and_a_path_with_a_space() {
+        let tmp = std::env::temp_dir().join("vylo_diffstat_rename");
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+        for args in [
+            vec!["init", "-q"],
+            vec!["config", "user.email", "t@example.com"],
+            vec!["config", "user.name", "T"],
+        ] {
+            git(&root, &args).expect("git setup");
+        }
+
+        // Long enough that moving it is a rename rather than a delete and an
+        // add: git's similarity index has to clear 50%.
+        fs::write(tmp.join("with space.txt"), "a\nb\nc\nd\ne\nf\ng\nh\n").unwrap();
+        fs::write(tmp.join("logo.bin"), [b'A', 0, b'B', 0, b'C', 0]).unwrap();
+        fs::write(tmp.join("after.txt"), "one\n").unwrap();
+        git(&root, &["add", "-A"]).unwrap();
+        git(&root, &["commit", "-qm", "one"]).unwrap();
+
+        git(&root, &["mv", "with space.txt", "renamed name.txt"]).unwrap();
+        fs::write(tmp.join("logo.bin"), [b'A', 0, b'B', 0, b'C', 0, b'D', 0]).unwrap();
+        fs::write(tmp.join("after.txt"), "one\ntwo\nthree\n").unwrap();
+        git(&root, &["add", "-A"]).unwrap();
+
+        // The shape itself, so a change to it is named rather than inferred
+        // from a wrong total.
+        let raw = git(&root, &["diff", "--cached", "--numstat", "-z"]).unwrap();
+        assert!(
+            raw.contains("\0with space.txt\0renamed name.txt\0"),
+            "a rename is still an empty path field and two more: {raw:?}",
+        );
+
+        let s = git_diffstat(root.clone()).expect("a repo answers");
+        assert_eq!(s.binary, 1, "the binary is counted, not scored as zero: {s:?}");
+        assert_eq!(
+            (s.added, s.removed),
+            (2, 0),
+            "the two lines added to the file *after* the rename, and nothing invented: {s:?}",
+        );
+        assert_eq!(s.files, 3, "the binary, the renamed file and the edited one: {s:?}");
+
+        // And the paths themselves, which is where a mis-consumed field shows
+        // up while the totals stay plausible.
+        let paths: Vec<String> = parse_numstat(&raw).into_iter().map(|f| f.path).collect();
+        assert!(paths.contains(&"renamed name.txt".to_string()), "{paths:?}");
+        assert!(!paths.contains(&"with space.txt".to_string()), "the old path is a field, not an entry: {paths:?}");
+        assert!(paths.contains(&"after.txt".to_string()), "the record after the rename kept its own path: {paths:?}");
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 
     /// The two halves of the item, through the command the agent actually

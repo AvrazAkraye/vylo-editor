@@ -35,7 +35,7 @@ export const ALT = IS_MAC ? '⌃' : 'Ctrl';
  */
 export function shortcuts(t: (s: string) => string): { keys: string; what: string }[] {
   return [
-    { keys: `${MOD}P`, what: t('Go to file') },
+    { keys: `${MOD}P`, what: t('Search everything…') },
     { keys: `${MOD}T`, what: t('Go to symbol') },
     { keys: `${MOD}⇧F`, what: t('Search the project') },
     { keys: 'F12', what: t('Go to definition') },

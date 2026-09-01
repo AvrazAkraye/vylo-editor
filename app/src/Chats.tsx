@@ -1,8 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save } from '@tauri-apps/plugin-dialog';
 import { Icon } from './Icon';
 import { explain } from './errors';
+import { move, orderBy } from './reorder';
+import { useReorder } from './useReorder';
+import { loadChatOrder, saveChatOrder } from './workspace';
 import {
   ago, cleanTitle, exportFileName, exportMarkdown, renameChat, searchChats, type Chat,
 } from './store';
@@ -47,6 +50,8 @@ interface Props {
   chats: Chat[];
   /** The thread on screen, so its row can say so. */
   current: string;
+  /** The open folder, which is what an arrangement is remembered against. */
+  root: string;
   onOpen: (c: Chat) => void;
   /** Deleting is the parent's, because it also decides what to open next. */
   onDelete: (id: string) => void;
@@ -55,14 +60,39 @@ interface Props {
   t: (s: string) => string;
 }
 
-export function Chats({ chats, current, onOpen, onDelete, onRenamed, t }: Props) {
+export function Chats({ chats, current, root, onOpen, onDelete, onRenamed, t }: Props) {
   const [query, setQuery] = useState('');
   const [err, setErr] = useState('');
+  // Re-read when the folder changes: one component draws every project's chats,
+  // and an arrangement belongs to one project.
+  const [order, setOrder] = useState<string[]>(() => loadChatOrder(localStorage, root));
+  useEffect(() => { setOrder(loadChatOrder(localStorage, root)); }, [root]);
 
   // Rebuilt only when the query or the list changes. Every line of every chat
   // is a candidate, so doing this on each render of a streaming turn would be
   // the whole store scanned several times a second.
-  const hits = useMemo(() => searchChats(query, chats), [query, chats]);
+  // `chats` arrives sorted by when each was last used, and that order changes
+  // under the reader every time the agent replies — so an arrangement is
+  // re-applied on every read rather than only after a restart.
+  const arranged = useMemo(() => orderBy(chats, order, (c) => c.id), [chats, order]);
+  const hits = useMemo(() => searchChats(query, arranged), [query, arranged]);
+
+  /**
+   * Dragging a chat to a different place in the list.
+   *
+   * Off while the search box has something in it. `searchChats` ranks its
+   * answer, so the rows on screen are then neither the list nor in its order,
+   * and a drop between two of them means nothing.
+   */
+  const drag = useReorder({
+    axis: 'y',
+    enabled: !query.trim(),
+    onMove: (from, to) => {
+      const next = move(arranged, from, to).map((c) => c.id);
+      setOrder(next);
+      saveChatOrder(localStorage, root, next);
+    },
+  });
 
   function rename(c: Chat) {
     const typed = window.prompt(t('Rename this chat'), c.title);
@@ -122,36 +152,43 @@ export function Chats({ chats, current, onOpen, onDelete, onRenamed, t }: Props)
         </p>
       )}
 
-      {hits.map(({ chat: c, snippet }) => (
-        <div key={c.id} className={`ft-row chat-row ${c.id === current ? 'on' : ''}`}>
-          <button className="chat-open" onClick={() => onOpen(c)} title={c.title}>
-            <span className="ft-icon"><Icon name="chat" size={13} /></span>
-            <span className="ch-text">
-              <span className="ft-name">{c.title}</span>
-              {/* Why this chat came back, when its name gives no clue. */}
-              {snippet && <span className="ch-snip" title={snippet}>{snippet}</span>}
-            </span>
-            <span className="rc-meta">{ago(c.updatedAt, t)}</span>
-          </button>
-          <span className="ft-acts">
-            <button className="ft-act" onClick={() => rename(c)}
-                    title={`${t('Rename this chat')} — ${c.title}`}
-                    aria-label={`${t('Rename this chat')} — ${c.title}`}>
-              <Icon name="pencil" size={11} />
-            </button>
-            <button className="ft-act" onClick={() => void exportChat(c)}
-                    title={`${t('Export as Markdown')} — ${c.title}`}
-                    aria-label={`${t('Export as Markdown')} — ${c.title}`}>
-              <Icon name="file" size={11} />
-            </button>
-          </span>
-          <button className="chat-x" onClick={() => remove(c)}
-                  title={`${t('Delete this chat')} — ${c.title}`}
-                  aria-label={`${t('Delete this chat')} — ${c.title}`}>
-            <Icon name="close" size={12} />
-          </button>
+      {hits.length > 0 && (
+        <div {...drag.strip}>
+          {hits.map(({ chat: c, snippet }, i) => (
+            <div key={c.id} className={`ft-row chat-row ${drag.itemClass(i)} ${c.id === current ? 'on' : ''}`}>
+              <button className="chat-open" onClick={() => onOpen(c)} title={c.title}>
+                <span className="ft-icon"><Icon name="chat" size={13} /></span>
+                <span className="ch-text">
+                  <span className="ft-name">{c.title}</span>
+                  {/* Why this chat came back, when its name gives no clue. */}
+                  {snippet && <span className="ch-snip" title={snippet}>{snippet}</span>}
+                </span>
+                <span className="rc-meta">{ago(c.updatedAt, t)}</span>
+              </button>
+              {/* Rename, export and delete are not handles: pressing one and
+                  shifting four pixels would otherwise start a drag and swallow
+                  the click it was about to be. */}
+              <span className="ft-acts" data-nodrag>
+                <button className="ft-act" onClick={() => rename(c)}
+                        title={`${t('Rename this chat')} — ${c.title}`}
+                        aria-label={`${t('Rename this chat')} — ${c.title}`}>
+                  <Icon name="pencil" size={11} />
+                </button>
+                <button className="ft-act" onClick={() => void exportChat(c)}
+                        title={`${t('Export as Markdown')} — ${c.title}`}
+                        aria-label={`${t('Export as Markdown')} — ${c.title}`}>
+                  <Icon name="file" size={11} />
+                </button>
+              </span>
+              <button className="chat-x" onClick={() => remove(c)} data-nodrag
+                      title={`${t('Delete this chat')} — ${c.title}`}
+                      aria-label={`${t('Delete this chat')} — ${c.title}`}>
+                <Icon name="close" size={12} />
+              </button>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </>
   );
 }

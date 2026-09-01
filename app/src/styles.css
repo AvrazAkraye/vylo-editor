@@ -13,7 +13,7 @@
      attach button and file chips · status-bar button
      command palette (⌘P, ⌘⇧F) · editor · icons · working tree
      clipboard history · file history · global shortcut · queued messages
-     settings dialog · right to left
+     settings dialog · right to left · drag to reorder
  */
 
 /* Vylo Editor — desktop chrome.
@@ -198,6 +198,24 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   padding:var(--sp-5) var(--sp-7); border-bottom:1px solid var(--rule); background:var(--panel);
 }
 .brand{ display:flex; align-items:center; gap:var(--sp-4); font-size:var(--fs-5); }
+/* The one search field, across the middle of the title bar. It is a button and
+   not an input: the palette behind it owns the typing, and two fields with one
+   caret between them is the confusion this item exists to remove.
+   `-webkit-app-region:no-drag` is repeated here rather than left to the
+   `.bar button` rule below it: the header is the drag region, and a field the
+   pointer cannot press because it is dragging the window instead is the one
+   failure this control cannot survive. The rule below covers it only for as
+   long as this stays a <button>. */
+.find-field{
+  flex:0 1 min(420px, 40vw); display:flex; align-items:center; gap:var(--sp-4);
+  font:inherit; font-size:var(--fs-4); padding:var(--sp-3) var(--sp-5); text-align:start;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+  color:var(--mute); cursor:text; overflow:hidden;
+  -webkit-app-region:no-drag;
+}
+.find-field:hover{ border-color:var(--rule-2); color:var(--ink-2); }
+.find-field span{ flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.find-field kbd{ flex:none; font-family:var(--mono); font-size:var(--fs-2); color:var(--mute); }
 .brand svg{ width:22px; height:22px; border-radius:var(--r-1); display:block; }
 .folder{
   display:inline-flex; align-items:center; gap:var(--sp-4);
@@ -1307,6 +1325,18 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   font-family:var(--mono); font-size:var(--fs-2); color:var(--mute);
 }
 
+/* One field that searches everything: a heading per kind, and the two row
+   variants the mixed list adds. The rows themselves are `.pal-row`, unchanged
+   -- six kinds drawn six ways would be six palettes again. */
+.pal-group + .pal-group{ margin-block-start:var(--sp-4); }
+.pal-group-name{
+  margin:0; padding:var(--sp-2) var(--sp-5); font-size:var(--fs-2); font-weight:600;
+  letter-spacing:.06em; text-transform:uppercase; color:var(--mute);
+}
+/* A title that is a string that ran rather than a name -- a command pane, a
+   line of source. Same distinction `terminals.ts` argues for, same carrier. */
+.pal-name.pal-ran{ font-family:var(--mono); font-size:var(--fs-3); }
+
 /* the line a search result pointed at */
 
 /* ── editor ──────────────────────────────────────────────────────────── */
@@ -1357,6 +1387,16 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 .status .planm{ font-variant-numeric:tabular-nums; }
 .status .planm.low{ color:var(--warn); }
 .status .planm.out{ color:var(--err); font-weight:600; }
+/* The diff stat, for the context meter's and the plan chip's reason, and more
+   sharply than either: these two numbers climb on every save, and a
+   proportional 9 is wider than a 1 — so without tabular figures the branch
+   name and everything after it would shuffle sideways as the afternoon grows.
+   The colours come from `.add` / `.del`, which is where the review pane, the
+   editor and the version list already get them. The LTR isolation is `dir` on
+   the span in App.tsx and not `direction` here, because `+412 −87` is two
+   number runs and bidi would otherwise draw them in the other order in the
+   three right-to-left languages. */
+.status .dstat{ font-variant-numeric:tabular-nums; }
 .ft-icon{ display:inline-flex; align-items:center; justify-content:center; }
 .chip .doc{ display:inline-flex; align-items:center; }
 
@@ -2144,3 +2184,43 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    it is *back* that is flipped -- and right-to-left it is forward. */
 :root[dir="rtl"] .navb button:first-child{ transform:none; }
 :root[dir="rtl"] .navb button:last-child{ transform:scaleX(-1); }
+
+/* ── drag to reorder ─────────────────────────────────────────────────── */
+/*
+ * Three lists use this and they differ only in which way they run: the tab
+ * strip across, the terminal sessions and the chats down. `useReorder.ts` puts
+ * `reorder` plus one of `reorder-x` / `reorder-y` on the container and
+ * `reorder-item` on every row.
+ *
+ * Nothing is reordered until the pointer comes up. What is on screen during the
+ * drag is the carried row faded and one line where it would land -- so there is
+ * no transition here and nothing for `prefers-reduced-motion` to turn off, the
+ * same reason `:active` needs no entry: a drag is the control being where you
+ * put it, not an animation.
+ */
+.reorder{ -webkit-user-select:none; user-select:none; }
+.reordering{ cursor:grabbing; }
+/* The row's own box is what the insertion line is drawn against. */
+.reorder-item{ position:relative; }
+/*
+ * The row being carried, on `--dim` -- the one fade this file has rather than a
+ * second one decided here. It follows the pointer through a custom property the
+ * hook sets on the container, which is what keeps a drag from re-rendering the
+ * tab strip sixty times a second; the axis it is not travelling on stays at 0.
+ */
+.reordering .reorder-item.moving{
+  opacity:var(--dim); z-index:1;
+  transform:translate(var(--drag-x, 0px), var(--drag-y, 0px));
+}
+/*
+ * Where it would land. 2px is the accent rule `.tab.on` already draws under the
+ * open tab rather than a spacing value, and the 1px offset puts the line in the
+ * gap between two rows instead of on top of one of them.
+ */
+.reorder-item.drop-before::after, .reorder-item.drop-after::after{
+  content:''; position:absolute; background:var(--brand); pointer-events:none;
+}
+.reorder-x .drop-before::after{ inset-block:0; inset-inline-start:-1px; width:2px; }
+.reorder-x .drop-after::after{ inset-block:0; inset-inline-end:-1px; width:2px; }
+.reorder-y .drop-before::after{ inset-inline:0; inset-block-start:-1px; height:2px; }
+.reorder-y .drop-after::after{ inset-inline:0; inset-block-end:-1px; height:2px; }

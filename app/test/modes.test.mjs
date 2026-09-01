@@ -117,6 +117,12 @@ const ABSENT = [
   // the schema by somebody's decision. `store_sizes` only reads, and is here
   // because knowing how much a person keeps is not the agent's business either.
   'store_empty', 'store_sizes',
+  // Runs `git diff` twice to size the working tree for the status bar. It
+  // reads and it throws nothing away, so it is not `apply_write` — but it
+  // spawns a process, which is the description at the top of this list, and
+  // the model has `run_command` and a human approval if it ever needs the
+  // number. Absent by a decision rather than by nobody having made one.
+  'git_diffstat',
 ];
 // `run_command` is deliberately NOT on this list. It is IN the schema, and that
 // is the whole design: the model may ask, and a human approves the exact string

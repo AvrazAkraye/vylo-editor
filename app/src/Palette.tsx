@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { positions, rank } from './fuzzy';
+import { diskState, everywhere, parse, type Result, type Sources, type TextHit } from './everywhere';
+import type { CategoryId, SettingId } from './settings';
 import { Icon } from './Icon';
 import type { Entry } from './FileTree';
 
@@ -12,7 +14,7 @@ import type { Entry } from './FileTree';
  * them. These are the same two capabilities, given to the human directly.
  */
 
-function Shell({ onClose, label, children }: {
+export function Shell({ onClose, label, children }: {
   onClose: () => void; label: string; children: React.ReactNode;
 }) {
   // Send focus back where it came from. Closing an overlay and dropping the
@@ -41,7 +43,7 @@ function Shell({ onClose, label, children }: {
 }
 
 /** Query characters shown in the accent colour, so the ranking is legible. */
-function Marked({ text, query }: { text: string; query: string }) {
+export function Marked({ text, query }: { text: string; query: string }) {
   const hits = useMemo(() => new Set(positions(query, text)), [text, query]);
   if (!hits.size) return <>{text}</>;
   return (
@@ -52,7 +54,7 @@ function Marked({ text, query }: { text: string; query: string }) {
 }
 
 /** Keeps the highlighted row inside the scroll box as the selection moves. */
-function useScrollIntoView(active: number) {
+export function useScrollIntoView(active: number) {
   const list = useRef<HTMLDivElement>(null);
   useEffect(() => {
     list.current?.querySelector('.pal-row.on')?.scrollIntoView({ block: 'nearest' });
@@ -312,6 +314,154 @@ export function FindInFiles({ root, onOpen, onClose, onReplace, initial, onSearc
                 : `${hits.length}${hits.length >= 300 ? '+' : ''} ${t('in')} ${files} ${t('files')}`}
         </div>
       )}
+    </Shell>
+  );
+}
+
+/**
+ * One field that searches everything — the palette behind the header box.
+ *
+ * The other three overlays in this file each answer one question. This one
+ * answers all of them at once: `everywhere.ts` takes the sources the app
+ * already holds and returns them grouped by kind and ordered between the
+ * groups, and this draws that. Nothing here decides what matches or what comes
+ * first; every one of those decisions is in the module, where it can be tested.
+ *
+ * ## The one thing this component does decide: when the disk is read
+ *
+ * `#` is the only query that walks the project, and a header field that walks
+ * it per keystroke is a header field nobody can type in. So the module says
+ * `needsDisk` and this waits for **Enter** — not a debounce, because a pause is
+ * something a person does constantly while thinking, and a grep per thought is
+ * the same bill arriving more slowly. Enter runs it; the second Enter, once
+ * there are hits, opens the row like everywhere else.
+ */
+interface EverythingProps {
+  /** The sources already in memory. `t` and `hits` are supplied here. */
+  sources: Omit<Sources, 't' | 'hits'>;
+  /** The open folder, for the one search that reads the disk. */
+  root: string;
+  onOpen: (path: string, line?: number) => void;
+  onChat: (id: string) => void;
+  onTerminal: (id: string) => void;
+  onSetting: (id: SettingId, category: CategoryId) => void;
+  onCommand: (id: string) => void;
+  onClose: () => void;
+  t: (s: string) => string;
+}
+
+export function Everything({
+  sources, root, onOpen, onChat, onTerminal, onSetting, onCommand, onClose, t,
+}: EverythingProps) {
+  const [q, setQ] = useState('');
+  const [active, setActive] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // The hits carry the term they were found for. A `#` query that has moved on
+  // by one character has no hits, and showing the old ones would be answering a
+  // question nobody asked any more.
+  const [found, setFound] = useState<{ term: string; hits: TextHit[] } | null>(null);
+  const list = useScrollIntoView(active);
+
+  // The query, one step ahead of the results: `diskState` has to be answerable
+  // before anything is spent, which is why `parse` is exported on its own.
+  const asked = useMemo(() => parse(q), [q]);
+  const disk = diskState(asked, found, busy);
+  // Hits belong to the term they were fetched for. Held apart from the memo so
+  // the identity is stable while `found` is, and so there is one comparison
+  // rather than two that could drift.
+  const hits = found && found.term === asked.term ? found.hits : undefined;
+
+  // Pure, over arrays already in memory, so recomputing it is cheaper than
+  // deciding not to. `t` is in the deps and that is safe here for the reason
+  // the lesson about `t` is careful to name: it is an effect that re-fetches
+  // that hurts, not a memo that recomputes.
+  const res = useMemo(() => everywhere(q, { ...sources, hits, t }), [q, sources, hits, t]);
+
+  const rows = useMemo(() => res.groups.flatMap((g) => g.results), [res]);
+  // A new query, so the previous one's failure is not this one's news.
+  useEffect(() => { setActive(0); setErr(null); }, [q]);
+
+  function grep() {
+    if (!res.needsDisk || busy) return;
+    const term = res.term;
+    // Nothing to walk. Recorded as an answer rather than left in `ask`, or
+    // Enter would be a key that visibly does nothing for as long as the field
+    // is open.
+    if (!root) { setFound({ term, hits: [] }); return; }
+    setBusy(true);
+    invoke<{ hits: TextHit[] }>('search', {
+      root, query: term, maxHits: 300, caseInsensitive: true, wholeWord: false,
+    })
+      .then((r) => { setFound({ term, hits: r.hits }); setErr(null); })
+      .catch((e) => { setFound({ term, hits: [] }); setErr(String(e)); })
+      .finally(() => setBusy(false));
+  }
+
+  function open(r: Result) {
+    switch (r.target.go) {
+      case 'file': onOpen(r.target.path, r.target.line); break;
+      case 'chat': onChat(r.target.id); break;
+      case 'terminal': onTerminal(r.target.id); break;
+      case 'setting': onSetting(r.target.id, r.target.category); break;
+      case 'command': onCommand(r.target.id); break;
+    }
+    onClose();
+  }
+
+  function key(e: React.KeyboardEvent) {
+    if (e.key === 'Escape') { onClose(); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((i) => Math.min(rows.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((i) => Math.max(0, i - 1)); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      // The one keystroke that spends anything — and only while the hits in
+      // hand are not already this query's, so a `#` search can be narrowed and
+      // run again rather than answering the first term for ever.
+      if (disk === 'searching') return;
+      if (disk === 'ask') { grep(); return; }
+      if (rows[active]) open(rows[active]);
+    }
+  }
+
+  // The row's index in the flat list, so ↑/↓ crosses the group headings.
+  let n = -1;
+  return (
+    <Shell onClose={onClose} label={t('Search everything…')}>
+      <input className="pal-in" autoFocus value={q} placeholder={t('Search everything…')}
+             onChange={(e) => setQ(e.target.value)} onKeyDown={key} spellCheck={false} />
+      <div className="pal-list" ref={list}>
+        {err && <p className="pal-none pal-err">{err}</p>}
+        {busy && <p className="pal-none">{t('Searching…')}</p>}
+        {disk === 'ask' && (
+          <p className="pal-none">{t('Press Enter to search the project')}</p>
+        )}
+        {/* `answered` as well as `free`: a `#` search that ran and found
+            nothing has to say so, or the palette goes blank on the one query
+            somebody deliberately paid for. */}
+        {!busy && !err && disk !== 'ask' && res.total === 0 && (
+          <p className="pal-none">{t('No matches.')}</p>
+        )}
+        {res.groups.map((g) => (
+          <div key={g.kind} className="pal-group">
+            <h3 className="pal-group-name">{t(g.label)}</h3>
+            {g.results.map((r) => {
+              n += 1;
+              const i = n;
+              return (
+                <button key={r.key} className={`pal-row ${i === active ? 'on' : ''}`}
+                        onMouseEnter={() => setActive(i)} onClick={() => open(r)}>
+                  {r.tag && <span className="pal-kind">{r.tag}</span>}
+                  <span className={`pal-name ${r.mono ? 'pal-ran' : ''}`}>
+                    <Marked text={r.title} query={res.term} />
+                  </span>
+                  {r.detail && <span className="pal-dir" title={r.detail}>{r.detail}</span>}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </Shell>
   );
 }
