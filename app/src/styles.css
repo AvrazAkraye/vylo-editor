@@ -2111,6 +2111,45 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   background:var(--err-wash); color:var(--err);
   font-family:var(--mono); font-size:var(--fs-3); text-transform:none; letter-spacing:0;
 }
+/* ── The app's own sections ───────────────────────────────────────────────
+   Set beside the MCP list on purpose: one tab answers both halves of "what is
+   this app made of, and what can I attach to it". These rows are lighter than
+   an MCP row because they carry no command to read — the decision here is only
+   whether you want the icon, not whether you trust a process. */
+.mod-list{ display:flex; flex-direction:column; gap:var(--sp-2); }
+.mod-row{
+  display:flex; align-items:center; gap:var(--sp-4);
+  padding:var(--sp-3) var(--sp-4); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel);
+}
+/* A switched-off module is dimmed rather than hidden: a list that hides what
+   you turned off has nowhere to turn it back on. */
+.mod-row:not(.on) .mod-icon, .mod-row:not(.on) .mod-what{ opacity:.5; }
+.mod-grip{ flex:none; display:grid; place-items:center; color:var(--mute); cursor:grab; }
+.mod-list.reordering .mod-grip{ cursor:grabbing; }
+.mod-icon{ flex:none; display:grid; place-items:center; inline-size:24px; color:var(--ink-2); }
+.mod-row.on .mod-icon{ color:var(--brand); }
+.mod-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.mod-what b{ font-size:var(--fs-3); color:var(--ink); text-transform:none; letter-spacing:0; }
+.mod-what span{ font-size:var(--fs-2); color:var(--mute); }
+
+/* A switch, not a button that says On or Off — the label of a toggle that
+   reads as its current state is ambiguous about whether it describes or acts. */
+.mod-sw{
+  flex:none; inline-size:34px; block-size:20px; padding:2px; cursor:pointer;
+  border:1px solid var(--rule-2); border-radius:999px; background:var(--panel-3);
+  display:flex; align-items:center;
+}
+.mod-sw i{
+  inline-size:14px; block-size:14px; border-radius:50%; background:var(--mute);
+  transition:margin-inline-start .16s ease, background .16s ease;
+}
+.mod-sw.on{ background:var(--brand); border-color:var(--brand); }
+.mod-sw.on i{ margin-inline-start:14px; background:var(--on-fill); }
+.mod-sw:disabled{ opacity:.45; cursor:default; }
+.mod-foot{ display:flex; align-items:center; gap:var(--sp-4); margin-block-start:var(--sp-3); }
+.mod-foot p{ flex:1; margin:0; font-size:var(--fs-2); color:var(--mute); }
+
 .mcp-row{
   display:flex; align-items:center; gap:var(--sp-5); margin-bottom:var(--sp-3);
   padding:var(--sp-4) var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-2);

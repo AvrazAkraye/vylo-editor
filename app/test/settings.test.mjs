@@ -48,7 +48,7 @@ const find = (groups, id) => ids(groups).includes(id);
     notifyWhen: 'notifications',   // when the agent needs me / for everything
     notifySound: 'notifications',
     globalShortcut: 'shortcuts',   // with its "press a combination" capture
-    mcpServers: 'extensions',      // the list, with enable/disable and a count
+    mcpServers: 'modules',         // the list, with enable/disable and a count
   };
   const by = new Map(SETTINGS.map((s) => [s.id, s]));
   for (const [id, category] of Object.entries(CARRIED_OVER)) {
@@ -56,7 +56,7 @@ const find = (groups, id) => ids(groups).includes(id);
        by.get(id)?.category === category, `found ${by.get(id)?.category ?? 'nothing'}`);
   }
 
-  const ADDED = ['plan', 'keyMap', 'drafts', 'checkpoints', 'fileHistory',
+  const ADDED = ['plan', 'keyMap', 'modules', 'drafts', 'checkpoints', 'fileHistory',
                  'clipboardHistory', 'version', 'updates', 'safety'];
   for (const id of ADDED) ok(`${id} is in the catalogue`, by.has(id));
 

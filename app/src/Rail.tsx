@@ -1,4 +1,6 @@
-import { Icon, type IconName } from './Icon';
+import { Icon } from './Icon';
+import type { IconName } from './Icon';
+import type { ModuleId } from './modules';
 
 /**
  * The activity rail.
@@ -13,10 +15,16 @@ import { Icon, type IconName } from './Icon';
  * VS Code and Cursor behave and is the fastest way to get the width back.
  */
 
-export type RailId = 'files' | 'search' | 'changes' | 'chats' | 'todo' | 'memory';
-
+/**
+ * What the rail draws.
+ *
+ * The ids live in `modules.ts` rather than here. They used to be declared in
+ * this file and copied into App.tsx's item array and again into the sidebar's
+ * heading chain, and the copies drifted — which is how the To do panel spent
+ * eleven releases under a heading that said "Memory".
+ */
 export interface RailItem {
-  id: RailId;
+  id: ModuleId;
   icon: IconName;
   label: string;
   /** A number badges the icon; anything else is ignored. */
@@ -25,10 +33,10 @@ export interface RailItem {
 
 interface Props {
   items: RailItem[];
-  active: RailId;
+  active: ModuleId;
   /** True when the panel is hidden and only the rail shows. */
   collapsed: boolean;
-  onSelect: (id: RailId) => void;
+  onSelect: (id: ModuleId) => void;
   settings: () => void;
   settingsLabel: string;
   /** The rail is navigation, so it needs a name in the language in use. */

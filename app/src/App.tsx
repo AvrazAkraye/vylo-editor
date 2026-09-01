@@ -50,7 +50,12 @@ import { groupLines, ToolRun } from './ToolRun';
 // is fetched the first time someone actually opens a terminal.
 const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
-import { Rail, type RailId } from './Rail';
+import { Rail } from './Rail';
+import {
+  KEY as MODULES_KEY, active as activeModule, enabled as enabledModules,
+  labelOf, read as readModules, write as writeModules,
+  type Layout as ModuleLayout, type ModuleId,
+} from './modules';
 import { SettingsPanel } from './SettingsPanel';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import {
@@ -330,7 +335,15 @@ export function App() {
   // The file whose earlier versions are on screen. A path rather than a flag:
   // the panel is about one file, and `active` can move under it.
   const [versionsFor, setVersionsFor] = useState<string | null>(null);
-  const [rail, setRail] = useState<RailId>(() => (localStorage.getItem('vylo.rail') as RailId) || 'files');
+  const [rail, setRail] = useState<ModuleId>(() => (localStorage.getItem('vylo.rail') as ModuleId) || 'files');
+  /**
+   * Which sections exist, in which order, and which are switched off.
+   *
+   * `readModules` repairs anything it cannot trust, so a hand-edited or
+   * half-written value is the default arrangement rather than a window that
+   * will not open.
+   */
+  const [modules, setModules] = useState<ModuleLayout>(() => readModules(localStorage.getItem(MODULES_KEY)));
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem('vylo.railopen') !== '0');
   // The line a search result asked for, cleared once the file is showing so
   // reopening the same file later does not jump again.
@@ -523,6 +536,7 @@ export function App() {
   useEffect(() => { localStorage.setItem('vylo.autocomplete', autocomplete ? '1' : '0'); }, [autocomplete]);
   useEffect(() => { localStorage.setItem('vylo.termfull', termFull ? '1' : '0'); }, [termFull]);
   useEffect(() => { localStorage.setItem('vylo.rail', rail); }, [rail]);
+  useEffect(() => { localStorage.setItem(MODULES_KEY, writeModules(modules)); }, [modules]);
   useEffect(() => { localStorage.setItem('vylo.mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('vylo.railopen', railOpen ? '1' : '0'); }, [railOpen]);
   useEffect(() => { localStorage.setItem(SEARCHES, JSON.stringify(searches)); }, [searches]);
@@ -1595,8 +1609,17 @@ export function App() {
     }
   }
 
+  /**
+   * The section actually on screen.
+   *
+   * `rail` is the last one chosen and is kept even while it is switched off, so
+   * turning a module back on returns you to where you were. `shown` is what can
+   * be drawn right now, which is that one unless it is off.
+   */
+  const shown = activeModule(modules, rail);
+
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
-  function pickRail(id: RailId) {
+  function pickRail(id: ModuleId) {
     if (id === rail && railOpen) { setRailOpen(false); return; }
     setRail(id);
     setRailOpen(true);
@@ -2605,6 +2628,8 @@ export function App() {
           t={t}
           initial={settingsAt ?? undefined}
           onClose={() => { setShowSettings(false); setSettingsAt(null); }}
+          modules={modules}
+          onModules={setModules}
           baseUrl={baseUrl}
           onBaseUrl={setBaseUrl}
           apiKey={apiKey}
@@ -2672,15 +2697,16 @@ export function App() {
 
       <div className="body">
         <Rail
-          items={[
-            { id: 'files', icon: 'folder', label: t('Explorer') },
-            { id: 'search', icon: 'search', label: t('Search') },
-            { id: 'changes', icon: 'diff', label: t('Changes'), badge: changes.length + tracked.length },
-            { id: 'chats', icon: 'chat', label: t('Chats') },
-            { id: 'todo', icon: 'check', label: t('To do'), badge: todoLeft },
-            { id: 'memory', icon: 'memory', label: t('Memory') },
-          ]}
-          active={rail}
+          /* One list, from `modules.ts`. The literal that used to be here was a
+             copy of a list, and the copy drifted — see modules.ts. */
+          items={enabledModules(modules).map((m) => ({
+            id: m.id,
+            icon: m.icon,
+            label: t(m.label),
+            badge: m.badge === 'changes' ? changes.length + tracked.length
+              : m.badge === 'todo' ? todoLeft : undefined,
+          }))}
+          active={shown}
           collapsed={!railOpen}
           onSelect={pickRail}
           settings={() => setShowSettings((v) => !v)}
@@ -2691,16 +2717,16 @@ export function App() {
         {railOpen && (
         <aside className="sidebar" style={{ width: sidebarW }}>
           <div className="sb-head-bar">
-            <h2>{
-              rail === 'files' ? t('Explorer') : rail === 'search' ? t('Search')
-              : rail === 'changes' ? t('Changes') : rail === 'chats' ? t('Chats') : t('Memory')
-            }</h2>
-            {rail === 'chats' && (
+            {/* From the registry. As a chain of ternaries this had no branch
+                for `todo`, so the To do panel sat under a heading that said
+                "Memory" for eleven releases. */}
+            <h2>{t(labelOf(shown))}</h2>
+            {shown === 'chats' && (
               <button className="sb-act" onClick={newChat} title={t('New chat')} aria-label={t('New chat')}>
                 <Icon name="plus" size={14} />
               </button>
             )}
-            {rail === 'files' && root && (
+            {shown === 'files' && root && (
               <>
                 <button className="sb-act" onClick={() => void newFile()}
                         title={t('New file')} aria-label={t('New file')}>
@@ -2715,7 +2741,7 @@ export function App() {
           </div>
 
           <div className="sb-panel">
-            {rail === 'files' && (root
+            {shown === 'files' && (root
               ? <FileTree entries={tree} openPath={active === 'chat' ? null : active} t={t}
                           onOpen={openFile} changed={new Set(changes.map((c) => c.path))}
                           onRename={(p) => void renameEntry(p)}
@@ -2735,7 +2761,7 @@ export function App() {
                 every list of this kind has. The label is its own element so the
                 `kbd` has something to be pushed away from; see the note on
                 `.ghost.bordered` in the stylesheet. */}
-            {rail === 'search' && (
+            {shown === 'search' && (
               <>
                 <div className="sb-cta">
                   <p className="ft-empty">{t('Search every file in the project.')}</p>
@@ -2779,7 +2805,7 @@ export function App() {
               </>
             )}
 
-            {rail === 'changes' && (
+            {shown === 'changes' && (
               <>
                 <div className="sb-sub">{t('Proposed')}</div>
                 {changes.length === 0
@@ -2832,7 +2858,7 @@ export function App() {
               </>
             )}
 
-            {rail === 'todo' && (
+            {shown === 'todo' && (
               <TodoPanel root={root} t={t}
                     onToChat={(text) => setPrompt((p) => (p.trim() ? `${p.trim()}\n${text}` : text))}
                     onToTerminal={(command) => void runStep(command)}
@@ -2841,7 +2867,7 @@ export function App() {
                     onLeft={setTodoLeft} />
             )}
 
-            {rail === 'memory' && (
+            {shown === 'memory' && (
               <>
                 <button className={`ft-row ${active === '__memory__' ? 'on' : ''}`}
                         onClick={() => { setTabs((p) => p.includes('__memory__') ? p : [...p, '__memory__']); setActive('__memory__'); }}>
@@ -2856,7 +2882,7 @@ export function App() {
               </>
             )}
 
-            {rail === 'chats' && (
+            {shown === 'chats' && (
               <>
                 <Chats chats={chats} current={chatId} root={root} t={t}
                        onOpen={openChat} onDelete={removeChat}

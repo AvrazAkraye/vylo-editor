@@ -60,7 +60,7 @@ import type { IconName } from './Icon';
 
 export type CategoryId =
   | 'account' | 'appearance' | 'editor' | 'notifications'
-  | 'shortcuts' | 'extensions' | 'storage' | 'about';
+  | 'shortcuts' | 'modules' | 'storage' | 'about';
 
 export interface Category {
   id: CategoryId;
@@ -92,9 +92,10 @@ export interface Category {
  *                             "the turn finished".
  *   shortcuts     `bolt`    — the quick-action metaphor. The status bar uses it
  *                             for tokens; the two never share a surface.
- *   extensions    `branch`  — the only glyph drawing one thing joined to
- *                             another, which is what an MCP server is: a
- *                             separate process attached to this app.
+ *   modules       `branch`  — the only glyph drawing one thing joined to
+ *                             another, which is both halves of this tab: the
+ *                             app's own sections attached to the rail, and an
+ *                             MCP server attached as a separate process.
  *   storage       `clipboard` — a board of kept records, and one of the four
  *                             stores is literally the clipboard history.
  *   about         `ellipsis` — "more", on the row pinned to the foot.
@@ -105,7 +106,7 @@ export const CATEGORIES: readonly Category[] = [
   { id: 'editor', label: 'Editor', icon: 'file' },
   { id: 'notifications', label: 'Notifications', icon: 'dot' },
   { id: 'shortcuts', label: 'Shortcuts', icon: 'bolt' },
-  { id: 'extensions', label: 'Extensions', icon: 'branch' },
+  { id: 'modules', label: 'Modules', icon: 'branch' },
   { id: 'storage', label: 'Storage', icon: 'clipboard' },
   { id: 'about', label: 'About', icon: 'ellipsis', foot: true },
 ];
@@ -123,7 +124,7 @@ export type SettingId =
   | 'inlineCompletion'
   | 'notifyWhen' | 'notifySound'
   | 'globalShortcut' | 'keyMap'
-  | 'mcpServers'
+  | 'modules' | 'mcpServers'
   | 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory'
   | 'version' | 'updates' | 'safety';
 
@@ -221,11 +222,20 @@ export const SETTINGS: readonly Setting[] = [
     keywords: ['keyboard', 'shortcuts', 'bindings', 'key map', 'cheat sheet', 'go to file', 'go to symbol'],
   },
 
-  // ── Extensions ──
+  // ── Modules ──
+  //
+  // Two halves, in the order they answer the question somebody opens this tab
+  // with. First what the app is already made of and how to rearrange it; then
+  // what can be attached to it.
   {
-    id: 'mcpServers', category: 'extensions', label: 'MCP servers',
+    id: 'modules', category: 'modules', label: 'Sections',
+    hint: 'The panels in the activity rail. Turn off what you never open, and drag the rest into the order you want.',
+    keywords: ['module', 'modules', 'rail', 'sidebar', 'panel', 'section', 'explorer', 'search', 'changes', 'chats', 'to do', 'memory', 'hide', 'show', 'reorder', 'arrange', 'sections', 'tabs', 'task bar', 'toolbar'],
+  },
+  {
+    id: 'mcpServers', category: 'modules', label: 'MCP servers',
     hint: 'Declared by this project in .vylo/mcp.json. Read the command before enabling one — it runs on your machine, and every tool it offers is asked for before it runs.',
-    keywords: ['mcp', 'server', 'tools', 'plugins', 'extensions', 'model context protocol', 'enable', 'disable'],
+    keywords: ['mcp', 'server', 'tools', 'plugins', 'extensions', 'model context protocol', 'enable', 'disable', 'add a module', 'import', 'third party'],
   },
 
   // ── Storage ──
