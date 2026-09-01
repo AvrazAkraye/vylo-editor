@@ -39,6 +39,42 @@ ok('a closed shell is reported the same way', stateOf(shell(1, { dead: true, cod
 }
 ok('the word Terminal is translatable', titleOf(shell(2), 'تێرمینال').text === 'تێرمینال 2');
 
+// ── a name somebody typed ─────────────────────────────────────────────────
+{
+  ok('a typed name wins over the default', titleOf(shell(3, { name: 'scratch' })).text === 'scratch');
+  // A renamed command pane is still running that command; the words somebody
+  // chose are prose, not a string that ran.
+  const t = titleOf(cmd(1, 'npm test', { name: 'the failing one' }));
+  ok('and over the command', t.text === 'the failing one');
+  ok('and is set as prose, not as code', t.mono === false);
+  ok('an empty name falls back rather than showing nothing',
+     titleOf(shell(4, { name: '   ' })).text === 'Terminal 4');
+  ok('the command survives a rename, so it is not lost',
+     cmd(1, 'npm test', { name: 'x' }).command === 'npm test');
+}
+{
+  const list = [shell(1), cmd(2, 'npm test', { name: 'watcher' })];
+  ok('a renamed pane is found by its new name', filter(list, 'watcher').length === 1);
+  // The command is still what it runs, and people search for what they ran.
+  ok('and still by the command it is running', filter(list, 'npm').length === 1);
+  // Not by a terminal number: this pane was born running a command and was
+  // never labelled `Terminal 2`, so nobody has ever seen that name for it.
+  // This assertion said the opposite when it was first written, which is what
+  // sent the matcher looking for a number no pane of this kind ever had.
+  ok('but not by a terminal number it was never shown under',
+     filter(list, 'Terminal 2').length === 0);
+}
+{
+  // A command pane was never called `Terminal 2`, and a first attempt at the
+  // rule above matched the number unconditionally, so every command pane
+  // answered to every terminal number.
+  const list = [shell(1), cmd(2, 'npm test')];
+  ok('a command pane does not answer to a terminal number it never had',
+     filter(list, 'Terminal 2').length === 0, filter(list, 'Terminal 2').map((x) => x.command ?? x.n));
+  ok('and the shell that does still answers to its own',
+     filter(list, 'Terminal 1').length === 1);
+}
+
 // ── age ───────────────────────────────────────────────────────────────────
 // The identity translator: English is the key, so this is what `since` returns
 // with no translation, which is what the assertions below were written against.

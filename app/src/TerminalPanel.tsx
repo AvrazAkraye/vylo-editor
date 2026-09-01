@@ -73,6 +73,21 @@ export function TerminalPanel({
   // One row shows its colours at a time; two open pickers in a 236px column
   // is two rows of swatches nobody can tell apart.
   const [colouring, setColouring] = useState<string | null>(null);
+
+  /**
+   * Rename a pane.
+   *
+   * `window.prompt`, exactly as the chat list does it — the rail is a 236px
+   * column with no room for an inline field, and a modal that cannot be
+   * mistyped past is the right shape for something that replaces a label.
+   * Blank restores the default rather than leaving a nameless row.
+   */
+  function rename(tab: Tab) {
+    const typed = window.prompt(t('Rename this terminal'), titleOf(tab, t('Terminal')).text);
+    if (typed === null) return;
+    const name = typed.trim();
+    setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, name: name || undefined } : x)));
+  }
   // Ticks once a minute so the ages on the rows stay honest without a timer per
   // row. A terminal you opened an hour ago should not still say 1m.
   const [clock, setClock] = useState(() => Date.now());
@@ -275,6 +290,10 @@ export function TerminalPanel({
                         <span className="tsl-age">{since(tab.born, clock, t)}</span>
                       </span>
                     </span>
+                  </button>
+                  <button className="tsl-x" data-nodrag onClick={() => rename(tab)}
+                          title={t('Rename this terminal')} aria-label={t('Rename this terminal')}>
+                    <Icon name="pencil" size={12} />
                   </button>
                   <button className="tsl-x" data-nodrag
                           onClick={() => setColouring(colouring === tab.id ? null : tab.id)}

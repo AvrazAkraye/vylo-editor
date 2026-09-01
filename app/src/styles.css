@@ -100,6 +100,8 @@
      `.approve` carry a disabled treatment instead. */
   --dim: .45;
   --press: brightness(.94);
+  /* The dialog scrim. */
+  --scrim: rgb(0 0 0 / .32);
   /* Tag colours. Eight, each chosen twice — a value for the light ground and
      another for the dark one. That is what a colour picker structurally cannot
      do: the person choosing is looking at one theme and the person reading may
@@ -150,6 +152,9 @@
     /* Pressed. Dark surfaces lift rather than darken; the same filter in both
        themes would make one of them look broken. */
     --press: brightness(1.16);
+    /* Darker over a dark page: the same 32% that separates a dialog from white
+       barely separates one from near-black. */
+    --scrim: rgb(0 0 0 / .62);
     /* Lifted, and not the same eight: a colour that reads on paper goes muddy
        on a dark ground, and the blues suffer most. */
     --tag-red:#F0897C;
@@ -199,6 +204,9 @@
   /* Pressed. Dark surfaces lift rather than darken; the same filter in both
      themes would make one of them look broken. */
   --press: brightness(1.16);
+  /* Darker over a dark page: the same 32% that separates a dialog from white
+     barely separates one from near-black. */
+  --scrim: rgb(0 0 0 / .62);
   /* Lifted, and not the same eight: a colour that reads on paper goes muddy
      on a dark ground, and the blues suffer most. */
   --tag-red:#F0897C;
@@ -684,7 +692,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   display:grid; place-items:center; border-radius:var(--r-1);
   border:1.5px solid var(--rule-2); background:transparent; color:var(--on-fill);
 }
-.todo-row.done .todo-box{ background:var(--ok); border-color:var(--ok); }
+/* `--bg`, not `--on-fill`. `--ok` is a *dark* green on the light ground and a
+   *light* one on the dark, so a fixed near-white tick measures 6.6:1 in light
+   and 1.66:1 in dark — invisible exactly where the app is most used. The
+   background token flips with the theme and so stays opposite it: 6.4 and 10.1. */
+.todo-row.done .todo-box{ background:var(--ok); border-color:var(--ok); color:var(--bg); }
 .todo-text{ flex:1; min-width:0; font-size:var(--fs-4); line-height:1.5; word-break:break-word; }
 /* A command is set in the mono face for the same reason a command pane's title
    is: it is a string that will run, not a label. */
@@ -736,7 +748,11 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .tagpick{ display:flex; align-items:center; gap:var(--sp-2); padding:var(--sp-2); }
 .tagpick button{
   width:16px; height:16px; padding:0; flex:none; cursor:pointer;
-  border-radius:50%; border:1px solid rgb(0 0 0 / .18);
+  border-radius:50%;
+  /* A hairline that darkens a pale swatch and lightens a dark one. Hardcoded
+     black did the first and nothing at all for the second, which left the
+     darker tags edgeless on the dark ground. */
+  border:1px solid var(--rule-2);
 }
 .tagpick button.none{ background:transparent; border-style:dashed; border-color:var(--rule-2); }
 .tagpick button.on{ box-shadow:0 0 0 2px var(--bg), 0 0 0 3.5px var(--brand); }
@@ -1376,7 +1392,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* ── command palette (⌘P, ⌘⇧F) ───────────────────────────────────────── */
 .pal-back{
   position:fixed; inset:0; z-index:60; display:flex; justify-content:center;
-  padding-top:12vh; background:rgb(0 0 0 / .32); backdrop-filter:blur(2px);
+  padding-top:12vh; background:var(--scrim); backdrop-filter:blur(2px);
 }
 .pal{
   width:min(640px, 86vw); max-height:64vh; display:flex; flex-direction:column;

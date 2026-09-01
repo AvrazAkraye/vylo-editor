@@ -37,6 +37,16 @@ export type State =
 
 export interface Session {
   /**
+   * A name somebody typed, which wins over both defaults.
+   *
+   * Kept separate from the command rather than replacing it: a renamed command
+   * pane is still running that command, and losing the string would leave the
+   * one place it was visible showing a label instead. `titleOf` prefers this;
+   * the command is still there for search to match on.
+   */
+  name?: string;
+
+  /**
    * A colour, by name. In memory only, and deliberately: a session is a running
    * shell and does not outlive the app, so persisting a colour would be keeping
    * a label for a process that has gone.
@@ -62,6 +72,10 @@ export function stateOf(s: Session): State {
 
 /** The row's title, and whether it is a string that ran rather than a name. */
 export function titleOf(s: Session, term = 'Terminal'): { text: string; mono: boolean } {
+  // A typed name is prose whatever the pane is running: somebody who calls a
+  // pane "build watcher" wants those words, not a monospaced string that ran.
+  const named = (s.name ?? '').trim();
+  if (named) return { text: named, mono: false };
   return s.command
     ? { text: s.command, mono: true }
     : { text: `${term} ${s.n}`, mono: false };
@@ -102,7 +116,17 @@ export function matches(s: Session, query: string, term = 'Terminal'): boolean {
   const q = query.trim().toLowerCase();
   if (!q) return true;
   const { text } = titleOf(s, term);
-  return text.toLowerCase().includes(q) || (s.command ?? '').toLowerCase().includes(q);
+  // The name it *would* have had is searched too, so `Terminal 3` still finds a
+  // shell somebody has since renamed — the number is how people refer to a pane
+  // out loud long after the label changed.
+  //
+  // It is the default, not the number: a command pane was never called
+  // `Terminal 3`, and a first attempt that searched the number unconditionally
+  // made every command pane match it.
+  const fallback = s.command ? s.command : `${term} ${s.n}`;
+  return text.toLowerCase().includes(q)
+    || (s.command ?? '').toLowerCase().includes(q)
+    || fallback.toLowerCase().includes(q);
 }
 
 export function filter(list: Session[], query: string, term = 'Terminal'): Session[] {
