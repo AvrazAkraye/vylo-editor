@@ -6,8 +6,11 @@ import { explain } from './errors';
 import { move, orderBy } from './reorder';
 import { useReorder } from './useReorder';
 import { loadChatOrder, saveChatOrder } from './workspace';
+import { TagPicker } from './TagPicker';
+import { tagClass, type Tag } from './tags';
 import {
   ago, cleanTitle, exportFileName, exportMarkdown, renameChat, searchChats, type Chat,
+  setChatTag,
 } from './store';
 
 /**
@@ -61,6 +64,9 @@ interface Props {
 }
 
 export function Chats({ chats, current, root, onOpen, onDelete, onRenamed, t }: Props) {
+  // Which row is showing its colours. One at a time: two open pickers in a
+  // narrow column is two rows of swatches nobody can tell apart.
+  const [colouring, setColouring] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [err, setErr] = useState('');
   // Re-read when the folder changes: one component draws every project's chats,
@@ -155,7 +161,7 @@ export function Chats({ chats, current, root, onOpen, onDelete, onRenamed, t }: 
       {hits.length > 0 && (
         <div {...drag.strip}>
           {hits.map(({ chat: c, snippet }, i) => (
-            <div key={c.id} className={`ft-row chat-row ${drag.itemClass(i)} ${c.id === current ? 'on' : ''}`}>
+            <div key={c.id} className={`ft-row chat-row ${tagClass(c.tag)} ${drag.itemClass(i)} ${c.id === current ? 'on' : ''}`}>
               <button className="chat-open" onClick={() => onOpen(c)} title={c.title}>
                 <span className="ft-icon"><Icon name="chat" size={13} /></span>
                 <span className="ch-text">
@@ -180,11 +186,23 @@ export function Chats({ chats, current, root, onOpen, onDelete, onRenamed, t }: 
                   <Icon name="file" size={11} />
                 </button>
               </span>
+              <button className="chat-x" onClick={() => setColouring(colouring === c.id ? null : c.id)}
+                      data-nodrag title={t('Colour')} aria-label={t('Colour')}
+                      aria-expanded={colouring === c.id}>
+                <Icon name="dot" size={13} />
+              </button>
               <button className="chat-x" onClick={() => remove(c)} data-nodrag
                       title={`${t('Delete this chat')} — ${c.title}`}
                       aria-label={`${t('Delete this chat')} — ${c.title}`}>
                 <Icon name="close" size={12} />
               </button>
+              {colouring === c.id && (
+                <TagPicker value={c.tag} t={t}
+                           onPick={(tag: Tag) => {
+                             if (setChatTag(c.id, tag)) onRenamed();
+                             setColouring(null);
+                           }} />
+              )}
             </div>
           ))}
         </div>

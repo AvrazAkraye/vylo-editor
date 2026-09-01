@@ -87,6 +87,19 @@ export const ALLOW = {
     'ac-thinking': 'App.tsx builds `ac-${acStatus}`; CompleteStatus includes "thinking"',
     'ac-cooldown': 'App.tsx builds `ac-${acStatus}`; CompleteStatus includes "cooldown"',
     'ac-error': 'App.tsx builds `ac-${acStatus}`; CompleteStatus includes "error"',
+    // `tags.ts`: tagClass() builds `tag-${t}` from TAGS, and TagPicker.tsx
+    // builds `var(--tag-${tag})` from the same list. Eight colours, eight
+    // rules, and `tags.test.mjs` asserts every swatch produces a distinct
+    // class — so the set here cannot drift from the set there without that
+    // test failing first.
+    'tag-red': 'tags.ts builds `tag-${t}` from TAGS',
+    'tag-amber': 'tags.ts builds `tag-${t}` from TAGS',
+    'tag-green': 'tags.ts builds `tag-${t}` from TAGS',
+    'tag-teal': 'tags.ts builds `tag-${t}` from TAGS',
+    'tag-blue': 'tags.ts builds `tag-${t}` from TAGS',
+    'tag-violet': 'tags.ts builds `tag-${t}` from TAGS',
+    'tag-pink': 'tags.ts builds `tag-${t}` from TAGS',
+    'tag-grey': 'tags.ts builds `tag-${t}` from TAGS',
     // `Markdown.tsx`: <div className={`md-h md-h${h[1].length}`}> against
     // /^(#{1,4})\s+/ — four heading levels, four rules.
     'md-h1': 'Markdown.tsx builds `md-h${h[1].length}`; the pattern is #{1,4}',

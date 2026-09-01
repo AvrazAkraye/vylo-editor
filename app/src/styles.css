@@ -100,6 +100,19 @@
      `.approve` carry a disabled treatment instead. */
   --dim: .45;
   --press: brightness(.94);
+  /* Tag colours. Eight, each chosen twice — a value for the light ground and
+     another for the dark one. That is what a colour picker structurally cannot
+     do: the person choosing is looking at one theme and the person reading may
+     be in the other. Saturated enough to tell apart at three pixels wide, dark
+     enough here to sit on paper without glowing. */
+  --tag-red:#D0453B;
+  --tag-amber:#C4820E;
+  --tag-green:#2E8B57;
+  --tag-teal:#0E8A94;
+  --tag-blue:#2E6FD9;
+  --tag-violet:#7A4BD8;
+  --tag-pink:#C2418C;
+  --tag-grey:#7E7A93;
 
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -137,6 +150,16 @@
     /* Pressed. Dark surfaces lift rather than darken; the same filter in both
        themes would make one of them look broken. */
     --press: brightness(1.16);
+    /* Lifted, and not the same eight: a colour that reads on paper goes muddy
+       on a dark ground, and the blues suffer most. */
+    --tag-red:#F0897C;
+    --tag-amber:#E0AE5C;
+    --tag-green:#5FD3A8;
+    --tag-teal:#4FCBD6;
+    --tag-blue:#7FA9FF;
+    --tag-violet:#B79BFF;
+    --tag-pink:#F08AC4;
+    --tag-grey:#9A94B4;
     --syn-kw:#C4A9FF;
     --syn-str:#6BD6AE;
     --syn-num:#E0AE5C;
@@ -176,6 +199,16 @@
   /* Pressed. Dark surfaces lift rather than darken; the same filter in both
      themes would make one of them look broken. */
   --press: brightness(1.16);
+  /* Lifted, and not the same eight: a colour that reads on paper goes muddy
+     on a dark ground, and the blues suffer most. */
+  --tag-red:#F0897C;
+  --tag-amber:#E0AE5C;
+  --tag-green:#5FD3A8;
+  --tag-teal:#4FCBD6;
+  --tag-blue:#7FA9FF;
+  --tag-violet:#B79BFF;
+  --tag-pink:#F08AC4;
+  --tag-grey:#9A94B4;
   --syn-kw:#C4A9FF;
   --syn-str:#6BD6AE;
   --syn-num:#E0AE5C;
@@ -626,6 +659,38 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   position:absolute; top:7px; inset-inline-end:10px; font-size:var(--fs-1); letter-spacing:.08em;
   text-transform:uppercase; color:var(--mute); user-select:none;
 }
+/* ── tags ────────────────────────────────────────────────────────────────
+   A stripe down the leading edge rather than a dot. A dot is one more thing
+   competing with the icon these rows already carry; a stripe sits at the edge,
+   is the height of the row whatever the row contains, and reads down a column
+   of them at a glance — which is the whole job. */
+:is(.tag-red, .tag-amber, .tag-green, .tag-teal,
+    .tag-blue, .tag-violet, .tag-pink, .tag-grey){ position:relative; }
+:is(.tag-red, .tag-amber, .tag-green, .tag-teal,
+    .tag-blue, .tag-violet, .tag-pink, .tag-grey)::before{
+  content:''; position:absolute; inset-block:2px; inset-inline-start:0;
+  width:3px; border-start-end-radius:var(--r-1); border-end-end-radius:var(--r-1);
+  background:var(--tag);
+}
+.tag-red{ --tag:var(--tag-red); }
+.tag-amber{ --tag:var(--tag-amber); }
+.tag-green{ --tag:var(--tag-green); }
+.tag-teal{ --tag:var(--tag-teal); }
+.tag-blue{ --tag:var(--tag-blue); }
+.tag-violet{ --tag:var(--tag-violet); }
+.tag-pink{ --tag:var(--tag-pink); }
+.tag-grey{ --tag:var(--tag-grey); }
+
+/* The picker. Buttons rather than a `<select>`, because the choice is a colour
+   and a colour cannot be a word in a list. */
+.tagpick{ display:flex; align-items:center; gap:var(--sp-2); padding:var(--sp-2); }
+.tagpick button{
+  width:16px; height:16px; padding:0; flex:none; cursor:pointer;
+  border-radius:50%; border:1px solid rgb(0 0 0 / .18);
+}
+.tagpick button.none{ background:transparent; border-style:dashed; border-color:var(--rule-2); }
+.tagpick button.on{ box-shadow:0 0 0 2px var(--bg), 0 0 0 3.5px var(--brand); }
+
 /* ── pressed ─────────────────────────────────────────────────────────────
    Twenty-two of the twenty-eight selectors carrying `cursor:pointer` had no
    `:active` rule, so nothing in the app moved when it was clicked — which is

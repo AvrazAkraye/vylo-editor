@@ -36,6 +36,12 @@ export type State =
   | 'failed';
 
 export interface Session {
+  /**
+   * A colour, by name. In memory only, and deliberately: a session is a running
+   * shell and does not outlive the app, so persisting a colour would be keeping
+   * a label for a process that has gone.
+   */
+  tag?: string;
   id: string;
   /** 1-based, in the order panes were opened. Not an index into anything. */
   n: number;

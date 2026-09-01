@@ -3,6 +3,8 @@ import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
 import { filter, since, stateOf, titleOf } from './terminals';
+import { TagPicker } from './TagPicker';
+import { tagClass, type Tag } from './tags';
 import { move } from './reorder';
 import { useReorder } from './useReorder';
 
@@ -24,6 +26,12 @@ interface Tab {
   id: string; n: number; born: number; dead: boolean;
   /** Set when this pane exists to run one approved command. */
   command?: string;
+  /**
+   * A colour, by name. In memory only, and deliberately so: a terminal session
+   * is a running shell and does not outlive the app either, so persisting a
+   * colour would be keeping a label for a process that has gone.
+   */
+  tag?: string;
   /** The exit code once there is one. `null` means a signal, which is not a
    *  clean finish — the row shows that difference. */
   code?: number | null;
@@ -62,6 +70,9 @@ export function TerminalPanel({
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
   const [query, setQuery] = useState('');
+  // One row shows its colours at a time; two open pickers in a 236px column
+  // is two rows of swatches nobody can tell apart.
+  const [colouring, setColouring] = useState<string | null>(null);
   // Ticks once a minute so the ages on the rows stay honest without a timer per
   // row. A terminal you opened an hour ago should not still say 1m.
   const [clock, setClock] = useState(() => Date.now());
@@ -241,7 +252,7 @@ export function TerminalPanel({
               const state = stateOf(tab);
               const title = titleOf(tab, t('Terminal'));
               return (
-                <div key={tab.id} className={`tsl-row ${drag.itemClass(i)} ${tab.id === active ? 'on' : ''}`}>
+                <div key={tab.id} className={`tsl-row ${tagClass(tab.tag)} ${drag.itemClass(i)} ${tab.id === active ? 'on' : ''}`}>
                   <button className="tsl-pick" onClick={() => setActive(tab.id)}
                           aria-current={tab.id === active ? 'true' : undefined}>
                     <span className={`tsl-mark ${state}`}>
@@ -265,9 +276,22 @@ export function TerminalPanel({
                       </span>
                     </span>
                   </button>
+                  <button className="tsl-x" data-nodrag
+                          onClick={() => setColouring(colouring === tab.id ? null : tab.id)}
+                          title={t('Colour')} aria-label={t('Colour')}
+                          aria-expanded={colouring === tab.id}>
+                    <Icon name="dot" size={13} />
+                  </button>
                   <button className="tsl-x" onClick={() => close(tab.id)} data-nodrag
                           title={t('Close')}
                           aria-label={`${t('Close')} ${title.text}`}><Icon name="close" size={12} /></button>
+                  {colouring === tab.id && (
+                    <TagPicker value={tab.tag} t={t}
+                               onPick={(tag: Tag) => {
+                                 setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, tag } : x)));
+                                 setColouring(null);
+                               }} />
+                  )}
                 </div>
               );
             })}

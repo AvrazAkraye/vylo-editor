@@ -44,6 +44,13 @@ export interface Line {
 
 export interface Chat {
   id: string;
+  /**
+   * A colour, by name. Optional because every chat written before this existed
+   * has none, and `tagOf` in `tags.ts` turns anything it does not recognise
+   * into 'none' — so an old record, a hand-edited file and a future rename all
+   * arrive the same way and none of them stops the list rendering.
+   */
+  tag?: string;
   folder: string;
   title: string;
   updatedAt: number;
@@ -274,6 +281,21 @@ export function renameChat(id: string, raw: string): boolean {
   const chat = all[id];
   if (!chat) return false;
   all[id] = { ...chat, title, named: true };
+  persist(all);
+  return true;
+}
+
+/**
+ * Give a chat a colour, or take it away.
+ *
+ * Stores the name rather than a value, so the eight are free to be redrawn for
+ * a theme without every stored chat carrying the old hex.
+ */
+export function setChatTag(id: string, tag: string): boolean {
+  const all = readAll();
+  const chat = all[id];
+  if (!chat) return false;
+  all[id] = { ...chat, tag: tag === 'none' ? undefined : tag };
   persist(all);
   return true;
 }
