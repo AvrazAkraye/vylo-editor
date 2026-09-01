@@ -89,32 +89,80 @@ pub struct Search {
 /// `canonicalize` is what makes this real: it resolves `..` and symlinks, so a
 /// path that *looks* contained but escapes through a link is caught. The root
 /// is canonicalized too, otherwise the prefix comparison is meaningless.
+///
+/// ## When the path does not exist yet
+///
+/// This used to canonicalize the *parent* and give up if that failed, which
+/// meant a path whose directories did not exist yet could not be resolved at
+/// all — `.vylo/TODO.md` in a project that has never had a to-do list, which is
+/// every project the first time. The error read "parent is unreadable: No such
+/// file or directory", which is true and useless.
+///
+/// The old comment said containment could not be proven without canonicalizing
+/// the parent. That is not so, and the reason is worth writing down: **a
+/// component that does not exist cannot be a symlink**. Symlinks are the only
+/// thing that makes lexical path arithmetic a lie, so for the part of the path
+/// that is not there yet, lexical *is* exact. So this canonicalizes as far down
+/// as the filesystem actually goes — where a link could be hiding — and treats
+/// only the missing tail lexically.
 pub(crate) fn resolve(root: &str, rel: &str) -> Result<PathBuf, String> {
     let root = Path::new(root)
         .canonicalize()
         .map_err(|e| format!("workspace root is unreadable: {e}"))?;
+
+    let outside = || format!("{rel}: refused -- resolves outside the open folder");
+
+    // The whole path exists: canonicalize it and be done. This is the case that
+    // catches an escape through a symlink, because the link is followed here.
     let joined = root.join(rel);
-
-    // A file that does not exist yet cannot be canonicalized, so fall back to
-    // checking its parent -- this keeps the check honest for future writes.
-    let probe = if joined.exists() {
-        joined.canonicalize().map_err(|e| format!("{rel}: {e}"))?
-    } else {
-        let parent = joined
-            .parent()
-            .ok_or_else(|| format!("{rel}: has no parent directory"))?;
-        let parent = parent
-            .canonicalize()
-            .map_err(|e| format!("{rel}: parent is unreadable: {e}"))?;
-        parent.join(joined.file_name().unwrap_or_default())
-    };
-
-    if !probe.starts_with(&root) {
-        return Err(format!(
-            "{rel}: refused -- resolves outside the open folder"
-        ));
+    if joined.symlink_metadata().is_ok() {
+        let probe = joined.canonicalize().map_err(|e| format!("{rel}: {e}"))?;
+        return if probe.starts_with(&root) { Ok(probe) } else { Err(outside()) };
     }
-    Ok(probe)
+
+    // It does not. Fold `.` away and apply `..` lexically, refusing one that
+    // climbs above the root rather than letting `starts_with` catch it later —
+    // the same answer, arrived at before anything touches the disk.
+    let mut parts: Vec<std::ffi::OsString> = Vec::new();
+    for c in Path::new(rel).components() {
+        match c {
+            std::path::Component::Normal(seg) => parts.push(seg.to_os_string()),
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                if parts.pop().is_none() {
+                    return Err(outside());
+                }
+            }
+            // An absolute path is not a path inside the open folder. `join`
+            // would silently discard the root and hand back the absolute one.
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                return Err(outside());
+            }
+        }
+    }
+
+    // Walk down as far as the filesystem goes, canonicalizing each real step so
+    // a link part-way along is resolved and then checked.
+    let mut base = root.clone();
+    let mut at = 0;
+    while at < parts.len() {
+        let next = base.join(&parts[at]);
+        // `symlink_metadata` rather than `exists`, so a dangling symlink counts
+        // as *present*: `canonicalize` then fails and says so, instead of this
+        // deciding the path is missing and a later `create_dir_all` writing a
+        // directory where somebody had put a link.
+        if next.symlink_metadata().is_err() {
+            break;
+        }
+        base = next.canonicalize().map_err(|e| format!("{rel}: {e}"))?;
+        if !base.starts_with(&root) {
+            return Err(outside());
+        }
+        at += 1;
+    }
+
+    // Everything left is not there, so none of it can be a link.
+    Ok(parts[at..].iter().fold(base, |p, seg| p.join(seg)))
 }
 
 /// List the tree so the agent can orient itself cheaply.
@@ -540,10 +588,26 @@ fn apply_write_in(
         let _ = history::record_at(base, root, path, &previous);
     }
 
-    // Deliberately does not create missing directories. resolve() has to
-    // canonicalize the parent to prove containment, so a parent that does not
-    // exist cannot be verified -- and silently creating trees is not something
-    // to do on someone's disk without asking.
+    // The folders the path implies, if they are not there.
+    //
+    // This used to refuse, on the grounds that creating trees on somebody's
+    // disk without asking was not this function's business. The asking is not
+    // missing though — it happens before anything reaches here. Nothing calls
+    // `apply_write` except the approval flow, and what that flow puts on screen
+    // is the path. A person who approved a write to `.vylo/TODO.md` asked for
+    // the folder it lives in; refusing it means the button they pressed does
+    // nothing and the error blames a directory they never mentioned.
+    //
+    // `resolve` has already proven the path is inside the open folder, and it
+    // proved it by canonicalizing every part of it that exists — so the
+    // directories about to be created are inside the root too.
+    if let Some(parent) = p.parent() {
+        if parent.symlink_metadata().is_err() {
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("{path}: could not create the folder it goes in: {e}"))?;
+        }
+    }
+
     fs::write(&p, content).map_err(|e| format!("{path}: {e}"))
 }
 
@@ -1856,6 +1920,134 @@ mod tests {
     /// change a file, approving a diff prepared against an older version has to
     /// fail loudly rather than write over their work.
     #[test]
+    /// The bug: `.vylo/TODO.md` could not be saved in a project that had never
+    /// had a to-do list, because `resolve` canonicalized the parent and gave up
+    /// when it was not there. Every project is that project the first time.
+    #[test]
+    fn a_path_resolves_before_the_folders_above_it_exist() {
+        let tmp = std::env::temp_dir().join(format!("vylo_res_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+        let real = tmp.canonicalize().unwrap();
+
+        let p = resolve(&root, ".vylo/TODO.md").expect("a path under a folder that is not there yet");
+        assert_eq!(p, real.join(".vylo").join("TODO.md"));
+
+        // However deep. Nothing along the way exists, so nothing along the way
+        // can be a symlink, so all of it is exact.
+        let deep = resolve(&root, "a/b/c/d/e.txt").expect("several missing folders");
+        assert_eq!(deep, real.join("a").join("b").join("c").join("d").join("e.txt"));
+
+        // A file that does exist still comes back canonicalized, as before.
+        fs::write(tmp.join("here.txt"), "x").unwrap();
+        assert_eq!(resolve(&root, "here.txt").unwrap(), real.join("here.txt"));
+
+        // And a folder that half exists resolves through the real part.
+        fs::create_dir_all(tmp.join("half")).unwrap();
+        assert_eq!(
+            resolve(&root, "half/nothing/yet.txt").unwrap(),
+            real.join("half").join("nothing").join("yet.txt"),
+        );
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Being able to name a path that does not exist must not become a way out
+    /// of the folder. Every one of these was refused before the change and has
+    /// to stay refused after it.
+    #[test]
+    fn a_missing_path_is_still_not_a_way_out_of_the_folder() {
+        let tmp = std::env::temp_dir().join(format!("vylo_esc_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let root_dir = tmp.join("work");
+        fs::create_dir_all(&root_dir).unwrap();
+        fs::create_dir_all(tmp.join("secret")).unwrap();
+        let root = root_dir.to_string_lossy().to_string();
+
+        for rel in [
+            "../secret/out.txt",
+            "../../out.txt",
+            "a/../../out.txt",
+            "./../out.txt",
+            "nope/../../secret/out.txt",
+        ] {
+            let err = resolve(&root, rel).expect_err("must not resolve outside");
+            assert!(err.contains("outside the open folder"), "{rel}: {err}");
+        }
+
+        // An absolute path is not a path inside the folder, and `join` would
+        // have quietly thrown the root away and handed back the absolute one.
+        let outside = tmp.join("secret").join("out.txt");
+        let err = resolve(&root, &outside.to_string_lossy()).expect_err("absolute must be refused");
+        assert!(err.contains("outside the open folder"), "{err}");
+
+        // `..` that stays inside is fine, because it is only arithmetic.
+        assert!(resolve(&root, "a/b/../c.txt").is_ok());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The part of the path that exists is still followed, so a symlink cannot
+    /// be used as a bridge to a missing path outside the folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_symlink_part_way_along_is_still_followed() {
+        let tmp = std::env::temp_dir().join(format!("vylo_link_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        let root_dir = tmp.join("work");
+        fs::create_dir_all(&root_dir).unwrap();
+        fs::create_dir_all(tmp.join("elsewhere")).unwrap();
+        let root = root_dir.to_string_lossy().to_string();
+
+        std::os::unix::fs::symlink(tmp.join("elsewhere"), root_dir.join("out")).unwrap();
+
+        // The link exists, so it is resolved -- and what it points at is not in
+        // the folder. The file beyond it does not exist, which is exactly the
+        // case the lexical tail handles, and it must not be the case that skips
+        // the check.
+        let err = resolve(&root, "out/new.txt").expect_err("a link out must be refused");
+        assert!(err.contains("outside the open folder"), "{err}");
+
+        // A dangling link counts as present rather than missing, so a write
+        // cannot put a directory where somebody left a link.
+        std::os::unix::fs::symlink(tmp.join("gone"), root_dir.join("broken")).unwrap();
+        assert!(resolve(&root, "broken/x.txt").is_err());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// The other half of the bug: resolving the path is no use if the write
+    /// then fails because the folder is not there.
+    #[test]
+    fn a_write_creates_the_folders_its_path_implies() {
+        let tmp = std::env::temp_dir().join(format!("vylo_mkdir_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        apply_write_in(None, &root, ".vylo/TODO.md", "- [ ] first\n".into(), None)
+            .expect("a to-do list in a project that has never had one");
+        assert_eq!(fs::read_to_string(tmp.join(".vylo").join("TODO.md")).unwrap(), "- [ ] first\n");
+
+        // Several levels, and the empty expectation still means "new file".
+        apply_write_in(None, &root, "a/b/c.txt", "deep\n".into(), Some(String::new()))
+            .expect("several missing folders");
+        assert_eq!(fs::read_to_string(tmp.join("a").join("b").join("c.txt")).unwrap(), "deep\n");
+
+        // A second write into a folder that now exists is the ordinary path.
+        apply_write_in(None, &root, ".vylo/TODO.md", "- [x] first\n".into(), None).unwrap();
+        assert_eq!(fs::read_to_string(tmp.join(".vylo").join("TODO.md")).unwrap(), "- [x] first\n");
+
+        // Creating folders does not create a way out of the open folder.
+        let err = apply_write_in(None, &root, "../escaped.txt", "no\n".into(), None)
+            .expect_err("must not write outside");
+        assert!(err.contains("outside the open folder"), "{err}");
+        assert!(!tmp.parent().unwrap().join("escaped.txt").exists());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
     fn apply_write_refuses_a_file_that_moved_since_the_change_was_prepared() {
         let tmp = std::env::temp_dir().join(format!("vylo_write_{}", std::process::id()));
         let _ = fs::remove_dir_all(&tmp);
