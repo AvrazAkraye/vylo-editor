@@ -100,6 +100,22 @@ export const ALLOW = {
     'tag-violet': 'tags.ts builds `tag-${t}` from TAGS',
     'tag-pink': 'tags.ts builds `tag-${t}` from TAGS',
     'tag-grey': 'tags.ts builds `tag-${t}` from TAGS',
+    // `TodoTask.tsx` builds `pr-${task.priority}` from PRIORITIES, and the
+    // panel builds `pr-${sum.priority}` from the same union. Five priorities,
+    // five rules, and `todo.test.mjs` asserts every priority in PRIORITIES
+    // parses back to itself — so the set here cannot drift from the set there
+    // without that test failing first.
+    'pr-critical': 'TodoTask.tsx builds `pr-${p}` from PRIORITIES',
+    'pr-high': 'TodoTask.tsx builds `pr-${p}` from PRIORITIES',
+    'pr-medium': 'TodoTask.tsx builds `pr-${p}` from PRIORITIES',
+    'pr-low': 'TodoTask.tsx builds `pr-${p}` from PRIORITIES',
+    'pr-maybe': 'TodoTask.tsx builds `pr-${p}` from PRIORITIES',
+    // `TodoPanel.tsx` builds `sec-${s.key}` from SECTIONS. Only the three that
+    // mean "act now" have a rule; the rest fall through to the plain heading,
+    // which is why this list is shorter than SECTIONS.
+    'sec-today': 'TodoPanel.tsx builds `sec-${s.key}` from SECTIONS',
+    'sec-doing': 'TodoPanel.tsx builds `sec-${s.key}` from SECTIONS',
+    'sec-blocked': 'TodoPanel.tsx builds `sec-${s.key}` from SECTIONS',
     // `Markdown.tsx`: <div className={`md-h md-h${h[1].length}`}> against
     // /^(#{1,4})\s+/ — four heading levels, four rules.
     'md-h1': 'Markdown.tsx builds `md-h${h[1].length}`; the pattern is #{1,4}',

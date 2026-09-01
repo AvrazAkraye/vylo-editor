@@ -2836,6 +2836,7 @@ export function App() {
               <TodoPanel root={root} t={t}
                     onToChat={(text) => setPrompt((p) => (p.trim() ? `${p.trim()}\n${text}` : text))}
                     onToTerminal={(command) => void runStep(command)}
+                    onOpenFile={(path) => openFile(path)}
                     onError={(m) => push({ kind: 'error', text: m })}
                     onLeft={setTodoLeft} />
             )}

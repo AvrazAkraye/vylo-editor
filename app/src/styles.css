@@ -159,6 +159,7 @@
        on a dark ground, and the blues suffer most. */
     --tag-red:#F0897C;
     --tag-amber:#E0AE5C;
+    --amber-ink:var(--tag-amber);
     --tag-green:#5FD3A8;
     --tag-teal:#4FCBD6;
     --tag-blue:#7FA9FF;
@@ -211,6 +212,7 @@
      on a dark ground, and the blues suffer most. */
   --tag-red:#F0897C;
   --tag-amber:#E0AE5C;
+  --amber-ink:var(--tag-amber);
   --tag-green:#5FD3A8;
   --tag-teal:#4FCBD6;
   --tag-blue:#7FA9FF;
@@ -690,20 +692,8 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
    convention becomes visible — and that is deliberate: the difference between a
    sentence and a command should be legible before you press anything. */
 .todo{ display:flex; flex-direction:column; min-height:0; }
-.todo-head{
-  flex:none; display:flex; align-items:center; gap:var(--sp-4);
-  padding:var(--sp-4) var(--sp-6) var(--sp-3);
-}
-.todo-count{ font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
-.todo-bar{ flex:1; height:3px; border-radius:2px; background:var(--panel-3); overflow:hidden; }
-.todo-bar i{ display:block; block-size:100%; background:var(--ok); }
 
 .todo-list{ flex:1; min-height:0; overflow-y:auto; list-style:none; margin:0; padding:0 var(--sp-3); }
-.todo-row{
-  display:flex; align-items:flex-start; gap:var(--sp-3);
-  padding:var(--sp-3) var(--sp-3); border-radius:var(--r-2);
-}
-.todo-row:hover{ background:var(--panel-3); }
 .todo-box{
   flex:none; margin-block-start:1px; width:15px; height:15px; padding:0; cursor:pointer;
   display:grid; place-items:center; border-radius:var(--r-1);
@@ -713,21 +703,16 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
    *light* one on the dark, so a fixed near-white tick measures 6.6:1 in light
    and 1.66:1 in dark — invisible exactly where the app is most used. The
    background token flips with the theme and so stays opposite it: 6.4 and 10.1. */
-.todo-row.done .todo-box{ background:var(--ok); border-color:var(--ok); color:var(--bg); }
-.todo-text{ flex:1; min-width:0; font-size:var(--fs-4); line-height:1.5; word-break:break-word; }
+.tk.done .todo-box{ background:var(--ok); border-color:var(--ok); color:var(--bg); }
 /* A command is set in the mono face for the same reason a command pane's title
    is: it is a string that will run, not a label. */
-.todo-text.mono{ font-family:var(--mono); font-size:var(--fs-3); }
-.todo-row.done .todo-text{ color:var(--mute); text-decoration:line-through; }
-.todo-act, .todo-x{
+.todo-act{
   flex:none; display:grid; place-items:center; width:22px; height:22px;
   border:0; border-radius:var(--r-1); background:transparent; color:var(--mute);
   cursor:pointer; opacity:0;
 }
-.todo-row:hover .todo-act, .todo-row:hover .todo-x,
-.todo-act:focus-visible, .todo-x:focus-visible{ opacity:1; }
+.todo-act:focus-visible{ opacity:1; }
 .todo-act:hover{ color:var(--brand); background:var(--panel); }
-.todo-x:hover{ color:var(--err); background:var(--panel); }
 
 .todo-add{ flex:none; padding:var(--sp-3) var(--sp-6) var(--sp-5); }
 .todo-add input{
@@ -737,6 +722,201 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .todo-add input:focus-visible{ border-color:var(--brand); }
 .todo-where{ padding-block-start:0; }
+
+/* ── The plan ─────────────────────────────────────────────────────────────
+   A checklist answers "is it done". A plan has to answer what is being worked
+   on, what is next, what is blocked and how much is left — which is more
+   information than a row of ticks can carry, and the risk is that the answer
+   is a wall.
+
+   So the density is layered. Closed, a task is one line and its metadata is
+   small type at the end of it: scannable, and quiet enough that a list of
+   twenty is still a list rather than a table. Open, the same task grows the
+   controls that set those values. Nothing is hidden behind a menu, and nothing
+   is on screen for twenty tasks that only one of them needs. */
+
+/* Status colours. One hue per state, defined once and used by the dot, the
+   pill, the board column and the overview, so a colour means the same thing
+   wherever it turns up. */
+:root{
+  /* Amber, dark enough to be *text*.
+     `--tag-amber` is drawn as a stripe and a dot elsewhere, where the bar is
+     3:1 for a UI shape and it passes comfortably. As chip text on the light
+     ground it measures 3.21:1 against white, and 2.83:1 against the 12% wash
+     the chip actually sits on — a fail, on the one chip that has to be read:
+     High priority. This is the same value darkened until it passes (5.0:1 on
+     the wash), and in dark mode the existing amber is already 8.6:1, so there
+     it stays as it is. */
+  --amber-ink:#8A5A00;
+  --st-todo:var(--mute);
+  --st-planning:var(--tag-violet);
+  --st-doing:var(--tag-blue);
+  --st-review:var(--tag-teal);
+  --st-testing:var(--amber-ink);
+  --st-blocked:var(--err);
+  --st-deferred:var(--tag-grey);
+  --st-done:var(--ok);
+}
+.st-todo{ --st:var(--st-todo); }
+.st-planning{ --st:var(--st-planning); }
+.st-doing{ --st:var(--st-doing); }
+.st-review{ --st:var(--st-review); }
+.st-testing{ --st:var(--st-testing); }
+.st-blocked{ --st:var(--st-blocked); }
+.st-deferred{ --st:var(--st-deferred); }
+.st-done{ --st:var(--st-done); }
+
+/* Priority. Only the top two get a colour: if every priority is coloured then
+   none of them is a signal, and the two that change what somebody does next
+   are critical and high. */
+.pr-critical{ --pr:var(--err); }
+.pr-high{ --pr:var(--amber-ink); }
+.pr-medium{ --pr:var(--mute); }
+.pr-low{ --pr:var(--mute); }
+.pr-maybe{ --pr:var(--mute); }
+
+/* ── Overview ─────────────────────────────────────────────────────────── */
+.tv-head{ flex:none; padding:var(--sp-4) var(--sp-6) var(--sp-3); border-block-end:1px solid var(--rule); }
+.tv-top{ display:flex; align-items:baseline; gap:var(--sp-3); }
+.tv-state{ display:inline-flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-3); color:var(--ink); font-weight:500; }
+.tv-state i{ inline-size:8px; block-size:8px; border-radius:50%; background:var(--st, var(--mute)); }
+.tv-pct{ margin-inline-start:auto; font-size:var(--fs-6); font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
+.tv-bar{ display:block; block-size:4px; margin-block:var(--sp-3) var(--sp-3); border-radius:3px; background:var(--panel-3); overflow:hidden; }
+.tv-bar i{ display:block; block-size:100%; border-radius:3px; background:var(--st, var(--brand)); transition:inline-size .25s ease; }
+
+.tv-facts{ display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-5); margin:0; }
+.tv-facts div{ display:flex; align-items:baseline; gap:var(--sp-2); }
+.tv-facts dt{ font-size:var(--fs-1); color:var(--mute); text-transform:uppercase; letter-spacing:.06em; }
+.tv-facts dd{ margin:0; font-size:var(--fs-2); color:var(--ink); font-variant-numeric:tabular-nums; max-inline-size:14ch; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tv-facts dd.st-blocked{ color:var(--err); }
+.tv-facts dd[class^="pr-"]{ color:var(--pr, var(--ink)); }
+
+.tv-files{ display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); margin:var(--sp-3) 0 0; color:var(--mute); }
+.tk-more-n{ font-size:var(--fs-1); color:var(--mute); }
+
+/* ── Toolbar ──────────────────────────────────────────────────────────── */
+.tv-bar-row{ flex:none; display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) var(--sp-6); }
+.tv-views{ display:flex; gap:2px; padding:2px; border-radius:var(--r-2); background:var(--panel-3); }
+.tv-views button{
+  display:inline-flex; align-items:center; gap:var(--sp-2); cursor:pointer;
+  padding:var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-2);
+}
+.tv-views button.on{ background:var(--panel); color:var(--ink); box-shadow:var(--shadow); }
+.tv-views button:hover:not(.on){ color:var(--ink); }
+
+.tv-find{ flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-2);
+  padding-inline:var(--sp-3); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--bg); color:var(--mute); }
+.tv-find:focus-within{ border-color:var(--brand); }
+.tv-find input{ flex:1; min-inline-size:0; border:0; outline:none; background:transparent;
+  font:inherit; font-size:var(--fs-2); color:var(--ink); padding-block:var(--sp-2); }
+.tv-find button{ border:0; background:transparent; color:var(--mute); cursor:pointer; display:grid; place-items:center; }
+.tv-sort{ font:inherit; font-size:var(--fs-2); color:var(--ink); background:var(--bg);
+  border:1px solid var(--rule); border-radius:var(--r-2); padding:var(--sp-2); max-inline-size:13ch; }
+
+.tv-plan{ flex:none; font-size:var(--fs-2); padding:var(--sp-2) var(--sp-3); }
+.tv-tags{ flex:none; display:flex; flex-wrap:wrap; gap:var(--sp-2); padding:0 var(--sp-6) var(--sp-3); }
+
+/* ── Views ────────────────────────────────────────────────────────────── */
+.tv-body{ flex:1; min-height:0; overflow-y:auto; }
+.tv-body > .todo-list{ overflow:visible; }
+.tv-sec{ padding-block-end:var(--sp-3); }
+.tv-sec h3, .tv-col h3{
+  position:sticky; inset-block-start:0; z-index:1;
+  display:flex; align-items:center; gap:var(--sp-2); margin:0;
+  padding:var(--sp-3) var(--sp-6) var(--sp-2);
+  font-size:var(--fs-1); font-weight:600; text-transform:uppercase; letter-spacing:.06em;
+  color:var(--mute); background:var(--panel);
+}
+.tv-sec h3 em, .tv-col h3 em{ margin-inline-start:auto; font-style:normal; font-variant-numeric:tabular-nums; opacity:.7; }
+/* The section a task is in is a claim about what to look at first, so the two
+   that mean "act now" carry their colour into the heading. */
+.sec-today h3{ color:var(--amber-ink); }
+.sec-blocked h3{ color:var(--err); }
+.sec-doing h3{ color:var(--tag-blue); }
+
+.tv-board{ display:flex; gap:var(--sp-3); padding:0 var(--sp-4) var(--sp-4); overflow-x:auto; align-items:flex-start; }
+.tv-col{ flex:0 0 240px; border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel-2); overflow:hidden; }
+.tv-col h3{ padding-inline:var(--sp-4); background:var(--panel-2); border-block-end:1px solid var(--rule); }
+.tv-col h3 i{ inline-size:7px; block-size:7px; border-radius:50%; background:var(--st, var(--mute)); }
+.tv-col .todo-list{ padding:var(--sp-2); max-block-size:52vh; }
+.tv-none{ padding:var(--sp-4); font-size:var(--fs-2); color:var(--mute); list-style:none; }
+
+/* ── A task ───────────────────────────────────────────────────────────── */
+.tk{ list-style:none; border-radius:var(--r-2); }
+.tk-row{ display:flex; align-items:flex-start; gap:var(--sp-3); padding:var(--sp-3); border-radius:var(--r-2); }
+.tk-row:hover{ background:var(--panel-3); }
+.tk.open > .tk-row{ background:var(--panel-3); }
+/* The status colour rides the leading edge, where a column of them reads at a
+   glance — the same argument the tag stripe won. */
+.tk:not(.st-todo):not(.st-done) > .tk-row{ box-shadow:inset 2px 0 0 var(--st); }
+
+.tk-main{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:var(--sp-2);
+  border:0; background:transparent; padding:0; text-align:start; cursor:pointer; font:inherit; color:inherit; }
+.tk-line{ display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); }
+.tk-title{ font-size:var(--fs-4); line-height:1.45; color:var(--ink); word-break:break-word; }
+.tk-title.mono{ font-family:var(--mono); font-size:var(--fs-3); }
+.tk.done .tk-title{ color:var(--mute); text-decoration:line-through; }
+
+.tk-chip{ display:inline-flex; align-items:center; gap:3px; flex:none;
+  padding:1px var(--sp-2); border-radius:var(--r-1); font-size:var(--fs-1);
+  line-height:1.6; color:var(--st, var(--pr, var(--mute)));
+  background:color-mix(in srgb, var(--st, var(--pr, var(--mute))) 12%, transparent); }
+.tk-chip.quiet{ color:var(--mute); background:transparent; padding-inline:0; }
+.tk-chip[class*="pr-"]{ color:var(--pr); background:color-mix(in srgb, var(--pr) 12%, transparent); }
+.tk-tag{ display:inline-flex; align-items:center; gap:3px; flex:none; cursor:pointer;
+  padding:1px var(--sp-2); border-radius:var(--r-1); font-size:var(--fs-1); line-height:1.6;
+  border:1px solid var(--rule); background:transparent; color:var(--mute); font-family:var(--mono); }
+.tk-tag em{ font-style:normal; opacity:.6; }
+.tk-tag.on{ border-color:var(--brand); color:var(--brand); }
+.tk-tag:hover{ color:var(--ink); }
+
+.tk-wait{ display:inline-flex; align-items:center; gap:var(--sp-2); font-size:var(--fs-2); color:var(--err); }
+.tk-bar{ display:flex; align-items:center; gap:var(--sp-2); }
+.tk-bar i{ flex:0 0 120px; block-size:3px; border-radius:2px; background:var(--panel-3); overflow:hidden; }
+.tk-bar i b{ display:block; block-size:100%; border-radius:2px; background:var(--st, var(--brand)); transition:inline-size .2s ease; }
+.tk-bar em{ font-style:normal; font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+.tk-files{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+.tk-file{ display:inline-flex; align-items:center; gap:3px; cursor:pointer; border:0; background:transparent;
+  font-family:var(--mono); font-size:var(--fs-1); color:var(--mute); padding:0; }
+.tk-file:hover{ color:var(--brand); text-decoration:underline; }
+
+.tk-acts{ flex:none; display:flex; gap:2px; }
+.tk-row:hover .todo-act, .tk-row:focus-within .todo-act{ opacity:1; }
+.tk-note{ margin:0; padding-block:0 var(--sp-3); padding-inline:30px var(--sp-3); font-size:var(--fs-2); color:var(--mute); white-space:pre-wrap; }
+.tk-note.one{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* ── An open task ─────────────────────────────────────────────────────── */
+.tk-open{ padding-block:var(--sp-2) var(--sp-4); padding-inline:30px var(--sp-3); display:flex; flex-direction:column; gap:var(--sp-3); }
+.tk-set{ display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; }
+.tk-label{ flex:none; inline-size:9ch; font-size:var(--fs-1); color:var(--mute); text-transform:uppercase; letter-spacing:.06em; }
+.tk-pills{ display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; }
+.tk-pill{ cursor:pointer; padding:2px var(--sp-3); border-radius:999px; font:inherit; font-size:var(--fs-1);
+  border:1px solid var(--rule); background:transparent; color:var(--mute);
+  display:inline-flex; align-items:center; gap:3px; }
+.tk-pill:hover{ color:var(--ink); border-color:var(--rule-2); }
+.tk-pill.on{ color:var(--st, var(--pr, var(--brand))); border-color:currentColor;
+  background:color-mix(in srgb, var(--st, var(--pr, var(--brand))) 12%, transparent); }
+.tk-range{ flex:1; min-inline-size:120px; max-inline-size:220px; accent-color:var(--brand); }
+.tk-range:disabled{ opacity:.4; }
+.tk-pct{ font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; min-inline-size:4ch; }
+.tk-date{ font:inherit; font-size:var(--fs-1); color:var(--ink); background:var(--bg);
+  border:1px solid var(--rule); border-radius:var(--r-1); padding:1px var(--sp-2); }
+.tk-tagin{ font:inherit; font-size:var(--fs-1); color:var(--ink); background:transparent;
+  border:1px dashed var(--rule); border-radius:999px; padding:2px var(--sp-3); outline:none; inline-size:11ch; }
+.tk-tagin:focus-visible{ border-style:solid; border-color:var(--brand); }
+.tk-more{ display:flex; flex-wrap:wrap; gap:var(--sp-2); padding-block-start:var(--sp-2); border-block-start:1px solid var(--rule); }
+.tk-more .ghost{ font-size:var(--fs-1); padding:var(--sp-2) var(--sp-3); }
+.tk-more .ghost.danger:hover{ color:var(--err); }
+.tk-kids{ list-style:none; margin:0; padding:0; }
+
+.tv-help{ position:absolute; inset-inline-end:calc(var(--sp-6) + var(--sp-2)); inset-block-start:50%;
+  transform:translateY(-50%); border:0; background:transparent; color:var(--mute); cursor:pointer;
+  display:grid; place-items:center; }
+.tv-help:hover{ color:var(--brand); }
+.todo-add{ position:relative; }
+.todo-add input{ padding-inline-end:var(--sp-8); }
 
 /* ── tags ────────────────────────────────────────────────────────────────
    A stripe down the leading edge rather than a dot. A dot is one more thing

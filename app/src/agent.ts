@@ -242,6 +242,18 @@ const BASE_SYSTEM = [
   `${MEMORY_FILE} in the repository, so it is reviewable and shared with the team`,
   `rather than hidden in this app.`,
   '',
+  // The plan is a file the agent can propose like any other, so it has to know
+  // the grammar or its tasks arrive as flat prose and lose every column of the
+  // panel. Kept to eight lines because it rides on every request.
+  'The project plan is `.vylo/TODO.md`, a markdown checklist where each task may',
+  'carry trailing tokens: `!high` priority (critical/high/medium/low/maybe),',
+  '`@doing` status (planning/doing/review/testing/blocked/deferred), `%45` progress,',
+  '`~40m` estimate (90, 40m, 2h, 1h30m, 3d), `#tag`, `+path/to/file` for a file it',
+  'touches, `>Other task` for something it waits on, `^today` for a due date.',
+  'Subtasks are indented; `## Headings` group tasks into milestones. When asked to',
+  'plan work, propose an edit to that file in this form — estimates and dependencies',
+  'included, because they are what makes the plan answer anything.',
+  '',
   'Be concise. Cite paths as path:line when you can.',
 ].join('\n');
 
