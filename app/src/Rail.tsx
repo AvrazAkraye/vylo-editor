@@ -13,7 +13,7 @@ import { Icon, type IconName } from './Icon';
  * VS Code and Cursor behave and is the fastest way to get the width back.
  */
 
-export type RailId = 'files' | 'search' | 'changes' | 'chats' | 'memory';
+export type RailId = 'files' | 'search' | 'changes' | 'chats' | 'todo' | 'memory';
 
 export interface RailItem {
   id: RailId;

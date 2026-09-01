@@ -82,6 +82,7 @@ import {
 } from './account';
 import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
+import { TodoPanel } from './TodoPanel';
 import { SignIn } from './SignIn';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -212,6 +213,9 @@ export function App() {
   // Index of the reply currently being written to, so deltas append to it
   // instead of each one becoming its own line.
   const openLine = useRef<number | null>(null);
+  // How many steps are unticked. A badge saying how many exist would be a
+  // number that never changes; the one worth glancing at is what is left.
+  const [todoLeft, setTodoLeft] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   /**
    * The settings row a search result chose, or null.
@@ -1837,6 +1841,33 @@ export function App() {
    * can read the command's output immediately instead of the turn ending and
    * the context being re-sent.
    */
+  /**
+   * Run one step from the to-do list.
+   *
+   * Through `askToRun`, which is the same gate a command the model proposed
+   * goes through, and then into the **visible** terminal rather than the pipe.
+   * Both halves are deliberate.
+   *
+   * The gate, because the app cannot know a step is the human's own string:
+   * `.vylo/TODO.md` is a file in the repository, so the agent can write to it
+   * through the review gate, a colleague can push to it, and it arrives with a
+   * clone. Its provenance is a file, not a keystroke — which is exactly the
+   * case VYLO.md's one-way rule is about, and why typing it into the shell for
+   * somebody to press Enter on would be the reverse bridge that rule forbids.
+   *
+   * The visible terminal, because a step somebody is stepping through is one
+   * they want to watch and be able to interrupt. The pipe exists so the model
+   * can read output; here there is no model in the loop.
+   */
+  async function runStep(command: string) {
+    const choice = await askToRun({ command, reason: t('A step from the to-do list.') });
+    if (choice === 'no') return;
+    if (!termRun.current) { setShowTerm(true); push({ kind: 'result', text: t('Open the terminal first.') }); return; }
+    setShowTerm(true);
+    try { await termRun.current(command); }
+    catch (e) { push({ kind: 'error', text: explain(e, `${t('run')} ${command}`) }); }
+  }
+
   function askToRun(req: CommandRequest): Promise<RunChoice> {
     if (trusted.current.has(req.command)) return Promise.resolve('pipe');
     setAskRun(req);
@@ -2628,6 +2659,7 @@ export function App() {
             { id: 'search', icon: 'search', label: t('Search') },
             { id: 'changes', icon: 'diff', label: t('Changes'), badge: changes.length + tracked.length },
             { id: 'chats', icon: 'chat', label: t('Chats') },
+            { id: 'todo', icon: 'check', label: t('To do'), badge: todoLeft },
             { id: 'memory', icon: 'memory', label: t('Memory') },
           ]}
           active={rail}
@@ -2780,6 +2812,14 @@ export function App() {
                   </>
                 )}
               </>
+            )}
+
+            {rail === 'todo' && (
+              <TodoPanel root={root} t={t}
+                    onToChat={(text) => setPrompt((p) => (p.trim() ? `${p.trim()}\n${text}` : text))}
+                    onToTerminal={(command) => void runStep(command)}
+                    onError={(m) => push({ kind: 'error', text: m })}
+                    onLeft={setTodoLeft} />
             )}
 
             {rail === 'memory' && (
