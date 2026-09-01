@@ -10,7 +10,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
   MODULES, DEFAULT, KEY, moduleOf, labelOf, read, write, isOn, enabled,
-  toggle, isLast, moveTo, reset, active,
+  toggle, isLast, moveTo, reset, active, setSide, railFirst,
 } from '../.test-build/modules.js';
 
 let pass = 0, fail = 0;
@@ -88,7 +88,9 @@ ok('a duplicate in a saved order is kept once', (() => {
 }
 
 ok('write then read is the same layout', (() => {
-  const l = { order: ['todo', 'files', 'search', 'changes', 'chats', 'memory'], off: ['chats'] };
+  // Built from `ids` rather than written out: a list spelled out here is a copy
+  // of the registry, and a copy is what this whole module exists to avoid.
+  const l = { order: [...ids].reverse(), off: [ids[2]], side: 'left' };
   const back = read(write(l));
   return back.order.join() === l.order.join() && back.off.join() === l.off.join();
 })());
@@ -123,7 +125,7 @@ ok('write then read is the same layout', (() => {
   const l = read(null);
   ok('a module moves to the front', moveTo(l, 4, 0).order[0] === ids[4]);
   ok('and the rest close up behind it',
-     moveTo(l, 0, 2).order.join() === [ids[1], ids[2], ids[0], ids[3], ids[4], ids[5]].join(),
+     moveTo(l, 0, 2).order.join() === [ids[1], ids[2], ids[0], ...ids.slice(3)].join(),
      moveTo(l, 0, 2).order);
   ok('moving to where it already is changes nothing', moveTo(l, 2, 2) === l);
   ok('an index off either end changes nothing',
@@ -134,7 +136,7 @@ ok('write then read is the same layout', (() => {
   ok('an off module still takes up a position, so a drag past it lands right', (() => {
     const withOff = toggle(l, ids[1]);          // ids[1] is off but still listed
     return moveTo(withOff, 0, 2).order.join() ===
-      [ids[1], ids[2], ids[0], ids[3], ids[4], ids[5]].join();
+      [ids[1], ids[2], ids[0], ...ids.slice(3)].join();
   })(), moveTo(toggle(l, ids[1]), 0, 2).order);
   ok('reset puts everything back', (() => {
     const messed = moveTo(toggle(l, 'search'), 5, 0);
@@ -186,6 +188,35 @@ ok('write then read is the same layout', (() => {
     .filter((s) => !i18n.includes(`'${s.replace(/'/g, "\\'")}':`));
   ok('every module label and description is translated', absent.length === 0, absent);
 }
+
+// ── which edge the rail sits against ──────────────────────────────────────
+//
+// Physical, not logical, and that is the awkward but correct choice: somebody
+// who asks for the rail on the left means the left of their screen, in every
+// language. The rail is furniture, not prose, and it does not flip when the
+// text does.
+ok('the rail starts on the left', DEFAULT.side === 'left' && read(null).side === 'left');
+ok('and moves', setSide(read(null), 'right').side === 'right');
+ok('moving it to where it is changes nothing', (() => {
+  const l = read(null);
+  return setSide(l, 'left') === l;
+})());
+ok('the side survives a save and a load', read(write(setSide(read(null), 'right'))).side === 'right');
+ok('a saved side is honoured', read('{"side":"right"}').side === 'right');
+ok('nonsense falls back to the left', read('{"side":"up"}').side === 'left');
+ok('a missing side falls back to the left', read('{"order":[]}').side === 'left');
+ok('and reset puts it back', setSide(read(null), 'right') && reset().side === 'left');
+ok('toggling a module does not move the rail', toggle(setSide(read(null), 'right'), 'search').side === 'right');
+ok('and neither does reordering', moveTo(setSide(read(null), 'right'), 0, 2).side === 'right');
+
+// A left-to-right row lays its first item on the left; a right-to-left row lays
+// it on the right. So "keep it on the left" is *first* in one and *last* in the
+// other, and getting this backwards puts the rail on the wrong edge for every
+// Arabic and Kurdish user without anybody who reads English ever seeing it.
+ok('left is the first child in a left-to-right window', railFirst('left', 'ltr') === true);
+ok('and the last child in a right-to-left one', railFirst('left', 'rtl') === false);
+ok('right is the last child in a left-to-right window', railFirst('right', 'ltr') === false);
+ok('and the first child in a right-to-left one', railFirst('right', 'rtl') === true);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

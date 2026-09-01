@@ -53,7 +53,7 @@ import { Icon } from './Icon';
 import { Rail } from './Rail';
 import {
   KEY as MODULES_KEY, active as activeModule, enabled as enabledModules,
-  labelOf, read as readModules, write as writeModules,
+  labelOf, railFirst, read as readModules, write as writeModules,
   type Layout as ModuleLayout, type ModuleId,
 } from './modules';
 import { SettingsPanel } from './SettingsPanel';
@@ -89,6 +89,9 @@ import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { TodoPanel } from './TodoPanel';
 import { Working } from './Working';
+import { OutlinePanel } from './OutlinePanel';
+import { dirFor } from './rtl';
+import { MAX_PANES, prune as prunePanes, toggle as togglePane } from './panes';
 import {
   IDLE as NO_PROGRESS, advance as advanceProgress,
   type Event as ProgressEvent, type Progress,
@@ -230,6 +233,15 @@ export function App() {
    * the ref and setting state from it keeps the reducer honest without every
    * callback having to close over the latest value.
    */
+  /**
+   * Which editors are drawn at once.
+   *
+   * Every open file is mounted whichever of them are showing — unmounting one
+   * would throw away unsaved edits and its undo history — so this is the same
+   * problem the terminal panes solved, and it reuses the same rules: order
+   * follows the tab strip, the set is never empty, three is the cap.
+   */
+  const [shownFiles, setShownFiles] = useState<string[]>([]);
   const [progress, setProgress] = useState<Progress>(NO_PROGRESS);
   const track = useRef(NO_PROGRESS);
   const note = useCallback((e: ProgressEvent) => {
@@ -1651,6 +1663,21 @@ export function App() {
    */
   const shown = activeModule(modules, rail);
 
+  /**
+   * Show a file beside the others, or stop showing it.
+   *
+   * Hiding the pane you are *in* has to move the caret somewhere first,
+   * otherwise the next render puts it straight back — the open tab is always
+   * drawn, which is the invariant that makes the pane set need no effect to
+   * keep it in step.
+   */
+  function splitTo(path: string) {
+    const next = togglePane(panes, path, files);
+    if (!next.includes(path) && path === active) setActive(next[0] ?? path);
+    else if (next.includes(path) && !panes.includes(path)) setActive(path);
+    setShownFiles(next);
+  }
+
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
   function pickRail(id: ModuleId) {
     if (id === rail && railOpen) { setRailOpen(false); return; }
@@ -2576,6 +2603,15 @@ export function App() {
   const planChip = chip(plan);
   // The pseudo-tabs are on the strip but not on the editor stack.
   const files = tabs.filter(isFile);
+  // Pruned on every render rather than in an effect: a tab can close from a
+  // file being deleted on disk, which is not a click, and a pane pointing at it
+  // would draw nothing.
+  // The open tab is always one of the panes — the set only ever adds panes
+  // *beside* it — so there is no state to keep in step and no effect to write.
+  const panes = isFile(active)
+    ? prunePanes(shownFiles.includes(active) ? shownFiles : [active], files)
+    : [];
+  const split = panes.length > 1;
 
   return (
     <div className={`shell ${full ? 'fullscreen' : ''}`}>
@@ -2746,7 +2782,10 @@ export function App() {
         />
       )}
 
-      <div className="body">
+      {/* `rail-end` moves the rail to the other edge by reordering the flex
+          children. Which order that is depends on the writing direction, and
+          `railFirst` is the one place that knows — see modules.ts. */}
+      <div className={`body ${railFirst(modules.side, dirFor(lang)) ? '' : 'rail-end'}`}>
         <Rail
           /* One list, from `modules.ts`. The literal that used to be here was a
              copy of a list, and the copy drifted — see modules.ts. */
@@ -2812,6 +2851,15 @@ export function App() {
                 every list of this kind has. The label is its own element so the
                 `kbd` has something to be pushed away from; see the note on
                 `.ghost.bordered` in the stylesheet. */}
+            {shown === 'outline' && (
+              <OutlinePanel t={t}
+                    path={openFilePath}
+                    /* Read at call time: the panel polls, and a handle captured
+                       once would go stale the moment a tab was switched. */
+                    buffer={() => (isFile(active) ? editors.current.get(active) ?? null : null)}
+                    onJump={(path, line) => setJump({ path, line })} />
+            )}
+
             {shown === 'search' && (
               <>
                 <div className="sb-cta">
@@ -3002,18 +3050,37 @@ export function App() {
             <button className={`tab ${active === 'chat' ? 'on' : ''}`} onClick={() => setActive('chat')}>
               {t('Chat')}
             </button>
-            {tabs.map((path, i) => (
-              <span key={path} className={`tab ${tabDrag.itemClass(i)} ${active === path ? 'on' : ''} ${dirty.has(path) ? 'dirty' : ''}`}>
-                <button className="tab-name" onClick={() => setActive(path)} title={path}>
+            {tabs.map((path, i) => {
+              const beside = panes.includes(path) && path !== active;
+              return (
+              <span key={path} className={`tab ${tabDrag.itemClass(i)} ${active === path ? 'on' : ''} ${beside ? 'beside' : ''} ${dirty.has(path) ? 'dirty' : ''}`}>
+                <button className="tab-name" title={path}
+                        onClick={() => {
+                          setActive(path);
+                          // Clicking a tab means "this one", as it always has.
+                          // Showing it *as well* is the button beside it, so
+                          // the ordinary click never has to be learnt twice.
+                          if (!panes.includes(path)) setShownFiles([path]);
+                        }}>
                   {path === '__memory__' ? (memory.file ?? t('Memory'))
                     : path === '__todo__' ? t('To do')
                     : path.split('/').pop()}
                   {dirty.has(path) && <i className="tab-dot" aria-label={t('Unsaved')} />}
                 </button>
+                {isFile(path) && (
+                  <button className={`tab-split ${panes.includes(path) ? 'lit' : ''}`} data-nodrag
+                          aria-pressed={panes.includes(path)}
+                          disabled={!panes.includes(path) && panes.length >= MAX_PANES}
+                          title={t(panes.includes(path) ? 'Hide this pane' : 'Show this alongside')}
+                          aria-label={t(panes.includes(path) ? 'Hide this pane' : 'Show this alongside')}
+                          onClick={() => splitTo(path)}>
+                    <Icon name="split" size={11} />
+                  </button>
+                )}
                 <button className="tab-x" onClick={() => closeTab(path)} data-nodrag
                         aria-label={`${t('Close')} ${path}`}><Icon name="close" size={12} /></button>
               </span>
-            ))}
+            );})}
           </div>
 
           {/* The disk moved under a file with unsaved edits in it. A watcher
@@ -3142,12 +3209,13 @@ export function App() {
               throw away unsaved edits and the undo history with them. */}
           {files.length > 0 && !(showTerm && termFull) && (
             <Suspense fallback={<div className="vw-msg">{t('Opening…')}</div>}>
+              <div className={`ed-stack ${split ? 'split' : ''}`}>
               {files.map((p) => (
                 <Editor
                   key={p}
                   root={root}
                   path={p}
-                  visible={active === p}
+                  visible={panes.includes(p)}
                   dark={resolved(theme) === 'dark'}
                   // Read at mount only, so this is the restored caret for a
                   // reopened tab and never fights a later jump.
@@ -3182,6 +3250,7 @@ export function App() {
                   onError={(m) => push({ kind: 'error', text: m })}
                 />
               ))}
+              </div>
             </Suspense>
           )}
 

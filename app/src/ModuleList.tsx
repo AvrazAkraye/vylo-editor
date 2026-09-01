@@ -1,8 +1,8 @@
 import { Icon } from './Icon';
 import { useReorder } from './useReorder';
 import {
-  MODULES, isLast, isOn, moduleOf, moveTo, reset, toggle,
-  type Layout, type ModuleId,
+  MODULES, isLast, isOn, moduleOf, moveTo, reset, setSide, toggle,
+  type Layout, type ModuleId, type Side,
 } from './modules';
 
 /**
@@ -21,6 +21,27 @@ interface Props {
   layout: Layout;
   onChange: (next: Layout) => void;
   t: (s: string) => string;
+}
+
+/**
+ * Which edge the rail sits against.
+ *
+ * Two buttons rather than a dropdown: there are two answers, and a select with
+ * two options is a click and then a second click to say what you could have
+ * said in one.
+ */
+export function RailSide({ layout, onChange, t }: Props) {
+  return (
+    <span className="tk-pills">
+      {(['left', 'right'] as Side[]).map((side) => (
+        <button key={side} className={`tk-pill ${layout.side === side ? 'on' : ''}`}
+                aria-pressed={layout.side === side}
+                onClick={() => onChange(setSide(layout, side))}>
+          {t(side === 'left' ? 'Left' : 'Right')}
+        </button>
+      ))}
+    </span>
+  );
 }
 
 export function ModuleList({ layout, onChange, t }: Props) {

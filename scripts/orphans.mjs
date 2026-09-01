@@ -100,6 +100,16 @@ export const ALLOW = {
     'tag-violet': 'tags.ts builds `tag-${t}` from TAGS',
     'tag-pink': 'tags.ts builds `tag-${t}` from TAGS',
     'tag-grey': 'tags.ts builds `tag-${t}` from TAGS',
+    // `OutlinePanel.tsx` builds `f-${r.family}` from `familyOf`, which maps
+    // every kind the Rust indexer emits onto one of five families. Five
+    // families, five rules, and `outline.test.mjs` asserts that an unknown kind
+    // lands in `other` — so a language added to the indexer cannot produce a
+    // family with no rule.
+    'f-type': 'OutlinePanel.tsx builds `f-${family}` from familyOf()',
+    'f-callable': 'OutlinePanel.tsx builds `f-${family}` from familyOf()',
+    'f-value': 'OutlinePanel.tsx builds `f-${family}` from familyOf()',
+    'f-section': 'OutlinePanel.tsx builds `f-${family}` from familyOf()',
+    'f-other': 'OutlinePanel.tsx builds `f-${family}` from familyOf()',
     // `TodoTask.tsx` builds `pr-${task.priority}` from PRIORITIES, and the
     // panel builds `pr-${sum.priority}` from the same union. Five priorities,
     // five rules, and `todo.test.mjs` asserts every priority in PRIORITIES

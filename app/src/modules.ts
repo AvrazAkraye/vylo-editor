@@ -50,7 +50,8 @@
 
 import type { IconName } from './Icon';
 
-export type ModuleId = 'files' | 'search' | 'changes' | 'chats' | 'todo' | 'memory';
+export type ModuleId =
+  | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'memory';
 
 export interface Module {
   id: ModuleId;
@@ -71,6 +72,7 @@ export interface Module {
 export const MODULES: readonly Module[] = [
   { id: 'files', label: 'Explorer', icon: 'folder', about: 'The file tree for the open folder.' },
   { id: 'search', label: 'Search', icon: 'search', about: 'Find text across every file in the project.' },
+  { id: 'outline', label: 'Outline', icon: 'list', about: 'Declarations in the file you have open.' },
   { id: 'changes', label: 'Changes', icon: 'diff', about: 'Staged edits and the git working tree.', badge: 'changes' },
   { id: 'chats', label: 'Chats', icon: 'chat', about: 'Every conversation in this folder.' },
   { id: 'todo', label: 'To do', icon: 'check', about: 'The project plan, kept in .vylo/TODO.md.', badge: 'todo' },
@@ -89,15 +91,37 @@ export function labelOf(id: ModuleId): string {
   return moduleOf(id).label;
 }
 
+/**
+ * Which physical edge the rail sits against.
+ *
+ * Physical, not logical, and that is the awkward but correct choice. Somebody
+ * who asks for the rail on the left means the left of their screen, in every
+ * language — the rail is furniture, not text, and it does not flip when the
+ * prose does. In a right-to-left interface the flex order has to be inverted to
+ * keep it there, which `railFirst` below works out.
+ */
+export type Side = 'left' | 'right';
+
 export interface Layout {
   /** Every known module, in the order the rail shows them. */
   order: ModuleId[];
   /** Which of them are turned off. */
   off: ModuleId[];
+  side: Side;
 }
 
+/**
+ * Whether the rail is the first child of the shell.
+ *
+ * A left-to-right row lays its first item on the left; a right-to-left row lays
+ * it on the right. So "keep the rail on the left" means *first* in one and
+ * *last* in the other, and this is the one place that knows it.
+ */
+export const railFirst = (side: Side, dir: 'ltr' | 'rtl'): boolean =>
+  dir === 'rtl' ? side === 'right' : side === 'left';
+
 /** Everything on, in declaration order. */
-export const DEFAULT: Layout = { order: [...IDS], off: [] };
+export const DEFAULT: Layout = { order: [...IDS], off: [], side: 'left' };
 
 /** Where the layout is kept. Versioned, so a future shape can be told apart. */
 export const KEY = 'vylo.modules.v1';
@@ -118,6 +142,7 @@ export const KEY = 'vylo.modules.v1';
 export function read(raw: string | null): Layout {
   let order: ModuleId[] = [];
   let off: ModuleId[] = [];
+  let side: Side = 'left';
 
   try {
     const saved = raw ? JSON.parse(raw) : null;
@@ -129,6 +154,7 @@ export function read(raw: string | null): Layout {
           : [];
       order = known(saved.order);
       off = known(saved.off);
+      if (saved.side === 'right' || saved.side === 'left') side = saved.side;
     }
   } catch {
     // Not JSON. A layout is a convenience, so the cost of a bad one is the
@@ -140,12 +166,12 @@ export function read(raw: string | null): Layout {
   // an empty one, and the way back is not obvious from looking at it. So one
   // stays on, and it is the first in the person's own order.
   if (off.length >= order.length) off = off.filter((x) => x !== order[0]);
-  return { order, off };
+  return { order, off, side };
 }
 
 /** What goes into storage. */
 export function write(layout: Layout): string {
-  return JSON.stringify({ order: layout.order, off: layout.off });
+  return JSON.stringify({ order: layout.order, off: layout.off, side: layout.side });
 }
 
 export const isOn = (layout: Layout, id: ModuleId): boolean => !layout.off.includes(id);
@@ -192,9 +218,14 @@ export function moveTo(layout: Layout, from: number, to: number): Layout {
   return { ...layout, order };
 }
 
+/** Move the rail to the other edge. */
+export function setSide(layout: Layout, side: Side): Layout {
+  return side === layout.side ? layout : { ...layout, side };
+}
+
 /** Everything on, in declaration order, forgetting whatever was arranged. */
 export function reset(): Layout {
-  return { order: [...IDS], off: [] };
+  return { order: [...IDS], off: [], side: 'left' };
 }
 
 /**

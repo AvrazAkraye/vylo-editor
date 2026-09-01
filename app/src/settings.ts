@@ -124,7 +124,7 @@ export type SettingId =
   | 'inlineCompletion'
   | 'notifyWhen' | 'notifySound'
   | 'globalShortcut' | 'keyMap'
-  | 'modules' | 'mcpServers'
+  | 'modules' | 'railSide' | 'mcpServers'
   | 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory'
   | 'version' | 'updates' | 'safety';
 
@@ -231,6 +231,11 @@ export const SETTINGS: readonly Setting[] = [
     id: 'modules', category: 'modules', label: 'Sections',
     hint: 'The panels in the activity rail. Turn off what you never open, and drag the rest into the order you want.',
     keywords: ['module', 'modules', 'rail', 'sidebar', 'panel', 'section', 'explorer', 'search', 'changes', 'chats', 'to do', 'memory', 'hide', 'show', 'reorder', 'arrange', 'sections', 'tabs', 'task bar', 'toolbar'],
+  },
+  {
+    id: 'railSide', category: 'modules', label: 'Rail',
+    hint: 'Which edge the activity rail sits against. It stays on that side of the screen whatever the language.',
+    keywords: ['left', 'right', 'side', 'position', 'move', 'rail', 'task bar', 'taskbar', 'sidebar', 'edge', 'place', 'location'],
   },
   {
     id: 'mcpServers', category: 'modules', label: 'MCP servers',

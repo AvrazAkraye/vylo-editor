@@ -7,7 +7,7 @@ import { LANGS, type Lang } from './i18n';
 import { commandLine, isEnabled, type McpTool, type ServerSpec } from './mcp';
 import { clipboardBytes, human, isOnDisk, usage, type Sizes, type StoreId } from './stores';
 import { view, type CategoryId, type Setting } from './settings';
-import { ModuleList } from './ModuleList';
+import { ModuleList, RailSide } from './ModuleList';
 import type { Layout as ModuleLayout } from './modules';
 import { IS_MAC, Shortcuts } from './Welcome';
 import { label as chordLabel } from './shortcut';
@@ -527,6 +527,13 @@ function Control({ row, ...p }: ControlProps) {
       return (
         <Row label={label} hint={hint} wide>
           <ModuleList layout={p.modules} onChange={p.onModules} t={t} />
+        </Row>
+      );
+
+    case 'railSide':
+      return (
+        <Row label={label} hint={hint}>
+          <RailSide layout={p.modules} onChange={p.onModules} t={t} />
         </Row>
       );
 

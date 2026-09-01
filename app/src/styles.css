@@ -1082,6 +1082,19 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 /* ── IDE shell: sidebar · divider · workspace ────────────────────────── */
 .body{ flex:1; display:flex; min-height:0; }
 
+/* ── The rail on the other edge ───────────────────────────────────────────
+   `order` rather than `row-reverse`, because reversing the row would also
+   reverse the sidebar and the main pane relative to each other — the rail is
+   the only thing being moved. `railFirst` in modules.ts decides which order
+   this is in a right-to-left window; the rail is furniture and stays on the
+   physical edge somebody asked for, in every language. */
+.body.rail-end .rail{ order:2; }
+.body.rail-end .sidebar{ order:1; }
+.body.rail-end .divider{ order:1; }
+/* The border has to move with it, or the rail sits against the window edge
+   with a line down its inner side pointing nowhere. */
+.body.rail-end .rail{ border-inline-end:0; border-inline-start:1px solid var(--rule); }
+
 .sidebar{
   flex:none; display:flex; flex-direction:column; min-height:0;
   background:var(--panel-2); border-inline-end:1px solid var(--rule);
@@ -1257,6 +1270,22 @@ body.resizing{ cursor:col-resize; user-select:none; }
   font:inherit; line-height:1; border:0; background:transparent;
   color:var(--mute); cursor:pointer; padding-block:0; padding-inline:var(--sp-2) var(--sp-5); align-self:stretch;
 }
+
+/* The split control. Hidden until the tab is hovered or its pane is showing,
+   because a row of them across the strip is a row of controls nobody is
+   looking for. */
+.tab-split{
+  font:inherit; line-height:1; border:0; background:transparent; align-self:stretch;
+  color:var(--mute); cursor:pointer; padding-block:0; padding-inline:var(--sp-2) 0;
+  opacity:0; transition:opacity .12s ease;
+}
+.tab:hover .tab-split, .tab-split:focus-visible, .tab-split.lit{ opacity:1; }
+.tab-split.lit{ color:var(--brand); }
+.tab-split:disabled{ opacity:.2; cursor:default; }
+/* A tab whose pane is showing but which is not the one being typed in. Enough
+   to find it, not enough to compete with the selected tab. */
+.tab.beside{ background:var(--panel); }
+.tab.beside .tab-name{ color:var(--ink-2); }
 .tab-x:hover{ color:var(--err); }
 .tab:hover{ background:var(--panel); color:var(--ink); }
 .tab.on{ background:var(--bg); color:var(--ink); box-shadow:inset 0 -2px 0 var(--brand); }
@@ -2030,7 +2059,60 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 
 /* ── inline edit (⌘K) ────────────────────────────────────────────────── */
-.ed-wrap{ position:relative; flex:1; min-height:0; flex-direction:column; }
+/* ── Two files side by side ───────────────────────────────────────────────
+   Every open file is mounted whichever ones are drawn — unmounting would throw
+   away unsaved edits and the undo history with them — so this is display, not
+   structure, exactly as the terminal panes are.
+
+   The divider is the stack's background showing through a one-pixel gap rather
+   than a border on each pane: a hidden pane creates no gap, so the line only
+   ever falls between panes that are actually drawn. A border would have to know
+   which pane is first on screen, which CSS cannot ask. */
+/* ── Outline ──────────────────────────────────────────────────────────────
+   A map of the open file. Rows are one line each and the badge carries the
+   kind, so a long file reads as a column of names rather than a column of
+   labelled names — the name is what somebody is scanning for. */
+.ol{ display:flex; flex-direction:column; min-height:0; }
+.ol-head{ flex:none; display:flex; align-items:center; gap:var(--sp-2); padding:var(--sp-3) var(--sp-4); }
+.ol-sort{
+  flex:none; display:grid; place-items:center; inline-size:26px; block-size:26px;
+  border:1px solid var(--rule); border-radius:var(--r-1); background:transparent;
+  color:var(--mute); cursor:pointer;
+}
+.ol-sort:hover{ color:var(--ink); }
+.ol-sort.on{ color:var(--brand); border-color:var(--brand); }
+.ol-tally{
+  flex:none; display:flex; gap:var(--sp-4); margin:0; padding:0 var(--sp-5) var(--sp-3);
+  font-size:var(--fs-1); color:var(--mute);
+}
+.ol-tally b{ color:var(--ink-2); font-weight:600; }
+.ol-list{ flex:1; min-height:0; overflow-y:auto; list-style:none; margin:0; padding:0 var(--sp-3) var(--sp-4); }
+.ol-row{
+  display:flex; align-items:center; gap:var(--sp-3); inline-size:100%;
+  padding:var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-1);
+  background:transparent; font:inherit; font-size:var(--fs-3); color:var(--ink-2);
+  cursor:pointer; text-align:start;
+}
+.ol-row:hover{ background:var(--panel-3); color:var(--ink); }
+/* Where the caret is. A stripe on the leading edge, the same device the tag
+   colours and the terminal statuses use, so it reads without being learnt. */
+.ol-row.here{ background:var(--panel-3); color:var(--ink); box-shadow:inset 2px 0 0 var(--brand); }
+.ol-kind{
+  flex:none; display:grid; place-items:center; inline-size:17px; block-size:17px;
+  border-radius:var(--r-1); font-family:var(--mono); font-size:10px; font-style:normal;
+  color:var(--fam, var(--mute)); background:color-mix(in srgb, var(--fam, var(--mute)) 14%, transparent);
+}
+.f-type{ --fam:var(--tag-violet); }
+.f-callable{ --fam:var(--tag-blue); }
+.f-value{ --fam:var(--tag-teal); }
+.f-section{ --fam:var(--amber-ink); }
+.f-other{ --fam:var(--mute); }
+.ol-name{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ol-line{ flex:none; font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+
+.ed-stack{ flex:1; min-height:0; display:flex; }
+.ed-stack.split{ gap:1px; background:var(--rule); }
+.ed-wrap{ position:relative; flex:1 1 0; min-inline-size:0; min-height:0; flex-direction:column; }
 .ed-wrap > .ed{ flex:1; min-height:0; }
 
 /* Anchored at the selection, inside the scroller, so it travels with the code
