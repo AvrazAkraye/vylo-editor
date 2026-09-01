@@ -1,11 +1,11 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   Dictation, OFF as NOT_DICTATING, browserOpen, insert as insertSpoken,
   recognitionLang, speechAvailable, type State as DictState,
 } from './dictate';
 import {
-  runAgent, HopLimit, Stopped, type Mode,
+  runAgent, HopLimit, MAX_HOPS, Stopped, type Mode,
   type Block, type CommandRequest, type CommandResult, type Msg, type RunChoice,
 } from './agent';
 import {
@@ -88,6 +88,11 @@ import {
 import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { TodoPanel } from './TodoPanel';
+import { Working } from './Working';
+import {
+  IDLE as NO_PROGRESS, advance as advanceProgress,
+  type Event as ProgressEvent, type Progress,
+} from './progress';
 import { AskHost } from './AskHost';
 import * as ask from './ask';
 import { SignIn } from './SignIn';
@@ -121,6 +126,20 @@ const MODELS = [
   { id: 'claude-sonnet-5', short: 'Sonnet 5', label: 'Sonnet 5 — balanced' },
   { id: 'claude-opus-4-8', short: 'Opus 4.8', label: 'Opus 4.8 — most capable' },
 ];
+
+/**
+ * Tabs that are not files.
+ *
+ * `__memory__` and `__todo__` sit on the tab strip and fill the main pane, but
+ * they have no path, no editor on the stack, no version history and nothing to
+ * save. Every place that asks "is the open tab a file" used to spell the check
+ * out, and the list grew a second member the moment the to-do list could fill
+ * the window — which is how a copied list starts to drift. One name, one place.
+ */
+const PSEUDO = new Set(['chat', '__memory__', '__todo__']);
+
+/** True for a tab that is a real path on disk. */
+const isFile = (id: string): boolean => !!id && !PSEUDO.has(id);
 
 /** Width of the activity rail, which the sidebar drag has to discount. */
 const RAIL_W = 46;
@@ -203,6 +222,20 @@ export function App() {
   const [prompt, setPrompt] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
   const [busy, setBusy] = useState(false);
+  /**
+   * Where the turn is, for the line that used to say only "working…".
+   *
+   * A ref beside the state because the agent's callbacks are created once per
+   * turn and fire many times a second while a reply streams; reducing through
+   * the ref and setting state from it keeps the reducer honest without every
+   * callback having to close over the latest value.
+   */
+  const [progress, setProgress] = useState<Progress>(NO_PROGRESS);
+  const track = useRef(NO_PROGRESS);
+  const note = useCallback((e: ProgressEvent) => {
+    track.current = advanceProgress(track.current, e);
+    setProgress(track.current);
+  }, []);
   // The turn in flight, so it can be stopped. Streaming makes a long turn
   // visible, which makes not being able to interrupt one obvious.
   const abort = useRef<AbortController | null>(null);
@@ -786,7 +819,7 @@ export function App() {
       return () => { off = true; };
     }
     if (palette === 'fileSymbols') {
-      const h = active !== 'chat' && active !== '__memory__' ? editors.current.get(active) : null;
+      const h = isFile(active) ? editors.current.get(active) : null;
       if (!h) { setSymbols([]); return; }
       let off = false;
       void invoke<Sym[]>('symbols_in_text', { path: active, text: h.text() })
@@ -819,7 +852,7 @@ export function App() {
    */
   async function applyDiskBatch(b: DiskBatch) {
     const p = diskPlan(b, {
-      tabs: tabs.filter((x) => x !== '__memory__').map((path) => ({ path, dirty: dirty.has(path) })),
+      tabs: tabs.filter(isFile).map((path) => ({ path, dirty: dirty.has(path) })),
       staged: pending.current.list().map((c) => c.path),
       ours: selfWrites.current,
     });
@@ -980,11 +1013,11 @@ export function App() {
    * What to remember: the open files, which one was showing, and where the
    * caret was in each.
    *
-   * `__memory__` is not a file, so it is not stored — it would be probed and
+   * A pseudo-tab is not a file, so it is not stored — it would be probed and
    * dropped on every launch. The chat is stored as no active file at all.
    */
   const snapshotTabs = (): Workspace => ({
-    tabs: tabs.filter((p) => p !== '__memory__').map((p) => ({
+    tabs: tabs.filter(isFile).map((p) => ({
       path: p,
       // A tab that has just been restored has no editor handle yet — the
       // component is lazy and its file is read asynchronously. Falling back to
@@ -992,7 +1025,7 @@ export function App() {
       // one render after putting it back.
       line: editors.current.get(p)?.line() ?? restoredLines.current.get(p) ?? 1,
     })),
-    active: active === 'chat' || active === '__memory__' ? null : active,
+    active: isFile(active) ? active : null,
   });
 
   /**
@@ -1399,7 +1432,7 @@ export function App() {
     () => new Set(tree.filter((e) => !e.is_dir).map((e) => e.path)),
     [tree],
   );
-  const openFilePath = active !== 'chat' && active !== '__memory__' ? active : null;
+  const openFilePath = isFile(active) ? active : null;
 
   /**
    * Send a block back with the file it belongs to and stage what comes back.
@@ -1495,7 +1528,7 @@ export function App() {
    * ago.
    */
   function here(): { path: string; line: number } | null {
-    if (!active || active === 'chat' || active === '__memory__') return null;
+    if (!isFile(active)) return null;
     return { path: active, line: editors.current.get(active)?.line() ?? 1 };
   }
 
@@ -1904,10 +1937,12 @@ export function App() {
     // is the one moment the app is genuinely stuck. `req.command` is not passed
     // and there is nowhere to put it: the dialog is what the human reads.
     raiseSummons({ kind: 'approval', mcp: req.kind === 'mcp' });
+    note({ kind: 'ask' });
     return new Promise<RunChoice>((resolve) => {
       decide.current = (choice) => {
         decide.current = null;
         setAskRun(null);
+        note({ kind: 'answered' });
         resolve(choice);
       };
     });
@@ -2345,6 +2380,7 @@ export function App() {
       : p));
     needsDecision.current = false;
     setBusy(true);
+    note({ kind: 'start', at: Date.now(), maxHops: MAX_HOPS });
     const controller = new AbortController();
     abort.current = controller;
     try {
@@ -2356,14 +2392,18 @@ export function App() {
         mode,
         onUsage: (u) => { setLastTurn(u); setChatTokens((p) => add(p, u)); },
         onContext: (used, limit) => setCtx({ used, limit }),
+        onHop: (hop) => note({ kind: 'hop', hop }),
         // Silent compaction is how a tool loses trust: the model forgets
         // something, the answer gets worse, and nothing said why. Say it once.
-        onCompact: ({ dropped }) => push({
-          kind: 'result',
-          text: dropped
-            ? `${t('Summarised')} ${dropped} ${t('earlier messages to stay inside the context window.')}`
-            : t('Trimmed older tool output to stay inside the context window.'),
-        }),
+        onCompact: ({ dropped }) => {
+          note({ kind: 'compact' });
+          push({
+            kind: 'result',
+            text: dropped
+              ? `${t('Summarised')} ${dropped} ${t('earlier messages to stay inside the context window.')}`
+              : t('Trimmed older tool output to stay inside the context window.'),
+          });
+        },
         extraTools: Object.entries(mcpTools)
           .flatMap(([server, tools]) => tools.map((t) => toSchema(server, t))),
         runInTerminal: (command) => {
@@ -2373,18 +2413,26 @@ export function App() {
         },
         environment,
         memory: memoryPrompt(memory),
-        onDelta: stream,
+        onDelta: (text) => { note({ kind: 'delta', chars: text.length }); stream(text); },
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
+        // The transcript gets the text; the status line gets the structure.
+        // `onEvent` hands over a formatted string, and re-parsing it to find
+        // the tool name would be reading our own output back.
+        onToolStart: (name, input) => note({ kind: 'tool', name, input }),
+        onToolEnd: () => note({ kind: 'result' }),
         onStaged: () => {
           setChanges(pending.current.list());
           // Fires once per file, so the quiet window in `again()` is what turns
           // a six-file turn into one banner rather than six.
           raiseSummons({ kind: 'staged' });
         },
-        onRetry: (n, of) => push({
-          kind: 'result',
-          text: `${t('The gateway did not answer — trying again')} (${n}/${of})`,
-        }),
+        onRetry: (n, of) => {
+          note({ kind: 'retry', attempt: n, attempts: of });
+          push({
+            kind: 'result',
+            text: `${t('The gateway did not answer — trying again')} (${n}/${of})`,
+          });
+        },
         // A model's real limit, learned from the 400 that named it and applied
         // to the same request rather than reported as a failure. Said out loud
         // because it changes how much the agent will remember from here on,
@@ -2450,6 +2498,9 @@ export function App() {
     } finally {
       abort.current = null;
       openLine.current = null;
+      // Back to idle, which is also what makes every late callback from an
+      // aborted request a no-op rather than a spinner over a finished reply.
+      note({ kind: 'stop' });
       setBusy(false);
     }
   }
@@ -2523,8 +2574,8 @@ export function App() {
   // a key and never signed in — the majority path, and the one this feature is
   // not allowed to change.
   const planChip = chip(plan);
-  // '__memory__' is a tab but not a file on the editor stack.
-  const files = tabs.filter((p) => p !== '__memory__');
+  // The pseudo-tabs are on the strip but not on the editor stack.
+  const files = tabs.filter(isFile);
 
   return (
     <div className={`shell ${full ? 'fullscreen' : ''}`}>
@@ -2864,7 +2915,11 @@ export function App() {
                     onToTerminal={(command) => void runStep(command)}
                     onOpenFile={(path) => openFile(path)}
                     onError={(m) => push({ kind: 'error', text: m })}
-                    onLeft={setTodoLeft} />
+                    onLeft={setTodoLeft}
+                    onExpand={() => {
+                      setTabs((p) => (p.includes('__todo__') ? p : [...p, '__todo__']));
+                      setActive('__todo__');
+                    }} />
             )}
 
             {shown === 'memory' && (
@@ -2950,7 +3005,9 @@ export function App() {
             {tabs.map((path, i) => (
               <span key={path} className={`tab ${tabDrag.itemClass(i)} ${active === path ? 'on' : ''} ${dirty.has(path) ? 'dirty' : ''}`}>
                 <button className="tab-name" onClick={() => setActive(path)} title={path}>
-                  {path === '__memory__' ? (memory.file ?? t('Memory')) : path.split('/').pop()}
+                  {path === '__memory__' ? (memory.file ?? t('Memory'))
+                    : path === '__todo__' ? t('To do')
+                    : path.split('/').pop()}
                   {dirty.has(path) && <i className="tab-dot" aria-label={t('Unsaved')} />}
                 </button>
                 <button className="tab-x" onClick={() => closeTab(path)} data-nodrag
@@ -2991,6 +3048,19 @@ export function App() {
 
           {!root ? null : active === '__memory__' ? (
             <MemoryEditor root={root} memory={memory} onSaved={setMemory} t={t} />
+          ) : active === '__todo__' ? (
+            /* The same panel, given the window. The board especially needs it:
+               eight columns in a 260px sidebar is eight columns nobody can
+               read. Both copies stay in step because every write goes through
+               `applyWrite`, which says so — see docs.ts. */
+            <div className="todo-full">
+              <TodoPanel root={root} t={t}
+                    onToChat={(text) => { setActive('chat'); setPrompt((p) => (p.trim() ? `${p.trim()}\n${text}` : text)); }}
+                    onToTerminal={(command) => void runStep(command)}
+                    onOpenFile={(path) => openFile(path)}
+                    onError={(m) => push({ kind: 'error', text: m })}
+                    onLeft={setTodoLeft} />
+            </div>
           ) : active !== 'chat' ? null : (
           <div className={`log ${showTerm && termFull ? 'gone' : ''}`} ref={log}
                role="log" aria-relevant="additions" aria-label={t('Conversation')}>
@@ -3055,7 +3125,16 @@ export function App() {
             </button>
           </div>
         )}
-        {busy && <div className="line working"><span className="dot" />{t('working…')}</div>}
+        {busy && (
+          <Working
+            progress={progress}
+            t={t}
+            mode={t(mode === 'ask' ? 'Ask' : 'Agent')}
+            model={MODELS.find((m) => m.id === model)?.short ?? model}
+            context={ctx ? Math.round((ctx.used / ctx.limit) * 100) : null}
+            onStop={() => abort.current?.abort()}
+          />
+        )}
           </div>
           )}
 
@@ -3286,7 +3365,7 @@ export function App() {
             chats,
             sessions,
             commands,
-            active: active !== 'chat' && active !== '__memory__' ? active : null,
+            active: isFile(active) ? active : null,
             term: t('Terminal'),
           }}
           onOpen={(path, line) => openAt(path, line)}
@@ -3617,7 +3696,7 @@ export function App() {
           </span>
         )}
         <span className="sp" />
-        {active !== 'chat' && active !== '__memory__' && (
+        {isFile(active) && (
           <span className={`ac ac-${acStatus}`} title={t('Inline completion')}>
             <Icon name={acStatus === 'thinking' ? 'ellipsis' : acStatus === 'cooldown' ? 'pause'
                        : acStatus === 'error' ? 'warning' : 'bolt'} size={13} />
@@ -3635,7 +3714,7 @@ export function App() {
         <button className="st-btn" onClick={toggleTerm}>
           <Icon name="terminal" size={12} />{t('Terminal')}
         </button>
-        {active !== 'chat' && active !== '__memory__' && (
+        {isFile(active) && (
           <span title={active}>{active}{dirty.has(active) && <Icon name="dot" size={9} />}</span>
         )}
         <span>{model}</span>

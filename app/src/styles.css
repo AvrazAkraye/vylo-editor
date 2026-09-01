@@ -311,6 +311,46 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 }
 .tag.ok{ color:var(--ok); } .tag.err{ color:var(--err); }
 .working{ color:var(--mute); font-size:var(--fs-4); align-items:center; }
+
+/* ── What it is doing ─────────────────────────────────────────────────────
+   Closed, one sentence and a duration — more than the word "working…" this
+   replaces, and still one line. Open, the figures that explain a long turn.
+   The whole row is the button, because a chevron on its own is a target the
+   size of a full stop. */
+.wk{ display:block; }
+.wk-row{
+  display:flex; align-items:center; gap:var(--sp-3); inline-size:100%;
+  border:0; background:transparent; padding:0; cursor:pointer;
+  font:inherit; font-size:var(--fs-4); color:var(--mute); text-align:start;
+}
+.wk-row:hover{ color:var(--ink-2); }
+.wk-say{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wk-say b{ font-weight:400; color:var(--ink-2); }
+.wk-say b.mono{ font-family:var(--mono); font-size:var(--fs-2); }
+.wk-time{ flex:none; font-variant-numeric:tabular-nums; font-size:var(--fs-2); }
+/* Hidden until the turn has run long enough to be worth explaining, but it
+   still occupies its width — a chevron that appears at four seconds must not
+   shove the duration sideways as it arrives. */
+.wk-more{ flex:none; opacity:0; transition:opacity .2s ease; }
+.wk-more.on{ opacity:.65; }
+
+/* Waiting is the one phase that is not the app being slow, so it is the one
+   that gets a colour. Everything else here is deliberately quiet. */
+.wk-wait .dot{ background:var(--warn); animation:none; }
+.wk-wait .wk-row{ color:var(--warn); }
+
+.wk-facts{
+  display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-5); margin:var(--sp-3) 0 0;
+  padding:var(--sp-3) var(--sp-4); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2);
+}
+.wk-facts div{ display:flex; align-items:baseline; gap:var(--sp-2); }
+.wk-facts dt{ font-size:var(--fs-1); color:var(--mute); text-transform:uppercase; letter-spacing:.06em; }
+.wk-facts dd{ margin:0; font-size:var(--fs-2); color:var(--ink); font-variant-numeric:tabular-nums; }
+.wk-facts dd.mono{ font-family:var(--mono); font-size:var(--fs-1); }
+.wk-wide{ flex-basis:100%; }
+.wk-why{ flex-basis:100%; margin:0; font-size:var(--fs-2); color:var(--warn); }
+.wk-stop{ margin-inline-start:auto; font-size:var(--fs-1); padding:var(--sp-1) var(--sp-3); }
 .dot{ width:7px; height:7px; border-radius:50%; background:var(--brand); animation:p 1s ease-in-out infinite; }
 @keyframes p{ 50%{ opacity:.25; } }
 
@@ -814,6 +854,35 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 .tv-find button{ border:0; background:transparent; color:var(--mute); cursor:pointer; display:grid; place-items:center; }
 .tv-sort{ font:inherit; font-size:var(--fs-2); color:var(--ink); background:var(--bg);
   border:1px solid var(--rule); border-radius:var(--r-2); padding:var(--sp-2); max-inline-size:13ch; }
+
+/* ── The list, given the window ───────────────────────────────────────────
+   The sidebar is about 260px. The board is eight columns; the overview is six
+   figures on a row; a task card carries a title, four chips and a path. All of
+   it works in a sidebar the way a spreadsheet works on a phone — technically
+   present. Here it gets the space it was designed for, and the only difference
+   is width: the same component, so there is one to-do list and not two.
+
+   Capped and centred rather than stretched. A checklist set to the full width
+   of a wide display is a line of text a metre long, and the eye loses the row
+   it was on between the box and the words. */
+.todo-full{ block-size:100%; min-block-size:0; display:flex; justify-content:center; overflow:hidden; background:var(--panel); }
+.todo-full > .todo{ inline-size:100%; max-inline-size:1100px; }
+/* Room to breathe, which the sidebar could not afford. */
+.todo-full .tv-head{ padding-inline:var(--sp-7); }
+.todo-full .tv-bar-row, .todo-full .tv-tags{ padding-inline:var(--sp-7); }
+.todo-full .tv-sec h3{ padding-inline:var(--sp-7); }
+.todo-full .todo-list{ padding-inline:var(--sp-4); }
+.todo-full .todo-add{ padding-inline:var(--sp-7); }
+/* The board is why this exists: full-height columns instead of a 52vh stub. */
+.todo-full .tv-col{ flex-basis:270px; }
+.todo-full .tv-col .todo-list{ max-block-size:none; }
+.todo-full .tv-board{ min-block-size:0; }
+/* Two columns of task cards once there is width for them, in the flat views
+   only — the board already is columns, and Focus reads as a sequence. */
+@media (min-width: 1000px){
+  .todo-full .tv-body > .todo-list{ columns:2; column-gap:var(--sp-5); }
+  .todo-full .tv-body > .todo-list > .tk{ break-inside:avoid; }
+}
 
 .tv-plan{ flex:none; font-size:var(--fs-2); padding:var(--sp-2) var(--sp-3); }
 .tv-tags{ flex:none; display:flex; flex-wrap:wrap; gap:var(--sp-2); padding:0 var(--sp-6) var(--sp-3); }

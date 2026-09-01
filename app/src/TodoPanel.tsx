@@ -5,6 +5,7 @@ import { explain } from './errors';
 import { applyWrite } from './disk';
 import { sha256Hex } from './hash';
 import * as ask from './ask';
+import { watch } from './docs';
 import { TodoTask, STATE_CLASS, STATE_WORD, PRIORITY_WORD, type Acts } from './TodoTask';
 import {
   add, duration, flatten, plan, remove, setDue, setEstimate, setPriority,
@@ -72,9 +73,16 @@ interface Props {
   onError: (message: string) => void;
   /** How many steps are unticked, for the rail's badge. */
   onLeft: (n: number) => void;
+  /**
+   * Give the list the whole window.
+   *
+   * Absent when it already has it: the copy filling the main pane must not
+   * offer to open itself again.
+   */
+  onExpand?: () => void;
 }
 
-export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError, onLeft }: Props) {
+export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError, onLeft, onExpand }: Props) {
   const [text, setText] = useState('');
   const [sha, setSha] = useState('');
   const [ready, setReady] = useState(false);
@@ -100,6 +108,22 @@ export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError
   }, [root]);
 
   useEffect(() => { setReady(false); void load(); }, [load]);
+
+  /**
+   * Somebody else wrote the file.
+   *
+   * Two of them: the second copy of this panel — sidebar and full window can
+   * both be open — and the agent, which writes this file through the review
+   * gate whenever it is asked to plan. Without this, one shows the other's
+   * list from before the change, and its next save is refused by the hash
+   * guard, which is correct and is not an experience anybody should have.
+   *
+   * The text arrives with the notice, so there is no read back from disk.
+   */
+  useEffect(() => watch(FILE, (next) => {
+    setText(next);
+    void sha256Hex(next).then(setSha);
+  }), []);
 
   /**
    * Write the file back, guarded by the hash it was read at.
@@ -248,6 +272,13 @@ export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError
         })()} title={t('Ask the agent to plan this')}>
           <Icon name="sparkle" size={13} />{t('Plan')}
         </button>
+
+        {onExpand && (
+          <button className="ghost tv-plan" onClick={onExpand}
+                  title={t('Open in the main window')} aria-label={t('Open in the main window')}>
+            <Icon name="maximise" size={13} />
+          </button>
+        )}
 
         <label className="tv-find">
           <Icon name="search" size={12} />

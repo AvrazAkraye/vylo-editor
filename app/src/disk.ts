@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { noteAuthored } from './memory';
+import { changed } from './docs';
 
 /**
  * The one call in the frontend that puts bytes on disk.
@@ -12,6 +13,11 @@ import { noteAuthored } from './memory';
  * person just typed or approved is a file they have read, and `noteAuthored`
  * records it so the acknowledgement in `memory.ts` does not ask again about
  * text they authored themselves.
+ *
+ * Since the to-do list can be open in two places at once, and since the agent
+ * can write a file somebody is looking at, this is also where the app says a
+ * file has changed — see `docs.ts`. Same argument as `noteAuthored`: it is true
+ * of every write, so it belongs at the one door rather than at each call site.
  *
  * `expectSha256` is passed straight through. `undefined` means "write it
  * regardless", which is only right where the person typing is also the person
@@ -26,6 +32,8 @@ export async function applyWrite(
 ): Promise<void> {
   await invoke('apply_write', { root, path, content, expectSha256 });
   // After the write, never before: a refused write must not leave behind an
-  // acknowledgement for content that is not on disk.
+  // acknowledgement for content that is not on disk, and must not tell anything
+  // watching that a file now holds text it does not hold.
   await noteAuthored(root, path, content);
+  changed(path, content);
 }

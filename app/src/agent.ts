@@ -418,6 +418,15 @@ export interface RunOptions {
   /** Called as the loop progresses so the UI can show work in flight. */
   onEvent: (e: { kind: 'tool' | 'result'; text: string }) => void;
   /**
+   * A tool is about to run, and has finished.
+   *
+   * Separate from `onEvent` because that hands over a formatted string for the
+   * transcript, and a status line that needed the tool's name would have to
+   * parse our own output back out of it.
+   */
+  onToolStart?: (name: string, input: unknown) => void;
+  onToolEnd?: (name: string, failed: boolean) => void;
+  /**
    * A piece of the reply, as it is written. Called once per delta when
    * streaming and once per block when not, so the caller has one path either
    * way and never has to know which transport ran.
@@ -429,6 +438,14 @@ export interface RunOptions {
   onStaged?: () => void;
   /** Stop after this many model round-trips. A loop that will not terminate is a bill. */
   maxHops?: number;
+  /**
+   * Which round-trip is starting, counting from one, and of how many.
+   *
+   * The other callbacks say what happened; this says where the loop is. A turn
+   * that has read six files is on its seventh request, and without this the
+   * only thing on screen is the same word it showed two seconds in.
+   */
+  onHop?: (hop: number, of: number) => void;
   /** Tools from enabled MCP servers, already namespaced. */
   extraTools?: unknown[];
   /** Ask reads; Agent may also stage and request commands. Default agent. */
@@ -570,9 +587,17 @@ function overheadOf(o: RunOptions, maxOutput: number): number {
     + 2000;
 }
 
+/**
+ * Round-trips a turn may take before it gives up.
+ *
+ * Exported because the status line reports "3 of 12", and a UI that hardcoded
+ * its own 12 would disagree with the loop the first time this changed.
+ */
+export const MAX_HOPS = 12;
+
 export async function runAgent(o: RunOptions): Promise<Msg[]> {
   const messages: Msg[] = [...o.history];
-  const maxHops = o.maxHops ?? 12;
+  const maxHops = o.maxHops ?? MAX_HOPS;
   // A turn is several requests, and each is billed. Reporting one hop would
   // understate a turn that read six files before answering.
   let spent: Usage = NO_USAGE;
@@ -587,6 +612,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
   let toldAboutCompaction = false;
 
   for (let hop = 0; hop < maxHops; hop++) {
+    o.onHop?.(hop + 1, maxHops);
     // Fit before every request, not once per turn — a turn that reads six files
     // can cross the line partway through, and the hop that crosses it is the
     // one that would fail. It is a function because a corrected context window
@@ -787,10 +813,12 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     for (const c of calls) {
       if (o.signal?.aborted) throw new Stopped(keepText(messages));
       o.onEvent({ kind: 'tool', text: `${c.name}(${JSON.stringify(c.input)})` });
+      o.onToolStart?.(c.name, c.input);
       const r = await runTool(
         o.root, { id: c.id, name: c.name, input: c.input }, o.pending, o.askToRun, o.runInTerminal,
       );
       o.onEvent({ kind: 'result', text: `${c.name} → ${r.isError ? 'error: ' : ''}${r.content.slice(0, 160)}` });
+      o.onToolEnd?.(c.name, !!r.isError);
       if (c.name === 'write_file' || c.name === 'edit_file') o.onStaged?.();
       results.push({ type: 'tool_result', tool_use_id: c.id, content: r.content, is_error: r.isError || undefined });
     }
