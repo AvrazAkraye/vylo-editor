@@ -2162,6 +2162,37 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    than a border on each pane: a hidden pane creates no gap, so the line only
    ever falls between panes that are actually drawn. A border would have to know
    which pane is first on screen, which CSS cannot ask. */
+/* ── The remote ───────────────────────────────────────────────────────────
+   Above the changes, because "am I in step with everyone else" is the question
+   you ask before "what have I changed". No token anywhere: a pull request is a
+   page with the fields filled in, and the browser is already signed in. */
+.gh{
+  display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2) var(--sp-3);
+  margin:var(--sp-3) var(--sp-5) 0; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+}
+.gh-name{
+  display:inline-flex; align-items:center; gap:var(--sp-2); flex:1; min-inline-size:0;
+  border:0; background:transparent; padding:0; cursor:pointer;
+  font:inherit; font-size:var(--fs-2); color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.gh-name:hover:not(:disabled){ color:var(--brand); }
+.gh-name:disabled{ cursor:default; color:var(--mute); }
+.gh-drift{ flex-basis:100%; display:flex; align-items:baseline; gap:var(--sp-2); font-size:var(--fs-1); color:var(--mute); }
+.gh-drift b{ color:var(--ink-2); font-variant-numeric:tabular-nums; }
+/* The counts are as old as the last fetch. Saying so costs one line and stops
+   somebody reading a stale zero as "nothing to pull". */
+.gh-drift em{ font-style:normal; opacity:.7; }
+.gh-acts{ display:flex; gap:var(--sp-2); margin-inline-start:auto; }
+.gh-acts button{ font-size:var(--fs-1); padding:var(--sp-1) var(--sp-3); }
+.gh-pr{
+  display:inline-flex; align-items:center; gap:var(--sp-2);
+  border:0; background:transparent; padding:0; cursor:pointer;
+  font:inherit; font-size:var(--fs-1); color:var(--mute);
+}
+.gh-pr:hover{ color:var(--brand); }
+
 /* ── Auto-approve ─────────────────────────────────────────────────────────
    Amber, in the status bar, for as long as it is on. A mode that answers the
    one question this app exists to ask must not be something you can forget is

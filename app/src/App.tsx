@@ -93,6 +93,9 @@ import { OutlinePanel } from './OutlinePanel';
 import { PromptsPanel } from './PromptsPanel';
 import { SYSTEM as ASK_SYSTEM, ask as askMessage, parse as parseCommand, reason } from './command';
 import { dirFor } from './rtl';
+import {
+  blobUrl, compareUrl, isOpenable, parseRemote, pullsUrl, repoUrl,
+} from './github';
 import { MAX_PANES, prune as prunePanes, toggle as togglePane } from './panes';
 import { ContextMenu } from './ContextMenu';
 import {
@@ -257,6 +260,9 @@ export function App() {
   const [pinned, setPinned] = useState<string[]>([]);
   /** The tab a context menu is open on, and where. */
   const [tabMenu, setTabMenu] = useState<{ path: string; at: MenuPoint } | null>(null);
+  /** The remote, and how far this branch has drifted from it. */
+  const [remote, setRemote] = useState({ url: '', upstream: '', ahead: 0, behind: 0 });
+  const [syncing, setSyncing] = useState('');
   /**
    * Whether questions are being answered in advance.
    *
@@ -607,6 +613,54 @@ export function App() {
   useEffect(() => { localStorage.setItem('vylo.termfull', termFull ? '1' : '0'); }, [termFull]);
   useEffect(() => { localStorage.setItem('vylo.rail', rail); }, [rail]);
   useEffect(() => { localStorage.setItem(MODULES_KEY, writeModules(modules)); }, [modules]);
+
+  /**
+   * The remote, refreshed with everything else that watches the tree.
+   *
+   * `ahead`/`behind` are as old as the last fetch, which the strip says rather
+   * than implying it just looked — a count that silently means "an hour ago"
+   * is worse than one labelled as such.
+   */
+  useEffect(() => {
+    if (!root || !git?.is_repo) { setRemote({ url: '', upstream: '', ahead: 0, behind: 0 }); return; }
+    let off = false;
+    void invoke<typeof remote>('git_remote', { root })
+      .then((r) => { if (!off) setRemote(r); })
+      .catch(() => {});
+    return () => { off = true; };
+  }, [root, git?.is_repo, git?.branch, changes.length, written.length]);
+
+  const origin = useMemo(() => parseRemote(remote.url), [remote.url]);
+
+  /** Open a link, if it is one this app will open at all. */
+  function browse(url: string) {
+    if (!isOpenable(url)) { push({ kind: 'error', text: t('That link cannot be opened.') }); return; }
+    void invoke('open_url', { url }).catch((e) => push({ kind: 'error', text: explain(e, t('open that link')) }));
+  }
+
+  /**
+   * Push, pull or fetch. A button somebody pressed, so no gate — see git_push.
+   *
+   * The command is passed in as a call rather than as a name, so every name
+   * appears literally at its call site. `orphans.mjs` finds an `invoke` by
+   * reading the literal after it, and a name held in a variable reads as a
+   * command nothing invokes — and the one allow-list that would have excused
+   * that is asserted empty, on purpose.
+   */
+  async function sync(what: string, go: () => Promise<string>) {
+    setSyncing(what);
+    try {
+      const said = await go();
+      push({ kind: 'result', text: said.trim() || t('Done.') });
+      setRemote(await invoke('git_remote', { root }));
+      // The branch and the dirty count move with a pull, so re-read them too.
+      setGit(await invoke('git_state', { root }));
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, t('reach the remote')) });
+    } finally {
+      setSyncing('');
+    }
+  }
   useEffect(() => { localStorage.setItem('vylo.mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('vylo.railopen', railOpen ? '1' : '0'); }, [railOpen]);
   useEffect(() => { localStorage.setItem(SEARCHES, JSON.stringify(searches)); }, [searches]);
@@ -1712,6 +1766,10 @@ export function App() {
       file ? { kind: 'action', id: 'copyFolder', label: 'Copy the folder',
                disabled: !folderOf(path) } : { kind: 'divider' },
       file ? { kind: 'action', id: 'reveal', label: 'Show in the explorer' } : { kind: 'divider' },
+      // Only when there is a branch on the remote to link into. A blob URL for
+      // a branch nobody has pushed is a 404 with a confident-looking address.
+      file && origin?.isGitHub && remote.upstream
+        ? { kind: 'action', id: 'github', label: 'Open on GitHub' } : { kind: 'divider' },
       { kind: 'divider' },
       { kind: 'action', id: 'close', label: 'Close' },
       { kind: 'action', id: 'others', label: 'Close the others',
@@ -1743,6 +1801,10 @@ export function App() {
       case 'copyPath': copy(path); break;
       case 'copyFolder': copy(folderOf(path)); break;
       case 'reveal': setRail('files'); setRailOpen(true); setJump({ path, line: 1 }); break;
+      case 'github':
+        if (origin) browse(blobUrl(origin, git?.branch || 'main', path,
+          editors.current.get(path)?.line()));
+        break;
       case 'close': closeTab(path); break;
       case 'others': closeMany(otherTabs(arrangeTabs(tabs, pinned), path, pinned)); break;
       case 'after': closeMany(tabsAfter(arrangeTabs(tabs, pinned), path, pinned)); break;
@@ -3071,6 +3133,65 @@ export function App() {
 
             {shown === 'changes' && (
               <>
+                {/* The remote. Nothing here needs a token: a pull request is a
+                    page on github.com with the fields filled in, and opening it
+                    in a browser gets the whole feature with no credential and
+                    nothing to leak. The browser is already signed in, which is
+                    the part a token would have been duplicating. */}
+                {origin && (
+                  <div className="gh">
+                    <button className="gh-name" onClick={() => browse(repoUrl(origin))}
+                            disabled={!origin.isGitHub}
+                            title={origin.isGitHub ? t('Open the repository') : remote.url}>
+                      <Icon name="branch" size={12} />
+                      {origin.owner}/{origin.repo}
+                    </button>
+
+                    <span className="gh-drift">
+                      {remote.upstream
+                        ? (remote.ahead || remote.behind
+                            ? <>
+                                {remote.ahead > 0 && <b title={t('Commits here that are not on the remote')}>↑{remote.ahead}</b>}
+                                {remote.behind > 0 && <b title={t('Commits on the remote that are not here')}>↓{remote.behind}</b>}
+                              </>
+                            : t('Up to date'))
+                        : t('Not tracking a remote branch')}
+                      {/* Counted from the last fetch, not from just now. A
+                          number that silently means "an hour ago" is worse
+                          than one that says so. */}
+                      <em>{t('as of the last fetch')}</em>
+                    </span>
+
+                    <span className="gh-acts">
+                      <button className="ghost" disabled={!!syncing || !git?.is_repo}
+                              onClick={() => void sync('git_fetch', () => invoke<string>('git_fetch', { root }))}>
+                        {syncing === 'git_fetch' ? t('Fetching') : t('Fetch')}
+                      </button>
+                      <button className="ghost" disabled={!!syncing || remote.behind === 0}
+                              onClick={() => void sync('git_pull', () => invoke<string>('git_pull', { root }))}
+                              title={t('Only when it can fast-forward. A merge or a rebase is your decision to make.')}>
+                        {syncing === 'git_pull' ? t('Pulling') : t('Pull')}
+                      </button>
+                      <button className="approve" disabled={!!syncing || remote.ahead === 0}
+                              onClick={() => void sync('git_push', () => invoke<string>('git_push', { root }))}>
+                        {syncing === 'git_push' ? t('Pushing') : t('Push')}
+                      </button>
+                    </span>
+
+                    {origin.isGitHub && remote.upstream && git?.branch && (
+                      <button className="gh-pr"
+                              onClick={() => browse(compareUrl(origin, 'main', git.branch))}>
+                        <Icon name="link" size={12} />{t('Open a pull request')}
+                      </button>
+                    )}
+                    {origin.isGitHub && (
+                      <button className="gh-pr" onClick={() => browse(pullsUrl(origin))}>
+                        <Icon name="diff" size={12} />{t('Pull requests')}
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 <div className="sb-sub">{t('Proposed')}</div>
                 {changes.length === 0
                   ? <p className="ft-empty">{t('No proposed changes.')}</p>

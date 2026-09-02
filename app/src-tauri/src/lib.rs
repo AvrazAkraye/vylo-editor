@@ -1000,6 +1000,131 @@ fn git(root: &str, args: &[&str]) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+/// Where a branch stands against its remote.
+#[derive(Serialize)]
+pub struct Remote {
+    /// The push URL of `origin`, in whatever form it is written. Empty for none.
+    url: String,
+    /// The tracking branch, e.g. `origin/main`. Empty when nothing is tracked.
+    upstream: String,
+    /// Commits here that are not there, and there that are not here.
+    ahead: usize,
+    behind: usize,
+}
+
+/// The remote, and how far the branch has drifted from it.
+///
+/// Every part is optional and every part fails softly. A repository with no
+/// remote, a branch with no upstream, and a fetch that has never run are all
+/// ordinary states, not errors — reporting them as failures would put a red
+/// message in front of somebody who has done nothing wrong.
+///
+/// `ahead`/`behind` are counted from what was last fetched, so they are as old
+/// as the last fetch. The UI says so rather than implying it just looked.
+#[tauri::command]
+fn git_remote(root: String) -> Remote {
+    let run = |args: &[&str]| -> Option<String> { git(&root, args).ok() };
+    let upstream = run(&["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"])
+        .unwrap_or_default();
+    let (ahead, behind) = if upstream.is_empty() {
+        (0, 0)
+    } else {
+        // One command, two numbers, tab separated. Two commands could disagree
+        // if something committed between them.
+        run(&["rev-list", "--left-right", "--count", "@{u}...HEAD"])
+            .map(|s| {
+                let mut it = s.split_whitespace();
+                let behind = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+                let ahead = it.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+                (ahead, behind)
+            })
+            .unwrap_or((0, 0))
+    };
+    Remote {
+        url: run(&["remote", "get-url", "origin"]).unwrap_or_default(),
+        upstream,
+        ahead,
+        behind,
+    }
+}
+
+/// Send the current branch to its remote.
+///
+/// **Not model output.** This runs because a person pressed a button, exactly
+/// as `git_commit` does, so it needs no approval dialog — there is no string
+/// here that anything but git composed. A `git push` the *agent* proposes still
+/// goes through `askToRun`, and is on the list auto-approve never covers.
+///
+/// `--set-upstream` on a branch that has none, so the first push of a new
+/// branch works rather than failing with advice about what to type.
+#[tauri::command]
+fn git_push(root: String) -> Result<String, String> {
+    let branch = git(&root, &["rev-parse", "--abbrev-ref", "HEAD"])?;
+    if branch.is_empty() || branch == "HEAD" {
+        return Err("not on a branch".into());
+    }
+    let tracked = git(&root, &["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"]).is_ok();
+    let args: Vec<&str> = if tracked {
+        vec!["push"]
+    } else {
+        vec!["push", "--set-upstream", "origin", &branch]
+    };
+    git(&root, &args)
+}
+
+/// Bring the remote's commits down and on to this branch.
+///
+/// `--ff-only`, deliberately. A pull that merges leaves a merge commit somebody
+/// did not ask for, and a pull that rebases rewrites commits they may have
+/// pushed; both are decisions this button has no business making on their
+/// behalf. When it cannot fast-forward it says so, and the person chooses.
+#[tauri::command]
+fn git_pull(root: String) -> Result<String, String> {
+    git(&root, &["pull", "--ff-only"])
+}
+
+/// Ask the remote what it has, without changing anything here.
+#[tauri::command]
+fn git_fetch(root: String) -> Result<String, String> {
+    git(&root, &["fetch", "--prune"])
+}
+
+/// Open a link in the browser.
+///
+/// **https only**, checked here and not only in the UI. `file:` opens anything
+/// on the disk, `javascript:` is obvious, and Windows will act on schemes
+/// nobody here has heard of — and the whole point of this command is that
+/// something else decides the string.
+///
+/// The URL is passed as one argument to the platform opener rather than through
+/// a shell, so there is nothing to inject into: a URL containing `;` is a URL
+/// containing a semicolon.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !url.starts_with("https://") || url.len() > 2048 {
+        return Err("only https links can be opened".into());
+    }
+    // A control character has no business in a URL and is how an argument
+    // becomes two.
+    if url.chars().any(|c| c.is_control()) {
+        return Err("that link is not a link".into());
+    }
+
+    #[cfg(target_os = "macos")]
+    let (program, args): (&str, Vec<&str>) = ("open", vec![]);
+    #[cfg(target_os = "windows")]
+    let (program, args): (&str, Vec<&str>) = ("cmd", vec!["/C", "start", ""]);
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
+    let (program, args): (&str, Vec<&str>) = ("xdg-open", vec![]);
+
+    std::process::Command::new(program)
+        .args(args)
+        .arg(&url)
+        .spawn()
+        .map_err(|e| format!("could not open that link: {e}"))?;
+    Ok(())
+}
+
 /// Create a branch and switch to it, so the work lands somewhere discardable.
 #[derive(Serialize)]
 pub struct GitChange {
@@ -1797,6 +1922,7 @@ pub fn run() {
             apply_write, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             create_file, create_dir, rename_path, delete_path,
             git_status, git_file_head, git_diffstat,
+            git_remote, git_push, git_pull, git_fetch, open_url,
             checkpoint_save, checkpoint_list, checkpoint_restore, checkpoint_redo, find_symbol,
             list_symbols, symbols_in_text,
             mac::hide_traffic_lights,
@@ -2052,6 +2178,58 @@ mod tests {
             .expect_err("must not write outside");
         assert!(err.contains("outside the open folder"), "{err}");
         assert!(!tmp.parent().unwrap().join("escaped.txt").exists());
+
+        let _ = fs::remove_dir_all(&tmp);
+    }
+
+    /// Only https, and checked here rather than only in the UI — the whole
+    /// point of the command is that something else decides the string.
+    #[test]
+    fn open_url_refuses_anything_but_https() {
+        for bad in [
+            "file:///etc/passwd",
+            "http://example.com",
+            "javascript:alert(1)",
+            "ftp://example.com",
+            "/etc/passwd",
+            "",
+            "https://example.com/\u{0}evil",
+            "https://example.com/a\nb",
+        ] {
+            assert!(open_url(bad.to_string()).is_err(), "must refuse {bad:?}");
+        }
+        // Absurdly long is refused too: it is not a link anybody typed.
+        assert!(open_url(format!("https://e.com/{}", "a".repeat(4000))).is_err());
+    }
+
+    /// A repository with no remote, a branch with no upstream and a fetch that
+    /// has never run are ordinary states, not errors. Reporting them as
+    /// failures puts a red message in front of somebody who did nothing wrong.
+    #[test]
+    fn git_remote_is_quiet_about_a_repository_with_no_remote() {
+        let tmp = std::env::temp_dir().join(format!("vylo_remote_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&tmp);
+        fs::create_dir_all(&tmp).unwrap();
+        let root = tmp.to_string_lossy().to_string();
+
+        // Not a repository at all.
+        let r = git_remote(root.clone());
+        assert!(r.url.is_empty() && r.upstream.is_empty());
+        assert_eq!((r.ahead, r.behind), (0, 0));
+
+        // A repository, but no remote.
+        if git(&root, &["init", "-q"]).is_ok() {
+            let r = git_remote(root.clone());
+            assert!(r.url.is_empty(), "no remote is empty, not an error");
+            assert!(r.upstream.is_empty());
+            assert_eq!((r.ahead, r.behind), (0, 0));
+
+            // A remote, but nothing tracked yet.
+            let _ = git(&root, &["remote", "add", "origin", "git@github.com:a/b.git"]);
+            let r = git_remote(root.clone());
+            assert_eq!(r.url, "git@github.com:a/b.git");
+            assert!(r.upstream.is_empty(), "an untracked branch is empty, not an error");
+        }
 
         let _ = fs::remove_dir_all(&tmp);
     }
