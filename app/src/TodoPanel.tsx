@@ -13,9 +13,12 @@ import {
   STARTER, type Rolled, type Status,
 } from './todo';
 import {
-  columns, search as run, sections, sortBy, tagsIn, activeFiles,
-  type Sort,
+  columns, search as run, sections, sectionOf, sortBy, tagsIn, activeFiles,
+  SECTIONS, today, type SectionKey, type Sort,
 } from './todoview';
+import {
+  byDay, firstDay, grid, inGrid, longDate, monthName, shift, weekdays,
+} from './calendar';
 
 /**
  * The project's to-do list: a plan, not a checklist.
@@ -59,7 +62,7 @@ import {
 
 const FILE = '.vylo/TODO.md';
 
-type View = 'focus' | 'list' | 'board';
+type View = 'focus' | 'list' | 'board' | 'month';
 
 interface Props {
   root: string;
@@ -73,6 +76,10 @@ interface Props {
   onError: (message: string) => void;
   /** How many steps are unticked, for the rail's badge. */
   onLeft: (n: number) => void;
+  /** Filling the window, rather than in the sidebar. Changes the layout. */
+  wide?: boolean;
+  /** For month and weekday names. */
+  lang?: string;
   /**
    * Give the list the whole window.
    *
@@ -82,7 +89,10 @@ interface Props {
   onExpand?: () => void;
 }
 
-export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError, onLeft, onExpand }: Props) {
+export function TodoPanel({
+  root, t, onToChat, onToTerminal, onOpenFile, onError, onLeft, onExpand,
+  wide = false, lang = 'en',
+}: Props) {
   const [text, setText] = useState('');
   const [sha, setSha] = useState('');
   const [ready, setReady] = useState(false);
@@ -90,6 +100,21 @@ export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError
   const [view, setView] = useState<View>('focus');
   const [sort, setSort] = useState<Sort>('file');
   const [query, setQuery] = useState('');
+  /** Which month the calendar is showing. */
+  const [month, setMonth] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+  /**
+   * The list chosen in the side column, when there is one.
+   *
+   * Only the full-window layout has that column. In the sidebar there is no
+   * room for it and Focus shows every section stacked instead, which is the
+   * same information in the shape that fits.
+   */
+  const [list, setList] = useState<SectionKey | 'all'>('today');
+  /** A day clicked in the calendar. */
+  const [day, setDay] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!root) return;
@@ -195,6 +220,86 @@ export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError
   }
 
   const found = query.trim() ? run(tasks, query) : null;
+  const todayKey = today();
+
+  /**
+   * The month.
+   *
+   * Only tasks with a due date appear — a calendar that placed everything else
+   * on the day it was written would be showing a date nobody set, and somebody
+   * would plan around it. The count in the corner says how many of the list
+   * that is, so an empty grid reads as "nothing is dated" rather than as
+   * "nothing exists".
+   */
+  function Month() {
+    const starts = firstDay(lang);
+    const days = grid(month.year, month.month, starts);
+    const due = byDay(all);
+    const total = inGrid(days, due);
+    const chosen = day ? (due.get(day) ?? []) : [];
+
+    return (
+      <div className="cal">
+        <div className="cal-head">
+          <button className="ghost icon" onClick={() => setMonth((m) => shift(m.year, m.month, -1))}
+                  title={t('Previous month')} aria-label={t('Previous month')}>
+            <Icon name="chevron" size={14} turn={90} />
+          </button>
+          <h3>{monthName(month.year, month.month, lang)}</h3>
+          <button className="ghost icon" onClick={() => setMonth((m) => shift(m.year, m.month, 1))}
+                  title={t('Next month')} aria-label={t('Next month')}>
+            <Icon name="chevron" size={14} turn={-90} />
+          </button>
+          <button className="ghost" onClick={() => {
+            const d = new Date();
+            setMonth({ year: d.getFullYear(), month: d.getMonth() });
+            setDay(null);
+          }}>{t('Today')}</button>
+          <span className="cal-count">{total} {t('dated')}</span>
+        </div>
+
+        <div className="cal-week" aria-hidden="true">
+          {weekdays(starts, lang).map((w, i) => <span key={i}>{w}</span>)}
+        </div>
+
+        <div className="cal-grid">
+          {days.map((d) => {
+            const on = due.get(d.key) ?? [];
+            const left = on.filter((x) => !x.done).length;
+            return (
+              <button key={d.key}
+                      className={`cal-day ${d.inMonth ? '' : 'out'} ${d.isToday ? 'now' : ''} ${day === d.key ? 'picked' : ''}`}
+                      aria-current={d.isToday ? 'date' : undefined}
+                      onClick={() => setDay(day === d.key ? null : d.key)}>
+                <b>{d.day}</b>
+                {on.length > 0 && (
+                  <span className="cal-dots">
+                    {/* Three at most, then a count. A day with nine tasks is a
+                        day you open, not one you read in a 90px box. */}
+                    {on.slice(0, 3).map((x) => (
+                      <i key={x.line} className={STATE_CLASS[x.state]} aria-hidden="true" />
+                    ))}
+                    {on.length > 3 && <em>+{on.length - 3}</em>}
+                  </span>
+                )}
+                {left > 0 && <span className="cal-n">{left}</span>}
+              </button>
+            );
+          })}
+        </div>
+
+        {day && (
+          <div className="cal-day-list">
+            <h4>{longDate(day, lang)}</h4>
+            {chosen.length
+              ? <ul className="todo-list">{sortBy(chosen, sort).map((x) => card(x, false))}</ul>
+              : <p className="ft-empty">{t('Nothing due that day.')}</p>}
+          </div>
+        )}
+      </div>
+    );
+  }
+
 
   const card = (task: Rolled, nested = true, depth = 0) => (
     <TodoTask key={task.line} task={task} acts={acts} t={t} nested={nested} depth={depth} />
@@ -247,7 +352,8 @@ export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError
       {/* ── Toolbar ──────────────────────────────────────────────────────── */}
       <div className="tv-bar-row">
         <div className="tv-views" role="tablist" aria-label={t('View')}>
-          {([['focus', 'star', 'Focus'], ['list', 'list', 'List'], ['board', 'board', 'Board']] as const)
+          {([['focus', 'star', 'Focus'], ['list', 'list', 'List'],
+             ['board', 'board', 'Board'], ['month', 'calendar', 'Month']] as const)
             .map(([k, icon, label]) => (
               <button key={k} role="tab" aria-selected={view === k}
                       className={view === k ? 'on' : ''} onClick={() => setView(k)}
@@ -315,14 +421,45 @@ export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError
         </div>
       )}
 
-      {/* ── The list ─────────────────────────────────────────────────────── */}
-      <div className="tv-body">
+      {/* ── The list ─────────────────────────────────────────────────────
+          Given the window, this is the shape Microsoft To Do uses and it is
+          the right one: the lists down one side, one list at a time in the
+          middle, and the box to add to it at the bottom of that column. In the
+          sidebar there is no room for the side column, so Focus stacks every
+          section instead — the same information, in the shape that fits. */}
+      <div className={`tv-body ${wide ? 'wide' : ''}`}>
+        {wide && !found && view === 'focus' && (
+          <nav className="tv-lists" aria-label={t('Lists')}>
+            {SECTIONS.map((sec) => {
+              const n = all.filter((x) => sectionOf(x) === sec.key).length;
+              if (!n && sec.key !== 'today') return null;
+              return (
+                <button key={sec.key} className={`tv-list ${list === sec.key ? 'on' : ''} sec-${sec.key}`}
+                        aria-current={list === sec.key ? 'true' : undefined}
+                        onClick={() => setList(sec.key)}>
+                  <Icon name={sec.icon} size={14} />
+                  <span>{t(sec.title)}</span>
+                  {n > 0 && <em>{n}</em>}
+                </button>
+              );
+            })}
+            <button className={`tv-list ${list === 'all' ? 'on' : ''}`}
+                    aria-current={list === 'all' ? 'true' : undefined}
+                    onClick={() => setList('all')}>
+              <Icon name="list" size={14} /><span>{t('Everything')}</span><em>{all.length}</em>
+            </button>
+          </nav>
+        )}
+
+        <div className="tv-main">
         {found ? (
           found.length ? (
             <ul className="todo-list">{sortBy(found, sort).map((x) => card(x, false))}</ul>
           ) : (
             <p className="ft-empty">{t('Nothing matches that.')}</p>
           )
+        ) : view === 'month' ? (
+          <Month />
         ) : view === 'board' ? (
           <div className="tv-board">
             {columns(all).map((c) => (
@@ -336,6 +473,19 @@ export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError
               </section>
             ))}
           </div>
+        ) : view === 'focus' && wide ? (
+          <>
+            <h2 className="tv-title">
+              {t(list === 'all' ? 'Everything' : SECTIONS.find((x) => x.key === list)?.title ?? 'Today')}
+              <small>{longDate(todayKey, lang)}</small>
+            </h2>
+            {(() => {
+              const rows = list === 'all' ? all : all.filter((x) => sectionOf(x) === list);
+              return rows.length
+                ? <ul className="todo-list">{sortBy(rows, sort).map((x) => card(x, false))}</ul>
+                : <p className="ft-empty">{t('Nothing here.')}</p>;
+            })()}
+          </>
         ) : view === 'focus' ? (
           <>
             {sections(all).map((s) => (
@@ -352,6 +502,7 @@ export function TodoPanel({ root, t, onToChat, onToTerminal, onOpenFile, onError
               : sortBy(all, sort).map((x) => card(x, false))}
           </ul>
         )}
+        </div>
       </div>
 
       <form className="todo-add"

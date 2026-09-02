@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Icon } from './Icon';
 import * as ask from './ask';
+import { ContextMenu } from './ContextMenu';
+import type { Item as MenuItem, Point as MenuPoint } from './menu';
 import {
   PICKABLE, PRIORITIES, duration,
   type Priority, type Rolled, type Status,
@@ -39,6 +41,9 @@ export const PRIORITY_WORD: Record<Priority, string> = {
 /** The estimates the picker offers, in minutes. */
 const ESTIMATES = [15, 30, 60, 120, 240, 480];
 
+/** Which chip's menu is showing. */
+type Which = 'status' | 'priority' | 'due' | 'estimate' | 'more';
+
 export interface Acts {
   toggle: (line: number) => void;
   status: (line: number, s: Status) => void;
@@ -67,6 +72,87 @@ interface Props {
 export function TodoTask({ task, acts, t, nested = true, depth = 0 }: Props) {
   const [open, setOpen] = useState(false);
   const [tag, setTag] = useState('');
+  /** Which chip's menu is open, and where it was opened from. */
+  const [at, setAt] = useState<{ which: Which; point: MenuPoint } | null>(null);
+
+  const menu = (e: React.MouseEvent, which: Which) => {
+    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    // From the chip's own bottom-left, not the pointer: a menu that opens
+    // under a chip you clicked reads as belonging to it, and a chip is a small
+    // enough target that the pointer could be anywhere inside it.
+    setAt({ which, point: { x: r.left, y: r.bottom + 4 } });
+  };
+
+  function itemsFor(which: Which): MenuItem[] {
+    const clear = (on: boolean): MenuItem[] =>
+      on ? [{ kind: 'divider' }, { kind: 'action', id: 'clear', label: 'Clear' }] : [];
+    switch (which) {
+      case 'status':
+        return [
+          { kind: 'action', id: 'todo', label: STATE_WORD.todo },
+          ...PICKABLE.map((x): MenuItem => ({ kind: 'action', id: x, label: STATE_WORD[x] })),
+        ];
+      case 'priority':
+        return [
+          ...PRIORITIES.map((x): MenuItem => ({ kind: 'action', id: x, label: PRIORITY_WORD[x] })),
+          ...clear(task.priority !== null),
+        ];
+      case 'due':
+        return [
+          { kind: 'action', id: 'today', label: 'today' },
+          { kind: 'action', id: 'tomorrow', label: 'tomorrow' },
+          { kind: 'action', id: 'pick', label: 'Pick a date…' },
+          ...clear(task.due !== null),
+        ];
+      case 'estimate':
+        return [
+          ...ESTIMATES.map((m): MenuItem => ({ kind: 'action', id: String(m), label: duration(m) })),
+          ...clear(task.estimate !== null),
+        ];
+      default:
+        return [
+          { kind: 'action', id: 'subtask', label: 'Add a subtask' },
+          { kind: 'action', id: 'rename', label: 'Rename' },
+          { kind: 'divider' },
+          { kind: 'action', id: 'remove', label: 'Remove', danger: true },
+        ];
+    }
+  }
+
+  function pick(which: Which, id: string) {
+    setAt(null);
+    if (which === 'status') acts.status(task.line, id as Status);
+    else if (which === 'priority') acts.priority(task.line, id === 'clear' ? null : (id as Priority));
+    else if (which === 'estimate') acts.estimate(task.line, id === 'clear' ? null : Number(id));
+    else if (which === 'due') {
+      if (id === 'clear') acts.due(task.line, null);
+      else if (id === 'pick') void (async () => {
+        const on = await ask.text({
+          title: t('Due'), value: /^\d{4}-/.test(task.due ?? '') ? task.due! : '',
+          placeholder: '2026-09-05', confirmLabel: t('Save'),
+        });
+        // Anything that is not a date is refused here rather than written and
+        // read back as nothing, which would look like the field ignoring you.
+        if (on && /^\d{4}-\d{2}-\d{2}$/.test(on.trim())) acts.due(task.line, on.trim());
+      })();
+      else acts.due(task.line, id);
+    } else if (id === 'subtask') void (async () => {
+      const title = await ask.text({ title: t('Add a subtask'), value: '', confirmLabel: t('Add') });
+      if (title) acts.addUnder(task.line, title);
+    })();
+    else if (id === 'rename') void (async () => {
+      const title = await ask.text({ title: t('Rename this step'), value: task.title });
+      if (title) acts.rename(task.line, title);
+    })();
+    else if (id === 'remove') void (async () => {
+      const kids = task.children.length;
+      if (await ask.confirm({
+        title: t('Remove this step?'),
+        body: kids ? `${task.title} — ${kids} ${t('subtasks go with it')}` : task.title,
+        confirmLabel: t('Remove'), danger: true,
+      })) acts.remove(task.line);
+    })();
+  }
 
   const chips = (
     <>
@@ -169,118 +255,72 @@ export function TodoTask({ task, acts, t, nested = true, depth = 0 }: Props) {
         <div className="tk-open">
           {task.note && <p className="tk-note">{task.note}</p>}
 
-          <div className="tk-set">
-            <span className="tk-label">{t('Status')}</span>
-            <span className="tk-pills">
-              {PICKABLE.map((s) => (
-                <button key={s} className={`tk-pill ${STATE_CLASS[s]} ${task.status === s ? 'on' : ''}`}
-                        aria-pressed={task.status === s}
-                        onClick={() => acts.status(task.line, task.status === s ? 'todo' : s)}>
-                  {t(STATE_WORD[s])}
-                </button>
-              ))}
-            </span>
-          </div>
-
-          <div className="tk-set">
-            <span className="tk-label">{t('Priority')}</span>
-            <span className="tk-pills">
-              {PRIORITIES.map((p) => (
-                <button key={p} className={`tk-pill pr-${p} ${task.priority === p ? 'on' : ''}`}
-                        aria-pressed={task.priority === p}
-                        onClick={() => acts.priority(task.line, task.priority === p ? null : p)}>
-                  {t(PRIORITY_WORD[p])}
-                </button>
-              ))}
-            </span>
-          </div>
-
-          <div className="tk-set">
-            <span className="tk-label">{t('Progress')}</span>
-            <input className="tk-range" type="range" min={0} max={100} step={5}
-                   value={task.percent} aria-label={t('Progress')}
-                   /* Children average up into a parent, so a parent's own
-                      slider would be overruled the moment anything changed
-                      under it — better to say so than to offer a control that
-                      does not hold. */
-                   disabled={task.children.length > 0}
-                   onChange={(e) => acts.progress(task.line, Number(e.target.value))} />
-            <span className="tk-pct">{task.percent}%</span>
-          </div>
-
-          <div className="tk-set">
-            <span className="tk-label">{t('Estimated time')}</span>
-            <span className="tk-pills">
-              {ESTIMATES.map((m) => (
-                <button key={m} className={`tk-pill ${task.estimate === m ? 'on' : ''}`}
-                        aria-pressed={task.estimate === m}
-                        onClick={() => acts.estimate(task.line, task.estimate === m ? null : m)}>
-                  {duration(m)}
-                </button>
-              ))}
-            </span>
-          </div>
-
-          <div className="tk-set">
-            <span className="tk-label">{t('Due')}</span>
-            <span className="tk-pills">
-              {(['today', 'tomorrow'] as const).map((d) => (
-                <button key={d} className={`tk-pill ${task.due === d ? 'on' : ''}`}
-                        aria-pressed={task.due === d}
-                        onClick={() => acts.due(task.line, task.due === d ? null : d)}>
-                  {t(d)}
-                </button>
-              ))}
-              <input className="tk-date" type="date" value={/^\d{4}-/.test(task.due ?? '') ? task.due! : ''}
-                     aria-label={t('Due')}
-                     onChange={(e) => acts.due(task.line, e.target.value || null)} />
-            </span>
-          </div>
-
-          <div className="tk-set">
-            <span className="tk-label">{t('Tags')}</span>
-            <form className="tk-pills"
-                  onSubmit={(e) => { e.preventDefault(); if (tag.trim()) { acts.tag(task.line, tag); setTag(''); } }}>
-              {task.tags.map((x) => (
-                <button key={x} type="button" className="tk-pill on"
-                        onClick={() => acts.tag(task.line, x)}
-                        title={t('Remove')} aria-label={`${t('Remove')} #${x}`}>
-                  #{x}<Icon name="close" size={9} />
-                </button>
-              ))}
-              <input value={tag} onChange={(e) => setTag(e.target.value)}
-                     className="tk-tagin" placeholder={t('Add a tag')}
-                     aria-label={t('Add a tag')} spellCheck={false} />
-            </form>
-          </div>
-
-          <div className="tk-more">
-            <button className="ghost" onClick={() => void (async () => {
-              const title = await ask.text({ title: t('Add a subtask'), value: '', confirmLabel: t('Add') });
-              if (title) acts.addUnder(task.line, title);
-            })()}>
-              <Icon name="plus" size={12} />{t('Add a subtask')}
+          {/* One row, not six.
+              This was six labelled rows of pills — status, priority, progress,
+              estimate, due, tags — about twenty-five controls on every task
+              somebody expanded. It read as a form, and a plan is not a form.
+              Now each is a chip that opens a small menu: the same values, one
+              row, and nothing on screen until it is asked for.
+              The progress slider went entirely. Progress rolls up from
+              subtasks on its own, an explicit percentage is a number almost
+              nobody keeps current, and `%45` written by hand in the file is
+              still read — it just has no dial. */}
+          <div className="tk-bar-row">
+            <button className={`tk-chip pick ${STATE_CLASS[task.state]}`}
+                    onClick={(e) => menu(e, 'status')}>
+              <i aria-hidden="true" />{t(STATE_WORD[task.state])}
             </button>
-            <button className="ghost" onClick={() => void (async () => {
-              const title = await ask.text({ title: t('Rename this step'), value: task.title });
-              if (title) acts.rename(task.line, title);
-            })()}>
-              <Icon name="pencil" size={12} />{t('Rename')}
+
+            <button className={`tk-chip pick ${task.priority ? `pr-${task.priority}` : 'none'}`}
+                    onClick={(e) => menu(e, 'priority')}>
+              {task.priority ? t(PRIORITY_WORD[task.priority]) : t('Priority')}
             </button>
-            <button className="ghost danger" onClick={() => void (async () => {
-              // Removing a parent takes its subtasks, so the count is in the
-              // question rather than discovered afterwards.
-              const kids = task.children.length;
-              if (await ask.confirm({
-                title: t('Remove this step?'),
-                body: kids ? `${task.title} — ${kids} ${t('subtasks go with it')}` : task.title,
-                confirmLabel: t('Remove'), danger: true,
-              })) acts.remove(task.line);
-            })()}>
-              <Icon name="close" size={12} />{t('Remove')}
+
+            <button className={`tk-chip pick ${task.due ? 'set' : 'none'}`}
+                    onClick={(e) => menu(e, 'due')}>
+              <Icon name="calendar" size={10} />
+              {task.due ? (t(task.due) || task.due) : t('Due')}
+            </button>
+
+            <button className={`tk-chip pick ${task.estimate !== null ? 'set' : 'none'}`}
+                    onClick={(e) => menu(e, 'estimate')}>
+              <Icon name="clock" size={10} />
+              {task.estimate !== null ? duration(task.estimate) : t('Estimate')}
+            </button>
+
+            <button className="tk-chip pick none" onClick={(e) => menu(e, 'more')}
+                    title={t('More')} aria-label={t('More')}>
+              <Icon name="ellipsis" size={12} />
             </button>
           </div>
+
+          {/* Tags stay inline. They are the one field with no fixed set of
+              values, so a menu would be a menu with a text box in it. */}
+          <form className="tk-tags"
+                onSubmit={(e) => { e.preventDefault(); if (tag.trim()) { acts.tag(task.line, tag); setTag(''); } }}>
+            {task.tags.map((x) => (
+              <button key={x} type="button" className="tk-tag on"
+                      onClick={() => acts.tag(task.line, x)}
+                      title={t('Remove')} aria-label={`${t('Remove')} #${x}`}>
+                #{x}<Icon name="close" size={9} />
+              </button>
+            ))}
+            <input value={tag} onChange={(e) => setTag(e.target.value)}
+                   className="tk-tagin" placeholder={t('Add a tag')}
+                   aria-label={t('Add a tag')} spellCheck={false} />
+          </form>
         </div>
+      )}
+
+      {at && (
+        <ContextMenu
+          at={at.point}
+          items={itemsFor(at.which)}
+          t={t}
+          label={`${t('Actions')} — ${task.title}`}
+          onPick={(id) => pick(at.which, id)}
+          onClose={() => setAt(null)}
+        />
       )}
 
       {nested && task.children.length > 0 && (

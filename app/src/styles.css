@@ -889,6 +889,64 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 
 /* ── Views ────────────────────────────────────────────────────────────── */
 .tv-body{ flex:1; min-height:0; overflow-y:auto; }
+/* Given the window: the lists down one side, one list at a time in the middle.
+   The sidebar has no room for the side column, so Focus stacks every section
+   instead — the same information in the shape that fits. */
+.tv-body.wide{ display:flex; overflow:hidden; }
+.tv-main{ flex:1; min-inline-size:0; min-block-size:0; overflow-y:auto; }
+.tv-lists{
+  flex:none; inline-size:200px; display:flex; flex-direction:column; gap:1px;
+  padding:var(--sp-2) var(--sp-3); overflow-y:auto;
+  border-inline-end:1px solid var(--rule);
+}
+.tv-list{
+  display:flex; align-items:center; gap:var(--sp-3); inline-size:100%;
+  padding:var(--sp-3); border:0; border-radius:var(--r-2); background:transparent;
+  font:inherit; font-size:var(--fs-3); color:var(--ink-2); cursor:pointer; text-align:start;
+}
+.tv-list span{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tv-list em{ flex:none; font-style:normal; font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+.tv-list:hover{ background:var(--panel-3); color:var(--ink); }
+.tv-list.on{ background:var(--panel-3); color:var(--ink); box-shadow:inset 2px 0 0 var(--brand); }
+.tv-title{
+  margin:0; padding:var(--sp-5) var(--sp-7) var(--sp-3);
+  font-size:var(--fs-7); font-weight:600; color:var(--brand); letter-spacing:-.02em;
+}
+.tv-title small{ display:block; font-size:var(--fs-2); font-weight:400; color:var(--mute); letter-spacing:0; }
+
+/* ── The month ────────────────────────────────────────────────────────────
+   Six weeks always, so the grid does not change height when somebody presses
+   next. Only dated tasks appear: a calendar that placed everything else on the
+   day it was written would show a date nobody set, and somebody would plan
+   around it. The count in the corner says how much of the list that is. */
+.cal{ display:flex; flex-direction:column; min-block-size:0; padding:var(--sp-4) var(--sp-5); gap:var(--sp-3); }
+.cal-head{ display:flex; align-items:center; gap:var(--sp-2); }
+.cal-head h3{ margin:0; min-inline-size:11ch; font-size:var(--fs-5); color:var(--ink); }
+.cal-count{ margin-inline-start:auto; font-size:var(--fs-1); color:var(--mute); }
+.cal-week{ display:grid; grid-template-columns:repeat(7, 1fr); gap:2px; }
+.cal-week span{ padding:var(--sp-1) var(--sp-2); font-size:var(--fs-1); color:var(--mute); text-transform:uppercase; letter-spacing:.06em; }
+.cal-grid{ display:grid; grid-template-columns:repeat(7, 1fr); grid-auto-rows:1fr; gap:2px; min-block-size:0; }
+.cal-day{
+  position:relative; display:flex; flex-direction:column; gap:var(--sp-1);
+  min-block-size:62px; padding:var(--sp-2); border:1px solid transparent; border-radius:var(--r-2);
+  background:var(--panel-2); font:inherit; color:var(--ink-2); cursor:pointer; text-align:start;
+}
+.cal-day:hover{ background:var(--panel-3); }
+.cal-day b{ font-size:var(--fs-2); font-weight:500; font-variant-numeric:tabular-nums; }
+/* The days borrowed from the months either side. Dimmed, not hidden: a task
+   due on the 1st is worth seeing while you are still looking at the month
+   before it. */
+.cal-day.out{ background:transparent; color:var(--mute); opacity:.55; }
+.cal-day.now b{ color:var(--brand); font-weight:700; }
+.cal-day.now{ border-color:var(--brand); }
+.cal-day.picked{ background:var(--brand-wash); border-color:var(--brand); }
+.cal-dots{ display:flex; align-items:center; gap:3px; flex-wrap:wrap; }
+.cal-dots i{ inline-size:6px; block-size:6px; border-radius:50%; background:var(--st, var(--mute)); }
+.cal-dots em{ font-style:normal; font-size:9px; color:var(--mute); }
+.cal-n{ position:absolute; inset-block-start:var(--sp-2); inset-inline-end:var(--sp-2);
+  font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+.cal-day-list{ border-block-start:1px solid var(--rule); padding-block-start:var(--sp-3); }
+.cal-day-list h4{ margin:0 0 var(--sp-2); padding-inline:var(--sp-3); font-size:var(--fs-2); color:var(--mute); }
 .tv-body > .todo-list{ overflow:visible; }
 .tv-sec{ padding-block-end:var(--sp-3); }
 .tv-sec h3, .tv-col h3{
@@ -958,26 +1016,32 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
 
 /* ── An open task ─────────────────────────────────────────────────────── */
 .tk-open{ padding-block:var(--sp-2) var(--sp-4); padding-inline:30px var(--sp-3); display:flex; flex-direction:column; gap:var(--sp-3); }
-.tk-set{ display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; }
-.tk-label{ flex:none; inline-size:9ch; font-size:var(--fs-1); color:var(--mute); text-transform:uppercase; letter-spacing:.06em; }
 .tk-pills{ display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; }
+
+/* ── One row, not six ─────────────────────────────────────────────────────
+   The open card used to be six labelled rows of pills — about twenty-five
+   controls on every task somebody expanded. It read as a form, and a plan is
+   not a form. Each field is now a chip that opens a small menu: the same
+   values, one row, and nothing on screen until it is asked for. */
+.tk-bar-row{ display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; }
+.tk-chip.pick{
+  cursor:pointer; border:1px solid var(--rule); font:inherit;
+  padding:2px var(--sp-3); border-radius:999px;
+}
+.tk-chip.pick:hover{ border-color:var(--rule-2); }
+.tk-chip.pick.none{ color:var(--mute); background:transparent; }
+.tk-chip.pick.set{ color:var(--ink-2); background:transparent; }
+.tk-chip.pick i{ inline-size:6px; block-size:6px; border-radius:50%; background:var(--st, var(--mute)); }
+.tk-tags{ display:flex; flex-wrap:wrap; gap:var(--sp-2); align-items:center; }
 .tk-pill{ cursor:pointer; padding:2px var(--sp-3); border-radius:999px; font:inherit; font-size:var(--fs-1);
   border:1px solid var(--rule); background:transparent; color:var(--mute);
   display:inline-flex; align-items:center; gap:3px; }
 .tk-pill:hover{ color:var(--ink); border-color:var(--rule-2); }
 .tk-pill.on{ color:var(--st, var(--pr, var(--brand))); border-color:currentColor;
   background:color-mix(in srgb, var(--st, var(--pr, var(--brand))) 12%, transparent); }
-.tk-range{ flex:1; min-inline-size:120px; max-inline-size:220px; accent-color:var(--brand); }
-.tk-range:disabled{ opacity:.4; }
-.tk-pct{ font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; min-inline-size:4ch; }
-.tk-date{ font:inherit; font-size:var(--fs-1); color:var(--ink); background:var(--bg);
-  border:1px solid var(--rule); border-radius:var(--r-1); padding:1px var(--sp-2); }
 .tk-tagin{ font:inherit; font-size:var(--fs-1); color:var(--ink); background:transparent;
   border:1px dashed var(--rule); border-radius:999px; padding:2px var(--sp-3); outline:none; inline-size:11ch; }
 .tk-tagin:focus-visible{ border-style:solid; border-color:var(--brand); }
-.tk-more{ display:flex; flex-wrap:wrap; gap:var(--sp-2); padding-block-start:var(--sp-2); border-block-start:1px solid var(--rule); }
-.tk-more .ghost{ font-size:var(--fs-1); padding:var(--sp-2) var(--sp-3); }
-.tk-more .ghost.danger:hover{ color:var(--err); }
 .tk-kids{ list-style:none; margin:0; padding:0; }
 
 .tv-help{ position:absolute; inset-inline-end:calc(var(--sp-6) + var(--sp-2)); inset-block-start:50%;

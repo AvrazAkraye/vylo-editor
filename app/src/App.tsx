@@ -3253,7 +3253,7 @@ export function App() {
                read. Both copies stay in step because every write goes through
                `applyWrite`, which says so — see docs.ts. */
             <div className="todo-full">
-              <TodoPanel root={root} t={t}
+              <TodoPanel root={root} t={t} wide lang={lang}
                     onToChat={(text) => { setActive('chat'); setPrompt((p) => (p.trim() ? `${p.trim()}\n${text}` : text)); }}
                     onToTerminal={(command) => void runStep(command)}
                     onOpenFile={(path) => openFile(path)}
