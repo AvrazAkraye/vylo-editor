@@ -161,6 +161,14 @@ interface Props {
   root: string;
   path: string;
   visible: boolean;
+  /**
+   * The pane's share of the row, as a flex-grow.
+   *
+   * Passed in rather than set from the outside because the wrapper is this
+   * component's own element — a parent reaching in to style a child's root is
+   * how a component ends up with two owners.
+   */
+  grow?: number;
   dark: boolean;
   /** Scroll here on open, when arriving from a search hit. */
   line?: number;
@@ -187,7 +195,7 @@ interface Props {
 }
 
 export function Editor({
-  root, path, visible, dark, line, complete, edit, staged, recover, t,
+  root, path, visible, dark, line, complete, edit, staged, recover, t, grow = 1,
   onReady, onDirty, onSaved, onError, onDefinition,
 }: Props) {
   /** The ⌘K bar: where it sits, what was selected, and what came back. */
@@ -542,7 +550,7 @@ export function Editor({
   const T = cfg.current.t;
 
   return (
-    <div className="ed-wrap" style={{ display: visible ? 'flex' : 'none' }}>
+    <div className="ed-wrap" style={{ display: visible ? 'flex' : 'none', flexGrow: grow }}>
       <div className="ed" ref={host} />
 
       {partial && (

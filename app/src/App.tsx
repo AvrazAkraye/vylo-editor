@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import {
   Dictation, OFF as NOT_DICTATING, browserOpen, insert as insertSpoken,
@@ -97,6 +97,7 @@ import {
   blobUrl, compareUrl, isOpenable, parseRemote, pullsUrl, repoUrl,
 } from './github';
 import { MAX_PANES, prune as prunePanes, toggle as togglePane } from './panes';
+import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import { ContextMenu } from './ContextMenu';
 import {
   LEVEL_LABEL, appliesEdits, decide as decideAuto, isOn as autoOn,
@@ -284,6 +285,9 @@ export function App() {
    */
   const [auto, setAuto] = useState<AutoLevel>('off');
   const [shownFiles, setShownFiles] = useState<string[]>([]);
+  /** How wide each editor pane is. Same arithmetic as the terminal's — see split.ts. */
+  const [edWeights, setEdWeights] = useState<Weights>({});
+  const edRow = useRef<HTMLDivElement>(null);
   const [progress, setProgress] = useState<Progress>(NO_PROGRESS);
   const track = useRef(NO_PROGRESS);
   const note = useCallback((e: ProgressEvent) => {
@@ -1828,6 +1832,33 @@ export function App() {
       case 'others': closeMany(otherTabs(arrangeTabs(tabs, pinned), path, pinned)); break;
       case 'after': closeMany(tabsAfter(arrangeTabs(tabs, pinned), path, pinned)); break;
     }
+  }
+
+  /** Drag the line between two editors. The terminal's twin — see split.ts. */
+  function dragEditors(e: React.PointerEvent, at: number) {
+    const box = edRow.current?.getBoundingClientRect();
+    if (!box || box.width <= 0) return;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    let last = e.clientX;
+    document.body.classList.add('resizing');
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - last;
+      if (!dx) return;
+      last = ev.clientX;
+      const sign = getComputedStyle(el).direction === 'rtl' ? -1 : 1;
+      setEdWeights((w) => afterDrag(panes, w, at, (dx * sign) / box.width, MIN_SHARE));
+    };
+    const done = () => {
+      el.releasePointerCapture?.(e.pointerId);
+      document.body.classList.remove('resizing');
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', done);
+      el.removeEventListener('pointercancel', done);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', done);
+    el.addEventListener('pointercancel', done);
   }
 
   /**
@@ -3522,10 +3553,24 @@ export function App() {
               throw away unsaved edits and the undo history with them. */}
           {files.length > 0 && !(showTerm && termFull) && (
             <Suspense fallback={<div className="vw-msg">{t('Opening…')}</div>}>
-              <div className={`ed-stack ${split ? 'split' : ''}`}>
-              {files.map((p) => (
+              <div ref={edRow} className={`ed-stack ${split ? 'split' : ''}`}>
+              {files.map((p) => {
+              const at = panes.indexOf(p);
+              return (
+                <Fragment key={p}>
+                <div className="tdiv" role="separator" aria-orientation="vertical"
+                     tabIndex={at > 0 ? 0 : -1} aria-label={`${t('Resize')} — ${p}`}
+                     style={{ display: at > 0 ? 'block' : 'none' }}
+                     onPointerDown={(e) => dragEditors(e, at)}
+                     onKeyDown={(e) => {
+                       const by = e.key === 'ArrowLeft' ? -0.02 : e.key === 'ArrowRight' ? 0.02 : 0;
+                       if (!by) return;
+                       e.preventDefault();
+                       setEdWeights((w) => afterDrag(panes, w, at, by));
+                     }}
+                     onDoubleClick={() => setEdWeights((w) => evened(panes, w))}
+                     title={t('Drag to resize, double-click to even them out')} />
                 <Editor
-                  key={p}
                   root={root}
                   path={p}
                   visible={panes.includes(p)}
@@ -3561,8 +3606,10 @@ export function App() {
                     setWritten((prev) => [...new Set([...prev, path])]);
                   }}
                   onError={(m) => push({ kind: 'error', text: m })}
+                  grow={at >= 0 ? shares(panes, edWeights)[at] * panes.length : 1}
                 />
-              ))}
+                </Fragment>
+              );})}
               </div>
             </Suspense>
           )}

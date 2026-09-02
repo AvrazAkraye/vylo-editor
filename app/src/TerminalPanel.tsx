@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
@@ -6,6 +6,7 @@ import * as ask from './ask';
 import { filter, shorten, since, stateOf, titleOf } from './terminals';
 import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
 import { CONTEXT_LINES } from './command';
+import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import { ContextMenu } from './ContextMenu';
 import type { Item as MenuItem, Point as MenuPoint } from './menu';
 import { tagClass, tagOf, type Tag } from './tags';
@@ -91,6 +92,16 @@ export function TerminalPanel({
   const [cwds, setCwds] = useState<Record<string, string>>({});
   /** The session row a menu is open on. */
   const [rowMenu, setRowMenu] = useState<{ id: string; at: MenuPoint } | null>(null);
+  /**
+   * How wide each pane is, by pane id.
+   *
+   * Shares rather than pixels, so the arrangement survives the window being
+   * resized and the panel being made full screen. Keyed by id rather than by
+   * position, so hiding a pane and showing it again finds the width it had.
+   */
+  const [weights, setWeights] = useState<Weights>({});
+  /** The row being dragged in, measured once when the drag starts. */
+  const row = useRef<HTMLDivElement>(null);
 
   /** Ask one pane where its shell is now. */
   const locate = useCallback((id: string) => {
@@ -216,6 +227,48 @@ export function TerminalPanel({
     } finally {
       setThinking(false);
     }
+  }
+
+  /**
+   * Drag one divider.
+   *
+   * Pointer capture, so the drag survives the pointer leaving the divider —
+   * which it does immediately, because the divider is six pixels wide and the
+   * hand does not stop there. Without it a drag ends the moment it starts
+   * working.
+   *
+   * The delta is measured against the row's width so it is a share, and against
+   * the width at the *start* of the drag rather than each frame: re-measuring a
+   * box that the drag is changing is how a divider accelerates away from the
+   * pointer.
+   */
+  function startDrag(e: React.PointerEvent, at: number) {
+    const box = row.current?.getBoundingClientRect();
+    if (!box || box.width <= 0) return;
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    let last = e.clientX;
+    document.body.classList.add('resizing');
+
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - last;
+      if (!dx) return;
+      last = ev.clientX;
+      // Right-to-left rows put the earlier pane on the right, so a rightward
+      // drag has to narrow it rather than widen it.
+      const sign = getComputedStyle(el).direction === 'rtl' ? -1 : 1;
+      setWeights((w) => afterDrag(onScreen, w, at, (dx * sign) / box.width, MIN_SHARE));
+    };
+    const done = () => {
+      el.releasePointerCapture?.(e.pointerId);
+      document.body.classList.remove('resizing');
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', done);
+      el.removeEventListener('pointercancel', done);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', done);
+    el.addEventListener('pointercancel', done);
   }
 
   function split() {
@@ -489,16 +542,40 @@ export function TerminalPanel({
           </div>
         </div>
 
-      <div className={`panel-body ${onScreen.length > 1 ? 'split' : ''}`}>
+      <div ref={row} className={`panel-body ${onScreen.length > 1 ? 'split' : ''}`}>
         {tabs.map((tab) => {
           const on = onScreen.includes(tab.id);
           const title = titleOf(tab, t('Terminal'));
+          // Where this pane sits among the ones actually drawn. The divider
+          // belongs *before* it, and the first visible pane has none.
+          const at = onScreen.indexOf(tab.id);
+          const width = at >= 0 ? shares(onScreen, weights)[at] : 0;
           return (
             /* Every pane stays mounted whether or not it is drawn — a terminal
                is a place you leave a server running, so this is display, never
                unmount. */
-            <div key={tab.id} className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''}`}
-                 style={{ display: on ? 'flex' : 'none' }}
+            <Fragment key={tab.id}>
+            {/* Rendered per pane rather than interleaved, because every pane
+                stays mounted and a hidden one must not leave a divider behind.
+                Hidden itself when its pane is, and when its pane is first. */}
+            <div className="tdiv" role="separator" aria-orientation="vertical"
+                 tabIndex={at > 0 ? 0 : -1}
+                 aria-label={`${t('Resize')} — ${title.text}`}
+                 style={{ display: on && at > 0 ? 'block' : 'none' }}
+                 onPointerDown={(e) => startDrag(e, at)}
+                 onKeyDown={(e) => {
+                   // The keyboard moves it too. A divider only the mouse can
+                   // reach is a size only some people can set.
+                   const by = e.key === 'ArrowLeft' ? -0.02 : e.key === 'ArrowRight' ? 0.02 : 0;
+                   if (!by) return;
+                   e.preventDefault();
+                   setWeights((w) => afterDrag(onScreen, w, at, by));
+                 }}
+                 onDoubleClick={() => setWeights((w) => evened(onScreen, w))}
+                 title={t('Drag to resize, double-click to even them out')} />
+
+            <div className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''}`}
+                 style={{ display: on ? 'flex' : 'none', flexGrow: width * onScreen.length }}
                  onMouseDown={() => setActive(tab.id)}>
               {/* Side by side, two panes are two anonymous dark rectangles
                   without a name on them. One pane needs no label: the row it
@@ -555,6 +632,7 @@ export function TerminalPanel({
                 </button>
               </div>
             </div>
+            </Fragment>
           );
         })}
       </div>
