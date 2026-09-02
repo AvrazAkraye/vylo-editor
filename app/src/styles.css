@@ -2162,6 +2162,34 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    than a border on each pane: a hidden pane creates no gap, so the line only
    ever falls between panes that are actually drawn. A border would have to know
    which pane is first on screen, which CSS cannot ask. */
+/* ── Auto-approve ─────────────────────────────────────────────────────────
+   Amber, in the status bar, for as long as it is on. A mode that answers the
+   one question this app exists to ask must not be something you can forget is
+   running — nothing else is going to stop and tell you. It is a button, so the
+   way back off is the same click as noticing it. */
+.st-auto{
+  display:inline-flex; align-items:center; gap:var(--sp-2); cursor:pointer;
+  padding:1px var(--sp-3); border:1px solid var(--warn); border-radius:999px;
+  background:var(--warn-wash); color:var(--amber-ink); font:inherit; font-size:var(--fs-1);
+}
+.st-auto:hover{ background:var(--warn); color:var(--bg); }
+
+/* The three choices, as rows rather than a dropdown: what each one does is the
+   thing worth reading, and a select hides two of the three. */
+.ap{ display:flex; flex-direction:column; gap:var(--sp-2); }
+.ap-row{
+  display:flex; align-items:flex-start; gap:var(--sp-3); cursor:pointer;
+  padding:var(--sp-3) var(--sp-4); border:1px solid var(--rule); border-radius:var(--r-2);
+}
+.ap-row:hover{ border-color:var(--rule-2); }
+.ap-row.on{ border-color:var(--brand); background:var(--brand-wash); }
+/* The one that runs commands is marked before it is chosen, not after. */
+.ap-row.far.on{ border-color:var(--warn); background:var(--warn-wash); }
+.ap-row input{ margin-block-start:3px; accent-color:var(--brand); }
+.ap-row span{ display:flex; flex-direction:column; gap:2px; }
+.ap-row b{ font-size:var(--fs-3); font-weight:500; color:var(--ink); }
+.ap-row em{ font-style:normal; font-size:var(--fs-2); color:var(--mute); }
+
 /* ── Context menu ─────────────────────────────────────────────────────────
    Measured, then placed by `menu.ts`, so one opened at the bottom of the
    window opens upward instead of running off it. Positioned with a transform

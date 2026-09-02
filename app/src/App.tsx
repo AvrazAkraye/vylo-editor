@@ -95,6 +95,10 @@ import { SYSTEM as ASK_SYSTEM, ask as askMessage, parse as parseCommand, reason 
 import { dirFor } from './rtl';
 import { MAX_PANES, prune as prunePanes, toggle as togglePane } from './panes';
 import { ContextMenu } from './ContextMenu';
+import {
+  LEVEL_LABEL, appliesEdits, decide as decideAuto, isOn as autoOn,
+  type Level as AutoLevel,
+} from './auto';
 import type { Item as MenuItem, Point as MenuPoint } from './menu';
 import {
   after as tabsAfter, arrange as arrangeTabs, folderOf, isPinned,
@@ -253,6 +257,15 @@ export function App() {
   const [pinned, setPinned] = useState<string[]>([]);
   /** The tab a context menu is open on, and where. */
   const [tabMenu, setTabMenu] = useState<{ path: string; at: MenuPoint } | null>(null);
+  /**
+   * Whether questions are being answered in advance.
+   *
+   * Deliberately **not** persisted. A mode that relaxes the one rule the app
+   * rests on should not be quietly on the next time the window opens — the
+   * person who turned it on knew why, and the person opening the app a week
+   * later is not necessarily the same state of mind. Off on every start.
+   */
+  const [auto, setAuto] = useState<AutoLevel>('off');
   const [shownFiles, setShownFiles] = useState<string[]>([]);
   const [progress, setProgress] = useState<Progress>(NO_PROGRESS);
   const track = useRef(NO_PROGRESS);
@@ -2065,6 +2078,20 @@ export function App() {
 
   function askToRun(req: CommandRequest): Promise<RunChoice> {
     if (trusted.current.has(req.command)) return Promise.resolve('pipe');
+    // Auto-approve answers the dialog; it does not go round it. The command
+    // still passes through here, is still recorded, and still runs down the
+    // same path — so turning the mode off leaves nothing behind.
+    const call = decideAuto(req.command, auto);
+    if (call.kind === 'run') {
+      push({ kind: 'result', text: `${t('Ran without asking')} — ${req.command}` });
+      return Promise.resolve('pipe');
+    }
+    // A command the mode would have run, held back by the refuse-list. Saying
+    // which rule caught it is the difference between a dialog that looks broken
+    // and one that is doing its job.
+    if (autoOn(auto) && call.why) {
+      push({ kind: 'result', text: `${t('Asking anyway, because')} ${t(call.why)} — ${req.command}` });
+    }
     setAskRun(req);
     // The loop is suspended on the promise below until somebody clicks, so this
     // is the one moment the app is genuinely stuck. `req.command` is not passed
@@ -2554,7 +2581,19 @@ export function App() {
         onToolStart: (name, input) => note({ kind: 'tool', name, input }),
         onToolEnd: () => note({ kind: 'result' }),
         onStaged: () => {
-          setChanges(pending.current.list());
+          const staged = pending.current.list();
+          setChanges(staged);
+          // Applied here rather than at the end of the turn, so the agent's next
+          // `read_file` sees what it just wrote — which is what makes a
+          // multi-step change work without being asked about each step.
+          //
+          // The snapshot in `approve` still runs, so an auto-applied write is
+          // an undoable one. That is the whole reason this mode is defensible.
+          if (appliesEdits(auto) && staged.length) {
+            void approve(staged.map((c) => c.path));
+            push({ kind: 'result', text: `${t('Applied without asking')} — ${staged.length}` });
+            return;
+          }
           // Fires once per file, so the quiet window in `again()` is what turns
           // a six-file turn into one banner rather than six.
           raiseSummons({ kind: 'staged' });
@@ -2832,6 +2871,8 @@ export function App() {
           t={t}
           initial={settingsAt ?? undefined}
           onClose={() => { setShowSettings(false); setSettingsAt(null); }}
+          auto={auto}
+          onAuto={setAuto}
           modules={modules}
           onModules={setModules}
           baseUrl={baseUrl}
@@ -3896,6 +3937,17 @@ export function App() {
                 title={t('How full the model context is')}>
             {Math.round((ctx.used / ctx.limit) * 100)}% {t('context')}
           </span>
+        )}
+        {/* Unmissable while it is on, and a way back off in one click.
+            A mode that relaxes the rule the app rests on must not be something
+            you can forget is running — the whole point is that nothing else
+            will stop and tell you. */}
+        {autoOn(auto) && (
+          <button className="st-auto" onClick={() => { setSettingsAt('approval'); setShowSettings(true); }}
+                  title={t(LEVEL_LABEL[auto])}>
+            <Icon name="bolt" size={12} />
+            {t(auto === 'all' ? 'Running without asking' : 'Applying without asking')}
+          </button>
         )}
         <span className="sp" />
         {isFile(active) && (

@@ -9,6 +9,7 @@ import { clipboardBytes, human, isOnDisk, usage, type Sizes, type StoreId } from
 import { view, type CategoryId, type Setting } from './settings';
 import { ModuleList, RailSide } from './ModuleList';
 import type { Layout as ModuleLayout } from './modules';
+import { LEVELS, LEVEL_ABOUT, LEVEL_LABEL, type Level as AutoLevel } from './auto';
 import { IS_MAC, Shortcuts } from './Welcome';
 import { label as chordLabel } from './shortcut';
 import type { Chip } from './session';
@@ -100,6 +101,10 @@ interface Props {
   onRecording: (on: boolean) => void;
   onSummonKey: (e: React.KeyboardEvent) => void;
   onClearSummon: () => void;
+
+  // ── Approval ──
+  auto: AutoLevel;
+  onAuto: (level: AutoLevel) => void;
 
   // ── Modules ──
   modules: ModuleLayout;
@@ -519,6 +524,25 @@ function Control({ row, ...p }: ControlProps) {
       return (
         <Row label={label} hint={hint} wide>
           <Shortcuts t={t} columns={2} />
+        </Row>
+      );
+
+    // ── Approval ──
+    case 'autoApprove':
+      return (
+        <Row label={label} hint={hint} wide>
+          <div className="ap">
+            {LEVELS.map((lv) => (
+              <label key={lv} className={`ap-row ${p.auto === lv ? 'on' : ''} ${lv === 'all' ? 'far' : ''}`}>
+                <input type="radio" name="auto" checked={p.auto === lv}
+                       onChange={() => p.onAuto(lv)} />
+                <span>
+                  <b>{t(LEVEL_LABEL[lv])}</b>
+                  <em>{t(LEVEL_ABOUT[lv])}</em>
+                </span>
+              </label>
+            ))}
+          </div>
         </Row>
       );
 

@@ -7,13 +7,69 @@ What Vylo Editor can and cannot do to your machine.
 Vylo Editor runs a coding agent against a folder you choose, on your own
 computer. The whole design rests on one rule:
 
-> **No model output reaches disk or a shell without a human having read and
-> approved that exact content or string.**
+> **No model output reaches disk or a shell without a human having approved
+> it — that exact content and string by default, or, when auto-approve is
+> turned on, a class of action decided in advance for that session.**
+
+That sentence used to be shorter: it said *read and approved that exact
+content*, with no exception. Version 0.42.0 added a mode where the app can
+answer for you, and the sentence was changed rather than the mode being hidden
+behind it. What has not changed is who decides: auto-approve is off every time
+the app starts, and nothing but a person can turn it on.
 
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
 version 0.41.0.
+
+---
+
+## Approving in advance
+
+**Off every time the app starts.** Not remembered, deliberately: the person who
+turned it on knew why, and a week later the same window opening with the gate
+already down is not the same decision. Settings → Approval, three choices:
+
+| | what it does |
+|---|---|
+| **Ask me every time** | The default, and what the app has always done. |
+| **Apply edits, ask before commands** | Staged file changes land on their own. Every command still asks. |
+| **Apply edits and run commands** | Commands run too, except the ones below. |
+
+While it is on, an amber marker sits in the status bar for as long as it lasts,
+and pressing it goes straight back to this setting. Everything it approves is
+written into the transcript, marked as such, so what happened while you were
+not reading is something you can read afterwards.
+
+**The model gains nothing.** `apply_write`, the Rust `run_command` and every
+`pty_*` command stay absent from the tool schema, exactly as before
+(`app/test/modes.test.mjs`). Auto-approve answers the dialog; it does not go
+round it. Every write still passes through `Pending` and every command through
+`askToRun`, which is why the next point is true:
+
+**Every auto-applied write is still checkpointed.** The previous contents are
+kept before the new ones land, so an unattended change is an undoable one
+(`app/src-tauri/src/checkpoint.rs`). This mode is defensible because it is
+*reversible*, not because it is supervised.
+
+### What is never auto-approved
+
+Some commands are not undoable and no checkpoint helps. These always ask, at
+every level, and **there is no setting that turns this off**
+(`app/src/auto.ts`, `app/test/auto.test.mjs`):
+
+- anything that deletes — `rm -rf`, `rmdir`, `shred`, `find … -delete`,
+  `git clean`
+- anything that writes to a disk or device directly — `dd`, `mkfs`, `> /dev/…`
+- anything that leaves this machine or rewrites shared history — `git push`,
+  `git rebase`, `git reset --hard`, `npm publish`
+- anything that runs as somebody else, or runs something downloaded —
+  `sudo`, `curl … | sh`
+- anything that affects the whole machine — `shutdown`, `systemctl`, `killall`
+
+The list matches on text, so it will sometimes stop a command that was
+harmless. That is the direction to be wrong in, and the cost of being wrong is
+one dialog.
 
 ---
 

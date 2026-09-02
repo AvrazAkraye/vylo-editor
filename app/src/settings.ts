@@ -60,7 +60,7 @@ import type { IconName } from './Icon';
 
 export type CategoryId =
   | 'account' | 'appearance' | 'editor' | 'notifications'
-  | 'shortcuts' | 'modules' | 'storage' | 'about';
+  | 'shortcuts' | 'approval' | 'modules' | 'storage' | 'about';
 
 export interface Category {
   id: CategoryId;
@@ -92,6 +92,9 @@ export interface Category {
  *                             "the turn finished".
  *   shortcuts     `bolt`    — the quick-action metaphor. The status bar uses it
  *                             for tokens; the two never share a surface.
+ *   approval      `pause`   — the whole tab is about whether the app stops and
+ *                             asks. Nothing else uses it, and it says the one
+ *                             thing the setting decides.
  *   modules       `branch`  — the only glyph drawing one thing joined to
  *                             another, which is both halves of this tab: the
  *                             app's own sections attached to the rail, and an
@@ -106,6 +109,7 @@ export const CATEGORIES: readonly Category[] = [
   { id: 'editor', label: 'Editor', icon: 'file' },
   { id: 'notifications', label: 'Notifications', icon: 'dot' },
   { id: 'shortcuts', label: 'Shortcuts', icon: 'bolt' },
+  { id: 'approval', label: 'Approval', icon: 'pause' },
   { id: 'modules', label: 'Modules', icon: 'branch' },
   { id: 'storage', label: 'Storage', icon: 'clipboard' },
   { id: 'about', label: 'About', icon: 'ellipsis', foot: true },
@@ -124,6 +128,7 @@ export type SettingId =
   | 'inlineCompletion'
   | 'notifyWhen' | 'notifySound'
   | 'globalShortcut' | 'keyMap'
+  | 'autoApprove'
   | 'modules' | 'railSide' | 'mcpServers'
   | 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory'
   | 'version' | 'updates' | 'safety';
@@ -220,6 +225,13 @@ export const SETTINGS: readonly Setting[] = [
   {
     id: 'keyMap', category: 'shortcuts', label: 'Keys',
     keywords: ['keyboard', 'shortcuts', 'bindings', 'key map', 'cheat sheet', 'go to file', 'go to symbol'],
+  },
+
+  // ── Approval ──
+  {
+    id: 'autoApprove', category: 'approval', label: 'When the agent changes something',
+    hint: 'Off every time the app starts. Some commands always ask whatever this says — anything that deletes, publishes, rewrites history or runs as another user.',
+    keywords: ['auto', 'automatic', 'approve', 'auto-approve', 'yolo', 'skip', 'permission', 'permissions', 'confirm', 'ask', 'without asking', 'trust', 'unattended', 'agent mode'],
   },
 
   // ── Modules ──
