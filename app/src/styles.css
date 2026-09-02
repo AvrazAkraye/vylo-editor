@@ -1542,6 +1542,36 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    the names truncated, a command pane's identity IS its command, and there
    was nowhere to say whether it was still running. A vertical row has a
    second line and a badge. */
+/* ── Ask for a command ───────────────────────────────────────────────────
+   Above the panes rather than inside one, because the answer is not output —
+   it never reaches a shell from here. What comes back is either a note, shown
+   below, or a command, which goes straight to the approval dialog and is never
+   held in this panel at all.
+
+   The line about approval is not decoration. It is the sentence that makes the
+   box safe to type into: somebody who believes this runs what it returns will
+   phrase their request differently from somebody who knows they get to read it
+   first. */
+.tsk{ flex:none; padding:var(--sp-3) var(--sp-5); border-block-end:1px solid var(--rule); background:var(--panel-2); }
+.tsk-row{ display:flex; align-items:center; gap:var(--sp-3); color:var(--brand); }
+.tsk-row input{
+  flex:1; min-inline-size:0; font:inherit; font-size:var(--fs-3); color:var(--ink);
+  padding:var(--sp-2) var(--sp-3); border-radius:var(--r-2);
+  border:1px solid var(--rule); background:var(--bg); outline:none;
+}
+.tsk-row input:focus-visible{ border-color:var(--brand); }
+.tsk-row input:disabled{ opacity:.6; }
+.tsk-row .approve{ flex:none; }
+/* Deliberately not mono and not on a dark ground: a note must not read as
+   something you could run. */
+.tsk-note{
+  margin:var(--sp-3) 0 0; padding:var(--sp-3) var(--sp-4);
+  border-inline-start:2px solid var(--warn); border-radius:var(--r-1);
+  background:var(--warn-wash); font-size:var(--fs-2); color:var(--ink-2); white-space:pre-wrap;
+}
+.tsk-why{ margin:var(--sp-2) 0 0; font-size:var(--fs-1); color:var(--mute); }
+.tsk-open.on{ color:var(--brand); }
+
 .panel-split{ flex:1; min-height:0; display:flex; }
 .tsl{
   flex:none; width:236px; min-width:0; display:flex; flex-direction:column;
@@ -2068,6 +2098,32 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    than a border on each pane: a hidden pane creates no gap, so the line only
    ever falls between panes that are actually drawn. A border would have to know
    which pane is first on screen, which CSS cannot ask. */
+/* ── Prompts ──────────────────────────────────────────────────────────────
+   Two lines each: the name you gave it, and enough of the body to tell two
+   apart. The icon on the right is the destination — a message box or the
+   approval dialog — and it is on every row rather than on hover, because which
+   of the two a row is is the thing worth knowing before you press it. */
+.pr-list{ flex:1; min-height:0; overflow-y:auto; list-style:none; margin:0; padding:0 var(--sp-3) var(--sp-4); }
+.pr-row{ display:flex; align-items:stretch; gap:var(--sp-1); border-radius:var(--r-2); }
+.pr-row:hover{ background:var(--panel-3); }
+.pr-hit{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-3);
+  padding:var(--sp-3); border:0; border-radius:var(--r-2); background:transparent;
+  font:inherit; color:var(--mute); cursor:pointer; text-align:start;
+}
+.pr-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.pr-what b{ font-size:var(--fs-3); font-weight:500; color:var(--ink); }
+.pr-what span{
+  font-size:var(--fs-2); color:var(--mute);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+/* A command is set in the mono face for the same reason a command pane's title
+   is: it is a string that will run, not a label. */
+.pr-what span.mono{ font-family:var(--mono); font-size:var(--fs-1); }
+.pr-row.command .pr-hit{ color:var(--brand); }
+.pr-row .todo-x{ align-self:center; }
+.pr-row:hover .todo-x{ opacity:1; }
+
 /* ── Outline ──────────────────────────────────────────────────────────────
    A map of the open file. Rows are one line each and the badge carries the
    kind, so a long file reads as a column of names rather than a column of

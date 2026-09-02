@@ -51,7 +51,7 @@
 import type { IconName } from './Icon';
 
 export type ModuleId =
-  | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'memory';
+  | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'prompts' | 'memory';
 
 export interface Module {
   id: ModuleId;
@@ -76,6 +76,7 @@ export const MODULES: readonly Module[] = [
   { id: 'changes', label: 'Changes', icon: 'diff', about: 'Staged edits and the git working tree.', badge: 'changes' },
   { id: 'chats', label: 'Chats', icon: 'chat', about: 'Every conversation in this folder.' },
   { id: 'todo', label: 'To do', icon: 'check', about: 'The project plan, kept in .vylo/TODO.md.', badge: 'todo' },
+  { id: 'prompts', label: 'Prompts', icon: 'sparkle', about: 'Prompts and commands worth keeping, kept in .vylo/PROMPTS.md.' },
   { id: 'memory', label: 'Memory', icon: 'memory', about: 'What the agent has been told to remember.' },
 ];
 

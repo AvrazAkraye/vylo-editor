@@ -5,6 +5,7 @@ import { Icon } from './Icon';
 import * as ask from './ask';
 import { filter, since, stateOf, titleOf } from './terminals';
 import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
+import { CONTEXT_LINES } from './command';
 import { TagPicker } from './TagPicker';
 import { tagClass, type Tag } from './tags';
 import { move } from './reorder';
@@ -48,6 +49,15 @@ interface Props {
   t: (s: string) => string;
   onSendToChat: (text: string) => void;
   /** Hide the panel. `drop` also means there is nothing left to keep alive. */
+  /**
+   * Ask for a command in words.
+   *
+   * Returns a note to show when the answer was not a command; `null` when it
+   * was, because a command is handed straight to the approval gate and this
+   * panel never sees it. Keeping the command out of here is the point: there
+   * is one gate, and it is not in the terminal.
+   */
+  onAsk?: (question: string, output: string) => Promise<string | null>;
   onClose: (drop?: boolean) => void;
   full: boolean;
   onToggleFull: () => void;
@@ -67,8 +77,13 @@ const newTab = (n: number): Tab => ({ id: `t${++seq}`, n, born: Date.now(), dead
 
 export function TerminalPanel({
   root, dark, t, onSendToChat, onClose, onError, full, onToggleFull, expose, exposeRun,
-  onSessions, exposeFocus,
+  onSessions, exposeFocus, onAsk,
 }: Props) {
+  /** The ask box: open, what is typed in it, whether a request is in flight. */
+  const [asking, setAsking] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [thinking, setThinking] = useState(false);
+  const [note, setNote] = useState('');
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
   /**
@@ -167,6 +182,29 @@ export function TerminalPanel({
    * terminal, because a Split button that does nothing when you have a single
    * terminal is a Split button you press once and never trust again.
    */
+  /**
+   * Send the question, with what is on the terminal for context.
+   *
+   * A command never comes back here. `onAsk` hands it to the same approval
+   * dialog `run_command` uses, so there is one gate and this panel is not part
+   * of it — the only thing that returns is a note, which is not runnable.
+   */
+  async function askNow() {
+    const q = question.trim();
+    if (!q || !onAsk || thinking) return;
+    setThinking(true);
+    setNote('');
+    try {
+      const said = await onAsk(q, handles.current.get(focus)?.text(CONTEXT_LINES) ?? '');
+      if (said) setNote(said);
+      else { setQuestion(''); setAsking(false); }
+    } catch (e) {
+      setNote(e instanceof Error ? e.message : String(e));
+    } finally {
+      setThinking(false);
+    }
+  }
+
   function split() {
     const other = tabs.find((x) => !onScreen.includes(x.id));
     if (!other) return add(true);
@@ -272,6 +310,14 @@ export function TerminalPanel({
           <button className="ghost" onClick={() => handles.current.get(focus)?.clear()} disabled={dead}>
             {t('Clear')}
           </button>
+          {onAsk && (
+            <button className={`ghost tsk-open ${asking ? 'on' : ''}`}
+                    onClick={() => { setAsking((v) => !v); setNote(''); }}
+                    aria-expanded={asking}
+                    title={t('Describe what you want and get a command')}>
+              <Icon name="sparkle" size={13} />{t('Ask')}
+            </button>
+          )}
           <button className="ghost icon" onClick={split}
                   disabled={onScreen.length >= MAX_PANES}
                   title={t('Show another terminal beside this one')}
@@ -284,6 +330,30 @@ export function TerminalPanel({
           <button className="ghost icon" onClick={() => onClose()} title={t('Hide the panel')} aria-label={t('Hide the panel')}><Icon name="chevron" size={14} turn={90} /></button>
         </div>
       </div>
+
+      {asking && onAsk && (
+        <div className="tsk">
+          <form className="tsk-row" onSubmit={(e) => { e.preventDefault(); void askNow(); }}>
+            <Icon name="sparkle" size={13} />
+            <input value={question} onChange={(e) => setQuestion(e.target.value)}
+                   /* Autofocus is right here and almost nowhere else: the box
+                      appeared because somebody pressed the button that opens
+                      it, so it is the only thing they can have meant. */
+                   autoFocus
+                   onKeyDown={(e) => { if (e.key === 'Escape') { setAsking(false); setNote(''); } }}
+                   placeholder={t('What do you want to do?')}
+                   aria-label={t('What do you want to do?')}
+                   disabled={thinking} spellCheck={false} />
+            <button className="approve" type="submit" disabled={thinking || !question.trim()}>
+              {thinking ? t('Thinking') : t('Ask')}
+            </button>
+          </form>
+          {/* Never runnable, and it does not look runnable. A note is what
+              comes back when the request had no answer as a command. */}
+          {note && <p className="tsk-note">{note}</p>}
+          <p className="tsk-why">{t('The command is shown for you to approve before anything runs.')}</p>
+        </div>
+      )}
 
       <div className="panel-split">
         <div className="tsl" role="navigation" aria-label={t('Terminal sessions')}>

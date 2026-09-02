@@ -90,6 +90,8 @@ import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { TodoPanel } from './TodoPanel';
 import { Working } from './Working';
 import { OutlinePanel } from './OutlinePanel';
+import { PromptsPanel } from './PromptsPanel';
+import { SYSTEM as ASK_SYSTEM, ask as askMessage, parse as parseCommand, reason } from './command';
 import { dirFor } from './rtl';
 import { MAX_PANES, prune as prunePanes, toggle as togglePane } from './panes';
 import {
@@ -1948,6 +1950,39 @@ export function App() {
    * they want to watch and be able to interrupt. The pipe exists so the model
    * can read output; here there is no model in the loop.
    */
+  /**
+   * A command, from words.
+   *
+   * One request, no tools — the person has already said what they want, and
+   * there is nothing for the agent loop to look up. What comes back goes to
+   * `askToRun`: the same dialog, the same string on screen, the same "Always
+   * allow this" as a command the agent proposed mid-turn.
+   *
+   * There is deliberately no second confirmation. The dialog *is* the approval,
+   * and a screen that asks twice teaches people to click through both.
+   *
+   * Returns a note when the answer was not a command, and null when it was —
+   * so the terminal never holds a runnable string.
+   */
+  async function askForCommand(question: string, output: string): Promise<string | null> {
+    if (!apiKey) return t('Add your API key in Settings first.');
+    const raw = await askRaw(
+      { baseUrl, apiKey, model },
+      ASK_SYSTEM,
+      askMessage({ question, environment, cwd: root, output }),
+    );
+    const reply = parseCommand(raw);
+    if (!reply) return t('No answer came back. Try again.');
+    if (reply.kind === 'note') return reply.text;
+
+    const choice = await askToRun({ command: reply.text, reason: reason(question) });
+    if (choice === 'no') return null;
+    if (!termRun.current) return t('Open the terminal first.');
+    try { await termRun.current(reply.text); }
+    catch (e) { return explain(e, `${t('run')} ${reply.text}`); }
+    return null;
+  }
+
   async function runStep(command: string) {
     const choice = await askToRun({ command, reason: t('A step from the to-do list.') });
     if (choice === 'no') return;
@@ -2851,6 +2886,13 @@ export function App() {
                 every list of this kind has. The label is its own element so the
                 `kbd` has something to be pushed away from; see the note on
                 `.ghost.bordered` in the stylesheet. */}
+            {shown === 'prompts' && (
+              <PromptsPanel root={root} t={t}
+                    onToChat={(text) => { setActive('chat'); setPrompt((p) => (p.trim() ? `${p.trim()}\n${text}` : text)); }}
+                    onToTerminal={(command) => void runStep(command)}
+                    onError={(m) => push({ kind: 'error', text: m })} />
+            )}
+
             {shown === 'outline' && (
               <OutlinePanel t={t}
                     path={openFilePath}
@@ -3268,6 +3310,7 @@ export function App() {
                   onSendToChat={fromTerminal}
                   expose={(getText) => { termText.current = getText; }}
                   exposeRun={(run: ((c: string) => Promise<CommandResult>) | null) => { termRun.current = run; }}
+                  onAsk={askForCommand}
                   onSessions={setSessions}
                   exposeFocus={(f) => { focusSession.current = f; }}
                   full={termFull}
