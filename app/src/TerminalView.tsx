@@ -20,6 +20,14 @@ type PtyEvent = { kind: 'data'; data: string } | { kind: 'exit'; code: number | 
 export interface TermHandle {
   focus(): void;
   fit(): void;
+  /**
+   * Where the shell is now.
+   *
+   * Asked rather than watched: a directory only changes when a command runs,
+   * so polling on a timer would be a subprocess-sized question asked four
+   * times a second for an answer that is almost always the same one.
+   */
+  cwd(): Promise<string>;
   clear(): void;
   /** The selection if there is one, else the last `lines` non-blank rows. */
   text(lines: number): string;
@@ -35,6 +43,8 @@ interface Props {
   /** `code` is the command's exit status when this pane was running one. */
   onExit: (code: number | null) => void;
   onError: (message: string) => void;
+  /** A command was sent, so the shell may have moved. */
+  onMoved?: () => void;
   /** Raw pty bytes, for a pane whose output is going back to the agent. */
   onData?: (chunk: string) => void;
 }
@@ -68,7 +78,7 @@ function palette(dark: boolean) {
       };
 }
 
-export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData }: Props) {
+export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
@@ -135,6 +145,10 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
 
     const typed = t.onData((d) => {
       if (ptyId !== null) void invoke('pty_write', { id: ptyId, data: d }).catch(() => {});
+      // A directory changes when a command finishes, and a command finishes
+      // after Enter. The delay is for the shell to have actually run it —
+      // asking in the same tick reads the directory it was in before.
+      if (d.includes('\r')) window.setTimeout(() => onMoved?.(), 120);
     });
 
     // The pane is resized by the window, by the sidebar divider and by the
@@ -151,6 +165,7 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
     onReady({
       focus: () => t.focus(),
       fit: () => { try { f.fit(); } catch { /* hidden */ } },
+      cwd: async () => (ptyId === null ? '' : invoke<string>('pty_cwd', { id: ptyId }).catch(() => '')),
       clear: () => t.clear(),
       text: (lines) => {
         const sel = t.getSelection();

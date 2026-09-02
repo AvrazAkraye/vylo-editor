@@ -134,3 +134,26 @@ export function filter(list: Session[], query: string, term = 'Terminal'): Sessi
   if (!q) return list;
   return list.filter((s) => matches(s, q, term));
 }
+
+/**
+ * A path short enough for a strip under a terminal.
+ *
+ * The home directory becomes `~`, as every shell prompt writes it. Beyond that
+ * the *front* is dropped rather than the back: a path is read from the right —
+ * the folder you are in is the last segment, and the ones before it matter less
+ * the further away they are. Truncating the end would leave `/Users/you/wo…`,
+ * which answers a question nobody asked.
+ */
+export function shorten(path: string, home = '', keep = 3): string {
+  let p = (path ?? '').trim();
+  if (!p) return '';
+  if (home && (p === home || p.startsWith(`${home}/`))) {
+    p = `~${p.slice(home.length)}`;
+  }
+  const bits = p.split('/');
+  // A leading empty from an absolute path is not a segment.
+  const lead = bits[0] === '' ? '/' : '';
+  const parts = bits.filter(Boolean);
+  if (parts.length <= keep) return lead ? `/${parts.join('/')}` : parts.join('/');
+  return `…/${parts.slice(-keep).join('/')}`;
+}

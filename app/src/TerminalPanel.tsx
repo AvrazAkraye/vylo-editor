@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
 import * as ask from './ask';
-import { filter, since, stateOf, titleOf } from './terminals';
+import { filter, shorten, since, stateOf, titleOf } from './terminals';
 import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
 import { CONTEXT_LINES } from './command';
-import { TagPicker } from './TagPicker';
-import { tagClass, type Tag } from './tags';
+import { ContextMenu } from './ContextMenu';
+import type { Item as MenuItem, Point as MenuPoint } from './menu';
+import { tagClass, tagOf, type Tag } from './tags';
 import { move } from './reorder';
 import { useReorder } from './useReorder';
 
@@ -58,6 +59,8 @@ interface Props {
    * is one gate, and it is not in the terminal.
    */
   onAsk?: (question: string, output: string) => Promise<string | null>;
+  /** The user's home directory, so a path can be written the way a prompt does. */
+  home?: string;
   onClose: (drop?: boolean) => void;
   full: boolean;
   onToggleFull: () => void;
@@ -77,13 +80,24 @@ const newTab = (n: number): Tab => ({ id: `t${++seq}`, n, born: Date.now(), dead
 
 export function TerminalPanel({
   root, dark, t, onSendToChat, onClose, onError, full, onToggleFull, expose, exposeRun,
-  onSessions, exposeFocus, onAsk,
+  onSessions, exposeFocus, onAsk, home = '',
 }: Props) {
   /** The ask box: open, what is typed in it, whether a request is in flight. */
   const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState('');
   const [thinking, setThinking] = useState(false);
   const [note, setNote] = useState('');
+  /** Where each shell is, by tab id. Asked after a command, never polled. */
+  const [cwds, setCwds] = useState<Record<string, string>>({});
+  /** The session row a menu is open on. */
+  const [rowMenu, setRowMenu] = useState<{ id: string; at: MenuPoint } | null>(null);
+
+  /** Ask one pane where its shell is now. */
+  const locate = useCallback((id: string) => {
+    void handles.current.get(id)?.cwd().then((where) => {
+      if (where) setCwds((p) => (p[id] === where ? p : { ...p, [id]: where }));
+    });
+  }, []);
   const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
   const [active, setActive] = useState<string>(() => tabs[0].id);
   /**
@@ -95,7 +109,6 @@ export function TerminalPanel({
   const [query, setQuery] = useState('');
   // One row shows its colours at a time; two open pickers in a 236px column
   // is two rows of swatches nobody can tell apart.
-  const [colouring, setColouring] = useState<string | null>(null);
 
   /**
    * Rename a pane.
@@ -355,6 +368,40 @@ export function TerminalPanel({
         </div>
       )}
 
+      {rowMenu && (() => {
+        const tab = tabs.find((x) => x.id === rowMenu.id);
+        if (!tab) return null;
+        const on = onScreen.includes(tab.id);
+        const items: MenuItem[] = [
+          { kind: 'action', id: 'split', label: on ? 'Hide this pane' : 'Show this alongside',
+            disabled: !on && onScreen.length >= MAX_PANES },
+          { kind: 'action', id: 'rename', label: 'Rename this terminal' },
+          { kind: 'divider' },
+          { kind: 'swatches' },
+          { kind: 'divider' },
+          { kind: 'action', id: 'copy', label: 'Copy the path' },
+          { kind: 'action', id: 'clear', label: 'Clear' },
+          { kind: 'divider' },
+          { kind: 'action', id: 'close', label: 'Close', danger: true },
+        ];
+        return (
+          <ContextMenu at={rowMenu.at} items={items} t={t}
+            label={`${t('Actions')} — ${titleOf(tab, t('Terminal')).text}`}
+            tag={tagOf(tab.tag)}
+            onTag={(tag: Tag) => setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, tag } : x)))}
+            onClose={() => setRowMenu(null)}
+            onPick={(id) => {
+              if (id === 'split') { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id))); }
+              else if (id === 'rename') rename(tab);
+              else if (id === 'clear') handles.current.get(tab.id)?.clear();
+              else if (id === 'close') close(tab.id);
+              else if (id === 'copy') {
+                void navigator.clipboard.writeText(cwds[tab.id] || root).catch(() => {});
+              }
+            }} />
+        );
+      })()}
+
       <div className="panel-split">
         <div className="tsl" role="navigation" aria-label={t('Terminal sessions')}>
           <div className="tsl-head">
@@ -383,7 +430,11 @@ export function TerminalPanel({
               const state = stateOf(tab);
               const title = titleOf(tab, t('Terminal'));
               return (
-                <div key={tab.id} className={`tsl-row ${tagClass(tab.tag)} ${drag.itemClass(i)} ${onScreen.includes(tab.id) ? 'on' : ''}`}>
+                <div key={tab.id} className={`tsl-row ${tagClass(tab.tag)} ${drag.itemClass(i)} ${onScreen.includes(tab.id) ? 'on' : ''}`}
+                     onContextMenu={(e) => {
+                       e.preventDefault();
+                       setRowMenu({ id: tab.id, at: { x: e.clientX, y: e.clientY } });
+                     }}>
                   {/* Clicking a row means "show me this one", as it always has.
                       Showing it *as well* is the button below, so the ordinary
                       click never has to be learnt twice. */}
@@ -411,6 +462,11 @@ export function TerminalPanel({
                       </span>
                     </span>
                   </button>
+                  {/* One button, not four. The row carried a split toggle, a
+                      rename, a colour and a close, and four targets in a
+                      28px-tall row is four things to miss. Everything but the
+                      split lives in the menu now — which is also where people
+                      look for it. */}
                   <button className={`tsl-x ${onScreen.includes(tab.id) ? 'lit' : ''}`} data-nodrag
                           onClick={() => { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id))); }}
                           aria-pressed={onScreen.includes(tab.id)}
@@ -419,26 +475,14 @@ export function TerminalPanel({
                           aria-label={onScreen.includes(tab.id) ? t('Hide this pane') : t('Show this alongside')}>
                     <Icon name="split" size={12} />
                   </button>
-                  <button className="tsl-x" data-nodrag onClick={() => rename(tab)}
-                          title={t('Rename this terminal')} aria-label={t('Rename this terminal')}>
-                    <Icon name="pencil" size={12} />
-                  </button>
                   <button className="tsl-x" data-nodrag
-                          onClick={() => setColouring(colouring === tab.id ? null : tab.id)}
-                          title={t('Colour')} aria-label={t('Colour')}
-                          aria-expanded={colouring === tab.id}>
-                    <Icon name="dot" size={13} />
+                          onClick={(e) => {
+                            const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setRowMenu({ id: tab.id, at: { x: r.left, y: r.bottom + 4 } });
+                          }}
+                          title={t('More')} aria-label={`${t('More')} — ${title.text}`}>
+                    <Icon name="ellipsis" size={13} />
                   </button>
-                  <button className="tsl-x" onClick={() => close(tab.id)} data-nodrag
-                          title={t('Close')}
-                          aria-label={`${t('Close')} ${title.text}`}><Icon name="close" size={12} /></button>
-                  {colouring === tab.id && (
-                    <TagPicker value={tab.tag} t={t}
-                               onPick={(tag: Tag) => {
-                                 setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, tag } : x)));
-                                 setColouring(null);
-                               }} />
-                  )}
                 </div>
               );
             })}
@@ -471,6 +515,7 @@ export function TerminalPanel({
                 </div>
               )}
               <TerminalView
+                onMoved={() => locate(tab.id)}
                 cwd={root}
                 dark={dark}
                 visible={on}
@@ -480,6 +525,35 @@ export function TerminalPanel({
                 onData={tab.command ? (chunk) => runs.current.get(tab.id)?.buffer.push(chunk) : undefined}
                 onError={onError}
               />
+
+              {/* Where the shell is, under the prompt rather than in the
+                  title: it is the answer to "where am I", and that question is
+                  asked while looking at the last line of output, not at the
+                  top of the pane.
+
+                  The folder the terminal started in is the fallback, which is
+                  right until somebody types `cd` — and on Windows, where a
+                  process's directory cannot be read cheaply, it is all there
+                  is. Better a path that is usually right and labelled as the
+                  project than a blank strip. */}
+              <div className="tfoot">
+                <Icon name="folder" size={11} />
+                <span className="tfoot-path" title={cwds[tab.id] || root}>
+                  {shorten(cwds[tab.id] || root, home)}
+                </span>
+                <span className={`tfoot-dot ${stateOf(tab)}`} aria-hidden="true" />
+                <span className="tfoot-state">
+                  {stateOf(tab) === 'busy' ? t('running')
+                    : stateOf(tab) === 'live' ? t('shell')
+                    : stateOf(tab) === 'ok' ? t('finished')
+                    : tab.code === null ? t('stopped') : `${t('exit')} ${tab.code}`}
+                </span>
+                <button className="tfoot-copy" data-nodrag
+                        onClick={() => void navigator.clipboard.writeText(cwds[tab.id] || root).catch(() => {})}
+                        title={t('Copy the path')} aria-label={t('Copy the path')}>
+                  <Icon name="clipboard" size={11} />
+                </button>
+              </div>
             </div>
           );
         })}

@@ -264,9 +264,11 @@ const EXEMPT = [
   //    interface it is being edited in; a diff's gutter is a coordinate system;
   //    the terminal is a grid a program draws into by column; and a command
   //    waiting for approval has to read exactly as it will run.
-  { selector: '.ed .cm-editor, .term-host, .rv-diff pre, .fh-pre, .md-code, .pal-line, .ask-txt code, .mcp-what code',
+  // `.tfoot-path` joined the list: a filesystem path is a path, and reading
+  // `/Users/you/work` right-to-left would put the root at the wrong end.
+  { selector: '.ed .cm-editor, .term-host, .tfoot-path, .rv-diff pre, .fh-pre, .md-code, .pal-line, .ask-txt code, .mcp-what code',
     prop: 'direction',
-    why: 'source code, diffs, the terminal and an approvable command are LTR whatever the UI is' },
+    why: 'source code, diffs, the terminal, a path and an approvable command are LTR whatever the UI is' },
 ];
 
 {

@@ -4915,6 +4915,7 @@ version = "0.21.0"
 dependencies = [
  "base64 0.22.1",
  "ignore",
+ "libc",
  "notify",
  "objc2",
  "portable-pty",

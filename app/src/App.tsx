@@ -262,6 +262,17 @@ export function App() {
   const [tabMenu, setTabMenu] = useState<{ path: string; at: MenuPoint } | null>(null);
   /** The remote, and how far this branch has drifted from it. */
   const [remote, setRemote] = useState({ url: '', upstream: '', ahead: 0, behind: 0 });
+  /**
+   * The user's home directory, so a path can be written `~/work` as a prompt
+   * does. Derived from the open folder rather than asked for: every path this
+   * app shows is inside it, and `/Users/name` is the first two segments on
+   * macOS and `/home/name` on Linux. Empty when it cannot be sure, which only
+   * costs a longer path.
+   */
+  const home = useMemo(() => {
+    const m = /^(\/(?:Users|home)\/[^/]+)/.exec(root);
+    return m ? m[1] : '';
+  }, [root]);
   const [syncing, setSyncing] = useState('');
   /**
    * Whether questions are being answered in advance.
@@ -533,7 +544,15 @@ export function App() {
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
   const [termMounted, setTermMounted] = useState(false);
-  const [termH, setTermH] = useState(() => Number(localStorage.getItem('vylo.termh')) || 260);
+  /**
+   * How tall the terminal panel opens.
+   *
+   * 260 was about eleven lines of output, which is enough to see a command
+   * finish and not enough to read what it said — so the first thing anybody did
+   * was drag it. 380 is around eighteen, which fits a test summary or a stack
+   * trace without the drag.
+   */
+  const [termH, setTermH] = useState(() => Number(localStorage.getItem('vylo.termh')) || 380);
   // Terminal mode: the panel takes the whole work area. Some work is all
   // terminal for a while, and a 260px drawer is the wrong shape for it.
   const [termFull, setTermFull] = useState(() => localStorage.getItem('vylo.termfull') === '1');
@@ -3563,6 +3582,7 @@ export function App() {
                   expose={(getText) => { termText.current = getText; }}
                   exposeRun={(run: ((c: string) => Promise<CommandResult>) | null) => { termRun.current = run; }}
                   onAsk={askForCommand}
+                  home={home}
                   onSessions={setSessions}
                   exposeFocus={(f) => { focusSession.current = f; }}
                   full={termFull}

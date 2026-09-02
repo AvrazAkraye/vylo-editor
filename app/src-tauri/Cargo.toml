@@ -69,3 +69,7 @@ strip = true
 # would take the window's rounded corners with them.
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
+# Already in the tree several times over — every crate that touches a file
+# descriptor pulls it. Named here for `proc_pidinfo`, which is how the terminal
+# learns the shell's working directory without asking the shell.
+libc = "0.2"

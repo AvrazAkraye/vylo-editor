@@ -38,6 +38,8 @@ struct Session {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
     killer: Box<dyn ChildKiller + Send + Sync>,
+    /// The shell's own process. `None` where the platform did not say.
+    pid: Option<u32>,
 }
 
 #[derive(Default)]
@@ -176,6 +178,10 @@ pub fn pty_open(
     // exits and the reader thread blocks for the life of the app.
     drop(pair.slave);
 
+    // Taken before the child is moved into the waiting thread. It is the
+    // shell's own process, which is what makes reading its working directory
+    // meaningful: `cd` changes the shell's cwd and nothing else's.
+    let pid = child.process_id();
     let killer = child.clone_killer();
     let reader = pair
         .master
@@ -234,9 +240,100 @@ pub fn pty_open(
                 master: pair.master,
                 writer,
                 killer,
+                pid,
             },
         );
     Ok(id)
+}
+
+/// Where the shell in this terminal currently is.
+///
+/// ## Why not ask the shell
+///
+/// The usual answer is OSC 7 — an escape sequence a shell emits when its
+/// directory changes. It is the right mechanism and it is not available: macOS
+/// only wires it up for Terminal.app, and a shell that has not been configured
+/// for it says nothing at all. Waiting for a sequence that will never arrive
+/// would mean the path is simply blank for most people.
+///
+/// So this asks the operating system about the process instead. The shell is
+/// the pty's direct child, and `cd` changes that process's working directory —
+/// so its cwd *is* the answer, with no cooperation from the shell needed and
+/// nothing to configure.
+///
+/// Empty rather than an error for everything that can ordinarily go wrong: a
+/// terminal that has closed, a platform with no answer, a process that has
+/// exited between the ask and the read. The strip above the prompt falls back
+/// to the folder, which is where the shell started.
+#[tauri::command]
+pub fn pty_cwd(state: tauri::State<'_, Terminals>, id: u32) -> String {
+    let pid = match state.map.lock() {
+        Ok(map) => match map.get(&id).and_then(|s| s.pid) {
+            Some(p) => p,
+            None => return String::new(),
+        },
+        Err(_) => return String::new(),
+    };
+    cwd_of(pid).unwrap_or_default()
+}
+
+/// The working directory of a process, by pid.
+#[cfg(target_os = "macos")]
+fn cwd_of(pid: u32) -> Option<String> {
+    // `proc_pidinfo` with `PROC_PIDVNODEPATHINFO` fills a struct whose first
+    // member is the current directory's path. The struct is large and its
+    // layout is stable, but rather than mirror it field by field — which would
+    // be a second definition to keep in step with a header nobody here
+    // controls — this asks for the bytes and reads the one offset that matters.
+    //
+    // `vnode_info_path` begins with `vnode_info` (152 bytes) followed by
+    // `vip_path`, a `char[MAXPATHLEN]`. `pvi_cdir` is the first of the two
+    // `vnode_info_path` members, so the path starts at 152.
+    const PROC_PIDVNODEPATHINFO: libc::c_int = 9;
+    const VNODE_INFO_SIZE: usize = 152;
+    const MAXPATHLEN: usize = 1024;
+    // Two `vnode_info_path`, for the current and root directories.
+    const BUF: usize = (VNODE_INFO_SIZE + MAXPATHLEN) * 2;
+
+    let mut buf = vec![0u8; BUF];
+    // SAFETY: `buf` is BUF bytes and that is what is passed as the size. The
+    // call writes at most that many and returns how many it wrote.
+    let n = unsafe {
+        libc::proc_pidinfo(
+            pid as libc::c_int,
+            PROC_PIDVNODEPATHINFO,
+            0,
+            buf.as_mut_ptr() as *mut libc::c_void,
+            BUF as libc::c_int,
+        )
+    };
+    if n <= VNODE_INFO_SIZE as libc::c_int {
+        return None;
+    }
+    let start = VNODE_INFO_SIZE;
+    let end = buf[start..].iter().position(|&b| b == 0).map(|i| start + i)?;
+    let path = String::from_utf8_lossy(&buf[start..end]).into_owned();
+    if path.is_empty() { None } else { Some(path) }
+}
+
+/// The working directory of a process, by pid.
+#[cfg(target_os = "linux")]
+fn cwd_of(pid: u32) -> Option<String> {
+    std::fs::read_link(format!("/proc/{pid}/cwd"))
+        .ok()
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Not supported here.
+///
+/// Windows has no cheap equivalent: a process's current directory lives in its
+/// own address space, and reading it means `NtQueryInformationProcess` and a
+/// cross-architecture struct walk. The strip shows the folder instead, which is
+/// where the shell started and is right until somebody types `cd`. Saying so is
+/// better than reading a wrong path confidently.
+#[cfg(all(not(target_os = "macos"), not(target_os = "linux")))]
+fn cwd_of(_pid: u32) -> Option<String> {
+    None
 }
 
 #[tauri::command]
@@ -293,6 +390,33 @@ pub fn pty_close(state: tauri::State<'_, Terminals>, id: u32) -> Result<(), Stri
 
 #[cfg(test)]
 mod tests {
+    /// The offsets this reads are from a header nobody here controls, so the
+    /// one thing worth pinning is that it answers correctly for a process
+    /// whose directory is already known: this one.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn the_working_directory_of_this_process_is_the_one_it_is_in() {
+        let me = std::process::id();
+        let got = super::cwd_of(me).expect("this process has a working directory");
+        let want = std::env::current_dir().unwrap().canonicalize().unwrap();
+        let got_real = std::path::Path::new(&got)
+            .canonicalize()
+            .unwrap_or_else(|_| std::path::PathBuf::from(&got));
+        assert_eq!(got_real, want, "read {got:?}");
+        assert!(got.starts_with('/'), "an absolute path, not a fragment: {got:?}");
+    }
+
+    /// A pid nothing is running under must be nothing, not a stale buffer read
+    /// as a path.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn a_pid_that_is_not_running_has_no_working_directory() {
+        // Nothing legitimately runs here: 0 is the kernel and this is far past
+        // any real pid on a fresh boot.
+        assert!(super::cwd_of(0).is_none());
+        assert!(super::cwd_of(4_000_000_000).is_none());
+    }
+
     use super::take_utf8;
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::Read;

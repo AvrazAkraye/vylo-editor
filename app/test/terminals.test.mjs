@@ -3,7 +3,7 @@
 // The state is the part worth testing hardest: it decides whether a row shows a
 // tick or a warning, and reporting a crashed command as finished-cleanly is the
 // one mistake here that would matter.
-import { stateOf, titleOf, since, matches, filter } from '../.test-build/terminals.js';
+import { stateOf, titleOf, since, matches, filter, shorten } from '../.test-build/terminals.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -106,6 +106,39 @@ ok('a clock that went backwards does not render a negative age', since(5000, 0, 
 }
 ok('a translated Terminal is what gets searched',
    filter([shell(1)], 'تێرمینال', 'تێرمینال').length === 1);
+
+// ── the path under a terminal ─────────────────────────────────────────────
+//
+// A path is read from the right: the folder you are in is the last segment,
+// and the ones before it matter less the further away they are. Truncating the
+// end would leave `/Users/you/wo…`, which answers a question nobody asked.
+ok('a short path is left alone', shorten('/a/b', '') === '/a/b');
+ok('exactly at the limit is left alone', shorten('/a/b/c', '') === '/a/b/c');
+ok('a long one loses its front, not its end',
+   shorten('/Users/you/work/apps/vylo/src', '') === '…/apps/vylo/src',
+   shorten('/Users/you/work/apps/vylo/src', ''));
+ok('so the folder you are in always survives',
+   shorten('/a/b/c/d/e/f/g', '').endsWith('/g'));
+
+// `~`, as every shell prompt writes it.
+ok('the home directory becomes a tilde',
+   shorten('/Users/you/work', '/Users/you') === '~/work');
+ok('home itself is just the tilde', shorten('/Users/you', '/Users/you') === '~');
+ok('and a deep path under home still shortens',
+   shorten('/Users/you/a/b/c/d', '/Users/you') === '…/b/c/d',
+   shorten('/Users/you/a/b/c/d', '/Users/you'));
+// `/Users/youxp` must not be read as `/Users/you` plus `xp`.
+ok('a directory that merely starts like home is not home',
+   shorten('/Users/youxp/w', '/Users/you') === '/Users/youxp/w',
+   shorten('/Users/youxp/w', '/Users/you'));
+ok('no home given changes nothing', shorten('/Users/you/w', '') === '/Users/you/w');
+
+ok('a relative path keeps its shape', shorten('a/b', '') === 'a/b');
+ok('nothing is nothing', shorten('', '') === '' && shorten('   ', '') === '');
+ok('a missing path does not throw', shorten(undefined, '') === '' && shorten(null, '') === '');
+ok('the root is the root', shorten('/', '') === '/');
+ok('a repeated slash does not become an empty segment',
+   shorten('/a//b', '') === '/a/b', shorten('/a//b', ''));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
