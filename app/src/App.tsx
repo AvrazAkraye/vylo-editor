@@ -94,6 +94,12 @@ import { PromptsPanel } from './PromptsPanel';
 import { SYSTEM as ASK_SYSTEM, ask as askMessage, parse as parseCommand, reason } from './command';
 import { dirFor } from './rtl';
 import { MAX_PANES, prune as prunePanes, toggle as togglePane } from './panes';
+import { ContextMenu } from './ContextMenu';
+import type { Item as MenuItem, Point as MenuPoint } from './menu';
+import {
+  after as tabsAfter, arrange as arrangeTabs, folderOf, isPinned,
+  nameOf, nextActive, others as otherTabs, togglePin,
+} from './tabs';
 import {
   IDLE as NO_PROGRESS, advance as advanceProgress,
   type Event as ProgressEvent, type Progress,
@@ -243,6 +249,10 @@ export function App() {
    * problem the terminal panes solved, and it reuses the same rules: order
    * follows the tab strip, the set is never empty, three is the cap.
    */
+  /** Pinned tabs, in pin order. Restored with the folder's other tab state. */
+  const [pinned, setPinned] = useState<string[]>([]);
+  /** The tab a context menu is open on, and where. */
+  const [tabMenu, setTabMenu] = useState<{ path: string; at: MenuPoint } | null>(null);
   const [shownFiles, setShownFiles] = useState<string[]>([]);
   const [progress, setProgress] = useState<Progress>(NO_PROGRESS);
   const track = useRef(NO_PROGRESS);
@@ -1009,6 +1019,7 @@ export function App() {
       if (cancelled) return;
       const ws = keepExisting(saved, (p) => here.has(p));
       for (const tab of ws.tabs) restoredLines.current.set(tab.path, tab.line);
+      setPinned(ws.tabs.filter((x) => x.pinned).map((x) => x.path));
       // Step aside if anything was opened while the probes were in flight — a
       // recovered draft, or a click in the explorer. Replacing what someone
       // just asked for with what they had last week is worse than not
@@ -1038,6 +1049,7 @@ export function App() {
       // line 1 rather than to what was restored would erase every caret line
       // one render after putting it back.
       line: editors.current.get(p)?.line() ?? restoredLines.current.get(p) ?? 1,
+      pinned: isPinned(pinned, p) || undefined,
     })),
     active: isFile(active) ? active : null,
   });
@@ -1664,6 +1676,65 @@ export function App() {
    * be drawn right now, which is that one unless it is off.
    */
   const shown = activeModule(modules, rail);
+
+  /**
+   * What a tab's menu offers.
+   *
+   * Built per tab rather than shown-and-disabled, so a pseudo-tab does not
+   * offer to copy a path it has not got. `tidy` in `menu.ts` takes out the
+   * dividers left around whatever was dropped.
+   */
+  function tabItems(path: string): MenuItem[] {
+    const file = isFile(path);
+    const strip = arrangeTabs(tabs, pinned);
+    const drawn = panes.includes(path);
+    return [
+      { kind: 'action', id: 'pin', label: isPinned(pinned, path) ? 'Unpin' : 'Pin' },
+      file ? { kind: 'action', id: 'split',
+               label: drawn && panes.length > 1 ? 'Hide this pane' : 'Show this alongside',
+               disabled: !drawn && panes.length >= MAX_PANES } : { kind: 'divider' },
+      { kind: 'divider' },
+      file ? { kind: 'action', id: 'copyName', label: 'Copy the name' } : { kind: 'divider' },
+      file ? { kind: 'action', id: 'copyPath', label: 'Copy the path' } : { kind: 'divider' },
+      file ? { kind: 'action', id: 'copyFolder', label: 'Copy the folder',
+               disabled: !folderOf(path) } : { kind: 'divider' },
+      file ? { kind: 'action', id: 'reveal', label: 'Show in the explorer' } : { kind: 'divider' },
+      { kind: 'divider' },
+      { kind: 'action', id: 'close', label: 'Close' },
+      { kind: 'action', id: 'others', label: 'Close the others',
+        hint: String(otherTabs(strip, path, pinned).length),
+        disabled: otherTabs(strip, path, pinned).length === 0 },
+      { kind: 'action', id: 'after', label: 'Close the ones after this',
+        hint: String(tabsAfter(strip, path, pinned).length),
+        disabled: tabsAfter(strip, path, pinned).length === 0 },
+    ];
+  }
+
+  /** Close a set of tabs, then land somewhere sensible. */
+  function closeMany(going: string[]) {
+    if (!going.length) return;
+    const land = nextActive(arrangeTabs(tabs, pinned), going, active);
+    for (const p of going) closeTab(p);
+    if (land && land !== active) setActive(land);
+  }
+
+  async function onTabMenu(path: string, id: string) {
+    const copy = (text: string) => void navigator.clipboard.writeText(text)
+      .catch(() => push({ kind: 'error', text: t('Could not copy that.') }));
+    switch (id) {
+      case 'pin': setPinned((p) => togglePin(p, path)); break;
+      case 'split': splitTo(path); break;
+      case 'copyName': copy(nameOf(path)); break;
+      // The path as the app talks about it — relative to the open folder, the
+      // same string every message and every diff in this app uses.
+      case 'copyPath': copy(path); break;
+      case 'copyFolder': copy(folderOf(path)); break;
+      case 'reveal': setRail('files'); setRailOpen(true); setJump({ path, line: 1 }); break;
+      case 'close': closeTab(path); break;
+      case 'others': closeMany(otherTabs(arrangeTabs(tabs, pinned), path, pinned)); break;
+      case 'after': closeMany(tabsAfter(arrangeTabs(tabs, pinned), path, pinned)); break;
+    }
+  }
 
   /**
    * Show a file beside the others, or stop showing it.
@@ -2745,6 +2816,17 @@ export function App() {
         </div>
       )}
 
+      {tabMenu && (
+        <ContextMenu
+          at={tabMenu.at}
+          items={tabItems(tabMenu.path)}
+          t={t}
+          label={`${t('Actions')} — ${nameOf(tabMenu.path)}`}
+          onPick={(id) => void onTabMenu(tabMenu.path, id)}
+          onClose={() => setTabMenu(null)}
+        />
+      )}
+
       {showSettings && (
         <SettingsPanel
           t={t}
@@ -3092,10 +3174,18 @@ export function App() {
             <button className={`tab ${active === 'chat' ? 'on' : ''}`} onClick={() => setActive('chat')}>
               {t('Chat')}
             </button>
-            {tabs.map((path, i) => {
+            {arrangeTabs(tabs, pinned).map((path, i) => {
               const beside = panes.includes(path) && path !== active;
               return (
-              <span key={path} className={`tab ${tabDrag.itemClass(i)} ${active === path ? 'on' : ''} ${beside ? 'beside' : ''} ${dirty.has(path) ? 'dirty' : ''}`}>
+              <span key={path}
+                    className={`tab ${tabDrag.itemClass(i)} ${active === path ? 'on' : ''} ${beside ? 'beside' : ''} ${isPinned(pinned, path) ? 'pinned' : ''} ${dirty.has(path) ? 'dirty' : ''}`}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setTabMenu({ path, at: { x: e.clientX, y: e.clientY } });
+                    }}>
+                {isPinned(pinned, path) && (
+                  <Icon name="dot" size={8} className="tab-pin" aria-label={t('Pinned')} />
+                )}
                 <button className="tab-name" title={path}
                         onClick={() => {
                           setActive(path);

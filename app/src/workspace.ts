@@ -35,6 +35,14 @@ export interface Tab {
   path: string;
   /** Caret line, 1-based, matching every other line number in the app. */
   line: number;
+  /**
+   * Kept at the front of the strip and skipped by every bulk close.
+   *
+   * Stored per folder alongside the tab it belongs to rather than in a list of
+   * its own: a pin is a fact about a tab, and two lists would need keeping in
+   * step every time one was closed.
+   */
+  pinned?: boolean;
 }
 
 export interface Workspace {
@@ -156,13 +164,15 @@ function clean(v: unknown, seq: number): Stored | null {
   const seen = new Set<string>();
   for (const item of raw.tabs) {
     if (!item || typeof item !== 'object') continue;
-    const { path, line } = item as { path?: unknown; line?: unknown };
+    const { path, line, pinned } = item as { path?: unknown; line?: unknown; pinned?: unknown };
     // Duplicates collapse to the first: the tab strip cannot show one file
     // twice, so a second entry is a second caret line for a tab that will only
     // be restored once.
     if (typeof path !== 'string' || suspicious(path) || seen.has(path)) continue;
     seen.add(path);
-    tabs.push({ path, line: lineOf(line) });
+    // `|| undefined` rather than the boolean, so an unpinned tab writes no key
+    // at all and the stored shape stays the one it has always been.
+    tabs.push({ path, line: lineOf(line), pinned: pinned === true || undefined });
   }
 
   const capped = capTabs(tabs, typeof raw.active === 'string' ? raw.active : null);

@@ -2098,6 +2098,52 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    than a border on each pane: a hidden pane creates no gap, so the line only
    ever falls between panes that are actually drawn. A border would have to know
    which pane is first on screen, which CSS cannot ask. */
+/* ── Context menu ─────────────────────────────────────────────────────────
+   Measured, then placed by `menu.ts`, so one opened at the bottom of the
+   window opens upward instead of running off it. Positioned with a transform
+   rather than inset so the two coordinates are physical in every writing
+   direction — a menu belongs at the pointer, and the pointer has no start and
+   end. */
+.mn-back{ position:fixed; inset:0; z-index:80; }
+.mn{
+  position:absolute; min-inline-size:200px; max-inline-size:320px;
+  max-block-size:80vh; overflow-y:auto; padding:var(--sp-2);
+  border:1px solid var(--rule); border-radius:var(--r-3);
+  background:var(--panel); box-shadow:var(--shadow); outline:none;
+}
+.mn-item{
+  display:flex; align-items:center; gap:var(--sp-4); inline-size:100%;
+  padding:var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-1);
+  background:transparent; font:inherit; font-size:var(--fs-3); color:var(--ink);
+  cursor:pointer; text-align:start;
+}
+.mn-item span{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mn-item em{ flex:none; font-style:normal; font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+/* One highlight, driven by the keyboard *and* the mouse, so arrowing down and
+   then moving the mouse does not leave two rows looking chosen. */
+.mn-item.on:not(:disabled){ background:var(--fill); color:var(--on-fill); }
+.mn-item.on:not(:disabled) em{ color:var(--on-fill); opacity:.7; }
+.mn-item.danger{ color:var(--err); }
+.mn-item.danger.on{ background:var(--err); color:var(--on-fill); }
+.mn-item:disabled{ color:var(--mute); opacity:.5; cursor:default; }
+.mn-div{ block-size:0; margin:var(--sp-2) var(--sp-3); border:0; border-block-start:1px solid var(--rule); }
+.mn-sw{ display:flex; flex-wrap:wrap; gap:var(--sp-2); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-1); }
+.mn-sw.on{ background:var(--panel-3); }
+.mn-dot{
+  inline-size:18px; block-size:18px; padding:0; cursor:pointer; display:grid; place-items:center;
+  border:1px solid transparent; border-radius:50%; color:var(--mute);
+}
+.mn-dot.off{ border-color:var(--rule-2); background:transparent; }
+/* An outline, not a tick: a tick on a coloured circle needs a contrast pass of
+   its own for nine colours, and a ring around the swatch reads at any of them. */
+.mn-dot.is{ box-shadow:0 0 0 2px var(--panel), 0 0 0 3px var(--brand); }
+
+/* A pinned tab. A dot, because the strip has no room for a word and the
+   position — always at the front — is half the signal already. */
+.tab-pin{ flex:none; color:var(--brand); margin-inline-start:var(--sp-3); }
+.tab.pinned .tab-x{ opacity:0; }
+.tab.pinned:hover .tab-x{ opacity:1; }
+
 /* ── Prompts ──────────────────────────────────────────────────────────────
    Two lines each: the name you gave it, and enough of the body to tell two
    apart. The icon on the right is the destination — a message box or the
