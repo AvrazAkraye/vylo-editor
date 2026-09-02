@@ -1796,6 +1796,32 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .tpane{ flex:1 1 0; min-width:0; flex-direction:column; background:var(--panel); }
 .tpane .term-host{ flex:1 1 0; min-height:0; height:auto; }
 
+/* ── What could finish the line ───────────────────────────────────────────
+   Docked at the foot of the pane rather than floated at the cursor. A prompt
+   sits at the bottom of a terminal almost all the time, because output scrolls
+   up — so this is where the cursor is, without measuring a character cell to
+   find out, and without a popup that would cover the output somebody is
+   reading in the pane above it. */
+.sug{
+  flex:none; display:flex; align-items:center; gap:var(--sp-2);
+  padding-block:var(--sp-2); padding-inline:var(--sp-4) var(--sp-3);
+  border-block-start:1px solid var(--rule); background:var(--panel-2);
+  overflow-x:auto; scrollbar-width:none;
+}
+.sug::-webkit-scrollbar{ display:none; }
+.sug-row{
+  flex:none; display:inline-flex; align-items:center; gap:var(--sp-2);
+  padding:2px var(--sp-3); border:1px solid transparent; border-radius:var(--r-1);
+  background:transparent; font:inherit; font-family:var(--mono); font-size:var(--fs-1);
+  color:var(--mute); cursor:pointer; white-space:nowrap;
+}
+.sug-row:hover{ color:var(--ink); }
+.sug-row.on{ background:var(--brand-wash); border-color:var(--brand); color:var(--ink); }
+/* The characters already typed, so the eye can see what the rest adds. */
+.sug-row b{ color:var(--brand); font-weight:600; }
+.sug-row.dir span{ color:var(--tag-blue); }
+.sug-hint{ flex:none; margin-inline-start:auto; font-size:var(--fs-1); color:var(--mute); padding-inline-start:var(--sp-3); }
+
 /* ── Where the shell is ───────────────────────────────────────────────────
    Under the prompt rather than in the pane's title, because "where am I" is
    asked while looking at the last line of output and not at the top of the

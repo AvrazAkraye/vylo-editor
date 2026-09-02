@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
@@ -7,6 +8,9 @@ import { filter, shorten, since, stateOf, titleOf } from './terminals';
 import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
 import { CONTEXT_LINES } from './command';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
+import {
+  NOTHING as NO_INPUT, fragment, keystrokes, kindOf, rank, worth, type Typed,
+} from './suggest';
 import { ContextMenu } from './ContextMenu';
 import type { Item as MenuItem, Point as MenuPoint } from './menu';
 import { tagClass, tagOf, type Tag } from './tags';
@@ -99,6 +103,18 @@ export function TerminalPanel({
    * resized and the panel being made full screen. Keyed by id rather than by
    * position, so hiding a pane and showing it again finds the width it had.
    */
+  /**
+   * What is half-typed in the focused pane, and what could finish it.
+   *
+   * Only the focused pane: a suggestion list under a terminal nobody is typing
+   * in is a list about a line that is not moving.
+   */
+  const [input, setInput] = useState<Typed>(NO_INPUT);
+  const [matches, setMatches] = useState<string[]>([]);
+  const [pickAt, setPickAt] = useState(0);
+  /** Every program on PATH. Read once — PATH does not change while we run. */
+  const programs = useRef<string[] | null>(null);
+
   const [weights, setWeights] = useState<Weights>({});
   /** The row being dragged in, measured once when the drag starts. */
   const row = useRef<HTMLDivElement>(null);
@@ -356,6 +372,55 @@ export function TerminalPanel({
   // Every bar action applies to one pane, and it has to be one that is showing.
   const focus = focused(onScreen, active);
   const dead = tabs.find((x) => x.id === focus)?.dead;
+
+  /**
+   * Work out what could finish the line, whenever it changes.
+   *
+   * Debounced, because this runs on every keystroke and the path half reads a
+   * directory. Cleared the moment the tracker is unsure — see suggest.ts: a
+   * list that is sometimes about a different command is one somebody presses
+   * Tab on.
+   */
+  useEffect(() => {
+    if (!input.sure || !input.line.trim()) { setMatches([]); return; }
+    let off = false;
+    const id = window.setTimeout(() => {
+      const frag = fragment(input.line);
+      const done = (all: string[]) => {
+        if (off) return;
+        setMatches(rank(all, frag));
+        setPickAt(0);
+      };
+      if (kindOf(input.line) === 'command') {
+        if (programs.current) { done(programs.current); return; }
+        void invoke<string[]>('shell_commands')
+          .then((list: string[]) => { programs.current = list; done(list); })
+          .catch(() => done([]));
+      } else {
+        void invoke<string[]>('complete_path', { cwd: cwds[focus] || root, fragment: frag })
+          .then(done)
+          .catch(() => done([]));
+      }
+    }, 90);
+    return () => { off = true; window.clearTimeout(id); };
+  }, [input, focus, root, cwds]);
+
+  /**
+   * Take the chosen completion.
+   *
+   * The keystrokes go to the pty as if they had been typed, because that is
+   * what they are: a filename off the disk or a program on PATH, chosen by a
+   * person pressing a key. Nothing a model wrote is anywhere near this, and the
+   * line still has to be sent by hand — this fills in a word, it does not run
+   * anything.
+   */
+  function take(choice: string) {
+    const h = handles.current.get(focus);
+    if (!h) return;
+    h.type(keystrokes(fragment(input.line), choice));
+    setMatches([]);
+  }
+
   // Assigned here rather than beside the ref because it carries `focus`, which
   // is only known once the visible set is. Effects run after the whole render,
   // so nothing reads it before this line.
@@ -593,6 +658,20 @@ export function TerminalPanel({
               )}
               <TerminalView
                 onMoved={() => locate(tab.id)}
+                onTyped={(st) => { if (tab.id === focus) setInput(st); }}
+                onKey={(e) => {
+                  // Only while a list is showing, and only for this pane.
+                  if (tab.id !== focus || !worth(input, matches)) return false;
+                  if (e.key === 'Escape') { setMatches([]); return true; }
+                  if (e.key === 'ArrowDown') { setPickAt((n) => (n + 1) % matches.length); return true; }
+                  if (e.key === 'ArrowUp') { setPickAt((n) => (n - 1 + matches.length) % matches.length); return true; }
+                  // Tab takes the choice. The shell's own completion is what
+                  // this is standing in for, so taking the key here is the
+                  // whole point — and pressing it with no list showing falls
+                  // through to the shell as it always did.
+                  if (e.key === 'Tab') { take(matches[pickAt] ?? matches[0]); return true; }
+                  return false;
+                }}
                 cwd={root}
                 dark={dark}
                 visible={on}
@@ -602,6 +681,27 @@ export function TerminalPanel({
                 onData={tab.command ? (chunk) => runs.current.get(tab.id)?.buffer.push(chunk) : undefined}
                 onError={onError}
               />
+
+              {/* What could finish the line.
+                  Docked at the foot of the pane rather than floated at the
+                  cursor: a prompt sits at the bottom of a terminal almost all
+                  the time, because output scrolls up — so this is where the
+                  cursor is, without measuring a character cell to find out. */}
+              {tab.id === focus && worth(input, matches) && (
+                <div className="sug" role="listbox" aria-label={t('Completions')}>
+                  {matches.map((m, n) => (
+                    <button key={m} role="option" aria-selected={n === pickAt}
+                            className={`sug-row ${n === pickAt ? 'on' : ''} ${m.endsWith('/') ? 'dir' : ''}`}
+                            onMouseEnter={() => setPickAt(n)}
+                            onClick={() => take(m)}>
+                      <Icon name={kindOf(input.line) === 'command' ? 'terminal'
+                        : m.endsWith('/') ? 'folder' : 'file'} size={11} />
+                      <span><b>{m.slice(0, fragment(input.line).length)}</b>{m.slice(fragment(input.line).length)}</span>
+                    </button>
+                  ))}
+                  <span className="sug-hint">{t('Tab to take it')}</span>
+                </div>
+              )}
 
               {/* Where the shell is, under the prompt rather than in the
                   title: it is the answer to "where am I", and that question is

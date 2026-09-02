@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { NOTHING, typed as fold, type Typed } from './suggest';
 import '@xterm/xterm/css/xterm.css';
 
 /**
@@ -29,6 +30,8 @@ export interface TermHandle {
    */
   cwd(): Promise<string>;
   clear(): void;
+  /** Put keystrokes on the input line, as if typed. */
+  type(data: string): void;
   /** The selection if there is one, else the last `lines` non-blank rows. */
   text(lines: number): string;
 }
@@ -45,6 +48,17 @@ interface Props {
   onError: (message: string) => void;
   /** A command was sent, so the shell may have moved. */
   onMoved?: () => void;
+  /** What is believed to be on the input line, as it is typed. */
+  onTyped?: (state: Typed) => void;
+  /**
+   * A key the suggestion list wants instead of the shell.
+   *
+   * Returns true when it took it. Arrows and Tab mean something to a shell too,
+   * so this is asked first and only while a list is showing — a handler that
+   * swallowed Tab unconditionally would break the shell's own completion, which
+   * is the thing people would miss most.
+   */
+  onKey?: (e: KeyboardEvent) => boolean;
   /** Raw pty bytes, for a pane whose output is going back to the agent. */
   onData?: (chunk: string) => void;
 }
@@ -78,10 +92,21 @@ function palette(dark: boolean) {
       };
 }
 
-export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved }: Props) {
+export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onKey }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
+  /** What is believed to be on the input line. */
+  const line = useRef<Typed>(NOTHING);
+  /**
+   * The callbacks, through a ref.
+   *
+   * They are inline arrows from the parent and change on every render, while
+   * the terminal is built once — reading them at call time is what keeps the
+   * effect from tearing down a live shell to pick up a new closure.
+   */
+  const keys = useRef({ onTyped, onKey });
+  keys.current = { onTyped, onKey };
   // Props the long-lived pty callbacks need to read at call time rather than
   // capture at mount time.
   const cb = useRef({ onExit, onError, onData });
@@ -93,8 +118,10 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
 
     const t = new Terminal({
       fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-      fontSize: 12,
-      lineHeight: 1.25,
+      // 13, not 12. A terminal is read for minutes at a time and the panel is
+      // wide enough for it.
+      fontSize: 13,
+      lineHeight: 1.3,
       cursorBlink: true,
       scrollback: 8000,
       // Alt should compose characters on a Mac keyboard, not send Esc.
@@ -103,6 +130,22 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
     });
     const f = new FitAddon();
     t.loadAddon(f);
+    /**
+     * The suggestion list gets first refusal on a keypress.
+     *
+     * Only asked while a list is on screen, and it says whether it took the
+     * key. Arrows, Tab and Escape all mean something to a shell, so a handler
+     * that swallowed them unconditionally would break history recall and the
+     * shell's own completion — which is the thing people would miss most.
+     *
+     * Returning false from this handler is what tells xterm to send the key on
+     * to the pty as usual.
+     */
+    t.attachCustomKeyEventHandler((e) => {
+      if (e.type !== 'keydown') return true;
+      return !keys.current.onKey?.(e);
+    });
+
     t.open(el);
     term.current = t;
     fit.current = f;
@@ -145,6 +188,11 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
 
     const typed = t.onData((d) => {
       if (ptyId !== null) void invoke('pty_write', { id: ptyId, data: d }).catch(() => {});
+      // Every keystroke passes through here on its way to the pty, which is why
+      // the input line is counted rather than read off the screen — see
+      // suggest.ts.
+      line.current = fold(line.current, d);
+      keys.current.onTyped?.(line.current);
       // A directory changes when a command finishes, and a command finishes
       // after Enter. The delay is for the shell to have actually run it —
       // asking in the same tick reads the directory it was in before.
@@ -167,6 +215,20 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       fit: () => { try { f.fit(); } catch { /* hidden */ } },
       cwd: async () => (ptyId === null ? '' : invoke<string>('pty_cwd', { id: ptyId }).catch(() => '')),
       clear: () => t.clear(),
+      /**
+       * Put keystrokes on the input line, as if typed.
+       *
+       * Goes through the same `pty_write` a keypress does, and through the
+       * tracker with it — so the completion this inserts is counted, and the
+       * next suggestion is about the line as it now stands rather than the one
+       * before it.
+       */
+      type: (data) => {
+        if (ptyId !== null) void invoke('pty_write', { id: ptyId, data }).catch(() => {});
+        line.current = fold(line.current, data);
+        keys.current.onTyped?.(line.current);
+        t.focus();
+      },
       text: (lines) => {
         const sel = t.getSelection();
         if (sel.trim()) return sel;

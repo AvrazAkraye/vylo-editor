@@ -336,6 +336,134 @@ fn cwd_of(_pid: u32) -> Option<String> {
     None
 }
 
+/// Every program that could be run, by name.
+///
+/// The names on `PATH`, deduplicated and sorted, and nothing else — no sizes,
+/// no paths, no contents. It is the same list the shell's own Tab completion
+/// builds, and it is worked out once: `PATH` does not change while the app is
+/// running, and walking a dozen directories on every keystroke would be felt.
+///
+/// Directories that cannot be read are skipped rather than reported. A `PATH`
+/// with a stale entry in it is completely ordinary and not a thing to put an
+/// error on screen about.
+#[tauri::command]
+pub fn shell_commands() -> Vec<String> {
+    static ONCE: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    ONCE.get_or_init(|| {
+        let mut out: Vec<String> = Vec::new();
+        let path = match std::env::var_os("PATH") {
+            Some(p) => p,
+            None => return out,
+        };
+        for dir in std::env::split_paths(&path) {
+            let entries = match std::fs::read_dir(&dir) {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            for entry in entries.flatten() {
+                // A directory on PATH is not a program, and a name that is not
+                // valid UTF-8 is not one anybody is going to type.
+                if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                    continue;
+                }
+                if let Some(name) = entry.file_name().to_str() {
+                    if !name.is_empty() {
+                        out.push(name.to_string());
+                    }
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    })
+    .clone()
+}
+
+/// Names in the directory a half-typed path points at.
+///
+/// **Names only.** Nothing here opens a file or reports its size; it is the
+/// same information the shell's Tab already gives, driven by the same
+/// keystrokes, and it is what a completion list needs and no more.
+///
+/// The fragment is a path as typed, so it may be `src/Ap`, `../`, `~/Doc` or
+/// `/usr/bi`. It is split at the last separator: everything before names the
+/// directory to look in, everything after is the prefix to match. A relative
+/// directory resolves against the terminal's own working directory rather than
+/// the project, because that is where the shell actually is.
+///
+/// Directories come back with a trailing slash, which is both the hint that it
+/// is one and the character somebody would type next.
+#[tauri::command]
+pub fn complete_path(cwd: String, fragment: String, limit: Option<usize>) -> Vec<String> {
+    let cap = limit.unwrap_or(50).clamp(1, 200);
+    let frag = fragment.replace('\\', "");
+
+    let (dir_part, prefix) = match frag.rfind('/') {
+        Some(at) => (&frag[..=at], &frag[at + 1..]),
+        None => ("", frag.as_str()),
+    };
+
+    let mut dir = std::path::PathBuf::new();
+    if let Some(rest) = dir_part.strip_prefix("~/") {
+        match dirs_home() {
+            Some(h) => { dir.push(h); dir.push(rest); }
+            None => return Vec::new(),
+        }
+    } else if dir_part == "~" || dir_part == "~/" {
+        match dirs_home() {
+            Some(h) => dir.push(h),
+            None => return Vec::new(),
+        }
+    } else if dir_part.starts_with('/') {
+        dir.push(dir_part);
+    } else {
+        dir.push(&cwd);
+        if !dir_part.is_empty() {
+            dir.push(dir_part);
+        }
+    }
+
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(e) => e,
+        Err(_) => return Vec::new(),
+    };
+    let low = prefix.to_lowercase();
+    let mut out: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let name = match entry.file_name().to_str() {
+            Some(n) => n.to_string(),
+            None => continue,
+        };
+        // A dot file is offered only once somebody has typed the dot, which is
+        // what every shell does and is why a completion list is not mostly
+        // `.DS_Store` and `.git`.
+        if name.starts_with('.') && !prefix.starts_with('.') {
+            continue;
+        }
+        if !prefix.is_empty() && !name.to_lowercase().starts_with(&low) {
+            continue;
+        }
+        let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        // Rebuilt with the directory part, so choosing it replaces the whole
+        // fragment and the path stays whole.
+        out.push(format!("{dir_part}{name}{}", if is_dir { "/" } else { "" }));
+        if out.len() >= cap * 2 {
+            break;
+        }
+    }
+    out.sort_unstable();
+    out.truncate(cap);
+    out
+}
+
+/// The home directory, without a dependency for one environment variable.
+fn dirs_home() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+}
+
 #[tauri::command]
 pub fn pty_write(state: tauri::State<'_, Terminals>, id: u32, data: String) -> Result<(), String> {
     let mut map = state
@@ -390,6 +518,79 @@ pub fn pty_close(state: tauri::State<'_, Terminals>, id: u32) -> Result<(), Stri
 
 #[cfg(test)]
 mod tests {
+    /// Names only, from the directory the fragment points at. The cases that
+    /// matter are the ones a shell gets right and a naive split does not.
+    #[test]
+    fn completing_a_path_offers_the_right_names() {
+        let tmp = std::env::temp_dir().join(format!("vylo_comp_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join("src")).unwrap();
+        std::fs::write(tmp.join("App.js"), "x").unwrap();
+        std::fs::write(tmp.join("app.json"), "x").unwrap();
+        std::fs::write(tmp.join("index.html"), "x").unwrap();
+        std::fs::write(tmp.join(".hidden"), "x").unwrap();
+        std::fs::write(tmp.join("src/main.rs"), "x").unwrap();
+        let cwd = tmp.to_string_lossy().to_string();
+
+        let all = super::complete_path(cwd.clone(), String::new(), None);
+        assert!(all.contains(&"App.js".to_string()), "{all:?}");
+        // A directory is marked, which is both the hint and the next character.
+        assert!(all.contains(&"src/".to_string()), "{all:?}");
+        // Otherwise every list starts with .DS_Store and .git.
+        assert!(!all.iter().any(|x| x.starts_with('.')), "no dot files unasked: {all:?}");
+
+        // Typing the dot asks for them.
+        let dots = super::complete_path(cwd.clone(), ".".into(), None);
+        assert!(dots.contains(&".hidden".to_string()), "{dots:?}");
+
+        // Case-insensitive, as a shell's completion is on a Mac.
+        let apps = super::complete_path(cwd.clone(), "app".into(), None);
+        assert!(apps.contains(&"App.js".to_string()) && apps.contains(&"app.json".to_string()), "{apps:?}");
+
+        // A fragment with a directory in it keeps the directory, so choosing it
+        // replaces the whole fragment and the path stays whole.
+        let inner = super::complete_path(cwd.clone(), "src/ma".into(), None);
+        assert_eq!(inner, vec!["src/main.rs".to_string()], "{inner:?}");
+
+        // A directory that is not there is an empty list, not an error.
+        assert!(super::complete_path(cwd.clone(), "nope/x".into(), None).is_empty());
+        assert!(super::complete_path("/nowhere/at/all".into(), String::new(), None).is_empty());
+
+        // The cap is honoured.
+        assert!(super::complete_path(cwd.clone(), String::new(), Some(2)).len() <= 2);
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// An absolute fragment ignores the working directory entirely.
+    #[test]
+    fn an_absolute_path_is_not_resolved_against_the_terminal() {
+        let tmp = std::env::temp_dir().join(format!("vylo_abs_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("marker.txt"), "x").unwrap();
+
+        let frag = format!("{}/mark", tmp.to_string_lossy());
+        let got = super::complete_path("/completely/elsewhere".into(), frag, None);
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(got[0].ends_with("marker.txt"), "{got:?}");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// The list is the shell's own: whatever is on PATH, by name.
+    #[test]
+    fn the_programs_on_path_are_listed_by_name() {
+        let names = super::shell_commands();
+        assert!(!names.is_empty(), "PATH produced nothing");
+        // Sorted and deduplicated, so ranking them is not also sorting them.
+        assert!(names.windows(2).all(|w| w[0] < w[1]), "sorted and unique");
+        // Names, not paths. A path here would be typed into somebody's shell.
+        assert!(!names.iter().any(|n| n.contains('/')), "names only");
+        // Cached: the second call is the same list.
+        assert_eq!(names, super::shell_commands());
+    }
+
     /// The offsets this reads are from a header nobody here controls, so the
     /// one thing worth pinning is that it answers correctly for a process
     /// whose directory is already known: this one.
