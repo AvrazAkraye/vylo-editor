@@ -1882,11 +1882,27 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   box-shadow:var(--shadow); overflow:hidden;
 }
 .pal-head{ display:flex; align-items:center; gap:var(--sp-2); padding-inline-end:var(--sp-4); border-bottom:1px solid var(--rule); }
-.pal-head .pal-in{ border-bottom:0; }
+
+/* The search box.
+   `flex:none`, and the `flex:1` it used to carry is now only inside `.pal-head`
+   — because `.pal` is a *column*, and in a column `flex:1` grows the height. It
+   gave three of the five palettes a search box 320 pixels tall with the
+   placeholder floating in the middle of it. The rule reads correctly either
+   way, which is why looking at it did not find it; `layout.test.mjs` looks at
+   the container instead. */
 .pal-in{
-  flex:1; font:inherit; font-size:var(--fs-6); padding:var(--sp-7) var(--sp-8); border:0;
+  flex:none; font:inherit; font-size:var(--fs-6); padding:var(--sp-7) var(--sp-8); border:0;
   border-bottom:1px solid var(--rule); background:transparent; color:var(--ink);
 }
+/* Beside the toggles, where growing means taking the width they leave. */
+.pal-head .pal-in{ flex:1; min-inline-size:0; border-bottom:0; }
+/* No ring on this one. It is autofocused every time the palette opens and is
+   the only thing that takes typing, so the caret is the indicator — the same
+   call the composer and ⌘K already make. The global ring is drawn 2px outside
+   the element, and this element is the full width of a box with `overflow
+   hidden` and rounded corners, so it would be clipped at both ends. */
+.pal-in:focus-visible{ outline:none; }
+.pal-in:focus-visible{ border-bottom-color:var(--brand); }
 
 .pal-tog{
   flex:none; font:inherit; font-family:var(--mono); font-size:var(--fs-2); padding:var(--sp-2) var(--sp-4);
@@ -2408,7 +2424,7 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 }
 .kbar-in{ display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-3) var(--sp-4); }
 .kbar-in > .ic{ color:var(--brand); flex:none; }
-.kbar input{
+.kbar-in input{
   flex:1; min-width:0; font:inherit; font-size:var(--fs-4);
   border:0; background:transparent; color:var(--ink);
 }
