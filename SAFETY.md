@@ -12,7 +12,7 @@ computer. The whole design rests on one rule:
 > turned on, a class of action decided in advance for that session.**
 
 That sentence used to be shorter: it said *read and approved that exact
-content*, with no exception. Version 0.47.0 added a mode where the app can
+content*, with no exception. Version 0.47.1 added a mode where the app can
 answer for you, and the sentence was changed rather than the mode being hidden
 behind it. What has not changed is who decides: auto-approve is off every time
 the app starts, and nothing but a person can turn it on.
@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.47.0.
+version 0.47.1.
 
 ---
 
@@ -399,7 +399,7 @@ That is Tauri's `app_data_dir()` for this app's identifier — `store()` in
 what names it.
 
 **Settings → Storage** lists all four, says how much each is using, and empties
-any of them behind a confirmation that names what goes. Until 0.47.0 the
+any of them behind a confirmation that names what goes. Until 0.47.1 the
 checkpoint store had no such button, and the last column of this table said so.
 It has one now.
 
@@ -476,7 +476,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.47.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.47.1 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -501,6 +501,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.47.0. Every statement above was read out of the code. If
+*Last checked against 0.47.1. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*
