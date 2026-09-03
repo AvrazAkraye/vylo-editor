@@ -3,6 +3,8 @@ import type { Pending } from './pending';
 import { appendFact, MEMORY_FILE } from './memory';
 import { callTool, splitTool } from './mcp';
 import { SSEDecoder, TurnAssembler } from './sse';
+import { OpenAIAssembler, fromOpenAI, toOpenAI } from './openai';
+import { endpointFor, headersFor, type Wire } from './providers';
 import { add, fold, NO_USAGE, type Usage } from './usage';
 import { fit, limitsFor, estimateText, summaryBlock, type Fitted } from './budget';
 import { learn, learnedFor, parseLimitError, type Learned, type LimitKind } from './limits';
@@ -450,6 +452,13 @@ export interface RunOptions {
   extraTools?: unknown[];
   /** Ask reads; Agent may also stage and request commands. Default agent. */
   mode?: Mode;
+  /**
+   * Which dialect the endpoint speaks. Default Anthropic, which the gateway
+   * and every Claude model use; `openai` covers the providers a person adds —
+   * see providers.ts. The loop itself never learns which it got: requests are
+   * translated on the way out and replies on the way back, in openai.ts.
+   */
+  wire?: Wire;
   /** Tokens for the whole turn, once it ends. Hops are summed. */
   onUsage?: (u: Usage) => void;
   /**
@@ -656,22 +665,23 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
 
       let res: Response;
       try {
-        res = await fetch(`${o.baseUrl}/v1/messages`, {
+        // One request, in whichever dialect the endpoint speaks. The body is
+        // built in the app's own shape either way; `toOpenAI` translates the
+        // whole thing at the wire so nothing downstream knows there were two.
+        const wire = o.wire ?? 'anthropic';
+        const asked = {
+          model: o.model,
+          max_tokens: limits.maxOutput,
+          system: system(o, fitted.summary),
+          tools: toolsFor(o),
+          messages: fitted.messages,
+          stream: true,
+        };
+        res = await fetch(endpointFor({ baseUrl: o.baseUrl, wire }), {
           method: 'POST',
           signal: o.signal,
-          headers: {
-            'content-type': 'application/json',
-            'x-api-key': o.apiKey,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: o.model,
-            max_tokens: limits.maxOutput,
-            system: system(o, fitted.summary),
-            tools: toolsFor(o),
-            messages: fitted.messages,
-            stream: true,
-          }),
+          headers: headersFor({ wire, key: o.apiKey }),
+          body: JSON.stringify(wire === 'anthropic' ? asked : toOpenAI(asked)),
         });
       } catch (e) {
         if (o.signal?.aborted) throw new Stopped(keepText(messages));
@@ -685,7 +695,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
         // reads like a broken key or a dead server and is neither. Name the three
         // things it actually is, in the order they are worth checking.
         throw new Error(
-          `Could not reach the gateway at ${o.baseUrl}. `
+          `Could not reach ${o.baseUrl}. `
           + 'Check the address in Settings, that you are online, and that the gateway allows this app '
           + `(the underlying error was: ${e instanceof Error ? e.message : String(e)}).`,
         );
@@ -728,13 +738,16 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
           await pause(wait, o.signal);
           continue;
         }
-        if (res.status === 401) throw new Error(`The gateway rejected the API key. Check it in Settings. (${detail})`);
-        if (res.status === 429) throw new Error(`Rate limited by the gateway — wait a moment. (${detail})`);
-        throw new Error(`Gateway ${res.status}: ${detail}`);
+        if (res.status === 401) throw new Error(`The API key was rejected. Check it in Settings. (${detail})`);
+        if (res.status === 429) throw new Error(`Rate limited — wait a moment. (${detail})`);
+        throw new Error(`The server answered ${res.status}: ${detail}`);
       }
 
       if (res.headers.get('content-type')?.includes('text/event-stream') && res.body) {
-        const assembler = new TurnAssembler();
+        // Same read surface either way — push, blocks(), stopReason, usage,
+        // error, partialText — so everything below here is dialect-blind.
+        const assembler = (o.wire ?? 'anthropic') === 'anthropic'
+          ? new TurnAssembler() : new OpenAIAssembler();
         const decoder = new SSEDecoder();
         const reader = res.body.getReader();
         const utf8 = new TextDecoder();
@@ -790,7 +803,11 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
       } else {
         // A gateway that does not stream still answers, and an app that only
         // works against the newest server is a support problem.
-        const reply = await res.json();
+        const reply = (o.wire ?? 'anthropic') === 'anthropic'
+          ? await res.json()
+          // Translated whole, so `content`/`stop_reason`/`usage` below read
+          // the same fields off either dialect.
+          : fromOpenAI(await res.json());
         blocks = Array.isArray(reply.content) ? reply.content : [];
         stopReason = reply.stop_reason ?? null;
         spent = add(spent, fold(NO_USAGE, reply.usage));

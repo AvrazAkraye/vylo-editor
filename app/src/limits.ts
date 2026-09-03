@@ -94,7 +94,10 @@ export const KEY = 'vylo.limits.v1';
  * are deliberately loose enough to allow context windows larger than anything
  * shipping today.
  */
-export const MIN_CONTEXT = 10_000;
+// 2k, not 10k: an Ollama default window is 4k and gpt-3.5-era models are 8k
+// — real models this app can now be pointed at. The old floor made a small
+// window unlearnable even when the provider named it exactly.
+export const MIN_CONTEXT = 2_000;
 export const MAX_CONTEXT = 20_000_000;
 export const MIN_OUTPUT = 256;
 export const MAX_OUTPUT = 1_000_000;
@@ -132,6 +135,23 @@ const OVER_CONTEXT = /exceeds? context limit:\s*[\d,_]+\s*\+\s*[\d,_]+\s*>\s*([\
 const TOO_MANY_OUT =
   /max_tokens`?:\s*[\d,_]+\s*>\s*([\d,_]+)\s*,?\s*which is the maximum allowed/i;
 
+/**
+ * `This model's maximum context length is 8192 tokens. However, your messages
+ * resulted in 9226 tokens` — the OpenAI dialect's wording for the same fact.
+ *
+ * Added when providers arrived. Without it, an added provider whose model has
+ * a small window enters a loop the Anthropic wire self-heals from: the app
+ * believes the default 200k, never compacts, the provider 400s, nothing is
+ * learned, and Try again re-sends the identical request for ever.
+ */
+const OAI_CONTEXT = /maximum context length is\s*([\d,_]+)\s*tokens/i;
+
+/**
+ * `max_tokens is too large: 90000. This model supports at most 8192 completion
+ * tokens` — the OpenAI dialect's reply-cap wording.
+ */
+const OAI_OUTPUT = /supports at most\s*([\d,_]+)\s*(?:completion|output)\s*tokens/i;
+
 /** Digits with the separators an API or a human might put in them. */
 function count(text: string): number {
   return Number(text.replace(/[,_\s]/g, ''));
@@ -156,13 +176,13 @@ export function plausible(kind: LimitKind, value: unknown): value is number {
 export function parseLimitError(text: string): Found | null {
   if (!text) return null;
 
-  const out = TOO_MANY_OUT.exec(text);
+  const out = TOO_MANY_OUT.exec(text) ?? OAI_OUTPUT.exec(text);
   if (out) {
     const value = count(out[1]);
     return plausible('maxOutput', value) ? { kind: 'maxOutput', value } : null;
   }
 
-  const ctx = TOO_LONG.exec(text) ?? OVER_CONTEXT.exec(text);
+  const ctx = TOO_LONG.exec(text) ?? OVER_CONTEXT.exec(text) ?? OAI_CONTEXT.exec(text);
   if (ctx) {
     const value = count(ctx[1]);
     return plausible('context', value) ? { kind: 'context', value } : null;

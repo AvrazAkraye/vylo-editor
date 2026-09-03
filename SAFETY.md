@@ -75,9 +75,28 @@ one dialog.
 
 ## What reaches the network
 
-Vylo Editor talks to one service: your Vylo gateway. The model API and the
-account API are both it. There is no third-party identity provider, no
-analytics, no crash reporting, and no second vendor.
+Vylo Editor talks to your Vylo gateway, and — only if you add them — to model
+providers you configure yourself. Out of the box it is one service: the model
+API and the account API are both the gateway. There is no third-party identity
+provider, no analytics, no crash reporting, and nothing is contacted that you
+did not name.
+
+**Added providers** (Settings → Account → Model providers) each have their own
+address and their own key, and one rule governs them, pinned by
+`app/test/providers.test.mjs`: **a key is only ever sent to the address it was
+entered beside.** Key and address live in one record and every request derives
+both from that record — there is no code path that pairs one provider's key
+with another's URL, and removing a provider removes its key with it. Nothing is
+ever fetched from a provider on startup or when Settings opens; the first
+request to a provider is the first message you send to one of its models.
+
+Because addresses are yours to choose, the content-security allow-list below
+now permits `https:` generally (plus plain `http` to `localhost`, for Ollama
+and LM Studio). That is a real widening, and it moves the enforcement: what
+used to be proven by the CSP alone is now proven by `app/src/providers.ts` —
+which refuses non-https addresses, normalises them, and routes every request —
+and by the tests on it. The app still makes no request anywhere except the
+gateway and the providers in your list.
 
 The frontend makes seven kinds of outbound request, and they all go to the
 gateway:
@@ -103,14 +122,15 @@ default-src 'self';
 style-src   'self' 'unsafe-inline';
 img-src     'self' data:;
 connect-src 'self' ipc: http://ipc.localhost
-            https://chat.vylo-tech.com https://capi.vylo-tech.com
+            https: http://localhost:* http://127.0.0.1:*
 ```
 
-The window can therefore reach two hosts on the internet, both Vylo's — whatever
-address is typed into Settings, and whatever the model asks for. Only `capi` is
-actually used; `chat.vylo-tech.com` is in the policy and appears as text in
-three error messages (two in `app/src/errors.ts`, one in `app/src/gateway.ts`),
-but nothing in the app fetches it.
+The window can reach https hosts generally — the price of letting you name your
+own providers, since a policy cannot be edited at runtime. Which hosts are
+*actually* contacted is decided by `app/src/providers.ts`: the gateway, plus
+each provider you added, each with only its own key. `chat.vylo-tech.com`
+appears as text in three error messages (two in `app/src/errors.ts`, one in
+`app/src/gateway.ts`), but nothing in the app fetches it.
 
 **One connection comes from the Rust side.** Auto-update fetches
 `https://capi.vylo-tech.com/updates/{target}/{arch}/{current_version}`, the

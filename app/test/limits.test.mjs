@@ -187,5 +187,27 @@ ok('browserStore returns null under node rather than throwing', browserStore() =
      kept.includes(`model-${MAX_MODELS + 4}`) && !kept.includes('model-0'), kept.slice(0, 3));
 }
 
+// ── the OpenAI dialect's wording, learned since providers arrived ─────────
+// Without these, an added provider with a small window enters a loop the
+// Anthropic wire self-heals from: believe 200k, never compact, 400, learn
+// nothing, and Try again re-sends the identical request for ever.
+ok('the OpenAI context wording is learned', (() => {
+  const f = parseLimitError("This model's maximum context length is 8192 tokens. However, your messages resulted in 9226 tokens. Please reduce the length of the messages.");
+  return f && f.kind === 'context' && f.value === 8192;
+})(), parseLimitError("This model's maximum context length is 8192 tokens."));
+ok('with separators', parseLimitError('maximum context length is 128,000 tokens')?.value === 128000);
+ok('the OpenAI reply-cap wording is learned', (() => {
+  const f = parseLimitError('max_tokens is too large: 90000. This model supports at most 8192 completion tokens, however you requested 90000.');
+  return f && f.kind === 'maxOutput' && f.value === 8192;
+})());
+ok('"output tokens" spelling works too',
+   parseLimitError('supports at most 4096 output tokens')?.kind === 'maxOutput');
+// An Ollama default window is 4k, and gpt-3.5-era models are 8k. The old 10k
+// floor made a small window unlearnable even when named exactly.
+ok('a 4k window is learnable now', parseLimitError('maximum context length is 4096 tokens')?.value === 4096);
+ok('but nonsense small still is not', parseLimitError('maximum context length is 100 tokens') === null);
+ok('a rate-limit message still learns nothing',
+   parseLimitError('Rate limit reached for gpt-4o: 10000 tokens per min') === null);
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

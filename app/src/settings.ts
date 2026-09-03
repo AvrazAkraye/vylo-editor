@@ -123,7 +123,7 @@ export const CATEGORIES: readonly Category[] = [
  * rather than a blank row somebody notices in a screenshot.
  */
 export type SettingId =
-  | 'gateway' | 'apiKey' | 'signedIn' | 'signOut' | 'plan'
+  | 'gateway' | 'apiKey' | 'signedIn' | 'signOut' | 'plan' | 'providers'
   | 'theme' | 'language'
   | 'inlineCompletion'
   | 'notifyWhen' | 'notifySound'
@@ -187,6 +187,12 @@ export const SETTINGS: readonly Setting[] = [
   {
     id: 'plan', category: 'account', label: 'Plan',
     keywords: ['trial', 'tokens left', 'usage', 'quota', 'balance', 'billing', 'subscription', 'credits', 'remaining', 'upgrade', 'limit'],
+  },
+
+  {
+    id: 'providers', category: 'account', label: 'Model providers',
+    hint: 'Other places to send requests — OpenAI, Blackbox, OpenRouter, or an Ollama on this machine. A key is only ever sent to the address it was entered beside.',
+    keywords: ['provider', 'openai', 'blackbox', 'openrouter', 'groq', 'deepseek', 'ollama', 'external', 'api', 'gpt', 'custom model', 'endpoint', 'third party', 'byok'],
   },
 
   // ── Appearance ──

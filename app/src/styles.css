@@ -2263,6 +2263,34 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    than a border on each pane: a hidden pane creates no gap, so the line only
    ever falls between panes that are actually drawn. A border would have to know
    which pane is first on screen, which CSS cannot ask. */
+/* ── Model providers ──────────────────────────────────────────────────────
+   Four facts and a model list per row. The key is a password field and stays
+   one — a screen that can be glanced at over a shoulder holds keys for every
+   provider somebody uses. */
+.pv{ display:flex; flex-direction:column; gap:var(--sp-3); }
+.pv-row{
+  display:flex; align-items:center; gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-4); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel);
+}
+.pv-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.pv-what b{ font-size:var(--fs-3); color:var(--ink); }
+.pv-what span{ font-size:var(--fs-1); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pv-what span.mono{ font-family:var(--mono); }
+.pv-form{ display:flex; flex-direction:column; gap:var(--sp-3); padding:var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); }
+.pv-form label{ display:flex; flex-direction:column; gap:var(--sp-1); font-size:var(--fs-1);
+  color:var(--mute); text-transform:uppercase; letter-spacing:.06em; }
+.pv-form input, .pv-form select{
+  font:inherit; font-size:var(--fs-3); color:var(--ink); padding:var(--sp-2) var(--sp-3);
+  border:1px solid var(--rule); border-radius:var(--r-1); background:var(--bg); outline:none;
+  text-transform:none; letter-spacing:normal;
+}
+.pv-form input:focus-visible{ border-color:var(--brand); outline:none; }
+.pv-form input.mono{ font-family:var(--mono); }
+.pv-bad{ margin:0; font-size:var(--fs-2); color:var(--err); }
+.pv-acts{ display:flex; justify-content:flex-end; gap:var(--sp-2); }
+
 /* ── The remote ───────────────────────────────────────────────────────────
    Above the changes, because "am I in step with everyone else" is the question
    you ask before "what have I changed". No token anywhere: a pull request is a

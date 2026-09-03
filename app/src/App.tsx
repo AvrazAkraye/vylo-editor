@@ -96,6 +96,11 @@ import { dirFor } from './rtl';
 import {
   blobUrl, compareUrl, isOpenable, parseRemote, pullsUrl, repoUrl,
 } from './github';
+import {
+  BUILT_IN, CHOSEN_KEY, KEY as PROVIDERS_KEY, armed, chosen as chosenOf,
+  read as readProviders, route as routeOf, write as writeProviders,
+  type Chosen, type Provider,
+} from './providers';
 import { MAX_PANES, prune as prunePanes, toggle as togglePane } from './panes';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import { ContextMenu } from './ContextMenu';
@@ -237,6 +242,20 @@ export function App() {
   // unmetered case is decided.
   const [plan, setPlan] = useState<PlanSummary | null>(null);
   const [model, setModel] = useState(() => localStorage.getItem(LS.model) || 'claude-haiku-4-5');
+  /**
+   * The providers a person added, and which provider+model is chosen.
+   *
+   * The gateway is not in the list — it is composed into every read, because
+   * it predates the list, its key is managed by sign-in, and a stored copy
+   * would be a second value to drift. `model` above stays the *gateway's*
+   * model, so removing every provider leaves the app exactly as it was.
+   */
+  const [providers, setProviders] = useState<Provider[]>(() => readProviders(localStorage.getItem(PROVIDERS_KEY)));
+  const [choice, setChoice] = useState<Chosen>(() =>
+    chosenOf(localStorage.getItem(CHOSEN_KEY), readProviders(localStorage.getItem(PROVIDERS_KEY)),
+      // The same dotted-id repair the `model` effect below applies, because
+      // this fallback reads the stored value before that effect has run.
+      (localStorage.getItem(LS.model) || 'claude-haiku-4-5').replace(/(\d)\.(\d)/g, '$1-$2')));
   const [root, setRoot] = useState(() => localStorage.getItem(LS.root) || '');
   const [prompt, setPrompt] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
@@ -636,6 +655,28 @@ export function App() {
   useEffect(() => { localStorage.setItem('vylo.termfull', termFull ? '1' : '0'); }, [termFull]);
   useEffect(() => { localStorage.setItem('vylo.rail', rail); }, [rail]);
   useEffect(() => { localStorage.setItem(MODULES_KEY, writeModules(modules)); }, [modules]);
+  useEffect(() => {
+    try { localStorage.setItem(PROVIDERS_KEY, writeProviders(providers)); } catch { /* private mode */ }
+  }, [providers]);
+  useEffect(() => {
+    try { localStorage.setItem(CHOSEN_KEY, JSON.stringify(choice)); } catch { /* private mode */ }
+  }, [choice]);
+  // Keep the gateway's own model in step when it is the one chosen, so every
+  // older reader of `model` — and a downgrade — sees what is actually in use.
+  useEffect(() => { if (choice.provider === BUILT_IN) setModel(choice.model); }, [choice]);
+  /**
+   * Everything a request needs: endpoint base, headers' key, dialect, model.
+   * One derivation, used by every call site, which is what keeps a provider's
+   * key on that provider's URL and nowhere else — see providers.ts.
+   */
+  const wired = useMemo(() => {
+    // route() and nothing else. The review found an earlier version of this
+    // memo re-deriving the pair and disagreeing with route()'s fallback — the
+    // gateway's URL carrying an empty key — which is exactly the class of bug
+    // a second resolver exists to create.
+    const r = routeOf(choice, providers, { baseUrl, apiKey, model });
+    return { baseUrl: r.baseUrl, apiKey: r.key, wire: r.wire, model: r.model };
+  }, [choice, providers, baseUrl, apiKey, model]);
 
   /**
    * The remote, refreshed with everything else that watches the tree.
@@ -1561,7 +1602,7 @@ export function App() {
   async function applyBlock(code: string, info: string, before: string) {
     const path = applyTarget(info, before, openFilePath, (p) => fileSet.has(p));
     if (!path) { push({ kind: 'error', text: t('No file to apply this to. Open one first.') }); return; }
-    if (!apiKey) { push({ kind: 'error', text: t('Add your gateway API key in Settings.') }); return; }
+    if (!armed({ baseUrl: wired.baseUrl, key: wired.apiKey })) { push({ kind: 'error', text: t('Add an API key in Settings first.') }); return; }
 
     setBusy(true);
     try {
@@ -1569,7 +1610,7 @@ export function App() {
       const { system, user } = applyMessages({
         path, language: info.split(/\s+/)[0] || '', file, snippet: code,
       });
-      const raw = await askRaw({ baseUrl, apiKey, model }, system, user);
+      const raw = await askRaw(wired, system, user);
       const edits = parseApply(raw);
       if (!edits.length) {
         push({ kind: 'result', text: `${path}: ${t('nothing to change.')}` });
@@ -2161,9 +2202,9 @@ export function App() {
    * so the terminal never holds a runnable string.
    */
   async function askForCommand(question: string, output: string): Promise<string | null> {
-    if (!apiKey) return t('Add your API key in Settings first.');
+    if (!armed({ baseUrl: wired.baseUrl, key: wired.apiKey })) return t('Add an API key in Settings first.');
     const raw = await askRaw(
-      { baseUrl, apiKey, model },
+      wired,
       ASK_SYSTEM,
       askMessage({ question, environment, cwd: root, output }),
     );
@@ -2595,7 +2636,7 @@ export function App() {
     // with a screenshot needs no words.
     if ((!text && carriedShots.length === 0) || busy) return;
     if (!root) { push({ kind: 'error', text: t('Open a folder first.') }); return; }
-    if (!apiKey) { push({ kind: 'error', text: t('Add your gateway API key in Settings.') }); setShowSettings(true); return; }
+    if (!armed({ baseUrl: wired.baseUrl, key: wired.apiKey })) { push({ kind: 'error', text: t('Add an API key in Settings first.') }); setShowSettings(true); return; }
 
     if (!queued) {
       // The message is gone; anything still being said belongs to the next one,
@@ -2657,7 +2698,8 @@ export function App() {
     abort.current = controller;
     try {
       history.current = await runAgent({
-        baseUrl, apiKey, model, root,
+        baseUrl: wired.baseUrl, apiKey: wired.apiKey, model: wired.model,
+        wire: wired.wire, root,
         history: history.current,
         pending: pending.current,
         askToRun,
@@ -2983,6 +3025,16 @@ export function App() {
           t={t}
           initial={settingsAt ?? undefined}
           onClose={() => { setShowSettings(false); setSettingsAt(null); }}
+          providers={providers}
+          onProviders={(next) => {
+            setProviders(next);
+            // The choice is repaired the moment its provider goes, not at the
+            // next restart — otherwise the composer keeps showing a model
+            // whose key was just deleted, and a freed id given to the next
+            // provider added would silently rebind the stale choice to it.
+            setChoice((c) => (c.provider === BUILT_IN || next.some((x) => x.id === c.provider)
+              ? c : { provider: BUILT_IN, model }));
+          }}
           auto={auto}
           onAuto={setAuto}
           modules={modules}
@@ -3541,7 +3593,7 @@ export function App() {
             progress={progress}
             t={t}
             mode={t(mode === 'ask' ? 'Ask' : 'Agent')}
-            model={MODELS.find((m) => m.id === model)?.short ?? model}
+            model={MODELS.find((m) => m.id === wired.model)?.short ?? wired.model}
             context={ctx ? Math.round((ctx.used / ctx.limit) * 100) : null}
             onStop={() => abort.current?.abort()}
           />
@@ -3584,7 +3636,7 @@ export function App() {
                     apiKey,
                     onStatus: setAcStatus,
                   })}
-                  edit={() => ({ baseUrl, apiKey, model, memory: memoryPrompt(memory) })}
+                  edit={() => ({ ...wired, memory: memoryPrompt(memory) })}
                   staged={changes.find((c) => c.path === p) ?? null}
                   recover={recovering.has(p)}
                   t={t}
@@ -4031,12 +4083,35 @@ export function App() {
                   the turn started, so changing it now decides the next one —
                   which is exactly the decision you make when you can see this
                   one going wrong. */}
-              <select value={MODELS.some((m) => m.id === model) ? model : 'custom'}
-                      onChange={(e) => { if (e.target.value !== 'custom') setModel(e.target.value); }}
-                      aria-label={t('Model')}>
-                {MODELS.map((m) => <option key={m.id} value={m.id}>{m.short}</option>)}
-                {!MODELS.some((m) => m.id === model) && <option value="custom">{model}</option>}
-              </select>
+              {/* One menu across every provider. The value is an index into a
+                  flat list rather than a joined string, because a model id can
+                  contain any separator somebody might choose to join on. */}
+              {(() => {
+                const menu = [
+                  ...MODELS.map((m) => ({ provider: BUILT_IN, model: m.id, label: m.short })),
+                  ...providers.flatMap((p) => p.models.map((pm) => ({ provider: p.id, model: pm, label: pm }))),
+                ];
+                const at = menu.findIndex((x) => x.provider === choice.provider && x.model === choice.model);
+                return (
+                  <select value={at >= 0 ? String(at) : 'custom'}
+                          onChange={(e) => {
+                            const c = menu[Number(e.target.value)];
+                            if (c) setChoice({ provider: c.provider, model: c.model });
+                          }}
+                          aria-label={t('Model')}>
+                    {MODELS.map((m, i) => <option key={m.id} value={String(i)}>{m.short}</option>)}
+                    {providers.filter((p) => p.models.length).map((p) => (
+                      <optgroup key={p.id} label={p.name}>
+                        {p.models.map((pm) => {
+                          const i = menu.findIndex((x) => x.provider === p.id && x.model === pm);
+                          return <option key={pm} value={String(i)}>{pm}</option>;
+                        })}
+                      </optgroup>
+                    ))}
+                    {at < 0 && <option value="custom">{choice.model}</option>}
+                  </select>
+                );
+              })()}
               <Icon name="chevron" size={11} turn={90} />
             </span>
 

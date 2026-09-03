@@ -8,6 +8,8 @@ import { commandLine, isEnabled, type McpTool, type ServerSpec } from './mcp';
 import { clipboardBytes, human, isOnDisk, usage, type Sizes, type StoreId } from './stores';
 import { view, type CategoryId, type Setting } from './settings';
 import { ModuleList, RailSide } from './ModuleList';
+import { ProviderList } from './ProviderList';
+import type { Provider } from './providers';
 import type { Layout as ModuleLayout } from './modules';
 import { LEVELS, LEVEL_ABOUT, LEVEL_LABEL, type Level as AutoLevel } from './auto';
 import { IS_MAC, Shortcuts } from './Welcome';
@@ -101,6 +103,10 @@ interface Props {
   onRecording: (on: boolean) => void;
   onSummonKey: (e: React.KeyboardEvent) => void;
   onClearSummon: () => void;
+
+  // ── Account ──
+  providers: Provider[];
+  onProviders: (next: Provider[]) => void;
 
   // ── Approval ──
   auto: AutoLevel;
@@ -524,6 +530,13 @@ function Control({ row, ...p }: ControlProps) {
       return (
         <Row label={label} hint={hint} wide>
           <Shortcuts t={t} columns={2} />
+        </Row>
+      );
+
+    case 'providers':
+      return (
+        <Row label={label} hint={hint} wide>
+          <ProviderList providers={p.providers} onChange={p.onProviders} t={t} />
         </Row>
       );
 

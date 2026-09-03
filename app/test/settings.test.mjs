@@ -56,7 +56,7 @@ const find = (groups, id) => ids(groups).includes(id);
        by.get(id)?.category === category, `found ${by.get(id)?.category ?? 'nothing'}`);
   }
 
-  const ADDED = ['plan', 'keyMap', 'autoApprove', 'modules', 'railSide', 'drafts', 'checkpoints', 'fileHistory',
+  const ADDED = ['plan', 'providers', 'keyMap', 'autoApprove', 'modules', 'railSide', 'drafts', 'checkpoints', 'fileHistory',
                  'clipboardHistory', 'version', 'updates', 'safety'];
   for (const id of ADDED) ok(`${id} is in the catalogue`, by.has(id));
 

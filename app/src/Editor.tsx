@@ -473,7 +473,7 @@ export function Editor({
     const v = view.current;
     if (!v || !ask || !instruction.trim()) return;
     const gw = cfg.current.edit();
-    if (!gw.apiKey) { setAskError(cfg.current.t('Add your gateway API key in Settings.')); return; }
+    if (!gw.apiKey && !gw.baseUrl.startsWith('http://')) { setAskError(cfg.current.t('Add an API key in Settings first.')); return; }
 
     const doc = v.state.doc.toString();
     const selection = doc.slice(ask.from, ask.to);

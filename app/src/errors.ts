@@ -30,7 +30,7 @@ const ADVICE: { when: RegExp; then: string }[] = [
   { when: /max_tokens/i, then: 'That model accepts shorter replies than the app asked for — choose another model in the composer.' },
   { when: /exceeds the .* read limit|too large/i, then: 'Ask the agent to read part of it, or open it in the editor.' },
   { when: /rejected the API key|authentication_error|invalid api key/i, then: 'Check the key in Settings.' },
-  { when: /rate limit/i, then: 'Wait a moment, or check your plan at chat.vylo-tech.com.' },
+  { when: /rate limit/i, then: 'Wait a moment before trying again.' },
   { when: /no active subscription/i, then: 'Choose a plan at chat.vylo-tech.com.' },
   // The gateway enforces each plan's model list. Before 0.30 it did so on two
   // endpoints out of three and not on the one the app uses, so this message is

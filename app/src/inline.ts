@@ -1,6 +1,8 @@
 import { Annotation, StateEffect, StateField, type Extension } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 import { SSEDecoder, TurnAssembler } from './sse';
+import { OpenAIAssembler, fromOpenAI, toOpenAI } from './openai';
+import { endpointFor, headersFor, type Wire } from './providers';
 import { diffRows } from './pending';
 import { limitsFor } from './budget';
 import { learnedFor } from './limits';
@@ -228,7 +230,13 @@ export const inlineEditState: Extension = [
 
 /* ── the request ────────────────────────────────────────────────────────── */
 
-export interface Gateway { baseUrl: string; apiKey: string; model: string }
+export interface Gateway {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  /** Which dialect the endpoint speaks. Default Anthropic — see providers.ts. */
+  wire?: Wire;
+}
 
 /**
  * One streamed, tool-free request. Deltas go to `onText` so the bar can show
@@ -248,47 +256,46 @@ export async function askRaw(
   onText: (chunk: string) => void = () => {},
   signal?: AbortSignal,
 ): Promise<string> {
-  const res = await fetch(`${gw.baseUrl}/v1/messages`, {
+  const wire = gw.wire ?? 'anthropic';
+  const asked = {
+    model: gw.model,
+    // A selection rewrite is bounded by the selection, but a 300-line one
+    // needs more than 4096 tokens to come back, and a reply cut off
+    // mid-function is applied as if it were the whole answer.
+    // What the agent loop learned from a 400 that named this model's real
+    // cap. ⌘K is a single request with nowhere to recover to, so it takes
+    // the corrected number rather than discovering it the expensive way.
+    max_tokens: limitsFor(gw.model, learnedFor(gw.model)).maxOutput,
+    system,
+    messages: [{ role: 'user' as const, content: user }],
+    stream: true,
+  };
+  const res = await fetch(endpointFor({ baseUrl: gw.baseUrl, wire }), {
     method: 'POST',
     signal,
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': gw.apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify({
-      model: gw.model,
-      // A selection rewrite is bounded by the selection, but a 300-line one
-      // needs more than 4096 tokens to come back, and a reply cut off
-      // mid-function is applied as if it were the whole answer.
-      // What the agent loop learned from a 400 that named this model's real
-      // cap. ⌘K is a single request with nowhere to recover to, so it takes
-      // the corrected number rather than discovering it the expensive way.
-      max_tokens: limitsFor(gw.model, learnedFor(gw.model)).maxOutput,
-      system,
-      messages: [{ role: 'user', content: user }],
-      stream: true,
-    }),
+    headers: headersFor({ wire, key: gw.apiKey }),
+    body: JSON.stringify(wire === 'anthropic' ? asked : toOpenAI(asked)),
   });
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     let detail = body.slice(0, 240);
     try { const j = JSON.parse(body); if (j?.error?.message) detail = j.error.message; } catch { /* raw body */ }
-    if (res.status === 401) throw new Error(`The gateway rejected the API key. (${detail})`);
+    if (res.status === 401) throw new Error(`The API key was rejected. (${detail})`);
     if (res.status === 429) throw new Error(`Rate limited — wait a moment. (${detail})`);
-    throw new Error(`Gateway ${res.status}: ${detail}`);
+    throw new Error(`The server answered ${res.status}: ${detail}`);
   }
 
   if (!res.headers.get('content-type')?.includes('text/event-stream') || !res.body) {
-    const reply = await res.json();
+    const reply = wire === 'anthropic' ? await res.json() : fromOpenAI(await res.json());
     return (Array.isArray(reply.content) ? reply.content : [])
       .filter((b: { type: string }) => b.type === 'text')
       .map((b: { text: string }) => b.text).join('');
   }
 
   const decoder = new SSEDecoder();
-  const asm = new TurnAssembler();
+  // Same read surface either side, so the loop below is dialect-blind.
+  const asm = wire === 'anthropic' ? new TurnAssembler() : new OpenAIAssembler();
   const reader = res.body.getReader();
   const utf8 = new TextDecoder();
   try {
