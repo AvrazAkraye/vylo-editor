@@ -109,6 +109,38 @@ export interface Layout {
   /** Which of them are turned off. */
   off: ModuleId[];
   side: Side;
+  /**
+   * Modules that open in the second sidebar — the one on the edge *opposite*
+   * the rail — rather than beside the rail.
+   *
+   * "Right" is the name people use and it is what it is when the rail is on
+   * the left, which is nearly always. When the rail has been moved to the
+   * right edge, these open on the left, because the point of a second sidebar
+   * is to have a panel on each side of the work, not two panels on one side.
+   */
+  right: ModuleId[];
+}
+
+/** Which sidebar a module opens in. */
+export type Dock = 'rail' | 'other';
+
+export const dockOf = (layout: Layout, id: ModuleId): Dock =>
+  layout.right.includes(id) ? 'other' : 'rail';
+
+/** Send a module to one sidebar or the other. */
+export function dock(layout: Layout, id: ModuleId, where: Dock): Layout {
+  if (!IDS.includes(id)) return layout;
+  const now = dockOf(layout, id);
+  if (now === where) return layout;
+  return {
+    ...layout,
+    right: where === 'other' ? [...layout.right, id] : layout.right.filter((x) => x !== id),
+  };
+}
+
+/** The modules on one sidebar, in rail order, switched-off ones left out. */
+export function docked(layout: Layout, where: Dock): Module[] {
+  return enabled(layout).filter((m) => dockOf(layout, m.id) === where);
 }
 
 /**
@@ -122,7 +154,7 @@ export const railFirst = (side: Side, dir: 'ltr' | 'rtl'): boolean =>
   dir === 'rtl' ? side === 'right' : side === 'left';
 
 /** Everything on, in declaration order. */
-export const DEFAULT: Layout = { order: [...IDS], off: [], side: 'left' };
+export const DEFAULT: Layout = { order: [...IDS], off: [], side: 'left', right: [] };
 
 /** Where the layout is kept. Versioned, so a future shape can be told apart. */
 export const KEY = 'vylo.modules.v1';
@@ -144,6 +176,7 @@ export function read(raw: string | null): Layout {
   let order: ModuleId[] = [];
   let off: ModuleId[] = [];
   let side: Side = 'left';
+  let right: ModuleId[] = [];
 
   try {
     const saved = raw ? JSON.parse(raw) : null;
@@ -155,6 +188,7 @@ export function read(raw: string | null): Layout {
           : [];
       order = known(saved.order);
       off = known(saved.off);
+      right = known(saved.right);
       if (saved.side === 'right' || saved.side === 'left') side = saved.side;
     }
   } catch {
@@ -167,12 +201,12 @@ export function read(raw: string | null): Layout {
   // an empty one, and the way back is not obvious from looking at it. So one
   // stays on, and it is the first in the person's own order.
   if (off.length >= order.length) off = off.filter((x) => x !== order[0]);
-  return { order, off, side };
+  return { order, off, side, right };
 }
 
 /** What goes into storage. */
 export function write(layout: Layout): string {
-  return JSON.stringify({ order: layout.order, off: layout.off, side: layout.side });
+  return JSON.stringify({ order: layout.order, off: layout.off, side: layout.side, right: layout.right });
 }
 
 export const isOn = (layout: Layout, id: ModuleId): boolean => !layout.off.includes(id);
@@ -226,7 +260,7 @@ export function setSide(layout: Layout, side: Side): Layout {
 
 /** Everything on, in declaration order, forgetting whatever was arranged. */
 export function reset(): Layout {
-  return { order: [...IDS], off: [], side: 'left' };
+  return { order: [...IDS], off: [], side: 'left', right: [] };
 }
 
 /**

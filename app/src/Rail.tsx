@@ -34,23 +34,31 @@ export interface RailItem {
 interface Props {
   items: RailItem[];
   active: ModuleId;
+  /**
+   * The module showing in the *other* sidebar, if it is open. Lit alongside
+   * `active`, because two panels are on screen and both icons should say so.
+   */
+  alsoOn?: ModuleId | null;
   /** True when the panel is hidden and only the rail shows. */
   collapsed: boolean;
   onSelect: (id: ModuleId) => void;
+  /** A right-click on an icon: dock it on the other side, or turn it off. */
+  onMenu?: (id: ModuleId, at: { x: number; y: number }) => void;
   settings: () => void;
   settingsLabel: string;
   /** The rail is navigation, so it needs a name in the language in use. */
   label: string;
 }
 
-export function Rail({ items, active, collapsed, onSelect, settings, settingsLabel, label }: Props) {
+export function Rail({ items, active, alsoOn = null, collapsed, onSelect, onMenu, settings, settingsLabel, label }: Props) {
   return (
     <nav className="rail" aria-label={label}>
       {items.map((it) => (
         <button
           key={it.id}
-          className={`rail-btn ${!collapsed && it.id === active ? 'on' : ''}`}
+          className={`rail-btn ${!collapsed && it.id === active ? 'on' : ''} ${it.id === alsoOn ? 'on alt' : ''}`}
           onClick={() => onSelect(it.id)}
+          onContextMenu={(e) => { if (onMenu) { e.preventDefault(); onMenu(it.id, { x: e.clientX, y: e.clientY }); } }}
           title={it.label}
           aria-label={it.label}
           aria-current={!collapsed && it.id === active ? 'page' : undefined}

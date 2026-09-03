@@ -1,7 +1,7 @@
 import { Icon } from './Icon';
 import { useReorder } from './useReorder';
 import {
-  MODULES, isLast, isOn, moduleOf, moveTo, reset, setSide, toggle,
+  MODULES, dock, dockOf, isLast, isOn, moduleOf, moveTo, reset, setSide, toggle,
   type Layout, type ModuleId, type Side,
 } from './modules';
 
@@ -70,6 +70,14 @@ export function ModuleList({ layout, onChange, t }: Props) {
               {/* Disabled rather than hidden on the last one: a control that
                   vanishes leaves somebody wondering what they did, and one
                   that explains itself teaches the rule in a tooltip. */}
+              {/* Which sidebar it opens in. A second sidebar is a panel on each
+                  side of the work, so this is per module, not one switch. */}
+              <button className={`mod-dock ${dockOf(layout, id) === 'other' ? 'on' : ''}`} data-nodrag
+                      aria-pressed={dockOf(layout, id) === 'other'}
+                      title={t(dockOf(layout, id) === 'other' ? 'Show beside the rail' : 'Show on the other side')}
+                      onClick={() => onChange(dock(layout, id, dockOf(layout, id) === 'other' ? 'rail' : 'other'))}>
+                <Icon name="split" size={13} />
+              </button>
               <button className={`mod-sw ${on ? 'on' : ''}`} data-nodrag
                       role="switch" aria-checked={on} disabled={last}
                       title={last ? t('At least one section has to stay on.') : undefined}

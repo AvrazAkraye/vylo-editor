@@ -52,8 +52,8 @@ const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
 import { Rail } from './Rail';
 import {
-  KEY as MODULES_KEY, active as activeModule, enabled as enabledModules,
-  labelOf, railFirst, read as readModules, write as writeModules,
+  KEY as MODULES_KEY, dock as dockModule, dockOf, docked, enabled as enabledModules,
+  labelOf, railFirst, read as readModules, toggle as toggleModule, write as writeModules,
   type Layout as ModuleLayout, type ModuleId,
 } from './modules';
 import { SettingsPanel } from './SettingsPanel';
@@ -454,6 +454,18 @@ export function App() {
    * will not open.
    */
   const [modules, setModules] = useState<ModuleLayout>(() => readModules(localStorage.getItem(MODULES_KEY)));
+  /**
+   * The second sidebar: which docked module it shows, whether it is open, and
+   * how wide it is. Separate from the rail's own state on purpose — the point
+   * of a second sidebar is a panel on each side of the work, and the two must
+   * not close each other.
+   */
+  const [rightRail, setRightRail] = useState<ModuleId | null>(() => (localStorage.getItem('vylo.rrail') as ModuleId) || null);
+  const [rightOpen, setRightOpen] = useState(() => localStorage.getItem('vylo.rropen') !== '0');
+  const [rightW, setRightW] = useState(() => Number(localStorage.getItem('vylo.rrw')) || 300);
+  const resizingR = useRef(false);
+  /** A rail icon's menu: dock on the other side, or turn the module off. */
+  const [railMenu, setRailMenu] = useState<{ id: ModuleId; at: MenuPoint } | null>(null);
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem('vylo.railopen') !== '0');
   // The line a search result asked for, cleared once the file is showing so
   // reopening the same file later does not jump again.
@@ -704,6 +716,28 @@ export function App() {
   useEffect(() => { localStorage.setItem('vylo.termfull', termFull ? '1' : '0'); }, [termFull]);
   useEffect(() => { localStorage.setItem('vylo.rail', rail); }, [rail]);
   useEffect(() => { localStorage.setItem(MODULES_KEY, writeModules(modules)); }, [modules]);
+  useEffect(() => { try { if (rightRail) localStorage.setItem('vylo.rrail', rightRail); } catch { /* private mode */ } }, [rightRail]);
+  useEffect(() => { try { localStorage.setItem('vylo.rropen', rightOpen ? '1' : '0'); } catch { /* private mode */ } }, [rightOpen]);
+
+  // The second sidebar's width, dragged from its divider. Which way the pointer
+  // means "wider" depends on which edge it sits against.
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!resizingR.current) return;
+      const onFarEdge = railFirst(modules.side, dirFor(lang));
+      const w = onFarEdge ? window.innerWidth - e.clientX : e.clientX;
+      setRightW(Math.min(560, Math.max(200, w)));
+    };
+    const up = () => {
+      if (!resizingR.current) return;
+      resizingR.current = false;
+      document.body.classList.remove('resizing');
+      try { localStorage.setItem('vylo.rrw', String(rightW)); } catch { /* private mode */ }
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
+    return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+  }, [rightW, modules.side, lang]);
   useEffect(() => {
     try { localStorage.setItem(PROVIDERS_KEY, writeProviders(providers)); } catch { /* private mode */ }
   }, [providers]);
@@ -1855,7 +1889,13 @@ export function App() {
    * turning a module back on returns you to where you were. `shown` is what can
    * be drawn right now, which is that one unless it is off.
    */
-  const shown = activeModule(modules, rail);
+  // Each sidebar chooses from the modules docked on it. A module moved to the
+  // other side must not go on being the left sidebar's "shown", and one that
+  // has been switched off is on neither.
+  const leftIds = docked(modules, 'rail').map((m) => m.id);
+  const rightIds = docked(modules, 'other').map((m) => m.id);
+  const shown: ModuleId = leftIds.includes(rail) ? rail : (leftIds[0] ?? enabledModules(modules)[0].id);
+  const rightShown: ModuleId | null = rightRail && rightIds.includes(rightRail) ? rightRail : (rightIds[0] ?? null);
 
   /**
    * What a tab's menu offers.
@@ -1968,6 +2008,14 @@ export function App() {
 
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
   function pickRail(id: ModuleId) {
+    if (dockOf(modules, id) === 'other') {
+      // Same gesture, other side: the module you are looking at collapses its
+      // sidebar; any other opens it there.
+      if (id === rightShown && rightOpen) { setRightOpen(false); return; }
+      setRightRail(id);
+      setRightOpen(true);
+      return;
+    }
     if (id === rail && railOpen) { setRailOpen(false); return; }
     setRail(id);
     setRailOpen(true);
@@ -2961,222 +3009,16 @@ export function App() {
     : [];
   const split = panes.length > 1;
 
-  return (
-    <div className={`shell ${full ? 'fullscreen' : ''}`}>
-      <header className="bar" data-tauri-drag-region>
-        {IS_MAC && <TrafficLights full={full} t={t}
-                                 onFullscreen={() => void toggleFullscreen().then(setFull)} />}
-        <div className="brand">
-          <svg viewBox="0 0 64 64" aria-hidden="true">
-            <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#g)" />
-            <defs>
-              <linearGradient id="g" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#6D5CF0" /><stop offset=".55" stopColor="#5B4DE0" /><stop offset="1" stopColor="#8B5CF6" />
-              </linearGradient>
-            </defs>
-            <path d="M17 22.5 L27 41.5 L37 22.5" fill="none" stroke="#fff" strokeWidth="5.2" strokeLinecap="round" strokeLinejoin="round" />
-            <rect x="43.4" y="21.5" width="4.6" height="21" rx="2.3" fill="#fff" fillOpacity=".92" />
-          </svg>
-          <b>Vylo Editor</b>
-        </div>
-        <button className="folder" onClick={pickFolder} title={root || t('No folder open')}>
-          <Icon name="folder" size={14} />{folderName || t('Open folder…')}
-        </button>
-        {git?.is_repo && (
-          <button className="ghost" onClick={() => void newBranch()}
-                  title={t('Create a branch and switch to it')}>
-            <Icon name="plus" size={11} />{t('New branch')}
-          </button>
-        )}
-        {git?.is_repo && (
-          <span className={`git ${git.dirty ? 'dirty' : ''}`}
-                title={git.dirty
-                  ? `${git.dirty} ${git.dirty === 1 ? t('file') : t('files')} `
-                    + t('already modified before the agent touched anything')
-                  : t('Working tree is clean')}>
-            {git.branch}{git.dirty ? ` · ${git.dirty} ${t('modified')}` : ''}
-          </span>
-        )}
-        <span className="bar-sp" />
-        {/* One field across the middle, which is the whole of Phase O: seven
-            boxes had seven placeholders and this has one. A button rather than
-            an input — the palette owns the caret. */}
-        <button className="find-field" onClick={() => setPalette('all')}
-                aria-label={t('Search everything…')} aria-haspopup="dialog">
-          <Icon name="search" size={13} />
-          <span>{t('Search everything…')}</span>
-          <kbd>{MOD}P</kbd>
-        </button>
-        <span className="bar-sp" />
-        <button className={`ghost icon ${showTerm ? 'on' : ''}`} onClick={toggleTerm}
-                title={`${t('Terminal')} · ${ALT}\``} aria-label={t('Terminal')}
-                aria-pressed={showTerm}><Icon name="terminal" /></button>
-        <div className="seg" role="group" aria-label={t('Theme')}>
-          {(['light', 'system', 'dark'] as Theme[]).map((v) => {
-            const name = t(v === 'light' ? 'Light' : v === 'dark' ? 'Dark' : 'Match system');
-            return (
-              <button key={v} className={theme === v ? 'on' : ''} onClick={() => setTheme(v)}
-                      title={name} aria-label={name} aria-pressed={theme === v}>
-                <Icon name={v === 'light' ? 'sun' : v === 'dark' ? 'moon' : 'auto'} size={14} />
-              </button>
-            );
-          })}
-        </div>
-        <button className="ghost icon" onClick={() => void toggleFullscreen().then(setFull)}
-                title={t(full ? 'Leave full screen' : 'Full screen')}
-                aria-label={t(full ? 'Leave full screen' : 'Full screen')} aria-pressed={full}>
-          <Icon name={full ? 'restore' : 'maximise'} />
-        </button>
-        <button className="ghost" onClick={() => setShowSettings((s) => !s)}>{t('Settings')}</button>
-      </header>
-
-      {/* Settings, as a modal over a dimmed window rather than a block that
-          unrolled under the header and pushed the whole app down. The controls
-          are the same ones and no longer a flat list; `settings.ts` is the
-          catalogue and `SettingsPanel.tsx` draws it. */}
-      {/* The one dialog the app draws for itself.  and
-           do nothing in this webview — wry implements none of
-          WKWebView's JavaScript panels — so thirteen actions silently did
-          nothing, or silently answered no. */}
-      <AskHost t={t} />
-
-      {signInOpen && (
-        <div className="pal-back" onMouseDown={() => setSignInOpen(false)}>
-          <div className="pal signin-modal" onMouseDown={(e) => e.stopPropagation()}
-               role="dialog" aria-modal="true" aria-label={t('Sign in')}
-               onKeyDown={(e) => { if (e.key === 'Escape') setSignInOpen(false); }}>
-            <SignIn baseUrl={baseUrl} t={t}
-                    onSignedIn={(tok, key) => {
-                      // Same rule as the welcome screen: neither empty half may
-                      // overwrite something live.
-                      const next = adopted({ apiKey, token }, { apiKey: key, token: tok });
-                      setToken(next.token);
-                      setApiKey(next.apiKey);
-                      setSignInOpen(false);
-                    }} />
-          </div>
-        </div>
-      )}
-
-      {tabMenu && (
-        <ContextMenu
-          at={tabMenu.at}
-          items={tabItems(tabMenu.path)}
-          t={t}
-          label={`${t('Actions')} — ${nameOf(tabMenu.path)}`}
-          onPick={(id) => void onTabMenu(tabMenu.path, id)}
-          onClose={() => setTabMenu(null)}
-        />
-      )}
-
-      {showSettings && (
-        <SettingsPanel
-          t={t}
-          initial={settingsAt ?? undefined}
-          onClose={() => { setShowSettings(false); setSettingsAt(null); }}
-          providers={providers}
-          onProviders={(next) => {
-            setProviders(next);
-            // The choice is repaired the moment its provider goes, not at the
-            // next restart — otherwise the composer keeps showing a model
-            // whose key was just deleted, and a freed id given to the next
-            // provider added would silently rebind the stale choice to it.
-            setChoice((c) => (c.provider === BUILT_IN || next.some((x) => x.id === c.provider)
-              ? c : { provider: BUILT_IN, model }));
-          }}
-          auto={auto}
-          onAuto={setAuto}
-          modules={modules}
-          onModules={setModules}
-          baseUrl={baseUrl}
-          onBaseUrl={setBaseUrl}
-          apiKey={apiKey}
-          onApiKey={setApiKey}
-          token={token}
-          signedInAs={signedInAs}
-          onSignIn={() => { setShowSettings(false); setSignInOpen(true); }}
-          plan={planChip}
-          onSignOut={() => {
-            // Signing out clears the session and *not* the API key: the key is
-            // a separate credential that goes on working, it was minted for
-            // this machine, and throwing it away because somebody pressed a
-            // button labelled Sign out would take the app offline for a reason
-            // nobody asked for. Revoking a key is a decision for the keys page.
-            const dead = token;
-            const next = signedOut({ apiKey, token });
-            setToken(next.token);
-            setApiKey(next.apiKey);
-            void signOut(localStorage, baseUrl, dead);
-          }}
-          theme={theme}
-          onTheme={setTheme}
-          lang={lang}
-          onLang={setLang}
-          autocomplete={autocomplete}
-          onAutocomplete={setAutocomplete}
-          notify={notifyPrefs}
-          onNotify={setNotifyTo}
-          summon={summon}
-          summonErr={summonErr}
-          recording={recording}
-          onRecording={(on) => { if (on) setSummonErr(''); setRecording(on); }}
-          onSummonKey={recordSummon}
-          onClearSummon={() => void setSummonTo(null)}
-          root={root}
-          mcpServers={mcpServers}
-          mcpTools={mcpTools}
-          mcpError={mcpError}
-          onToggleServer={(s) => void toggleServer(s)}
-          clips={clips}
-          onEmptied={(id) => {
-            // The window is still standing on these stores, and that is the
-            // half of the Storage tab that would fail silently: Redo would
-            // offer to put back contents that are gone, and the recovery
-            // banner would offer drafts that no longer exist. Emptying the
-            // clipboard history *is* this call rather than something that
-            // follows one -- it is localStorage, not a directory Rust can see.
-            if (id === 'clipboardHistory') { clearClips(localClips); setClips([]); }
-            if (id === 'drafts') setDrafts([]);
-            if (id === 'checkpoints') setRedoable(null);
-          }}
-          update={update}
-          updating={updating}
-          onCheckUpdates={() => checkForUpdate().then(setUpdate)}
-          onInstall={() => {
-            if (!update) return;
-            setUpdating(0);
-            update.install((pct) => setUpdating(pct)).catch((e) => {
-              setUpdating(null);
-              push({ kind: 'error', text: explain(e, t('install the update')) });
-            });
-          }}
-        />
-      )}
-
-      {/* `rail-end` moves the rail to the other edge by reordering the flex
-          children. Which order that is depends on the writing direction, and
-          `railFirst` is the one place that knows — see modules.ts. */}
-      <div className={`body ${railFirst(modules.side, dirFor(lang)) ? '' : 'rail-end'}`}>
-        <Rail
-          /* One list, from `modules.ts`. The literal that used to be here was a
-             copy of a list, and the copy drifted — see modules.ts. */
-          items={enabledModules(modules).map((m) => ({
-            id: m.id,
-            icon: m.icon,
-            label: t(m.label),
-            badge: m.badge === 'changes' ? changes.length + tracked.length
-              : m.badge === 'todo' ? todoLeft : undefined,
-          }))}
-          active={shown}
-          collapsed={!railOpen}
-          onSelect={pickRail}
-          settings={() => setShowSettings((v) => !v)}
-          settingsLabel={t('Settings')}
-          label={t('Sections')}
-        />
-
-        {railOpen && (
-        <aside className="sidebar" style={{ width: sidebarW }}>
+  /**
+   * A sidebar's contents, for the module it is showing.
+   *
+   * One function, two sidebars. Each panel is written once here and drawn on
+   * whichever side its module is docked — which is the only way a second
+   * sidebar could arrive without every panel being written twice and the two
+   * copies drifting, the way the rail's heading once drifted from its list.
+   */
+  const sideFor = (shown: ModuleId) => (
+    <>
           <div className="sb-head-bar">
             {/* From the registry. As a chain of ternaries this had no branch
                 for `todo`, so the To do panel sat under a heading that said
@@ -3443,10 +3285,258 @@ export function App() {
               </>
             )}
           </div>
+    </>
+  );
+
+  return (
+    <div className={`shell ${full ? 'fullscreen' : ''}`}>
+      <header className="bar" data-tauri-drag-region>
+        {IS_MAC && <TrafficLights full={full} t={t}
+                                 onFullscreen={() => void toggleFullscreen().then(setFull)} />}
+        <div className="brand">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#g)" />
+            <defs>
+              <linearGradient id="g" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+                <stop offset="0" stopColor="#6D5CF0" /><stop offset=".55" stopColor="#5B4DE0" /><stop offset="1" stopColor="#8B5CF6" />
+              </linearGradient>
+            </defs>
+            <path d="M17 22.5 L27 41.5 L37 22.5" fill="none" stroke="#fff" strokeWidth="5.2" strokeLinecap="round" strokeLinejoin="round" />
+            <rect x="43.4" y="21.5" width="4.6" height="21" rx="2.3" fill="#fff" fillOpacity=".92" />
+          </svg>
+          <b>Vylo Editor</b>
+        </div>
+        <button className="folder" onClick={pickFolder} title={root || t('No folder open')}>
+          <Icon name="folder" size={14} />{folderName || t('Open folder…')}
+        </button>
+        {git?.is_repo && (
+          <button className="ghost" onClick={() => void newBranch()}
+                  title={t('Create a branch and switch to it')}>
+            <Icon name="plus" size={11} />{t('New branch')}
+          </button>
+        )}
+        {git?.is_repo && (
+          <span className={`git ${git.dirty ? 'dirty' : ''}`}
+                title={git.dirty
+                  ? `${git.dirty} ${git.dirty === 1 ? t('file') : t('files')} `
+                    + t('already modified before the agent touched anything')
+                  : t('Working tree is clean')}>
+            {git.branch}{git.dirty ? ` · ${git.dirty} ${t('modified')}` : ''}
+          </span>
+        )}
+        <span className="bar-sp" />
+        {/* One field across the middle, which is the whole of Phase O: seven
+            boxes had seven placeholders and this has one. A button rather than
+            an input — the palette owns the caret. */}
+        <button className="find-field" onClick={() => setPalette('all')}
+                aria-label={t('Search everything…')} aria-haspopup="dialog">
+          <Icon name="search" size={13} />
+          <span>{t('Search everything…')}</span>
+          <kbd>{MOD}P</kbd>
+        </button>
+        <span className="bar-sp" />
+        <button className={`ghost icon ${showTerm ? 'on' : ''}`} onClick={toggleTerm}
+                title={`${t('Terminal')} · ${ALT}\``} aria-label={t('Terminal')}
+                aria-pressed={showTerm}><Icon name="terminal" /></button>
+        <div className="seg" role="group" aria-label={t('Theme')}>
+          {(['light', 'system', 'dark'] as Theme[]).map((v) => {
+            const name = t(v === 'light' ? 'Light' : v === 'dark' ? 'Dark' : 'Match system');
+            return (
+              <button key={v} className={theme === v ? 'on' : ''} onClick={() => setTheme(v)}
+                      title={name} aria-label={name} aria-pressed={theme === v}>
+                <Icon name={v === 'light' ? 'sun' : v === 'dark' ? 'moon' : 'auto'} size={14} />
+              </button>
+            );
+          })}
+        </div>
+        <button className="ghost icon" onClick={() => void toggleFullscreen().then(setFull)}
+                title={t(full ? 'Leave full screen' : 'Full screen')}
+                aria-label={t(full ? 'Leave full screen' : 'Full screen')} aria-pressed={full}>
+          <Icon name={full ? 'restore' : 'maximise'} />
+        </button>
+        <button className="ghost" onClick={() => setShowSettings((s) => !s)}>{t('Settings')}</button>
+      </header>
+
+      {/* Settings, as a modal over a dimmed window rather than a block that
+          unrolled under the header and pushed the whole app down. The controls
+          are the same ones and no longer a flat list; `settings.ts` is the
+          catalogue and `SettingsPanel.tsx` draws it. */}
+      {/* The one dialog the app draws for itself.  and
+           do nothing in this webview — wry implements none of
+          WKWebView's JavaScript panels — so thirteen actions silently did
+          nothing, or silently answered no. */}
+      <AskHost t={t} />
+
+      {signInOpen && (
+        <div className="pal-back" onMouseDown={() => setSignInOpen(false)}>
+          <div className="pal signin-modal" onMouseDown={(e) => e.stopPropagation()}
+               role="dialog" aria-modal="true" aria-label={t('Sign in')}
+               onKeyDown={(e) => { if (e.key === 'Escape') setSignInOpen(false); }}>
+            <SignIn baseUrl={baseUrl} t={t}
+                    onSignedIn={(tok, key) => {
+                      // Same rule as the welcome screen: neither empty half may
+                      // overwrite something live.
+                      const next = adopted({ apiKey, token }, { apiKey: key, token: tok });
+                      setToken(next.token);
+                      setApiKey(next.apiKey);
+                      setSignInOpen(false);
+                    }} />
+          </div>
+        </div>
+      )}
+
+      {railMenu && (
+        <ContextMenu
+          at={railMenu.at}
+          items={[
+            { kind: 'action', id: 'dock',
+              label: dockOf(modules, railMenu.id) === 'other' ? 'Show beside the rail' : 'Show on the other side' },
+            { kind: 'divider' },
+            { kind: 'action', id: 'off', label: 'Turn off', disabled: enabledModules(modules).length <= 1 },
+          ]}
+          t={t}
+          label={`${t('Actions')} — ${t(labelOf(railMenu.id))}`}
+          onPick={(id) => {
+            if (id === 'dock') {
+              const to = dockOf(modules, railMenu.id) === 'other' ? 'rail' : 'other';
+              setModules((m) => dockModule(m, railMenu.id, to));
+              // Open it where it went, so the move is visible at once.
+              if (to === 'other') { setRightRail(railMenu.id); setRightOpen(true); }
+              else { setRail(railMenu.id); setRailOpen(true); }
+            } else if (id === 'off') {
+              setModules((m) => toggleModule(m, railMenu.id));
+            }
+          }}
+          onClose={() => setRailMenu(null)}
+        />
+      )}
+
+      {tabMenu && (
+        <ContextMenu
+          at={tabMenu.at}
+          items={tabItems(tabMenu.path)}
+          t={t}
+          label={`${t('Actions')} — ${nameOf(tabMenu.path)}`}
+          onPick={(id) => void onTabMenu(tabMenu.path, id)}
+          onClose={() => setTabMenu(null)}
+        />
+      )}
+
+      {showSettings && (
+        <SettingsPanel
+          t={t}
+          initial={settingsAt ?? undefined}
+          onClose={() => { setShowSettings(false); setSettingsAt(null); }}
+          providers={providers}
+          onProviders={(next) => {
+            setProviders(next);
+            // The choice is repaired the moment its provider goes, not at the
+            // next restart — otherwise the composer keeps showing a model
+            // whose key was just deleted, and a freed id given to the next
+            // provider added would silently rebind the stale choice to it.
+            setChoice((c) => (c.provider === BUILT_IN || next.some((x) => x.id === c.provider)
+              ? c : { provider: BUILT_IN, model }));
+          }}
+          auto={auto}
+          onAuto={setAuto}
+          modules={modules}
+          onModules={setModules}
+          baseUrl={baseUrl}
+          onBaseUrl={setBaseUrl}
+          apiKey={apiKey}
+          onApiKey={setApiKey}
+          token={token}
+          signedInAs={signedInAs}
+          onSignIn={() => { setShowSettings(false); setSignInOpen(true); }}
+          plan={planChip}
+          onSignOut={() => {
+            // Signing out clears the session and *not* the API key: the key is
+            // a separate credential that goes on working, it was minted for
+            // this machine, and throwing it away because somebody pressed a
+            // button labelled Sign out would take the app offline for a reason
+            // nobody asked for. Revoking a key is a decision for the keys page.
+            const dead = token;
+            const next = signedOut({ apiKey, token });
+            setToken(next.token);
+            setApiKey(next.apiKey);
+            void signOut(localStorage, baseUrl, dead);
+          }}
+          theme={theme}
+          onTheme={setTheme}
+          lang={lang}
+          onLang={setLang}
+          autocomplete={autocomplete}
+          onAutocomplete={setAutocomplete}
+          notify={notifyPrefs}
+          onNotify={setNotifyTo}
+          summon={summon}
+          summonErr={summonErr}
+          recording={recording}
+          onRecording={(on) => { if (on) setSummonErr(''); setRecording(on); }}
+          onSummonKey={recordSummon}
+          onClearSummon={() => void setSummonTo(null)}
+          root={root}
+          mcpServers={mcpServers}
+          mcpTools={mcpTools}
+          mcpError={mcpError}
+          onToggleServer={(s) => void toggleServer(s)}
+          clips={clips}
+          onEmptied={(id) => {
+            // The window is still standing on these stores, and that is the
+            // half of the Storage tab that would fail silently: Redo would
+            // offer to put back contents that are gone, and the recovery
+            // banner would offer drafts that no longer exist. Emptying the
+            // clipboard history *is* this call rather than something that
+            // follows one -- it is localStorage, not a directory Rust can see.
+            if (id === 'clipboardHistory') { clearClips(localClips); setClips([]); }
+            if (id === 'drafts') setDrafts([]);
+            if (id === 'checkpoints') setRedoable(null);
+          }}
+          update={update}
+          updating={updating}
+          onCheckUpdates={() => checkForUpdate().then(setUpdate)}
+          onInstall={() => {
+            if (!update) return;
+            setUpdating(0);
+            update.install((pct) => setUpdating(pct)).catch((e) => {
+              setUpdating(null);
+              push({ kind: 'error', text: explain(e, t('install the update')) });
+            });
+          }}
+        />
+      )}
+
+      {/* `rail-end` moves the rail to the other edge by reordering the flex
+          children. Which order that is depends on the writing direction, and
+          `railFirst` is the one place that knows — see modules.ts. */}
+      <div className={`body ${railFirst(modules.side, dirFor(lang)) ? '' : 'rail-end'}`}>
+        <Rail
+          /* One list, from `modules.ts`. The literal that used to be here was a
+             copy of a list, and the copy drifted — see modules.ts. */
+          items={enabledModules(modules).map((m) => ({
+            id: m.id,
+            icon: m.icon,
+            label: t(m.label),
+            badge: m.badge === 'changes' ? changes.length + tracked.length
+              : m.badge === 'todo' ? todoLeft : undefined,
+          }))}
+          active={shown}
+          alsoOn={rightOpen ? rightShown : null}
+          collapsed={!railOpen}
+          onSelect={pickRail}
+          onMenu={(id, at) => setRailMenu({ id, at })}
+          settings={() => setShowSettings((v) => !v)}
+          settingsLabel={t('Settings')}
+          label={t('Sections')}
+        />
+
+        {railOpen && leftIds.length > 0 && (
+        <aside className="sidebar" style={{ width: sidebarW }}>
+          {sideFor(shown)}
         </aside>
         )}
 
-        {railOpen && (
+        {railOpen && leftIds.length > 0 && (
           <div className="divider" onMouseDown={() => {
             resizing.current = true;
             document.body.classList.add('resizing');
@@ -3756,6 +3846,21 @@ export function App() {
             </>
           )}
         </div>
+
+        {/* The second sidebar, on the edge opposite the rail. Its divider is
+            on its rail-facing side, so the drag reads the same way the left
+            one does: pull toward the work to widen. */}
+        {rightOpen && rightShown && (
+          <>
+            <div className="divider rdiv" onMouseDown={() => {
+              resizingR.current = true;
+              document.body.classList.add('resizing');
+            }} role="separator" aria-orientation="vertical" />
+            <aside className="sidebar right" style={{ width: rightW }}>
+              {sideFor(rightShown)}
+            </aside>
+          </>
+        )}
       </div>
 
       {drafts.length > 0 && (

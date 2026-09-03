@@ -10,7 +10,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
   MODULES, DEFAULT, KEY, moduleOf, labelOf, read, write, isOn, enabled,
-  toggle, isLast, moveTo, reset, active, setSide, railFirst,
+  toggle, isLast, moveTo, reset, active, setSide, railFirst, dock, dockOf, docked,
 } from '../.test-build/modules.js';
 
 let pass = 0, fail = 0;
@@ -217,6 +217,30 @@ ok('left is the first child in a left-to-right window', railFirst('left', 'ltr')
 ok('and the last child in a right-to-left one', railFirst('left', 'rtl') === false);
 ok('right is the last child in a left-to-right window', railFirst('right', 'ltr') === false);
 ok('and the first child in a right-to-left one', railFirst('right', 'rtl') === true);
+
+// ── the second sidebar ────────────────────────────────────────────────────
+ok('everything starts beside the rail', ids.every((id) => dockOf(read(null), id) === 'rail'));
+{
+  const l = dock(read(null), 'outline', 'other');
+  ok('a module can be sent to the other side', dockOf(l, 'outline') === 'other');
+  ok('and the rest stay', dockOf(l, 'files') === 'rail');
+  ok('the other side lists it, in rail order', docked(l, 'other').map((m) => m.id).join() === 'outline');
+  ok('and the rail side no longer does', !docked(l, 'rail').some((m) => m.id === 'outline'));
+  ok('sending it back works', dockOf(dock(l, 'outline', 'rail'), 'outline') === 'rail');
+  ok('docking where it already is changes nothing', dock(l, 'outline', 'other') === l);
+  ok('an unknown id changes nothing', dock(l, 'ghost', 'other') === l);
+  ok('the dock survives a save and a load', dockOf(read(write(l)), 'outline') === 'other');
+  // A switched-off module is not on either side.
+  ok('a switched-off module is on neither side', (() => {
+    const off = toggle(l, 'outline');
+    return !docked(off, 'other').length;
+  })());
+}
+ok('a stored dock naming a module that no longer exists is dropped',
+   read('{"right":["ghost","outline"]}').right.join() === 'outline');
+ok('reset clears the other side', reset().right.length === 0);
+ok('a saved layout from before this field reads as nothing docked',
+   read('{"order":[],"off":[]}').right.length === 0);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

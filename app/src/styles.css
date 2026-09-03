@@ -1201,6 +1201,20 @@ body.resizing-v .cmp-grip i{ background:var(--brand); }
 .body.rail-end .rail{ order:2; }
 .body.rail-end .sidebar{ order:1; }
 .body.rail-end .divider{ order:1; }
+/* The second sidebar sits on the edge OPPOSITE the rail. With the rail moved
+   to the right, that is the far left — so it and its divider go first. */
+.body.rail-end .sidebar.right, .body.rail-end .rdiv{ order:-1; }
+
+/* ── The second sidebar ───────────────────────────────────────────────────
+   Same box as the first, mirrored: its border faces the work, and its divider
+   sits on that same side so the drag reads the same way — pull toward the
+   work to widen. */
+.sidebar.right{ border-inline-end:0; border-inline-start:1px solid var(--rule); }
+.body.rail-end .sidebar.right{ border-inline-start:0; border-inline-end:1px solid var(--rule); }
+/* A module showing in the other sidebar is lit too — two panels are on screen
+   and both icons should say so — but a shade quieter, so the rail still has
+   one obvious answer to "which panel is beside me". */
+.rail-btn.alt{ opacity:.8; }
 /* The border has to move with it, or the rail sits against the window edge
    with a line down its inner side pointing nowhere. */
 .body.rail-end .rail{ border-inline-end:0; border-inline-start:1px solid var(--rule); }
@@ -2679,6 +2693,13 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 
 /* A switch, not a button that says On or Off — the label of a toggle that
    reads as its current state is ambiguous about whether it describes or acts. */
+.mod-dock{
+  flex:none; display:grid; place-items:center; inline-size:26px; block-size:26px;
+  border:1px solid var(--rule); border-radius:var(--r-1); background:transparent;
+  color:var(--mute); cursor:pointer;
+}
+.mod-dock:hover{ color:var(--ink); }
+.mod-dock.on{ color:var(--brand); border-color:var(--brand); }
 .mod-sw{
   flex:none; inline-size:34px; block-size:20px; padding:2px; cursor:pointer;
   border:1px solid var(--rule-2); border-radius:999px; background:var(--panel-3);
