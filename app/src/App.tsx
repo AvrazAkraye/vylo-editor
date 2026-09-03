@@ -3654,7 +3654,14 @@ export function App() {
               throw away unsaved edits and the undo history with them. */}
           {files.length > 0 && !(showTerm && termFull) && (
             <Suspense fallback={<div className="vw-msg">{t('Opening…')}</div>}>
-              <div ref={edRow} className={`ed-stack ${split ? 'split' : ''}`}>
+              {/* Every editor stays mounted whichever tab is active — that is
+                  the invariant — but the *wrapper* claims flex:1, so with the
+                  chat on screen it was an invisible box taking half the column
+                  and the conversation was clipped into the other half. The
+                  wrapper collapses when nothing in it can be visible; its
+                  children stay mounted either way. */}
+              <div ref={edRow} className={`ed-stack ${split ? 'split' : ''}`}
+                   style={{ display: isFile(active) ? 'flex' : 'none' }}>
               {files.map((p) => {
               const at = panes.indexOf(p);
               return (
