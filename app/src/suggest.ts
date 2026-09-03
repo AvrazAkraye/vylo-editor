@@ -156,21 +156,129 @@ export function rank(candidates: readonly string[], frag: string, limit = 8): st
 }
 
 /**
- * The keystrokes that turn the typed fragment into the chosen candidate.
+ * One thing that could finish the line.
  *
- * Backspaces then the whole word, rather than appending the remainder. A
+ * The kind is not decoration: it decides how much of the line a choice
+ * replaces. A program or a path finishes the *word* being typed; a line out of
+ * history replaces the *whole line*, because that is what it is — `claude` can
+ * be finished into `claude --dangerously-skip-permissions` only by replacing
+ * everything typed so far.
+ */
+export interface Suggestion {
+  text: string;
+  kind: 'command' | 'path' | 'history';
+}
+
+/**
+ * The keystrokes that turn what is typed into the chosen suggestion.
+ *
+ * Backspaces then the whole thing, rather than appending the remainder. A
  * case-insensitive match makes the remainder wrong — typing `app` and choosing
  * `App.js` would append `.js` and leave `app.js`, which is a different file, or
  * no file. Deleting what is there and typing the answer cannot be wrong.
  *
+ * How much is deleted is the kind's business: a word for a program or a path,
+ * the entire line for a line out of history.
+ *
  * `\x7f` rather than `\b`, because that is what a terminal sends for backspace
  * and what every shell has its key bindings pointed at.
  */
-export function keystrokes(frag: string, choice: string): string {
-  return '\x7f'.repeat(frag.length) + choice;
+export function keystrokes(state: Typed, choice: Suggestion): string {
+  const eaten = choice.kind === 'history' ? state.line.length : fragment(state.line).length;
+  return '\x7f'.repeat(eaten) + choice.text;
+}
+
+/**
+ * Everything that could finish the line, best first.
+ *
+ * History leads. A line you actually ran is a better guess than a program that
+ * merely exists — you have typed `claude --dangerously-skip-permissions`
+ * before, so `claude` most likely means that again, and the twenty other
+ * binaries on `PATH` beginning with the same letters do not.
+ *
+ * Only the first word gets history, and only against the whole line: offering
+ * a past command while somebody is halfway through typing a *path* would
+ * replace the argument they are writing with a command they ran yesterday.
+ */
+export function suggest(
+  line: string,
+  sources: { history?: readonly string[]; commands?: readonly string[]; paths?: readonly string[] },
+  limit = 8,
+): Suggestion[] {
+  const frag = fragment(line);
+  const typed = line.trimStart();
+  // Nothing typed, nothing to finish. Without this an empty line ranks with an
+  // empty fragment, which matches every binary on PATH — a list of two
+  // thousand programs offered to somebody who has pressed no keys.
+  if (!typed) return [];
+  const out: Suggestion[] = [];
+
+  if (kindOf(line) === 'command' && typed) {
+    // Most recent first, and never the line already typed.
+    const past = [...(sources.history ?? [])].reverse()
+      .filter((h) => h !== typed && h.startsWith(typed));
+    for (const text of past) {
+      if (!out.some((x) => x.text === text)) out.push({ text, kind: 'history' });
+    }
+  }
+
+  const kind = kindOf(line) === 'command' ? 'command' : 'path';
+  const words = kind === 'command' ? (sources.commands ?? []) : (sources.paths ?? []);
+  for (const text of rank(words, frag, limit)) {
+    if (!out.some((x) => x.kind === 'history' && x.text === text)) out.push({ text, kind });
+  }
+  return out.slice(0, limit);
+}
+
+/** What the person has already typed of a suggestion, for the bold prefix. */
+export function typedPart(line: string, choice: Suggestion): number {
+  return choice.kind === 'history' ? line.trimStart().length : fragment(line).length;
 }
 
 /** Whether a list is worth putting on screen at all. */
-export function worth(state: Typed, matches: readonly string[]): boolean {
+export function worth(state: Typed, matches: readonly unknown[]): boolean {
   return state.sure && matches.length > 0 && state.line.trim().length > 0;
+}
+
+/**
+ * Add a line to this terminal's history.
+ *
+ * Kept in memory for the session only. A shell has its own history file and
+ * this is not it — writing to `~/.zsh_history` from here would be an app
+ * editing a file the shell owns and rewrites on exit.
+ *
+ * Most recent last, deduplicated so a command run ten times appears once, and
+ * capped: a suggestion list reads the tail, and an unbounded array in a
+ * terminal somebody leaves open for a week is a leak.
+ */
+export const HISTORY_MAX = 200;
+
+export function remember(history: readonly string[], line: string): string[] {
+  const one = line.trim();
+  if (!one) return [...history];
+  const out = history.filter((h) => h !== one);
+  out.push(one);
+  return out.length > HISTORY_MAX ? out.slice(out.length - HISTORY_MAX) : out;
+}
+
+/**
+ * A path, as it should be typed at a prompt.
+ *
+ * Single quotes, because inside them a shell expands nothing at all — no `$`,
+ * no backtick, no `*`, no `~`. A dropped file is a name from the filesystem
+ * and somebody else chose it: a folder called `$(whoami)` is a perfectly legal
+ * folder, and pasting it unquoted at a prompt is a command waiting for an
+ * Enter that the person will assume is theirs.
+ *
+ * The one character a single-quoted string cannot contain is a single quote,
+ * so each one closes the string, escapes a literal quote, and opens it again —
+ * the standard `'\''` dance.
+ *
+ * A path with nothing worth quoting is left bare, because a quoted path is
+ * harder to read and to edit afterwards.
+ */
+export function quotePath(path: string): string {
+  if (!path) return "''";
+  if (/^[A-Za-z0-9_@%+=:,.\/-]+$/.test(path)) return path;
+  return `'${path.split("'").join(`'\\''`)}'`;
 }

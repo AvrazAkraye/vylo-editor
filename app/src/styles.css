@@ -1873,6 +1873,11 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 /* The characters already typed, so the eye can see what the rest adds. */
 .sug-row b{ color:var(--brand); font-weight:600; }
 .sug-row.dir span{ color:var(--tag-blue); }
+/* A line you ran before. It replaces the whole line rather than finishing a
+   word, so it does not look like the things that finish a word. */
+.sug-row.history{ border-color:var(--rule); }
+.sug-row.history span{ color:var(--ink-2); }
+.sug-row.history.on{ border-color:var(--brand); }
 .sug-hint{ flex:none; margin-inline-start:auto; font-size:var(--fs-1); color:var(--mute); padding-inline-start:var(--sp-3); }
 
 /* ── Where the shell is ───────────────────────────────────────────────────

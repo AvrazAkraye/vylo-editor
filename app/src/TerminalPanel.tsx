@@ -7,9 +7,11 @@ import * as ask from './ask';
 import { filter, shorten, since, stateOf, titleOf } from './terminals';
 import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
 import { CONTEXT_LINES } from './command';
+import { fragment } from './suggest';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import {
-  NOTHING as NO_INPUT, fragment, keystrokes, kindOf, rank, worth, type Typed,
+  NOTHING as NO_INPUT, keystrokes, kindOf, quotePath, remember, suggest,
+  typedPart, worth, type Suggestion, type Typed,
 } from './suggest';
 import { ContextMenu } from './ContextMenu';
 import type { Item as MenuItem, Point as MenuPoint } from './menu';
@@ -64,6 +66,13 @@ interface Props {
    * is one gate, and it is not in the terminal.
    */
   onAsk?: (question: string, output: string) => Promise<string | null>;
+  /**
+   * Hands out the panel's claim on an OS drop.
+   *
+   * Called with a point and the paths, or with `null` paths to ask whether it
+   * *would* claim that point. Returns true when the drop is the terminal's.
+   */
+  exposeDrop?: (claim: ((at: { x: number; y: number }, paths: string[] | null) => boolean) | null) => void;
   /** The user's home directory, so a path can be written the way a prompt does. */
   home?: string;
   onClose: (drop?: boolean) => void;
@@ -85,7 +94,7 @@ const newTab = (n: number): Tab => ({ id: `t${++seq}`, n, born: Date.now(), dead
 
 export function TerminalPanel({
   root, dark, t, onSendToChat, onClose, onError, full, onToggleFull, expose, exposeRun,
-  onSessions, exposeFocus, onAsk, home = '',
+  onSessions, exposeFocus, onAsk, exposeDrop, home = '',
 }: Props) {
   /** The ask box: open, what is typed in it, whether a request is in flight. */
   const [asking, setAsking] = useState(false);
@@ -110,7 +119,15 @@ export function TerminalPanel({
    * in is a list about a line that is not moving.
    */
   const [input, setInput] = useState<Typed>(NO_INPUT);
-  const [matches, setMatches] = useState<string[]>([]);
+  const [matches, setMatches] = useState<Suggestion[]>([]);
+  /**
+   * Commands run in this terminal, oldest first.
+   *
+   * Session-only and in memory. A shell has its own history file and this is
+   * not it — writing to `~/.zsh_history` from here would be an app editing a
+   * file the shell owns and rewrites on exit.
+   */
+  const [history, setHistory] = useState<string[]>([]);
   const [pickAt, setPickAt] = useState(0);
   /** Every program on PATH. Read once — PATH does not change while we run. */
   const programs = useRef<string[] | null>(null);
@@ -118,6 +135,8 @@ export function TerminalPanel({
   const [weights, setWeights] = useState<Weights>({});
   /** The row being dragged in, measured once when the drag starts. */
   const row = useRef<HTMLDivElement>(null);
+  /** Each drawn pane's element, so a drop can be matched to the one under it. */
+  const boxes = useRef(new Map<string, HTMLElement>());
 
   /** Ask one pane where its shell is now. */
   const locate = useCallback((id: string) => {
@@ -287,6 +306,30 @@ export function TerminalPanel({
     el.addEventListener('pointercancel', done);
   }
 
+  /**
+   * Whether a drop at this point belongs to a terminal pane, and taking it.
+   *
+   * Registered once through a ref on the App side, so this reads the panes'
+   * boxes at drop time rather than closing over the ones that existed when the
+   * listener was set up.
+   */
+  const claimDrop = useCallback((at: { x: number; y: number }, paths: string[] | null) => {
+    for (const [id, el] of boxes.current) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      if (at.x < r.left || at.x > r.right || at.y < r.top || at.y > r.bottom) continue;
+      // `null` paths is the overlay asking whether this point is ours.
+      if (paths) dropPaths(id, paths);
+      return true;
+    }
+    return false;
+  }, []);
+
+  useEffect(() => {
+    exposeDrop?.(claimDrop);
+    return () => exposeDrop?.(null);
+  }, [exposeDrop, claimDrop]);
+
   function split() {
     const other = tabs.find((x) => !onScreen.includes(x.id));
     if (!other) return add(true);
@@ -385,10 +428,13 @@ export function TerminalPanel({
     if (!input.sure || !input.line.trim()) { setMatches([]); return; }
     let off = false;
     const id = window.setTimeout(() => {
-      const frag = fragment(input.line);
-      const done = (all: string[]) => {
+      const done = (words: string[]) => {
         if (off) return;
-        setMatches(rank(all, frag));
+        setMatches(suggest(input.line, {
+          history,
+          commands: kindOf(input.line) === 'command' ? words : [],
+          paths: kindOf(input.line) === 'command' ? [] : words,
+        }));
         setPickAt(0);
       };
       if (kindOf(input.line) === 'command') {
@@ -397,13 +443,13 @@ export function TerminalPanel({
           .then((list: string[]) => { programs.current = list; done(list); })
           .catch(() => done([]));
       } else {
-        void invoke<string[]>('complete_path', { cwd: cwds[focus] || root, fragment: frag })
+        void invoke<string[]>('complete_path', { cwd: cwds[focus] || root, fragment: fragment(input.line) })
           .then(done)
           .catch(() => done([]));
       }
     }, 90);
     return () => { off = true; window.clearTimeout(id); };
-  }, [input, focus, root, cwds]);
+  }, [input, focus, root, cwds, history]);
 
   /**
    * Take the chosen completion.
@@ -414,11 +460,25 @@ export function TerminalPanel({
    * line still has to be sent by hand — this fills in a word, it does not run
    * anything.
    */
-  function take(choice: string) {
+  function take(choice: Suggestion) {
     const h = handles.current.get(focus);
     if (!h) return;
-    h.type(keystrokes(fragment(input.line), choice));
+    h.type(keystrokes(input, choice));
     setMatches([]);
+  }
+
+  /**
+   * Files dropped on a pane become their paths at the prompt, quoted.
+   *
+   * What every terminal does with a drop, and what the window would otherwise
+   * do instead — attach them to the chat, which is right everywhere except
+   * over a shell.
+   */
+  function dropPaths(id: string, paths: string[]) {
+    const h = handles.current.get(id);
+    if (!h || !paths.length) return;
+    setActive(id);
+    h.type(`${paths.map(quotePath).join(' ')} `);
   }
 
   // Assigned here rather than beside the ref because it carries `focus`, which
@@ -640,6 +700,11 @@ export function TerminalPanel({
                  title={t('Drag to resize, double-click to even them out')} />
 
             <div className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''}`}
+                 ref={(el) => {
+                   // Only drawn panes are droppable; a hidden one has no box.
+                   if (el && on) boxes.current.set(tab.id, el);
+                   else boxes.current.delete(tab.id);
+                 }}
                  style={{ display: on ? 'flex' : 'none', flexGrow: width * onScreen.length }}
                  onMouseDown={() => setActive(tab.id)}>
               {/* Side by side, two panes are two anonymous dark rectangles
@@ -659,6 +724,12 @@ export function TerminalPanel({
               <TerminalView
                 onMoved={() => locate(tab.id)}
                 onTyped={(st) => { if (tab.id === focus) setInput(st); }}
+                // A line goes into history when it is sent, and only from the
+                // tracker — which means only lines this app is sure it saw
+                // whole. A recalled or tab-completed line is not remembered
+                // twice-wrong; it is not remembered at all.
+                onSent={(line) => setHistory((h) => remember(h, line))}
+                onDropPaths={(paths) => dropPaths(tab.id, paths)}
                 onKey={(e) => {
                   // Only while a list is showing, and only for this pane.
                   if (tab.id !== focus || !worth(input, matches)) return false;
@@ -690,13 +761,19 @@ export function TerminalPanel({
               {tab.id === focus && worth(input, matches) && (
                 <div className="sug" role="listbox" aria-label={t('Completions')}>
                   {matches.map((m, n) => (
-                    <button key={m} role="option" aria-selected={n === pickAt}
-                            className={`sug-row ${n === pickAt ? 'on' : ''} ${m.endsWith('/') ? 'dir' : ''}`}
+                    <button key={`${m.kind}:${m.text}`} role="option" aria-selected={n === pickAt}
+                            className={`sug-row ${n === pickAt ? 'on' : ''} ${m.kind} ${m.text.endsWith('/') ? 'dir' : ''}`}
                             onMouseEnter={() => setPickAt(n)}
                             onClick={() => take(m)}>
-                      <Icon name={kindOf(input.line) === 'command' ? 'terminal'
-                        : m.endsWith('/') ? 'folder' : 'file'} size={11} />
-                      <span><b>{m.slice(0, fragment(input.line).length)}</b>{m.slice(fragment(input.line).length)}</span>
+                      {/* A clock for a line you ran before, so the one thing
+                          that replaces the whole line looks different from the
+                          ones that finish a word. */}
+                      <Icon name={m.kind === 'history' ? 'clock' : m.kind === 'command' ? 'terminal'
+                        : m.text.endsWith('/') ? 'folder' : 'file'} size={11} />
+                      <span>
+                        <b>{m.text.slice(0, typedPart(input.line, m))}</b>
+                        {m.text.slice(typedPart(input.line, m))}
+                      </span>
                     </button>
                   ))}
                   <span className="sug-hint">{t('Tab to take it')}</span>

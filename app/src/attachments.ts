@@ -184,8 +184,31 @@ export interface DropHandlers {
   /** A folder was dropped — open it as the workspace. */
   onFolder: (path: string) => void;
   onAttach: (items: Attached[]) => void;
-  onHover: (active: boolean) => void;
+  /** True while something is over the window, with where it is. */
+  onHover: (active: boolean, at?: { x: number; y: number }) => void;
   onError: (message: string) => void;
+  /**
+   * First refusal on a drop, by where it landed.
+   *
+   * Returns true when something else took it. The terminal uses this: a drop
+   * over a shell is its paths at the prompt, which is what every terminal
+   * does, and attaching them to the chat instead would be right everywhere
+   * else and wrong there.
+   */
+  claim?: (at: { x: number; y: number }, paths: string[]) => boolean;
+}
+
+/**
+ * Where a drop landed, in the coordinates the DOM uses.
+ *
+ * Tauri reports physical device pixels; `getBoundingClientRect` is in CSS
+ * pixels. On a Retina display those differ by two, so comparing them directly
+ * puts every drop at roughly twice its real distance from the top-left — which
+ * lands outside the window entirely on the bottom half of the screen.
+ */
+export function toClientPoint(p: { x: number; y: number }): { x: number; y: number } {
+  const ratio = window.devicePixelRatio || 1;
+  return { x: p.x / ratio, y: p.y / ratio };
 }
 
 /**
@@ -200,13 +223,17 @@ export async function listenForDrops(h: DropHandlers): Promise<() => void> {
   const webview = getCurrentWebview();
   return webview.onDragDropEvent(async (event) => {
     const p = event.payload;
-    if (p.type === 'over') { h.onHover(true); return; }
+    if (p.type === 'over') { h.onHover(true, toClientPoint(p.position)); return; }
     if (p.type === 'leave') { h.onHover(false); return; }
     if (p.type !== 'drop') return;
 
     h.onHover(false);
     const paths = p.paths || [];
     if (!paths.length) return;
+
+    // Before anything else looks at them: a drop belongs to whatever is under
+    // the pointer, if anything wants it.
+    if (h.claim?.(toClientPoint(p.position), paths)) return;
 
     // A dropped folder is a workspace, and that wins: dropping a project on the
     // window should open it, not try to attach it.

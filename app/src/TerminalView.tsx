@@ -50,6 +50,10 @@ interface Props {
   onMoved?: () => void;
   /** What is believed to be on the input line, as it is typed. */
   onTyped?: (state: Typed) => void;
+  /** A line was sent. Only fires for one this app saw whole — see suggest.ts. */
+  onSent?: (line: string) => void;
+  /** Files were dropped on this pane. */
+  onDropPaths?: (paths: string[]) => void;
   /**
    * A key the suggestion list wants instead of the shell.
    *
@@ -92,7 +96,7 @@ function palette(dark: boolean) {
       };
 }
 
-export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onKey }: Props) {
+export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
@@ -105,8 +109,8 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
    * the terminal is built once — reading them at call time is what keeps the
    * effect from tearing down a live shell to pick up a new closure.
    */
-  const keys = useRef({ onTyped, onKey });
-  keys.current = { onTyped, onKey };
+  const keys = useRef({ onTyped, onSent, onKey, onDropPaths });
+  keys.current = { onTyped, onSent, onKey, onDropPaths };
   // Props the long-lived pty callbacks need to read at call time rather than
   // capture at mount time.
   const cb = useRef({ onExit, onError, onData });
@@ -191,6 +195,11 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       // Every keystroke passes through here on its way to the pty, which is why
       // the input line is counted rather than read off the screen — see
       // suggest.ts.
+      // Read the line *before* folding: Enter clears it, and what was on it is
+      // exactly what was just sent.
+      if (d.includes('\r') && line.current.sure && line.current.line.trim()) {
+        keys.current.onSent?.(line.current.line);
+      }
       line.current = fold(line.current, d);
       keys.current.onTyped?.(line.current);
       // A directory changes when a command finishes, and a command finishes

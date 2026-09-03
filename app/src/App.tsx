@@ -375,6 +375,15 @@ export function App() {
   const raised = useRef<Partial<Record<Moment['kind'], number>>>({});
   const [shots, setShots] = useState<Attached[]>([]);
   const [dragging, setDragging] = useState(false);
+  /**
+   * The terminal's claim on a drop.
+   *
+   * Called with the point and the paths; called with `null` paths to ask
+   * whether it *would* claim one, which is how the window's overlay knows to
+   * stay quiet. A ref because the drop listener is registered once and this
+   * changes with every render.
+   */
+  const termDrop = useRef<((at: { x: number; y: number }, paths: string[] | null) => boolean) | null>(null);
   const [changes, setChanges] = useState<Change[]>([]);
   const [git, setGit] = useState<{ is_repo: boolean; branch: string; dirty: number } | null>(null);
   /** `+412 −87`, or null when this is not a repo and there is nothing to say. */
@@ -1566,7 +1575,11 @@ export function App() {
     void listenForDrops({
       onFolder: (path) => { openFolder(path); },
       onAttach: (items) => setShots((p) => [...p, ...items]),
-      onHover: setDragging,
+      // The window's "drop to attach" overlay stays out of the way of anything
+      // that will claim the drop for itself — offering to attach a file over a
+      // terminal that is about to type its path is two answers to one gesture.
+      onHover: (on, at) => setDragging(on && !(at && termDrop.current?.(at, null))),
+      claim: (at, paths) => !!termDrop.current?.(at, paths),
       onError: (m) => push({ kind: 'error', text: m }),
     }).then((un) => { stop = un; });
     return () => stop?.();
@@ -3827,6 +3840,7 @@ export function App() {
                   expose={(getText) => { termText.current = getText; }}
                   exposeRun={(run: ((c: string) => Promise<CommandResult>) | null) => { termRun.current = run; }}
                   onAsk={askForCommand}
+                  exposeDrop={(f) => { termDrop.current = f; }}
                   home={home}
                   onSessions={setSessions}
                   exposeFocus={(f) => { focusSession.current = f; }}

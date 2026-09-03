@@ -6,7 +6,8 @@
 // list, because it is one somebody presses Tab on — so most of this file is
 // about when it gives up.
 import {
-  NOTHING, fragment, keystrokes, kindOf, rank, typed, worth,
+  HISTORY_MAX, NOTHING, fragment, keystrokes, kindOf, rank, remember,
+  quotePath, suggest, typed, typedPart, worth,
 } from '../.test-build/suggest.js';
 
 let pass = 0, fail = 0;
@@ -110,17 +111,113 @@ ok('empty candidates are skipped', rank(['', 'ab'], 'a').join() === 'ab');
 // ── what gets sent ────────────────────────────────────────────────────────
 // Appending the remainder is wrong the moment the match was case-insensitive:
 // typing `app` and choosing `App.js` would leave `app.js`, a different file.
+const word = (text) => ({ text, kind: 'path' });
 ok('the fragment is deleted and the whole word typed',
-   keystrokes('app', 'App.js') === '\x7f\x7f\x7fApp.js');
-ok('an empty fragment types the word alone', keystrokes('', 'README') === 'README');
+   keystrokes({ line: 'cat app', sure: true }, word('App.js')) === '\x7f\x7f\x7fApp.js');
+ok('an empty fragment types the word alone',
+   keystrokes({ line: 'cat ', sure: true }, word('README')) === 'README');
 ok('and the backspace is the one a terminal sends',
-   keystrokes('a', 'b').startsWith('\x7f'));
+   keystrokes({ line: 'a', sure: true }, word('b')).startsWith('\x7f'));
+// A line out of history replaces the WHOLE line — that is what finishing
+// `claude` into `claude --dangerously-skip-permissions` means.
+ok('a history line deletes everything typed, not just the last word', (() => {
+  const k = keystrokes({ line: 'git com', sure: true }, { text: 'git commit -m "x"', kind: 'history' });
+  return k === '\x7f'.repeat(7) + 'git commit -m "x"';
+})(), keystrokes({ line: 'git com', sure: true }, { text: 'git commit -m "x"', kind: 'history' }));
 
 // ── whether to show anything ──────────────────────────────────────────────
 ok('nothing to show when unsure', worth({ line: 'l', sure: false }, ['ls']) === false);
 ok('nor with no matches', worth({ line: 'l', sure: true }, []) === false);
 ok('nor on an empty line', worth({ line: '   ', sure: true }, ['ls']) === false);
 ok('but yes with a line and matches', worth({ line: 'l', sure: true }, ['ls']) === true);
+
+// ── history ──────────────────────────────────────────────────────────────
+ok('a line is remembered', remember([], 'npm test').join() === 'npm test');
+ok('most recent last', remember(['a'], 'b').join() === 'a,b');
+// A command run ten times should appear once, and as the most recent.
+ok('running it again moves it to the front rather than repeating it',
+   remember(['a', 'b'], 'a').join() === 'b,a');
+ok('blank lines are not history', remember(['a'], '   ').join() === 'a');
+ok('surrounding space is trimmed', remember([], '  ls -la  ').join() === 'ls -la');
+ok('remembering does not mutate', (() => {
+  const h = ['a'];
+  remember(h, 'b');
+  return h.length === 1;
+})());
+// An unbounded array in a terminal left open for a week is a leak.
+ok('history is capped, keeping the newest', (() => {
+  let h = [];
+  for (let i = 0; i < HISTORY_MAX + 40; i++) h = remember(h, `cmd${i}`);
+  return h.length === HISTORY_MAX && h[h.length - 1] === `cmd${HISTORY_MAX + 39}`;
+})());
+
+// ── what gets offered ────────────────────────────────────────────────────
+{
+  const history = ['npm test', 'claude --dangerously-skip-permissions', 'git status'];
+  const commands = ['claude', 'clang', 'clear'];
+
+  // The reported case: having run it once, typing `claude` offers it back.
+  const s1 = suggest('claude', { history, commands });
+  ok('a past line leads the list',
+     s1[0].kind === 'history' && s1[0].text === 'claude --dangerously-skip-permissions', s1);
+  ok('and programs on PATH follow it', (() => {
+    const s2 = suggest('cl', { history, commands });
+    return s2[0].kind === 'history' && s2.some((x) => x.kind === 'command' && x.text === 'clang');
+  })(), suggest('cl', { history, commands }));
+  ok('a partial first word finds it too',
+     suggest('cla', { history, commands })[0].text === 'claude --dangerously-skip-permissions');
+  ok('the line already typed is not offered back',
+     !suggest('npm test', { history, commands }).some((x) => x.text === 'npm test'));
+  ok('most recent history first', (() => {
+    const h = ['git a', 'git b'];
+    return suggest('git', { history: h }).map((x) => x.text).join() === 'git b,git a';
+  })());
+}
+// Offering a past command while somebody types a path would replace the
+// argument they are writing with a command they ran yesterday.
+ok('history is not offered mid-argument', (() => {
+  const s2 = suggest('cat READ', { history: ['cat README.md'], paths: ['README.md'] });
+  return s2.every((x) => x.kind !== 'history');
+})());
+ok('but paths still are', (() => {
+  const s2 = suggest('cat READ', { history: [], paths: ['README.md'] });
+  return s2[0].kind === 'path' && s2[0].text === 'README.md';
+})());
+// Without the guard an empty line ranks with an empty fragment, which matches
+// every binary on PATH — two thousand programs offered for no keystrokes.
+ok('an empty line offers nothing at all', suggest('', { history: ['ls'], commands: ['ls'] }).length === 0);
+ok('and neither does whitespace', suggest('   ', { commands: ['ls'] }).length === 0);
+ok('the limit is honoured', (() => {
+  const many = Array.from({ length: 40 }, (_, i) => `run${i}`);
+  return suggest('run', { history: many }, 5).length === 5;
+})());
+ok('a source that is missing entirely does not throw', suggest('x', {}).length === 0);
+
+// ── how much of a suggestion is already typed ─────────────────────────────
+ok('a word suggestion bolds the fragment',
+   typedPart('cat app', { text: 'App.js', kind: 'path' }) === 3);
+ok('a history suggestion bolds the whole line',
+   typedPart('  claude', { text: 'claude --x', kind: 'history' }) === 6);
+
+// ── a dropped path, as it should be typed ────────────────────────────────
+// A quoted path is harder to read and to edit, so an ordinary one is bare.
+ok('an ordinary path is left alone', quotePath('/Users/you/app/App.js') === '/Users/you/app/App.js');
+ok('so are the punctuation characters a path really uses',
+   quotePath('/a/b-c_d.e+f@g%h,i:j') === '/a/b-c_d.e+f@g%h,i:j');
+ok('a space is quoted', quotePath('/a/my file.png') === "'/a/my file.png'");
+// A folder called `$(whoami)` is a legal folder, and pasting it unquoted at a
+// prompt is a command waiting for an Enter the person will assume is theirs.
+ok('a substitution is quoted, not executed', quotePath('/a/$(whoami)') === "'/a/$(whoami)'");
+ok('a backtick too', quotePath('/a/`id`') === "'/a/`id`'");
+ok('a semicolon too', quotePath('/a/x;rm -rf y') === "'/a/x;rm -rf y'");
+ok('a glob too', quotePath('/a/*.png') === "'/a/*.png'");
+ok('a tilde too', quotePath('~/secret') === "'~/secret'");
+// The one character a single-quoted string cannot contain.
+ok('a single quote closes, escapes and reopens', (() => {
+  const q = quotePath("/a/it's here.png");
+  return q === `'/a/it'\\''s here.png'`;
+})(), quotePath("/a/it's here.png"));
+ok('an empty path is an empty argument, not nothing', quotePath('') === "''");
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
