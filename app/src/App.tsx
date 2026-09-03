@@ -515,14 +515,63 @@ export function App() {
    * were is this map.
    */
   const restoredLines = useRef(new Map<string, number>());
+  /**
+   * The message box's height, once somebody has set it by hand.
+   *
+   * `null` means what it always did: grow with the text up to a cap. A number
+   * means the person dragged the grip, and a box you placed must stay where
+   * you put it — auto-grow overriding a deliberate drag is the box moving
+   * under your hands. Double-clicking the grip goes back to growing.
+   */
+  const [cmpH, setCmpH] = useState<number | null>(() => {
+    const v = Number(localStorage.getItem('vylo.cmph'));
+    return Number.isFinite(v) && v >= 80 ? v : null;
+  });
+  useEffect(() => {
+    try {
+      if (cmpH === null) localStorage.removeItem('vylo.cmph');
+      else localStorage.setItem('vylo.cmph', String(cmpH));
+    } catch { /* private mode */ }
+  }, [cmpH]);
+
   // The box grows with the text up to a point, then scrolls. A fixed three
   // rows meant anything longer than a sentence was written through a slot.
   useEffect(() => {
     const el = composer.current;
     if (!el) return;
+    if (cmpH !== null) {
+      // Placed by hand: it stays put and the text scrolls inside it.
+      el.style.height = `${cmpH}px`;
+      return;
+    }
     el.style.height = 'auto';
     el.style.height = `${Math.min(el.scrollHeight, 260)}px`;
-  }, [prompt]);
+  }, [prompt, cmpH]);
+
+  /** Drag the grip on the card's top edge. Up is taller — the box grows upward. */
+  function dragComposer(e: React.PointerEvent) {
+    const el = composer.current;
+    if (!el) return;
+    const grip = e.currentTarget as HTMLElement;
+    grip.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startH = el.getBoundingClientRect().height;
+    document.body.classList.add('resizing-v');
+    const move = (ev: PointerEvent) => {
+      const h = Math.round(startH + (startY - ev.clientY));
+      setCmpH(Math.min(Math.max(h, 80), Math.round(window.innerHeight * 0.6)));
+    };
+    const done = () => {
+      grip.releasePointerCapture?.(e.pointerId);
+      document.body.classList.remove('resizing-v');
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', done);
+      grip.removeEventListener('pointercancel', done);
+    };
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', done);
+    grip.addEventListener('pointercancel', done);
+  }
 
   const [autocomplete, setAutocomplete] = useState(() => localStorage.getItem('vylo.autocomplete') !== '0');
   const [acStatus, setAcStatus] = useState<CompleteStatus>('idle');
@@ -3928,6 +3977,21 @@ export function App() {
       {root && (
       <div className="composer">
         <div className="cmp-card">
+          {/* Up is taller. Double-click hands the height back to the text. */}
+          <div className="cmp-grip" role="separator" aria-orientation="horizontal" tabIndex={0}
+               title={t('Drag to resize — double-click to grow with the text again')}
+               aria-label={t('Resize the message box')}
+               onPointerDown={dragComposer}
+               onDoubleClick={() => setCmpH(null)}
+               onKeyDown={(e) => {
+                 const by = e.key === 'ArrowUp' ? 16 : e.key === 'ArrowDown' ? -16 : 0;
+                 if (!by) return;
+                 e.preventDefault();
+                 setCmpH((h) => Math.min(Math.max((h ?? composer.current?.getBoundingClientRect().height ?? 80) + by, 80),
+                   Math.round(window.innerHeight * 0.6)));
+               }}>
+            <i aria-hidden="true" />
+          </div>
           {/* What is waiting, in the order it will be sent. Inside the card
               rather than in the transcript: none of it has been said to the
               agent yet, and drawing it in the conversation would show the agent
