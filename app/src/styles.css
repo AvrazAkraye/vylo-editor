@@ -755,7 +755,15 @@ body.resizing-v .cmp-grip i{ background:var(--brand); }
    `window.prompt` and `window.confirm` do nothing in this webview, so this is
    what asks. Narrower than the palettes: a question and two buttons, not a
    list. */
-.askbox{ max-width:420px; padding:var(--sp-7); gap:var(--sp-5); display:flex; flex-direction:column; }
+.askbox{
+  max-width:420px; padding:var(--sp-7); gap:var(--sp-5); display:flex; flex-direction:column;
+  /* Hug the content. The backdrop is a flex row and a row's default is to
+     STRETCH its children vertically, so a four-line confirm arrived as a box
+     the height of the window with the question huddled at the top. The
+     palette borrows the same backdrop and keeps stretching on purpose — its
+     list wants the room; a question does not. */
+  align-self:flex-start;
+}
 .ask-title{ margin:0; font-size:var(--fs-5); font-weight:600; line-height:1.35; text-wrap:balance; }
 /* `pre-wrap`, because a body is a path, a command or a list of files, and the
    newlines in it are the list. */
