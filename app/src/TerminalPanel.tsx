@@ -159,6 +159,48 @@ export function TerminalPanel({
   /** Every program on PATH. Read once — PATH does not change while we run. */
   const programs = useRef<string[] | null>(null);
 
+  /**
+   * The session rail: whether it shows, and how wide it is.
+   *
+   * Both remembered. The rail is furniture, and furniture that resets on
+   * every launch is furniture somebody arranges every morning.
+   */
+  const [railHidden, setRailHidden] = useState(() => localStorage.getItem('vylo.tslhide') === '1');
+  const [railW, setRailW] = useState(() => {
+    const v = Number(localStorage.getItem('vylo.tslw'));
+    return Number.isFinite(v) && v >= 160 ? Math.min(v, 420) : 236;
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem('vylo.tslhide', railHidden ? '1' : '0');
+      localStorage.setItem('vylo.tslw', String(railW));
+    } catch { /* private mode */ }
+  }, [railHidden, railW]);
+
+  /** Drag the line between the rail and the panes. */
+  function dragRail(e: React.PointerEvent) {
+    const el = e.currentTarget as HTMLElement;
+    el.setPointerCapture(e.pointerId);
+    const startX = e.clientX;
+    const startW = railW;
+    const sign = getComputedStyle(el).direction === 'rtl' ? -1 : 1;
+    document.body.classList.add('resizing');
+    const move = (ev: PointerEvent) => {
+      const w = Math.round(startW + (ev.clientX - startX) * sign);
+      setRailW(Math.min(Math.max(w, 160), 420));
+    };
+    const done = () => {
+      el.releasePointerCapture?.(e.pointerId);
+      document.body.classList.remove('resizing');
+      el.removeEventListener('pointermove', move);
+      el.removeEventListener('pointerup', done);
+      el.removeEventListener('pointercancel', done);
+    };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', done);
+    el.addEventListener('pointercancel', done);
+  }
+
   const [weights, setWeights] = useState<Weights>({});
   /** The row being dragged in, measured once when the drag starts. */
   const row = useRef<HTMLDivElement>(null);
@@ -634,6 +676,12 @@ export function TerminalPanel({
           <button className="ghost" onClick={() => handles.current.get(focus)?.clear()} disabled={dead}>
             {t('Clear')}
           </button>
+          <button className="ghost icon" onClick={() => setRailHidden((v) => !v)}
+                  aria-pressed={!railHidden}
+                  title={t(railHidden ? 'Show the sessions' : 'Hide the sessions')}
+                  aria-label={t(railHidden ? 'Show the sessions' : 'Hide the sessions')}>
+            <Icon name="list" size={14} />
+          </button>
           {onAsk && (
             <button className={`ghost tsk-open ${asking ? 'on' : ''}`}
                     onClick={() => { setAsking((v) => !v); setNote(''); }}
@@ -714,7 +762,8 @@ export function TerminalPanel({
       })()}
 
       <div className="panel-split">
-        <div className="tsl" role="navigation" aria-label={t('Terminal sessions')}>
+        <div className="tsl" role="navigation" aria-label={t('Terminal sessions')}
+             style={{ inlineSize: railW, display: railHidden ? 'none' : 'flex' }}>
           <div className="tsl-head">
             <span className="tsl-find">
               <Icon name="search" size={13} />
@@ -795,6 +844,7 @@ export function TerminalPanel({
                       click never has to be learnt twice. */}
                   <button className="tsl-pick"
                           onClick={() => { setActive(tab.id); setShown(only(tab.id)); }}
+                          onDoubleClick={() => rename(tab)}
                           aria-current={tab.id === focus ? 'true' : undefined}>
                     <span className={`tsl-mark ${state}`}>
                       <Icon name="terminal" size={14} />
@@ -847,6 +897,23 @@ export function TerminalPanel({
             })}
           </div>
         </div>
+
+      {/* The line between the rail and the panes. Same design as the pane
+          dividers: a 1px line you see, six pixels you hit. Double-click puts
+          the width back. */}
+      {!railHidden && (
+        <div className="tdiv" role="separator" aria-orientation="vertical" tabIndex={0}
+             aria-label={t('Resize the sessions list')}
+             title={t('Drag to resize, double-click to reset')}
+             onPointerDown={dragRail}
+             onDoubleClick={() => setRailW(236)}
+             onKeyDown={(e) => {
+               const by = e.key === 'ArrowRight' ? 12 : e.key === 'ArrowLeft' ? -12 : 0;
+               if (!by) return;
+               e.preventDefault();
+               setRailW((w) => Math.min(Math.max(w + by, 160), 420));
+             }} />
+      )}
 
       <div ref={row} className={`panel-body ${onScreen.length > 1 ? 'split' : ''}`}>
         {tabs.map((tab) => {

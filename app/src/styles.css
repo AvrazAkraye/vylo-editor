@@ -1730,8 +1730,10 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 
 .panel-split{ flex:1; min-height:0; display:flex; }
 .tsl{
-  flex:none; width:236px; min-width:0; display:flex; flex-direction:column;
-  border-inline-end:1px solid var(--rule); background:var(--panel-2);
+  /* Width comes from state — the rail is draggable now — and the line beside
+     it is drawn by the divider, which is also the thing you grab. */
+  flex:none; min-width:0; display:flex; flex-direction:column;
+  background:var(--panel-2);
 }
 .tsl-head{
   flex:none; display:flex; align-items:center; gap:var(--sp-2);
@@ -1774,7 +1776,7 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .tsl-pick{
   flex:1; min-width:0; display:flex; align-items:center; gap:var(--sp-4);
-  padding-block:var(--sp-4); padding-inline:var(--sp-4) var(--sp-2);
+  padding-block:var(--sp-5); padding-inline:var(--sp-4) var(--sp-2);
   font:inherit; text-align:start; border:0; background:transparent;
   color:inherit; cursor:pointer;
 }
