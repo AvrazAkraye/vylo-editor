@@ -100,6 +100,15 @@ export const ALLOW = {
     'tag-violet': 'tags.ts builds `tag-${t}` from TAGS',
     'tag-pink': 'tags.ts builds `tag-${t}` from TAGS',
     'tag-grey': 'tags.ts builds `tag-${t}` from TAGS',
+    // `TerminalPanel.tsx` builds `tsl-${x.kind}` from the subs `rowOf` returns,
+    // whose kinds are the union in `terminals.ts`. Only the three that have a
+    // rule are here — `state` is a kind with no styling of its own, and listing
+    // it was caught by the guard that every excused name must be one the
+    // scanner would otherwise flag. `terminals.test.mjs` pins which kinds a row
+    // emits, so this set cannot drift from that one without a red test.
+    'tsl-branch': 'TerminalPanel.tsx builds `tsl-${kind}` from rowOf() subs',
+    'tsl-cwd': 'TerminalPanel.tsx builds `tsl-${kind}` from rowOf() subs',
+    'tsl-age': 'TerminalPanel.tsx builds `tsl-${kind}` from rowOf() subs',
     // `OutlinePanel.tsx` builds `f-${r.family}` from `familyOf`, which maps
     // every kind the Rust indexer emits onto one of five families. Five
     // families, five rules, and `outline.test.mjs` asserts that an unknown kind

@@ -4,7 +4,10 @@ import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
 import * as ask from './ask';
-import { filter, shorten, since, stateOf, titleOf } from './terminals';
+import {
+  ROW_VIEW_KEY, filter, readView, rowOf, shorten, stateOf, titleOf, writeView,
+  type Facts, type RowView,
+} from './terminals';
 import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
 import { CONTEXT_LINES } from './command';
 import { fragment } from './suggest';
@@ -121,13 +124,21 @@ export function TerminalPanel({
   const [input, setInput] = useState<Typed>(NO_INPUT);
   const [matches, setMatches] = useState<Suggestion[]>([]);
   /**
-   * Commands run in this terminal, oldest first.
+   * Commands run in each terminal, oldest first, by pane id.
+   *
+   * Per pane, not per panel: a command run in one terminal being offered in
+   * another is a suggestion about somewhere you are not.
    *
    * Session-only and in memory. A shell has its own history file and this is
    * not it — writing to `~/.zsh_history` from here would be an app editing a
    * file the shell owns and rewrites on exit.
    */
-  const [history, setHistory] = useState<string[]>([]);
+  const [history, setHistory] = useState<Record<string, string[]>>({});
+  /** The branch of each pane's directory, empty outside a repository. */
+  const [branches, setBranches] = useState<Record<string, string>>({});
+  /** How the rows read. */
+  const [view, setView] = useState<RowView>(() => readView(localStorage.getItem(ROW_VIEW_KEY)));
+  const [tuning, setTuning] = useState(false);
   const [pickAt, setPickAt] = useState(0);
   /** Every program on PATH. Read once — PATH does not change while we run. */
   const programs = useRef<string[] | null>(null);
@@ -139,6 +150,40 @@ export function TerminalPanel({
   const boxes = useRef(new Map<string, HTMLElement>());
 
   /** Ask one pane where its shell is now. */
+  useEffect(() => {
+    try { localStorage.setItem(ROW_VIEW_KEY, writeView(view)); } catch { /* private mode */ }
+  }, [view]);
+
+  /**
+   * The branch each pane is on.
+   *
+   * Asked when a pane's directory changes and at no other time — a shell can
+   * `cd` anywhere, so the branch is a fact about the pane rather than about
+   * the open folder, and it only changes when the directory does. `git_state`
+   * runs `git` in a directory the person's own shell is already sitting in.
+   */
+  useEffect(() => {
+    let off = false;
+    for (const [id, dir] of Object.entries(cwds)) {
+      if (!dir) continue;
+      void invoke<{ is_repo: boolean; branch: string }>('git_state', { root: dir })
+        .then((g) => {
+          if (off) return;
+          const branch = g.is_repo ? g.branch : '';
+          setBranches((p) => (p[id] === branch ? p : { ...p, [id]: branch }));
+        })
+        .catch(() => {});
+    }
+    return () => { off = true; };
+  }, [cwds]);
+
+  /** Everything known about one pane, for its row. */
+  const factsFor = (id: string): Facts => ({
+    cwd: cwds[id],
+    branch: branches[id],
+    last: (history[id] ?? [])[(history[id] ?? []).length - 1],
+  });
+
   const locate = useCallback((id: string) => {
     void handles.current.get(id)?.cwd().then((where) => {
       if (where) setCwds((p) => (p[id] === where ? p : { ...p, [id]: where }));
@@ -431,7 +476,7 @@ export function TerminalPanel({
       const done = (words: string[]) => {
         if (off) return;
         setMatches(suggest(input.line, {
-          history,
+          history: history[focus] ?? [],
           commands: kindOf(input.line) === 'command' ? words : [],
           paths: kindOf(input.line) === 'command' ? [] : words,
         }));
@@ -589,13 +634,56 @@ export function TerminalPanel({
                      placeholder={t('Search sessions…')} aria-label={t('Search sessions…')}
                      spellCheck={false} />
             </span>
+            <button className={`tsl-add ${tuning ? 'on' : ''}`}
+                    onClick={() => setTuning((v) => !v)}
+                    aria-expanded={tuning}
+                    title={t('What the rows show')} aria-label={t('What the rows show')}>
+              <Icon name="swap" size={15} />
+            </button>
             <button className="tsl-add" onClick={() => add()}
                     title={t('New terminal')} aria-label={t('New terminal')}>
               <Icon name="plus" size={15} />
             </button>
           </div>
 
-          <div {...drag.strip} className={`tsl-list ${drag.strip.className}`}>
+          {tuning && (
+            <div className="tsv">
+              <div className="tsv-set">
+                <span className="tsv-label">{t('Title')}</span>
+                <span className="tk-pills">
+                  {([['command', 'Last command'], ['cwd', 'Folder'], ['branch', 'Branch']] as const).map(([k, label]) => (
+                    <button key={k} className={`tk-pill ${view.titleAs === k ? 'on' : ''}`}
+                            aria-pressed={view.titleAs === k}
+                            onClick={() => setView((v) => ({ ...v, titleAs: k }))}>{t(label)}</button>
+                  ))}
+                </span>
+              </div>
+              <div className="tsv-set">
+                <span className="tsv-label">{t('Also show')}</span>
+                <span className="tk-pills">
+                  {([['state', 'State'], ['branch', 'Branch'], ['cwd', 'Folder']] as const).map(([k, label]) => (
+                    <button key={k} className={`tk-pill ${view.meta[k] ? 'on' : ''}`}
+                            aria-pressed={view.meta[k]}
+                            onClick={() => setView((v) => ({ ...v, meta: { ...v.meta, [k]: !v.meta[k] } }))}>
+                      {t(label)}
+                    </button>
+                  ))}
+                </span>
+              </div>
+              <div className="tsv-set">
+                <span className="tsv-label">{t('Density')}</span>
+                <span className="tk-pills">
+                  {([['comfortable', 'Comfortable'], ['compact', 'Compact']] as const).map(([k, label]) => (
+                    <button key={k} className={`tk-pill ${view.density === k ? 'on' : ''}`}
+                            aria-pressed={view.density === k}
+                            onClick={() => setView((v) => ({ ...v, density: k }))}>{t(label)}</button>
+                  ))}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div {...drag.strip} className={`tsl-list ${view.density} ${drag.strip.className}`}>
             {/* Two different states, and saying the second when the first is
                 true tells somebody their search failed when they never made
                 one. `Chats.tsx` already draws this distinction. */}
@@ -606,7 +694,8 @@ export function TerminalPanel({
             )}
             {rows.map((tab, i) => {
               const state = stateOf(tab);
-              const title = titleOf(tab, t('Terminal'));
+              const row = rowOf(tab, factsFor(tab.id), view,
+                { term: t('Terminal'), home, now: clock, t });
               return (
                 <div key={tab.id} className={`tsl-row ${tagClass(tab.tag)} ${drag.itemClass(i)} ${onScreen.includes(tab.id) ? 'on' : ''}`}
                      onContextMenu={(e) => {
@@ -629,14 +718,18 @@ export function TerminalPanel({
                       </i>
                     </span>
                     <span className="tsl-text">
-                      <span className={`tsl-name ${title.mono ? 'mono' : ''}`}
-                            title={title.text}>{title.text}</span>
+                      <span className={`tsl-name ${row.mono ? 'mono' : ''}`}
+                            title={row.title}>{row.title}</span>
+                      {/* The second line says whatever the view asks it to.
+                          Six shells all called "Terminal" tell you nothing;
+                          the last command, the folder or the branch do. */}
                       <span className="tsl-sub">
-                        {state === 'busy' ? t('running')
-                          : state === 'live' ? t('shell')
-                          : state === 'ok' ? t('finished')
-                          : tab.code === null ? t('stopped') : `${t('exit')} ${tab.code}`}
-                        <span className="tsl-age">{since(tab.born, clock, t)}</span>
+                        {row.subs.map((x) => (
+                          <span key={x.kind} className={`tsl-${x.kind}`}>
+                            {x.kind === 'branch' && <Icon name="branch" size={9} />}
+                            {x.text}
+                          </span>
+                        ))}
                       </span>
                     </span>
                   </button>
@@ -658,7 +751,7 @@ export function TerminalPanel({
                             const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                             setRowMenu({ id: tab.id, at: { x: r.left, y: r.bottom + 4 } });
                           }}
-                          title={t('More')} aria-label={`${t('More')} — ${title.text}`}>
+                          title={t('More')} aria-label={`${t('More')} — ${row.title}`}>
                     <Icon name="ellipsis" size={13} />
                   </button>
                 </div>
@@ -728,7 +821,7 @@ export function TerminalPanel({
                 // tracker — which means only lines this app is sure it saw
                 // whole. A recalled or tab-completed line is not remembered
                 // twice-wrong; it is not remembered at all.
-                onSent={(line) => setHistory((h) => remember(h, line))}
+                onSent={(line) => setHistory((h) => ({ ...h, [tab.id]: remember(h[tab.id] ?? [], line) }))}
                 onDropPaths={(paths) => dropPaths(tab.id, paths)}
                 onKey={(e) => {
                   // Only while a list is showing, and only for this pane.

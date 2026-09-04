@@ -1666,6 +1666,38 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    the names truncated, a command pane's identity IS its command, and there
    was nowhere to say whether it was still running. A vertical row has a
    second line and a badge. */
+/* ── What the rows show ───────────────────────────────────────────────────
+   Six shells titled "Terminal 1" through "Terminal 6" tell you nothing you did
+   not already know. What tells them apart is the last command, the folder or
+   the branch — and which of those matters depends on the person, so it is a
+   setting rather than an argument. */
+.tsv{
+  flex:none; display:flex; flex-direction:column; gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-4); margin-inline:var(--sp-3);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+}
+.tsv-set{ display:flex; flex-direction:column; gap:var(--sp-2); }
+.tsv-label{
+  font-size:var(--fs-1); color:var(--mute);
+  text-transform:uppercase; letter-spacing:.06em;
+}
+
+/* The second line, whatever it was asked to say. Each part is its own element
+   so a branch can carry its icon and a folder can be dimmer than a state. */
+.tsl-sub{ display:flex; align-items:center; gap:var(--sp-3); min-inline-size:0; }
+.tsl-sub > span{ display:inline-flex; align-items:center; gap:2px; min-inline-size:0; }
+.tsl-branch{ color:var(--tag-violet); font-family:var(--mono); font-size:var(--fs-1); }
+.tsl-cwd{ font-family:var(--mono); font-size:var(--fs-1); opacity:.75; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* The age is the one part that is always last and never the point. */
+.tsl-age{ margin-inline-start:auto; flex:none; opacity:.7; }
+
+/* Compact drops the row to one line's worth of padding and hides the badge's
+   second line — the same information, for somebody with twelve open. */
+.tsl-list.compact .tsl-pick{ padding-block:var(--sp-2); }
+.tsl-list.compact .tsl-sub{ gap:var(--sp-2); font-size:var(--fs-1); }
+.tsl-list.compact .tsl-mark{ transform:scale(.85); }
+.tsl-add.on{ color:var(--brand); }
+
 /* ── Ask for a command ───────────────────────────────────────────────────
    Above the panes rather than inside one, because the answer is not output —
    it never reaches a shell from here. What comes back is either a note, shown

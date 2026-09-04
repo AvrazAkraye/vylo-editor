@@ -157,3 +157,138 @@ export function shorten(path: string, home = '', keep = 3): string {
   if (parts.length <= keep) return lead ? `/${parts.join('/')}` : parts.join('/');
   return `…/${parts.slice(-keep).join('/')}`;
 }
+
+
+// ── What a row in the session list says ───────────────────────────────────
+//
+// A list of six shells titled "Terminal 1" through "Terminal 6" tells you
+// nothing you did not already know. What tells them apart is the last thing
+// each one ran, the folder it is in, or the branch it is on — and which of
+// those matters depends on the person and the day. So the row is configurable
+// rather than argued about.
+
+/** What the first line of a row shows. */
+export type TitleAs = 'command' | 'cwd' | 'branch';
+
+/** How much room a row takes. */
+export type Density = 'comfortable' | 'compact';
+
+export interface RowView {
+  titleAs: TitleAs;
+  /** Which extras appear on the second line. */
+  meta: { branch: boolean; cwd: boolean; state: boolean };
+  density: Density;
+}
+
+export const ROW_VIEW: RowView = {
+  // The last command, because it is the one that changes as you work — a
+  // folder and a branch are usually the same across every pane you have open,
+  // and a title that reads the same on six rows is the problem this solves.
+  titleAs: 'command',
+  meta: { branch: true, cwd: false, state: true },
+  density: 'comfortable',
+};
+
+export const ROW_VIEW_KEY = 'vylo.rowview.v1';
+
+/** Read the stored view, repairing anything untrustworthy. */
+export function readView(raw: string | null): RowView {
+  const out: RowView = { ...ROW_VIEW, meta: { ...ROW_VIEW.meta } };
+  try {
+    const v = raw ? JSON.parse(raw) : null;
+    if (!v || typeof v !== 'object') return out;
+    const r = v as Record<string, unknown>;
+    if (r.titleAs === 'command' || r.titleAs === 'cwd' || r.titleAs === 'branch') out.titleAs = r.titleAs;
+    if (r.density === 'compact' || r.density === 'comfortable') out.density = r.density;
+    const m = (r.meta ?? {}) as Record<string, unknown>;
+    for (const k of ['branch', 'cwd', 'state'] as const) {
+      if (typeof m[k] === 'boolean') out.meta[k] = m[k] as boolean;
+    }
+  } catch {
+    // A view is a convenience. A bad one is the default arrangement.
+  }
+  return out;
+}
+
+export const writeView = (v: RowView): string => JSON.stringify(v);
+
+/** What is known about a session beyond the session itself. */
+export interface Facts {
+  /** Where the shell is now. */
+  cwd?: string;
+  /** The branch of that directory, empty when it is not a repository. */
+  branch?: string;
+  /** The last command sent in this pane. */
+  last?: string;
+}
+
+export interface Row {
+  title: string;
+  /** True when the title is a string that ran, rather than a phrase. */
+  mono: boolean;
+  /** The second line, already in the order it should read. */
+  subs: { text: string; kind: 'state' | 'branch' | 'cwd' | 'age' }[];
+}
+
+/**
+ * One row, for the chosen view.
+ *
+ * Every title choice falls back through the others rather than showing an
+ * empty row: a pane that has run nothing has no last command, a pane outside a
+ * repository has no branch, and a row with no title is a row you cannot click
+ * on purpose. A typed name still wins over all of it — somebody who renamed a
+ * pane meant those words.
+ */
+export function rowOf(
+  s: Session, facts: Facts, view: RowView, opts: { term?: string; home?: string; now?: number; t?: (x: string) => string } = {},
+): Row {
+  const term = opts.term ?? 'Terminal';
+  const t = opts.t ?? ((x: string) => x);
+
+  const named = (s.name ?? '').trim();
+  const last = (facts.last ?? '').trim();
+  const cwd = (facts.cwd ?? '').trim();
+  const branch = (facts.branch ?? '').trim();
+
+  let title = named;
+  let mono = false;
+  if (!title) {
+    // The chosen one first, then whatever else this pane actually has.
+    const wants: TitleAs[] = view.titleAs === 'command' ? ['command', 'cwd', 'branch']
+      : view.titleAs === 'cwd' ? ['cwd', 'command', 'branch']
+      : ['branch', 'cwd', 'command'];
+    for (const want of wants) {
+      if (want === 'command' && (s.command || last)) {
+        title = s.command || last; mono = true; break;
+      }
+      if (want === 'cwd' && cwd) { title = lastSegment(cwd, opts.home); mono = false; break; }
+      if (want === 'branch' && branch) { title = branch; mono = false; break; }
+    }
+  }
+  if (!title) { title = `${term} ${s.n}`; mono = false; }
+
+  const subs: Row['subs'] = [];
+  if (view.meta.state) {
+    const state = stateOf(s);
+    subs.push({
+      kind: 'state',
+      text: state === 'busy' ? t('running') : state === 'live' ? t('shell')
+        : state === 'ok' ? t('finished')
+        : s.code === null ? t('stopped') : `${t('exit')} ${s.code}`,
+    });
+  }
+  // Not repeated as metadata when it is already the title.
+  if (view.meta.branch && branch && !(title === branch && !named)) {
+    subs.push({ kind: 'branch', text: branch });
+  }
+  if (view.meta.cwd && cwd) subs.push({ kind: 'cwd', text: shorten(cwd, opts.home, 2) });
+  if (opts.now !== undefined) subs.push({ kind: 'age', text: since(s.born, opts.now, t) });
+  return { title, mono, subs };
+}
+
+/** The folder's own name, which is what a person calls the directory they are in. */
+function lastSegment(path: string, home = ''): string {
+  if (home && path === home) return '~';
+  const bits = path.split('/').filter(Boolean);
+  return bits[bits.length - 1] || path;
+}

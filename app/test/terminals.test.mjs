@@ -3,7 +3,7 @@
 // The state is the part worth testing hardest: it decides whether a row shows a
 // tick or a warning, and reporting a crashed command as finished-cleanly is the
 // one mistake here that would matter.
-import { stateOf, titleOf, since, matches, filter, shorten } from '../.test-build/terminals.js';
+import { stateOf, titleOf, since, matches, filter, shorten, ROW_VIEW, ROW_VIEW_KEY, readView, writeView, rowOf } from '../.test-build/terminals.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -139,6 +139,108 @@ ok('a missing path does not throw', shorten(undefined, '') === '' && shorten(nul
 ok('the root is the root', shorten('/', '') === '/');
 ok('a repeated slash does not become an empty segment',
    shorten('/a//b', '') === '/a/b', shorten('/a//b', ''));
+
+// ── what a row says ───────────────────────────────────────────────────────
+//
+// A list of six shells titled "Terminal 1" through "Terminal 6" tells you
+// nothing you did not already know. These tests are about the row saying the
+// thing that tells one pane from another.
+const sh = (over = {}) => ({ id: 'a', n: 1, born: 0, dead: false, ...over });
+const NOW = 60_000;
+
+ok('the stored view round-trips', (() => {
+  const v = { titleAs: 'branch', meta: { branch: false, cwd: true, state: false }, density: 'compact' };
+  const back = readView(writeView(v));
+  return back.titleAs === 'branch' && back.density === 'compact' && back.meta.cwd === true;
+})());
+ok('nothing stored is the default', readView(null).titleAs === ROW_VIEW.titleAs);
+ok('corrupt JSON is the default', readView('{{{').density === 'comfortable');
+ok('an unknown title choice is ignored', readView('{"titleAs":"phase"}').titleAs === ROW_VIEW.titleAs);
+ok('a non-boolean meta flag is ignored', readView('{"meta":{"branch":"yes"}}').meta.branch === ROW_VIEW.meta.branch);
+ok('and one real field is kept while another is junk', (() => {
+  const v = readView('{"density":"compact","titleAs":42}');
+  return v.density === 'compact' && v.titleAs === ROW_VIEW.titleAs;
+})());
+ok('the key is versioned', /\.v\d+$/.test(ROW_VIEW_KEY));
+ok('reading does not share the default meta object', (() => {
+  const a = readView('{"meta":{"cwd":true}}');
+  return a.meta.cwd === true && ROW_VIEW.meta.cwd === false;
+})());
+
+// ── the title ─────────────────────────────────────────────────────────────
+{
+  const facts = { cwd: '/Users/you/work/vylo', branch: 'main', last: 'npm test' };
+  const V = (over = {}) => ({ ...ROW_VIEW, ...over, meta: { ...ROW_VIEW.meta, ...(over.meta ?? {}) } });
+
+  ok('by command, it is the last thing run', rowOf(sh(), facts, V(), { now: NOW }).title === 'npm test');
+  ok('and set in the mono face, because it is a string that ran',
+     rowOf(sh(), facts, V(), { now: NOW }).mono === true);
+  // The folder's own name is what a person calls the directory they are in.
+  ok('by folder, it is the folder name and not the whole path',
+     rowOf(sh(), facts, V({ titleAs: 'cwd' }), { now: NOW }).title === 'vylo');
+  ok('and that is prose, not a command',
+     rowOf(sh(), facts, V({ titleAs: 'cwd' }), { now: NOW }).mono === false);
+  ok('by branch, it is the branch', rowOf(sh(), facts, V({ titleAs: 'branch' }), { now: NOW }).title === 'main');
+  ok('home itself reads as ~',
+     rowOf(sh(), { cwd: '/Users/you' }, V({ titleAs: 'cwd' }), { home: '/Users/you', now: NOW }).title === '~');
+}
+// A row with no title is a row you cannot click on purpose.
+ok('a pane that has run nothing falls through to what it has', (() => {
+  const r = rowOf(sh(), { cwd: '/a/b', branch: 'main' }, ROW_VIEW, { now: NOW });
+  return r.title === 'b';
+})(), rowOf(sh(), { cwd: '/a/b', branch: 'main' }, ROW_VIEW, { now: NOW }));
+ok('and one outside a repository falls through past branch', (() => {
+  const view = { ...ROW_VIEW, titleAs: 'branch' };
+  return rowOf(sh(), { cwd: '/a/b' }, view, { now: NOW }).title === 'b';
+})());
+ok('a pane with nothing at all keeps its number',
+   rowOf(sh({ n: 3 }), {}, ROW_VIEW, { now: NOW }).title === 'Terminal 3');
+// Somebody who renamed a pane meant those words.
+ok('a typed name wins over every choice', (() => {
+  const named = sh({ name: 'build watcher' });
+  return ['command', 'cwd', 'branch'].every((titleAs) =>
+    rowOf(named, { cwd: '/a/b', branch: 'main', last: 'x' }, { ...ROW_VIEW, titleAs }, { now: NOW }).title === 'build watcher');
+})());
+ok('and reads as prose', rowOf(sh({ name: 'x' }), { last: 'ls' }, ROW_VIEW, { now: NOW }).mono === false);
+// A command pane exists to run one command; that is its title.
+ok('a command pane is titled by its command',
+   rowOf(sh({ command: 'npm run build' }), { last: 'other' }, ROW_VIEW, { now: NOW }).title === 'npm run build');
+
+// ── the second line ───────────────────────────────────────────────────────
+{
+  const facts = { cwd: '/Users/you/work/vylo', branch: 'main', last: 'npm test' };
+  const kinds = (v) => rowOf(sh(), facts, v, { now: NOW }).subs.map((x) => x.kind).join();
+  ok('the default shows the state, the branch and the age',
+     kinds(ROW_VIEW) === 'state,branch,age', kinds(ROW_VIEW));
+  ok('the folder can be added', (() => {
+    const v = { ...ROW_VIEW, meta: { ...ROW_VIEW.meta, cwd: true } };
+    return kinds(v) === 'state,branch,cwd,age';
+  })());
+  ok('and everything can be turned off but the age', (() => {
+    const v = { ...ROW_VIEW, meta: { branch: false, cwd: false, state: false } };
+    return kinds(v) === 'age';
+  })());
+  ok('the folder is shortened, not printed whole', (() => {
+    const v = { ...ROW_VIEW, meta: { ...ROW_VIEW.meta, cwd: true } };
+    const sub = rowOf(sh(), facts, v, { now: NOW, home: '/Users/you' }).subs.find((x) => x.kind === 'cwd');
+    return sub.text.length < facts.cwd.length;
+  })());
+  // Saying "main" twice on one row is one of them wasted.
+  ok('the branch is not repeated as metadata when it is the title', (() => {
+    const v = { ...ROW_VIEW, titleAs: 'branch' };
+    return !rowOf(sh(), facts, v, { now: NOW }).subs.some((x) => x.kind === 'branch');
+  })());
+  ok('but a renamed pane still shows its branch below', (() => {
+    const v = { ...ROW_VIEW, titleAs: 'branch' };
+    return rowOf(sh({ name: 'main' }), facts, v, { now: NOW }).subs.some((x) => x.kind === 'branch');
+  })());
+  ok('nothing known means nothing but the state and the age',
+     rowOf(sh(), {}, ROW_VIEW, { now: NOW }).subs.map((x) => x.kind).join() === 'state,age');
+  ok('the state reads as words', rowOf(sh(), {}, ROW_VIEW, { now: NOW }).subs[0].text === 'shell');
+  ok('a dead pane says its exit code',
+     rowOf(sh({ dead: true, code: 1 }), {}, ROW_VIEW, { now: NOW }).subs[0].text === 'exit 1');
+  ok('no clock given means no age', rowOf(sh(), {}, ROW_VIEW, {}).subs.every((x) => x.kind !== 'age'));
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
