@@ -4,6 +4,7 @@ import { Channel, invoke } from '@tauri-apps/api/core';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { NOTHING, typed as fold, type Typed } from './suggest';
+import { BANNER } from './scrollback';
 import '@xterm/xterm/css/xterm.css';
 
 /**
@@ -32,6 +33,21 @@ export interface TermHandle {
   clear(): void;
   /** Put keystrokes on the input line, as if typed. */
   type(data: string): void;
+  /**
+   * The scrollback, as lines, for saving.
+   *
+   * Read from the buffer rather than from the bytes the shell sent — see
+   * scrollback.ts. It also means a full-screen program is handled by doing
+   * nothing: its frames are on the alternate screen, and this is the other one.
+   */
+  lines(): string[];
+  /**
+   * True while a full-screen program owns the terminal.
+   *
+   * There is no shell prompt on the alternate screen, so there is nothing to
+   * complete and no key to take — Tab belongs to Claude Code, not to us.
+   */
+  fullScreen(): boolean;
   /** The selection if there is one, else the last `lines` non-blank rows. */
   text(lines: number): string;
 }
@@ -54,6 +70,14 @@ interface Props {
   onSent?: (line: string) => void;
   /** Files were dropped on this pane. */
   onDropPaths?: (paths: string[]) => void;
+  /**
+   * What this pane had in it last time, written before the shell starts.
+   *
+   * Followed by a banner saying the shell is new, because a transcript above a
+   * live prompt with no line between them is a dead process wearing a live
+   * one's clothes.
+   */
+  restore?: string;
   /**
    * A key the suggestion list wants instead of the shell.
    *
@@ -96,7 +120,7 @@ function palette(dark: boolean) {
       };
 }
 
-export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths }: Props) {
+export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths, restore }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
@@ -151,6 +175,13 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
     });
 
     t.open(el);
+
+    // Before the pty, so the shell's first prompt lands under this rather than
+    // racing it. Dim, because a transcript is a record and not output.
+    if (restore) {
+      t.write(`${restore.replace(/\n/g, '\r\n')}\r\n`);
+      t.write(`\x1b[2m${BANNER}\x1b[0m\r\n`);
+    }
     term.current = t;
     fit.current = f;
     try { f.fit(); } catch { /* zero-sized while the panel animates open */ }
@@ -200,7 +231,12 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       if (d.includes('\r') && line.current.sure && line.current.line.trim()) {
         keys.current.onSent?.(line.current.line);
       }
-      line.current = fold(line.current, d);
+      // A full-screen program has no shell prompt, so there is no line to
+      // track and nothing that could be completed. Saying "not sure" is what
+      // keeps the suggestion list off the screen while Claude Code is running.
+      line.current = t.buffer.active.type === 'alternate'
+        ? { line: '', sure: false }
+        : fold(line.current, d);
       keys.current.onTyped?.(line.current);
       // A directory changes when a command finishes, and a command finishes
       // after Enter. The delay is for the shell to have actually run it —
@@ -232,6 +268,17 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
        * next suggestion is about the line as it now stands rather than the one
        * before it.
        */
+      lines: () => {
+        const buf = t.buffer.active;
+        const out: string[] = [];
+        // `length` spans the scrollback and the screen; `translateToString`
+        // with trimRight drops the padding a terminal keeps to its width.
+        for (let i = 0; i < buf.length; i++) {
+          out.push(buf.getLine(i)?.translateToString(true) ?? '');
+        }
+        return out;
+      },
+      fullScreen: () => t.buffer.active.type === 'alternate',
       type: (data) => {
         if (ptyId !== null) void invoke('pty_write', { id: ptyId, data }).catch(() => {});
         line.current = fold(line.current, data);

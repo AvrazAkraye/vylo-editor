@@ -57,7 +57,7 @@ const find = (groups, id) => ids(groups).includes(id);
   }
 
   const ADDED = ['plan', 'providers', 'keyMap', 'autoApprove', 'modules', 'railSide', 'drafts', 'checkpoints', 'fileHistory',
-                 'clipboardHistory', 'version', 'updates', 'safety'];
+                 'clipboardHistory', 'terminals', 'version', 'updates', 'safety'];
   for (const id of ADDED) ok(`${id} is in the catalogue`, by.has(id));
 
   ok('and there is nothing in the catalogue this file has not named',
@@ -166,8 +166,8 @@ const find = (groups, id) => ids(groups).includes(id);
        want.every((id) => find(g, id)),
        `missing ${want.filter((id) => !find(g, id)).join(', ')}`);
   }
-  ok('"storage" returns the four local stores and nothing else',
-     ids(search('storage', en)).join() === 'drafts,checkpoints,fileHistory,clipboardHistory',
+  ok('"storage" returns the five local stores and nothing else',
+     ids(search('storage', en)).join() === 'drafts,checkpoints,fileHistory,clipboardHistory,terminals',
      ids(search('storage', en)).join());
   ok('"about" is a category name too, and finds its three rows',
      ids(search('about', en)).join() === 'version,updates,safety',
@@ -194,8 +194,8 @@ const find = (groups, id) => ids(groups).includes(id);
        (a, b) => CATEGORIES.findIndex((c) => c.id === a) - CATEGORIES.findIndex((c) => c.id === b),
      ).join());
 
-  ok('"clear" returns all four local stores, because all four can be emptied',
-     search('clear', en).find((x) => x.category.id === 'storage')?.rows.length === 4);
+  ok('"clear" returns all five local stores, because all five can be emptied',
+     search('clear', en).find((x) => x.category.id === 'storage')?.rows.length === 5);
 }
 
 // ── folding ───────────────────────────────────────────────────────────────

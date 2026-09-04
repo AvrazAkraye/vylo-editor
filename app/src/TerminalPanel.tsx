@@ -10,6 +10,9 @@ import {
 } from './terminals';
 import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
 import { CONTEXT_LINES } from './command';
+import {
+  KEY as TERMS_KEY, read as readSaved, tail, write as writeSaved, type Saved,
+} from './scrollback';
 import { fragment } from './suggest';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import {
@@ -41,9 +44,22 @@ interface Tab {
   /** Set when this pane exists to run one approved command. */
   command?: string;
   /**
-   * A colour, by name. In memory only, and deliberately so: a terminal session
-   * is a running shell and does not outlive the app either, so persisting a
-   * colour would be keeping a label for a process that has gone.
+   * A name somebody typed.
+   *
+   * Was only ever set through a spread, so nothing declared it and nothing
+   * checked it — `rename` wrote a field the type did not have and TypeScript
+   * had no way to notice until something read it back.
+   */
+  name?: string;
+  /**
+   * A colour, by name.
+   *
+   * This used to say the colour was deliberately not persisted, because "a
+   * terminal session is a running shell and does not outlive the app". Half of
+   * that is still true and half of it is not: the process still dies with the
+   * app, but the *session* — its name, its colour, its directory, what was
+   * written in it — is restored now. See scrollback.ts, and the banner that
+   * makes the difference visible.
    */
   tag?: string;
   /** The exit code once there is one. `null` means a signal, which is not a
@@ -184,19 +200,82 @@ export function TerminalPanel({
     last: (history[id] ?? [])[(history[id] ?? []).length - 1],
   });
 
+  /**
+   * Write this folder's terminals down.
+   *
+   * Read from each pane's buffer at the moment of saving rather than kept in
+   * step as output arrives — a terminal produces thousands of lines a second
+   * under a build, and mirroring that into React state would spend the whole
+   * frame budget on a record nobody is looking at.
+   */
+  const save = useCallback(() => {
+    if (!root) return;
+    const list = tabsRef.current;
+    const saved: Saved = {
+      sessions: list.map((x) => ({
+        n: x.n,
+        name: x.name,
+        tag: x.tag,
+        cwd: cwdRef.current[x.id],
+        text: tail(handles.current.get(x.id)?.lines() ?? []),
+      })),
+      shown: shownRef.current.map((id) => list.findIndex((x) => x.id === id)).filter((i) => i >= 0),
+      active: Math.max(0, list.findIndex((x) => x.id === activeRef.current)),
+    };
+    try {
+      localStorage.setItem(TERMS_KEY, writeSaved(localStorage.getItem(TERMS_KEY), root, saved));
+    } catch { /* private mode, or a full store */ }
+  }, [root]);
+
+  useEffect(() => {
+    // A heartbeat, and the way out. `beforeunload` is the one that matters and
+    // the one least certain to fire — a window torn down by the OS never
+    // reaches it — so the timer is what makes the feature true rather than
+    // usually true.
+    const id = window.setInterval(save, 20_000);
+    window.addEventListener('beforeunload', save);
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('beforeunload', save);
+      save();
+    };
+  }, [save]);
+
   const locate = useCallback((id: string) => {
     void handles.current.get(id)?.cwd().then((where) => {
       if (where) setCwds((p) => (p[id] === where ? p : { ...p, [id]: where }));
     });
   }, []);
-  const [tabs, setTabs] = useState<Tab[]>(() => [newTab(1)]);
+  /**
+   * What was saved for this folder, read once when the panel mounts.
+   *
+   * The processes are gone — a shell is a child of this app — so this is the
+   * sessions, their names, their directories and what was written in them. The
+   * banner each restored pane opens with says so; see scrollback.ts.
+   */
+  const restored = useRef<Saved>(readSaved(localStorage.getItem(TERMS_KEY), root));
+  /** Restored text and directory per pane. Read once, when its view opens. */
+  const [restoring] = useState(() => new Map<string, { text: string; cwd?: string }>());
+  const [tabs, setTabs] = useState<Tab[]>(() => {
+    const saved = restored.current.sessions;
+    if (!saved.length) return [newTab(1)];
+    const made = saved.map((x) => ({ ...newTab(x.n), name: x.name, tag: x.tag }));
+    made.forEach((tabRow, i) => {
+      restoring.set(tabRow.id, { text: saved[i].text, cwd: saved[i].cwd });
+    });
+    return made;
+  });
   const [active, setActive] = useState<string>(() => tabs[0].id);
   /**
    * The panes drawn at once. Every session is mounted whichever of them are
    * showing — that has always been true, because a terminal is a place you
    * leave a server running — so this is only about what is on screen.
    */
-  const [shown, setShown] = useState<string[]>(() => [tabs[0].id]);
+  const [shown, setShown] = useState<string[]>(() => {
+    const saved = restored.current;
+    if (!saved.sessions.length) return [tabs[0].id];
+    return saved.shown.map((i) => tabs[i]?.id).filter((x): x is string => !!x);
+  });
   const [query, setQuery] = useState('');
   // One row shows its colours at a time; two open pickers in a 236px column
   // is two rows of swatches nobody can tell apart.
@@ -249,8 +328,14 @@ export function TerminalPanel({
 
   // The promise above is created outside React's render, so it needs the tab
   // list as it is *now* rather than as it was when the effect ran.
+  // Read by `save`, which runs on a timer and on the way out — both of which
+  // happen outside a render, so each needs the value as it is now and not the
+  // one that existed when the callback was made.
   const tabsRef = useRef<Tab[]>([]);
   tabsRef.current = tabs;
+  const shownRef = useRef<string[]>([]);
+  const activeRef = useRef('');
+  const cwdRef = useRef<Record<string, string>>({});
 
   // The pane list, upward, so the one search field can find a session by the
   // command it is running. A copy, not the array: the palette must not be able
@@ -457,8 +542,11 @@ export function TerminalPanel({
   // the shell exiting, which is not a click and not a state change this
   // component started, and a pane pointing at it would draw nothing.
   const onScreen = prune(shown, tabs.map((x) => x.id));
+  shownRef.current = onScreen;
+  cwdRef.current = cwds;
   // Every bar action applies to one pane, and it has to be one that is showing.
   const focus = focused(onScreen, active);
+  activeRef.current = focus;
   const dead = tabs.find((x) => x.id === focus)?.dead;
 
   /**
@@ -815,6 +903,9 @@ export function TerminalPanel({
                 </div>
               )}
               <TerminalView
+                // Used once, when the view mounts: after that the pane has its
+                // own shell and its own scrollback.
+                restore={restoring.get(tab.id)?.text || undefined}
                 onMoved={() => locate(tab.id)}
                 onTyped={(st) => { if (tab.id === focus) setInput(st); }}
                 // A line goes into history when it is sent, and only from the
@@ -825,6 +916,10 @@ export function TerminalPanel({
                 onDropPaths={(paths) => dropPaths(tab.id, paths)}
                 onKey={(e) => {
                   // Only while a list is showing, and only for this pane.
+                  // A full-screen program owns every key while it is up.
+                  // Taking Tab from Claude Code to offer a shell completion is
+                  // the app answering a question the shell was not asked.
+                  if (handles.current.get(tab.id)?.fullScreen()) return false;
                   if (tab.id !== focus || !worth(input, matches)) return false;
                   if (e.key === 'Escape') { setMatches([]); return true; }
                   if (e.key === 'ArrowDown') { setPickAt((n) => (n + 1) % matches.length); return true; }
@@ -836,7 +931,7 @@ export function TerminalPanel({
                   if (e.key === 'Tab') { take(matches[pickAt] ?? matches[0]); return true; }
                   return false;
                 }}
-                cwd={root}
+                cwd={restoring.get(tab.id)?.cwd || root}
                 dark={dark}
                 visible={on}
                 onReady={(h) => { if (h) handles.current.set(tab.id, h); else handles.current.delete(tab.id); }}
@@ -851,7 +946,8 @@ export function TerminalPanel({
                   cursor: a prompt sits at the bottom of a terminal almost all
                   the time, because output scrolls up — so this is where the
                   cursor is, without measuring a character cell to find out. */}
-              {tab.id === focus && worth(input, matches) && (
+              {tab.id === focus && worth(input, matches)
+                && !handles.current.get(tab.id)?.fullScreen() && (
                 <div className="sug" role="listbox" aria-label={t('Completions')}>
                   {matches.map((m, n) => (
                     <button key={`${m.kind}:${m.text}`} role="option" aria-selected={n === pickAt}

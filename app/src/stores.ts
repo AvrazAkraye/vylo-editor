@@ -31,7 +31,7 @@
  */
 
 /** One of the four, named as the settings catalogue names them. */
-export type StoreId = 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory';
+export type StoreId = 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory' | 'terminals';
 
 /**
  * The three that are directories, in the order the Storage tab lists them.
@@ -71,8 +71,11 @@ export function isOnDisk(id: StoreId): id is DiskStore {
  * The clipboard is measured by `clipboardBytes` below rather than by Rust,
  * because it is a string in this window's `localStorage`.
  */
-export function usage(id: StoreId, disk: Sizes | null, clipboard: number): number | null {
+export function usage(id: StoreId, disk: Sizes | null, clipboard: number, terminals = 0): number | null {
   if (id === 'clipboardHistory') return Math.max(0, Math.round(clipboard));
+  // Also a string in this window's `localStorage`, for the same reason: it is
+  // written by the frontend and Rust never sees it.
+  if (id === 'terminals') return Math.max(0, Math.round(terminals));
   return disk ? disk[id] : null;
 }
 

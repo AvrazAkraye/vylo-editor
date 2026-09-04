@@ -123,6 +123,8 @@ interface Props {
 
   // ── Storage ──
   clips: Clip[];
+  /** What the saved terminal sessions take, measured in the frontend. */
+  termBytes: number;
   /**
    * A store has just been emptied.
    *
@@ -612,13 +614,14 @@ function Control({ row, ...p }: ControlProps) {
     case 'drafts':
     case 'checkpoints':
     case 'fileHistory':
-    case 'clipboardHistory': {
+    case 'clipboardHistory':
+    case 'terminals': {
       // Bound rather than read twice: the switch narrows `row.id` here, and
       // that narrowing does not survive into the closure below.
       const id: StoreId = row.id;
       return (
         <StoreRow id={id} label={label} hint={hint} t={t}
-                  bytes={usage(id, p.sizes, p.clipBytes)}
+                  bytes={usage(id, p.sizes, p.clipBytes, p.termBytes)}
                   onEmpty={() => p.onEmpty(id)} />
       );
     }

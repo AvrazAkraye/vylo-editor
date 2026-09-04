@@ -130,7 +130,7 @@ export type SettingId =
   | 'globalShortcut' | 'keyMap'
   | 'autoApprove'
   | 'modules' | 'railSide' | 'mcpServers'
-  | 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory'
+  | 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory' | 'terminals'
   | 'version' | 'updates' | 'safety';
 
 export interface Setting {
@@ -288,6 +288,11 @@ export const SETTINGS: readonly Setting[] = [
     id: 'clipboardHistory', category: 'storage', label: 'Clipboard history',
     hint: 'What you pasted into Vylo. It never reads the system clipboard on its own.',
     keywords: ['clips', 'paste', 'copied', 'privacy', 'clear', 'empty', 'delete', 'disk', 'space'],
+  },
+  {
+    id: 'terminals', category: 'storage', label: 'Terminal sessions',
+    hint: 'What was on screen in each terminal, so they come back when you reopen a project. Whatever a command printed is in it — empty this if something sensitive was.',
+    keywords: ['terminal', 'shell', 'scrollback', 'restore', 'reopen', 'session', 'output', 'privacy', 'clear', 'empty', 'delete', 'space'],
   },
 
   // ── About ──

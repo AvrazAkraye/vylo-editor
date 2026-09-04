@@ -90,6 +90,7 @@ import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { TodoPanel } from './TodoPanel';
 import { Working } from './Working';
 import { OutlinePanel } from './OutlinePanel';
+import { KEY as TERMS_KEY, bytes as termBytesOf } from './scrollback';
 import { PromptsPanel } from './PromptsPanel';
 import { SYSTEM as ASK_SYSTEM, ask as askMessage, parse as parseCommand, reason } from './command';
 import { dirFor } from './rtl';
@@ -374,6 +375,8 @@ export function App() {
   /** When each kind of summons last went out, so six staged files are one banner. */
   const raised = useRef<Partial<Record<Moment['kind'], number>>>({});
   const [shots, setShots] = useState<Attached[]>([]);
+  /** What the saved terminal sessions take. Re-measured when Settings opens. */
+  const [termBytes, setTermBytes] = useState(0);
   const [dragging, setDragging] = useState(false);
   /**
    * The terminal's claim on a drop.
@@ -726,6 +729,10 @@ export function App() {
   useEffect(() => { localStorage.setItem('vylo.rail', rail); }, [rail]);
   useEffect(() => { localStorage.setItem(MODULES_KEY, writeModules(modules)); }, [modules]);
   useEffect(() => { try { if (rightRail) localStorage.setItem('vylo.rrail', rightRail); } catch { /* private mode */ } }, [rightRail]);
+  useEffect(() => {
+    if (!showSettings) return;
+    try { setTermBytes(termBytesOf(localStorage.getItem(TERMS_KEY))); } catch { setTermBytes(0); }
+  }, [showSettings]);
   useEffect(() => { try { localStorage.setItem('vylo.rropen', rightOpen ? '1' : '0'); } catch { /* private mode */ } }, [rightOpen]);
 
   // The second sidebar's width, dragged from its divider. Which way the pointer
@@ -3030,13 +3037,30 @@ export function App() {
    * sidebar could arrive without every panel being written twice and the two
    * copies drifting, the way the rail's heading once drifted from its list.
    */
-  const sideFor = (shown: ModuleId) => (
+  const sideFor = (shown: ModuleId, where: 'rail' | 'other' = 'rail') => (
     <>
           <div className="sb-head-bar">
             {/* From the registry. As a chain of ternaries this had no branch
                 for `todo`, so the To do panel sat under a heading that said
                 "Memory" for eleven releases. */}
             <h2>{t(labelOf(shown))}</h2>
+            {/* Docking was a right-click on a rail icon and nothing else, which
+                is a gesture nobody guesses — the feature shipped and was asked
+                for again a release later. It is a button now. */}
+            <button className="sb-act" onClick={() => {
+              const to = where === 'other' ? 'rail' : 'other';
+              setModules((m) => dockModule(m, shown, to));
+              if (to === 'other') { setRightRail(shown); setRightOpen(true); }
+              else { setRail(shown); setRailOpen(true); }
+            }} title={t('Move to the other side')} aria-label={t('Move to the other side')}>
+              <Icon name="split" size={14} />
+            </button>
+            {where === 'other' && (
+              <button className="sb-act" onClick={() => setRightOpen(false)}
+                      title={t('Hide this sidebar')} aria-label={t('Hide this sidebar')}>
+                <Icon name="close" size={14} />
+              </button>
+            )}
             {shown === 'chats' && (
               <button className="sb-act" onClick={newChat} title={t('New chat')} aria-label={t('New chat')}>
                 <Icon name="plus" size={14} />
@@ -3494,6 +3518,7 @@ export function App() {
           mcpError={mcpError}
           onToggleServer={(s) => void toggleServer(s)}
           clips={clips}
+          termBytes={termBytes}
           onEmptied={(id) => {
             // The window is still standing on these stores, and that is the
             // half of the Storage tab that would fail silently: Redo would
@@ -3504,6 +3529,13 @@ export function App() {
             if (id === 'clipboardHistory') { clearClips(localClips); setClips([]); }
             if (id === 'drafts') setDrafts([]);
             if (id === 'checkpoints') setRedoable(null);
+            // Also localStorage, so emptying it *is* this call. The terminals
+            // on screen keep running — this throws away what would have been
+            // restored next time, not what is live now.
+            if (id === 'terminals') {
+              try { localStorage.removeItem(TERMS_KEY); } catch { /* private mode */ }
+              setTermBytes(0);
+            }
           }}
           update={update}
           updating={updating}
@@ -3871,7 +3903,7 @@ export function App() {
               document.body.classList.add('resizing');
             }} role="separator" aria-orientation="vertical" />
             <aside className="sidebar right" style={{ width: rightW }}>
-              {sideFor(rightShown)}
+              {sideFor(rightShown, 'other')}
             </aside>
           </>
         )}

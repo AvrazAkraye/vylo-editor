@@ -423,9 +423,27 @@ skips strings shaped like secrets. That last check is a courtesy and not a
 guarantee — it matches shapes, so it misses a short password or a four-word
 passphrase, and `app/src/clips.ts` says so in its own header.
 
+**Terminal sessions are not one of them either**, and this one is worth
+knowing about. So that a project's terminals come back when you reopen it, the
+tail of what was on each terminal's screen is kept in `localStorage` under
+`vylo.terminals.v1` (`app/src/scrollback.ts`) — 8 sessions per folder, 240 lines
+each, 120,000 characters and 8 folders in total, emptied by **Empty** in
+Settings → Storage.
+
+That is *whatever your commands printed*: a `cat` of a config file, a token a
+CLI echoed, the output of `env`. Nothing filters it, because nothing reliably
+could. If something sensitive went across a terminal, empty this store.
+
+The processes themselves are never restored and cannot be — a shell is a child
+of this application and dies with it. A restored terminal shows what was there,
+then a line saying the shell is new and nothing above it is running, then a
+fresh prompt. That line is not dismissible: a transcript sitting above a live
+prompt with nothing between them is a dead process wearing a live one's
+clothes.
+
 Chats, settings, your gateway key, your session token, which MCP servers you
-enabled and the clipboard history above are in the webview's `localStorage`, not
-in that directory.
+enabled, any model providers you added, the clipboard history and the terminal
+sessions above are in the webview's `localStorage`, not in that directory.
 
 Nothing here is encrypted at rest beyond whatever your disk already does.
 
