@@ -110,7 +110,7 @@ function palette(dark: boolean) {
       }
     : {
         background: '#FBFAFD', foreground: '#16151D',
-        cursor: '#5B4DE0', cursorAccent: '#FBFAFD',
+        cursor: '#2F7BF6', cursorAccent: '#FBFAFD',
         selectionBackground: 'rgba(91,77,224,.20)',
         black: '#16151D', red: '#A8332A', green: '#17694C', yellow: '#96620F',
         blue: '#23458F', magenta: '#6D3FA8', cyan: '#0F6A72', white: '#D6D2E6',

@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.52.1.
+version 0.53.0.
 
 ---
 
@@ -72,6 +72,24 @@ harmless. That is the direction to be wrong in, and the cost of being wrong is
 one dialog.
 
 ---
+
+### Routines
+
+A routine is an agent, a brief and a time, and it runs while the app is open
+whether or not you are at the keyboard (`app/src/routines.ts`,
+`app/src/agents.ts`). That is the one place the app acts without a person
+having just typed something, so it gets the strictest reading of the rule:
+
+- An unattended run is **Ask mode** — reads only — whatever mode the agent was
+  given, unless auto-approve is on (`modeFor` in `app/src/agents.ts`,
+  `app/test/agents.test.mjs`). Auto-approve was a decision made in advance for
+  this session; a routine runs under that decision and no wider one.
+- The refuse-list above applies to a routine exactly as it does to you.
+- Every run is a chat of its own, so what a routine did is a transcript you can
+  open afterwards, and every write it made is checkpointed.
+- Runs missed while the app was closed are reported and skipped, never run
+  late (`missedWhileClosed` in `app/src/routines.ts`): a week of Monday
+  reports is not something to catch up on on a Friday.
 
 ## What reaches the network
 
@@ -494,7 +512,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.52.1 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.53.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -519,6 +537,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.52.1. Every statement above was read out of the code. If
+*Last checked against 0.53.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

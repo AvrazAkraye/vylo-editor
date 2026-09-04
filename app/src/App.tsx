@@ -89,9 +89,20 @@ import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { TodoPanel } from './TodoPanel';
 import { Working } from './Working';
+
+/** The three ways of working. See `space` in App. */
+type Space = 'agent' | 'code' | 'chat';
 import { OutlinePanel } from './OutlinePanel';
 import { KEY as TERMS_KEY, bytes as termBytesOf } from './scrollback';
 import { PromptsPanel } from './PromptsPanel';
+import { PluginsPanel } from './PluginsPanel';
+import { RoutinesPanel } from './RoutinesPanel';
+import { DashboardPanel } from './DashboardPanel';
+import {
+  KEY as ROUTINES_KEY, TICK_KEY, due as dueRoutines, markRun, missedWhileClosed,
+  read as readRoutines, skip as skipRoutine, write as writeRoutines, type Routine,
+} from './routines';
+import { modeFor, systemPromptFor, type Agent } from './agents';
 import { SYSTEM as ASK_SYSTEM, ask as askMessage, parse as parseCommand, reason } from './command';
 import { dirFor } from './rtl';
 import {
@@ -636,6 +647,41 @@ export function App() {
   const [tracked, setTracked] = useState<{ path: string; status: string; staged: boolean; untracked: boolean; from: string | null }[]>([]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [mode, setMode] = useState<Mode>(() => (localStorage.getItem('vylo.mode') as Mode) || 'agent');
+  /**
+   * Which of the three ways of working the window is arranged for.
+   *
+   * BridgeMind's central paradigm, adopted because it names something this
+   * app already had three of and no word for: **Agent** is teammates on
+   * routines, **Code** is terminals and files over a folder, **Chat** is a
+   * conversation that is not tied to a project. The switch is a layout and a
+   * default, not a lock — every panel is still reachable from the rail.
+   */
+  /**
+   * Routines and the agents they run — Agent mode's state.
+   *
+   * The routines live in localStorage (they are schedules, not project
+   * content); the agents live in `.vylo/AGENTS.md` and arrive through the
+   * Routines panel, which is the one thing that reads that file.
+   */
+  const [routines, setRoutines] = useState<Routine[]>(() => readRoutines(localStorage.getItem(ROUTINES_KEY)));
+  const [agentsList, setAgentsList] = useState<Agent[]>([]);
+  /** Runs that fell due while the app was closed. Reported once, never run. */
+  const [missedRuns, setMissedRuns] = useState<Routine[]>([]);
+  /**
+   * The teammate the current turn is speaking as, if a routine started it.
+   *
+   * A ref, because `converse` reads it inside a callback created once per
+   * turn; and cleared in the run's `finally`, so a routine cannot leave its
+   * brief attached to the next thing a person types.
+   */
+  const teammate = useRef<{ brief: string; mode: Mode } | null>(null);
+
+  const [space, setSpace] = useState<Space>(() => {
+    const v = localStorage.getItem('vylo.space.v1');
+    return v === 'agent' || v === 'chat' ? v : 'code';
+  });
+  useEffect(() => { try { localStorage.setItem('vylo.space.v1', space); } catch { /* private mode */ } }, [space]);
+  useEffect(() => { try { localStorage.setItem(ROUTINES_KEY, writeRoutines(routines)); } catch { /* private mode */ } }, [routines]);
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
@@ -2026,6 +2072,36 @@ export function App() {
     setShownFiles(next);
   }
 
+  /**
+   * Move to a way of working.
+   *
+   * Chat: the conversation, sandboxed — mode `chat`, sidebar folded. Code: the
+   * folder — files in the rail, the composer back to whatever it was before
+   * Chat. Agent: the dashboard of routines and teammates. What it does not do
+   * is unmount anything; the editors, terminals and transcript all persist,
+   * because a switch that lost your place would be a switch nobody flipped.
+   */
+  const lastCodeMode = useRef<Mode>(mode === 'chat' ? 'agent' : mode);
+  function goTo(next: Space) {
+    setSpace(next);
+    if (next === 'chat') {
+      if (mode !== 'chat') lastCodeMode.current = mode;
+      setMode('chat');
+      setActive('chat');
+      setRailOpen(false);
+      return;
+    }
+    if (mode === 'chat') setMode(lastCodeMode.current);
+    if (next === 'code') {
+      setRail('files'); setRailOpen(true);
+      return;
+    }
+    // Agent: the dashboard, if it is switched on; the rail's first module if not.
+    const want: ModuleId = enabledModules(modules).some((m) => m.id === 'dashboard') ? 'dashboard' : enabledModules(modules)[0].id;
+    setActive('chat');
+    setRail(want); setRailOpen(true);
+  }
+
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
   function pickRail(id: ModuleId) {
     if (dockOf(modules, id) === 'other') {
@@ -2454,6 +2530,82 @@ export function App() {
     setActive('chat');
   }
 
+  /**
+   * Run one routine, now.
+   *
+   * A fresh chat, so the run's transcript is its own and the result has an
+   * address to open later. The agent's mode is `ask` when the run is
+   * unattended unless auto-approve is on — in which case the person decided in
+   * advance, which is what auto-approve means. `markRun` is written at the
+   * start and again at the end: the start is what stops a second tick from
+   * launching it twice, the end is what the dashboard reads.
+   */
+  async function runRoutine(r: Routine) {
+    const at = Date.now();
+    if (busy) {
+      setRoutines((p) => markRun(p, r.id, { at, chatId: '', ok: false, error: t('The app was busy; it will try at the next slot.') }));
+      return;
+    }
+    const agent = agentsList.find((a) => a.id === r.agent);
+    if (!agent) {
+      setRoutines((p) => markRun(p, r.id, { at, chatId: '', ok: false, error: t('Its agent is no longer in .vylo/AGENTS.md.') }));
+      return;
+    }
+    const id = newChatId();
+    setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: true }));
+    // The same reset `newChat` does, with an id known up front.
+    setChatId(id);
+    history.current = [];
+    setLines([]);
+    setChanges([]);
+    pending.current.clear();
+    setChatTokens(NO_USAGE);
+    setLastTurn(NO_USAGE);
+    setCtx(null);
+    setActive('chat');
+    push({ kind: 'result', text: `${t('Routine')} — ${r.name} · ${agent.name}` });
+    teammate.current = {
+      brief: systemPromptFor(agent, {}),
+      mode: modeFor(agent, autoOn(auto)),
+    };
+    try {
+      await send(r.brief);
+      setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: true }));
+    } catch (e) {
+      setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: false, error: explain(e, t('run the routine')) }));
+    } finally {
+      teammate.current = null;
+      raiseSummons({ kind: 'routine' });
+    }
+  }
+
+  /**
+   * The scheduler. A tick every half minute, one run per tick, only while
+   * nothing else is running. The tick time is kept so the next launch can say
+   * what was missed while the app was closed — and skip it, rather than run a
+   * week of Monday reports on a Friday.
+   */
+  useEffect(() => {
+    const last = Number(localStorage.getItem(TICK_KEY)) || null;
+    const now = Date.now();
+    const missed = missedWhileClosed(routines, last, now);
+    if (missed.length) {
+      setMissedRuns(missed);
+      setRoutines((p) => missed.reduce((acc, r) => skipRoutine(acc, r.id, now), p));
+    }
+    // Once, at launch.
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const now = Date.now();
+      try { localStorage.setItem(TICK_KEY, String(now)); } catch { /* private mode */ }
+      if (busy || !root) return;
+      const d = dueRoutines(routines, now);
+      if (d.length) void runRoutine(d[0]);
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [routines, busy, root, agentsList, auto]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function openChat(c: Chat) {
     setChatId(c.id);
     setLines(c.lines);
@@ -2820,7 +2972,9 @@ export function App() {
         history: history.current,
         pending: pending.current,
         askToRun,
-        mode,
+        // A routine's turn runs as its agent: that agent's mode (never more than
+        // Ask when unattended — see modeFor) and its brief on top of memory.
+        mode: teammate.current?.mode ?? mode,
         onUsage: (u) => { setLastTurn(u); setChatTokens((p) => add(p, u)); },
         onContext: (used, limit) => setCtx({ used, limit }),
         onHop: (hop) => note({ kind: 'hop', hop }),
@@ -2843,7 +2997,9 @@ export function App() {
           return termRun.current(command);
         },
         environment,
-        memory: memoryPrompt(memory),
+        memory: teammate.current
+          ? `${memoryPrompt(memory)}\n\n${teammate.current.brief}`.trim()
+          : memoryPrompt(memory),
         onDelta: (text) => { note({ kind: 'delta', chars: text.length }); stream(text); },
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
         // The transcript gets the text; the status line gets the structure.
@@ -3101,6 +3257,28 @@ export function App() {
                 every list of this kind has. The label is its own element so the
                 `kbd` has something to be pushed away from; see the note on
                 `.ghost.bordered` in the stylesheet. */}
+            {shown === 'dashboard' && (
+              <DashboardPanel t={t} routines={routines} agents={agentsList} missed={missedRuns}
+                    onRun={(r) => void runRoutine(r)}
+                    onOpen={(id) => { const c = chatsIn(root).find((x) => x.id === id); if (c) openChat(c); }}
+                    onRoutines={() => { setRail('routines'); setRailOpen(true); }}
+                    onNewChat={newChat} />
+            )}
+            {shown === 'routines' && (
+              <RoutinesPanel root={root} t={t} routines={routines} onRoutines={setRoutines}
+                    onRun={(r) => void runRoutine(r)}
+                    onOpen={(id) => { const c = chatsIn(root).find((x) => x.id === id); if (c) openChat(c); }}
+                    onError={(m) => push({ kind: 'error', text: m })}
+                    onAgents={setAgentsList}
+                    unattendedMayAct={autoOn(auto)} />
+            )}
+            {shown === 'plugins' && (
+              <PluginsPanel root={root} t={t}
+                    servers={mcpServers} tools={mcpTools} error={mcpError}
+                    onToggle={(sv) => void toggleServer(sv)}
+                    onSettings={() => { setSettingsAt('modules'); setShowSettings(true); }} />
+            )}
+
             {shown === 'prompts' && (
               <PromptsPanel root={root} t={t}
                     onToChat={(text) => { setActive('chat'); setPrompt((p) => (p.trim() ? `${p.trim()}\n${text}` : text)); }}
@@ -3335,7 +3513,7 @@ export function App() {
             <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#g)" />
             <defs>
               <linearGradient id="g" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#6D5CF0" /><stop offset=".55" stopColor="#5B4DE0" /><stop offset="1" stopColor="#8B5CF6" />
+                <stop offset="0" stopColor="#5C8FFF" /><stop offset=".55" stopColor="#2F7BF6" /><stop offset="1" stopColor="#1A5FDF" />
               </linearGradient>
             </defs>
             <path d="M17 22.5 L27 41.5 L37 22.5" fill="none" stroke="#fff" strokeWidth="5.2" strokeLinecap="round" strokeLinejoin="round" />
@@ -3361,6 +3539,21 @@ export function App() {
             {git.branch}{git.dirty ? ` · ${git.dirty} ${t('modified')}` : ''}
           </span>
         )}
+        <span className="bar-sp" />
+        {/* Agent · Code · Chat. In the title bar because it is about the whole
+            window, not about the next message — that toggle stays in the
+            composer. */}
+        <span className="seg space" role="group" aria-label={t('Way of working')}>
+          {(['agent', 'code', 'chat'] as Space[]).map((sp) => (
+            <button key={sp} className={space === sp ? 'on' : ''} aria-pressed={space === sp}
+                    onClick={() => goTo(sp)}
+                    title={t(sp === 'agent' ? 'Teammates on routines'
+                      : sp === 'code' ? 'Terminals and files over this folder'
+                      : 'A conversation not tied to a project')}>
+              {t(sp === 'agent' ? 'Agent' : sp === 'code' ? 'Code' : 'Chat')}
+            </button>
+          ))}
+        </span>
         <span className="bar-sp" />
         {/* One field across the middle, which is the whole of Phase O: seven
             boxes had seven placeholders and this has one. A button rather than
@@ -4291,7 +4484,9 @@ export function App() {
                 It sits beside the model picker because both change what the
                 next message will cost and what it can do. */}
             <span className="seg cmp-mode" role="group" aria-label={t('Mode')}>
-              {(['ask', 'agent'] as Mode[]).map((m) => (
+              {mode === 'chat' ? (
+                <button className="on" aria-pressed disabled title={t('A conversation not tied to a project')}>{t('Chat')}</button>
+              ) : (['ask', 'agent'] as Mode[]).map((m) => (
                 <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}
                         aria-pressed={mode === m}
                         title={t(m === 'ask' ? 'Reads only — cannot change anything' : 'Can propose edits and ask to run commands')}>

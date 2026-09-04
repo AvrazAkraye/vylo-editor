@@ -15,6 +15,7 @@ import {
 } from './scrollback';
 import { fragment } from './suggest';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
+import { PRESETS, apply as applyPreset, describe as describeLayout, type Preset } from './layouts';
 import {
   NOTHING as NO_INPUT, keystrokes, kindOf, quotePath, remember, suggest,
   typedPart, worth, type Suggestion, type Typed,
@@ -592,6 +593,32 @@ export function TerminalPanel({
   const dead = tabs.find((x) => x.id === focus)?.dead;
 
   /**
+   * Snap the panes to a preset — BridgeMind's Solo / Pair / Workbench / Tidy.
+   *
+   * `pair` and `workbench` with only one terminal open ask for a second; the
+   * new tab lands in `tabs` on the next render, so the preset is held in a ref
+   * and applied then. Applying it now would lay out a session that does not
+   * exist yet.
+   */
+  const wanted = useRef<Preset | null>(null);
+  function snap(preset: Preset) {
+    const r = applyPreset(preset, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
+    if (r.needsNew) { wanted.current = preset; add(true); return; }
+    setShown(r.shown);
+    setWeights(r.weights);
+  }
+  useEffect(() => {
+    if (!wanted.current || tabs.length < 2) return;
+    const preset = wanted.current;
+    wanted.current = null;
+    const r = applyPreset(preset, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
+    setShown(r.shown);
+    setWeights(r.weights);
+    // The set is read at apply time; nothing here should re-run on its own.
+  }, [tabs.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+
+  /**
    * Work out what could finish the line, whenever it changes.
    *
    * Debounced, because this runs on every keystroke and the path half reads a
@@ -690,6 +717,17 @@ export function TerminalPanel({
               <Icon name="sparkle" size={13} />{t('Ask')}
             </button>
           )}
+          <span className="seg lay" role="group" aria-label={t('Layout')}>
+            {PRESETS.map((p) => {
+              const on = p.id !== 'tidy' && describeLayout(onScreen, weights) === p.id;
+              return (
+                <button key={p.id} className={on ? 'on' : ''} aria-pressed={on}
+                        onClick={() => snap(p.id)} title={t(p.about)}>
+                  {t(p.label)}
+                </button>
+              );
+            })}
+          </span>
           <button className="ghost icon" onClick={split}
                   disabled={onScreen.length >= MAX_PANES}
                   title={t('Show another terminal beside this one')}

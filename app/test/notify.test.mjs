@@ -22,7 +22,7 @@ const ok = (name, cond, detail = '') => {
   cond ? pass++ : fail++;
 };
 
-const KINDS = ['approval', 'staged', 'finished', 'failed'];
+const KINDS = ['approval', 'staged', 'finished', 'failed', 'routine'];
 const PREFS = LEVELS.flatMap((level) => [{ level, sound: false }, { level, sound: true }]);
 /** Every moment this module knows, including the one variation. */
 const MOMENTS = [...KINDS.map((kind) => ({ kind })), { kind: 'approval', mcp: true }];
@@ -69,8 +69,10 @@ ok('every sentence a banner can carry is one written in the module',
 // If this fails, a sentence was added: it needs an ar, ckb and kmr translation
 // in `i18n.ts` before `test/i18n.test.mjs` will agree, and the count here is the
 // reminder. Eight is three titles and five bodies.
-ok('the closed set is the eight sentences the module writes out',
-   SENTENCES.length === 8 && new Set(SENTENCES).size === 8, SENTENCES);
+// Ten since routines arrived: a finished routine is a result waiting for a
+// person, and gets its own two sentences.
+ok('the closed set is the ten sentences the module writes out',
+   SENTENCES.length === 10 && new Set(SENTENCES).size === 10, SENTENCES);
 
 ok('no sentence names a file, a command, a tool or a model',
    SENTENCES.every((s) => !/[`$|<>]|\.\/|--/.test(s)), SENTENCES);
@@ -132,8 +134,14 @@ ok('only the approval dialog asks for attention that keeps going',
    && summons({ kind: 'approval', mcp: true }, AWAY, DEFAULT).attention === 'critical');
 
 ok('everything else asks once',
-   ['staged', 'finished', 'failed'].every(
+   ['staged', 'finished', 'failed', 'routine'].every(
      (kind) => summons({ kind }, AWAY, { level: 'all', sound: false }).attention === 'informational'));
+// A routine's whole value is that somebody reads the result, so at the default
+// level it raises a banner the way an approval does — news would not.
+ok('a finished routine raises a banner at the default level',
+   summons({ kind: 'routine' }, AWAY, { level: 'needed', sound: false }) !== null);
+ok('while a plain finished turn still does not',
+   summons({ kind: 'finished' }, AWAY, { level: 'needed', sound: false }) === null);
 
 // ── one banner per decision ───────────────────────────────────────────────
 ok('a turn that stages six files raises one banner, not six',

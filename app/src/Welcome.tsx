@@ -89,7 +89,7 @@ export function Welcome({ recents, onOpen, onOpenFolder, apiKey, baseUrl, onSign
             <rect x="2" y="2" width="60" height="60" rx="13" fill="url(#wg)" />
             <defs>
               <linearGradient id="wg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#6D5CF0" /><stop offset=".55" stopColor="#5B4DE0" /><stop offset="1" stopColor="#8B5CF6" />
+                <stop offset="0" stopColor="#5C8FFF" /><stop offset=".55" stopColor="#2F7BF6" /><stop offset="1" stopColor="#1A5FDF" />
               </linearGradient>
             </defs>
             <path d="M17 22.5 L27 41.5 L37 22.5" fill="none" stroke="#fff" strokeWidth="5.2" strokeLinecap="round" strokeLinejoin="round" />

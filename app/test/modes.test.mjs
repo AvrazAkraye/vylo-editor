@@ -5,7 +5,7 @@
 // So these tests check the array, and they are written to fail if someone adds
 // a tool that changes something without deciding which side of the line it goes
 // on. A new tool defaults to *neither* list here, and that is caught.
-import { READ_TOOLS, WRITE_TOOLS, TOOLS } from '../.test-build/agent.js';
+import { READ_TOOLS, WRITE_TOOLS, TOOLS, toolsFor, system } from '../.test-build/agent.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -129,6 +129,31 @@ const ABSENT = [
 // before anything runs. A gate you can see is not the same as a missing one.
 for (const forbidden of ABSENT) {
   ok(`${forbidden} is absent from the schema`, !TOOLS.some((t) => t.name === forbidden));
+}
+
+// ── Chat mode: the sandbox is the absence ─────────────────────────────────
+// A model with the repository in its prompt answers about the repository
+// whether or not it was asked to. Chat carries nothing: no tools, no
+// environment block, no memory — so it cannot claim to have read a file.
+ok('chat mode sends no tools at all', toolsFor({ mode: 'chat', extraTools: [{ name: 'x' }] }).length === 0);
+ok('not even the read tools', (() => {
+  const names = toolsFor({ mode: 'chat' }).map((t) => t.name);
+  return !READ_TOOLS.some((t) => names.includes(t.name));
+})());
+ok('ask mode still sends exactly the read tools', (() => {
+  const names = toolsFor({ mode: 'ask' }).map((t) => t.name).sort().join();
+  return names === READ_TOOLS.map((t) => t.name).sort().join();
+})());
+ok('agent mode sends everything plus extras', toolsFor({ mode: 'agent', extraTools: [{ name: 'mcp__x' }] }).length === TOOLS.length + 1);
+{
+  const env = 'ENVIRONMENT-FACTS-MARKER';
+  const mem = 'MEMORY-MARKER';
+  const chat = system({ mode: 'chat', environment: env, memory: mem });
+  ok('chat mode drops the project environment from the prompt', !chat.includes(env));
+  ok('and the memory', !chat.includes(mem));
+  ok('and says it is a conversation not tied to a project', /not tied to a project/i.test(chat));
+  const ask = system({ mode: 'ask', environment: env, memory: mem });
+  ok('ask mode keeps both, as before', ask.includes(env) && ask.includes(mem));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

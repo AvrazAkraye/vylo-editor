@@ -192,7 +192,19 @@ export const WRITE_TOOLS = [
 /** Everything, for Agent mode. `TOOLS` is kept as the name callers know. */
 export const TOOLS = [...READ_TOOLS, ...WRITE_TOOLS];
 
-export type Mode = 'ask' | 'agent';
+/**
+ * What the model may do this turn.
+ *
+ * `agent` may stage edits and ask to run commands, both behind the approval
+ * gate. `ask` may only read the project. `chat` may not even do that: no
+ * tools, no project facts, no memory — a conversation that is not tied to a
+ * folder. That last one exists because "ask a question about a file I dropped
+ * in" is a different act from "ask about this repository", and a model with
+ * the repository in its prompt will answer about the repository whether or not
+ * it was asked to. BridgeMind's phrase for it is that the engine "cannot
+ * pretend it is inside your codebase"; the sandbox is the absence.
+ */
+export type Mode = 'ask' | 'agent' | 'chat';
 
 /**
  * Ask mode adds a sentence, but the sentence is not what stops anything.
@@ -207,6 +219,15 @@ const ASK_NOTE = [
   'tools for staging edits and running commands are not available to you. If a',
   'change is needed, describe it — including the exact edit you would make — and',
   'say that switching to Agent mode will let you propose it.',
+].join('\n');
+
+const CHAT_NOTE = [
+  '',
+  'You are in **Chat** mode: a conversation that is not tied to a project. You',
+  'have no tools and no view of any repository — do not claim to have read or',
+  'changed a file. Answer from the conversation and anything attached to it.',
+  'If the person wants work done in their project, say that Code mode is where',
+  'the agent can see it.',
 ].join('\n');
 
 const BASE_SYSTEM = [
@@ -557,12 +578,21 @@ export function keepText(messages: Msg[]): Msg[] {
  * effects are not visible from its schema — a name like `query` could write —
  * so "Ask changes nothing" can only hold if they are left out.
  */
-function toolsFor(o: RunOptions): unknown[] {
+export function toolsFor(o: Pick<RunOptions, 'mode' | 'extraTools'>): unknown[] {
+  // No tools at all is the whole meaning of Chat — see `Mode`.
+  if (o.mode === 'chat') return [];
   if (o.mode === 'ask') return [...READ_TOOLS];
   return [...TOOLS, ...(o.extraTools ?? [])];
 }
 
-function system(o: RunOptions, summary = ''): string {
+export function system(o: Pick<RunOptions, 'mode' | 'environment' | 'memory'>, summary = ''): string {
+  // Chat carries nothing about the project — not the environment block, not
+  // the memory — so the model cannot answer about a repository it was never
+  // shown. The sandbox is the absence, not an instruction to ignore.
+  if (o.mode === 'chat') {
+    const cut = summaryBlock(summary);
+    return cut ? `${BASE_SYSTEM}\n${CHAT_NOTE}\n\n${cut}` : `${BASE_SYSTEM}\n${CHAT_NOTE}`;
+  }
   const base = o.mode === 'ask' ? `${BASE_SYSTEM}\n${ASK_NOTE}` : BASE_SYSTEM;
   const parts = [base];
   // Before the memory, because it is the more stable of the two. The memory

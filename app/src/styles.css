@@ -24,8 +24,14 @@
  * token can never exist only inside a media query — that is the bug that renders
  * one theme's text on the other theme's background.
  *
- * Neutrals carry a slight violet bias toward the brand rather than being pure
- * grey, which is what stops a dark UI reading as washed-out charcoal.
+ * The light neutrals carry a slight violet bias rather than being pure grey,
+ * which is what stops them reading as washed-out. The dark theme is
+ * BridgeMind's: a near-black canvas and a card one step above it, snow and
+ * linen for text, bridge-blue for the accent with amber beside it. The accent
+ * is the same blue family in both, so the two themes read as one product
+ * rather than as two. Every dark token is written twice below, identically --
+ * a token in only one of the two blocks makes the toggle disagree with the
+ * system setting, which is the bug the two blocks exist to prevent.
  */
 :root{
   --bg:#FBFAFD;          /* app canvas */
@@ -37,13 +43,18 @@
   --mute:#6F6C84;
   --rule:#E4E1EF;
   --rule-2:#D6D2E6;
-  --brand:#5B4DE0;
-  --brand-2:#8B5CF6;
-  --brand-wash:#EEEBFD;
+  /* The accent is BridgeMind's blue in both themes. On paper it is the deep
+     one: bridge-blue #2F7BF6 is 3.97:1 on white, and the accent is set as
+     text on every surface here. Bridge-blue-deep measures 5.61:1 on --panel,
+     5.39 on --bg, 5.01 on --panel-2, 4.60 on --panel-3 and 4.90 on
+     --brand-wash. Nothing else in the light theme moved. */
+  --brand:#1A5FDF;
+  --brand-2:#2F7BF6;     /* bridge-blue, the lighter partner; reserved for gradients, unused today */
+  --brand-wash:#E9F0FE;
   --ok-wash:#E4F4EC;
   --err-wash:#FBE9E7;
   --warn-wash:#FBF0DC;
-  --fill:#5B4DE0;
+  --fill:#1A5FDF;        /* --on-fill on it: 5.61:1 */
   --on-fill:#FFFFFF;
   --on-fill-line:rgb(255 255 255 / .35);
   --on-fill-wash:rgb(255 255 255 / .14);
@@ -67,6 +78,20 @@
   --syn-var:#16151D;
   --syn-bad:#A8332A;
   --shadow:0 1px 2px rgb(22 21 29 / .06), 0 8px 24px -14px rgb(22 21 29 / .18);
+  /* The welcome and the empty chat. `--sheen` is the gradient the headline is
+     cut from, so its stops are text colours and are measured as such: ink,
+     the accent and the amber ink -- 17.42, 5.39 and 5.70:1 on --bg. `--glow`
+     is the light the primary button sits in, and `--hero` the two soft
+     glows behind hero content, blue above and amber off to one side; both
+     are quieter on paper than in the dark, where the brand lives. The dark
+     blocks redefine all three; `--track` is shared. */
+  --sheen:linear-gradient(to bottom right, #16151D 28%, #1A5FDF 68%, #8A5A00 100%);
+  --glow:0 8px 30px -6px rgb(47 123 246 / .35);
+  --hero:radial-gradient(55% 40% at 50% 30%, rgb(47 123 246 / .14), transparent 70%), radial-gradient(32% 32% at 76% 64%, rgb(255 184 0 / .08), transparent 70%);
+  /* Body tracking. The brand sets running text at -0.16px. It is applied to
+     the welcome and the empty state here and belongs on `body` once the rest
+     of the chrome is retuned -- that rule is outside this pass. */
+  --track:-0.16px;
   /* Type. Seven steps, densest at the bottom because that is where most of a
      dense UI lives. Before this the file held sixteen sizes between 8 and 18px
      -- 9 next to 9.5 next to 10 next to 10.5 -- differences nobody can see,
@@ -87,11 +112,15 @@
   --sp-1: 2px;  --sp-2: 4px;  --sp-3: 6px;  --sp-4: 8px;  --sp-5: 10px;
   --sp-6: 12px; --sp-7: 14px; --sp-8: 16px; --sp-9: 18px; --sp-10: 20px;
 
-  /* Radius, by the size of the thing it is rounding. */
+  /* Radius, by the size of the thing it is rounding. Cards are the brand's
+     12px. Overlays go one step further and no further: the brand's 30px is a
+     marketing-page radius, and on a palette whose rows run edge to edge it
+     clips the first row's corners, and on a chat bubble it rounds a paragraph
+     into a pill. */
   --r-1: 5px;   /* chips, badges, small controls */
   --r-2: 7px;   /* buttons, inputs */
-  --r-3: 9px;   /* cards, panels, the composer */
-  --r-4: 12px;  /* overlays */
+  --r-3: 12px;  /* cards, panels, the composer */
+  --r-4: 16px;  /* overlays */
 
   /* One disabled fade. It was six values between .35 and .55, each decided a
      control at a time. A ratio rather than a colour, so it is not repeated in
@@ -127,107 +156,175 @@
 /* System-following dark. Guarded so an explicit light choice still wins. */
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#121118;
-    --panel:#1A1922;
-    --panel-2:#201F2A;
-    --panel-3:#2A2836;
-    --ink:#ECEAF5;
-    --ink-2:#B6B2C8;
-    --mute:#8B87A0;
-    --rule:#2C2A39;
-    --rule-2:#3A3749;
-    --brand:#A99AFF;
-    --brand-2:#C4A9FF;
-    --brand-wash:#241F3C;
-    --ok-wash:#12261F;
-    --err-wash:#2E1815;
-    --warn-wash:#2A2113;
-    --fill:#5A46C8;
-    --on-fill:#F4F1FF;
-    --on-fill-line:rgb(244 241 255 / .34);
-    --on-fill-wash:rgb(244 241 255 / .13);
-    --ok:#6BD6AE;
-    --warn:#E0AE5C;
-    --err:#F0897C;
+    --bg:#0D0E11;          /* canvas */
+    --panel:#111214;       /* card: raised surfaces */
+    --panel-2:#16171B;     /* sunken surfaces, one step above the card */
+    --panel-3:#1E2026;     /* hover on sunken */
+    --ink:#FFFFFF;         /* snow */
+    --ink-2:#E5E5E7;       /* linen */
+    /* BridgeMind has no third text tone and the app needs one: `--mute` is what
+       a hint, a comment and a keyboard chord are set in. A neutral a shade bluer
+       than the canvas, lifted until it passes on the lightest surface it sits
+       on -- 5.29:1 on --panel-3, 6.27:1 on --bg. */
+    --mute:#8F939C;
+    --rule:#212429;        /* 1.24:1 on --bg, the step the light hairline takes */
+    --rule-2:#2E323A;
+    /* The accent as *text*. Bridge-blue itself is 4.10:1 on --panel-3, so links,
+       chips and every "on" state use the blue BridgeMind sets type in: 5.29:1 on
+       --panel-3, 5.28:1 on --brand-wash, 6.28:1 on --bg. */
+    --brand:#5C8FFF;
+    --brand-2:#8FB3FF;     /* the lighter partner; reserved for gradients, unused today */
+    --brand-wash:#12203A;
+    --ok-wash:#0C2417;
+    --err-wash:#2A1214;
+    --warn-wash:#2B2108;
+    /* The filled button. Snow on bridge-blue #2F7BF6 is 3.97:1, and white type at
+       12.5px on a button is not large text. This is bridge-blue pulled 45% of the
+       way to bridge-blue-deep -- the treatment `--amber-ink` gets on paper, the
+       brand value darkened until it passes: 4.64:1 with --on-fill. Hover
+       and press brighten it a step (`filter`) without leaving the family. */
+    --fill:#266EEC;
+    --on-fill:#FFFFFF;
+    --on-fill-line:rgb(255 255 255 / .35);
+    --on-fill-wash:rgb(255 255 255 / .14);
+    /* Status. Green and amber are the brand's own. Red is #FF2D2D lifted one
+       step, because at 4.39:1 on --panel-3 the brand red fails on the hover
+       surface a blocked task's row sits on. Measured on --panel-3 / --bg:
+       ok 5.12 / 6.07, warn 9.39 / 11.13, err 4.70 / 5.57. Err is also 4.68:1
+       on --brand-wash, where the remove button of a sending queue row lands,
+       5.07 on --err-wash and 4.73 on --ok-wash, the editor's current line. */
+    --ok:#23A55A;
+    --warn:#FFB800;
+    --err:#FF4040;
     /* Pressed. Dark surfaces lift rather than darken; the same filter in both
        themes would make one of them look broken. */
     --press: brightness(1.16);
-    /* Darker over a dark page: the same 32% that separates a dialog from white
-       barely separates one from near-black. */
-    --scrim: rgb(0 0 0 / .62);
-    /* Lifted, and not the same eight: a colour that reads on paper goes muddy
-       on a dark ground, and the blues suffer most. */
-    --tag-red:#F0897C;
-    --tag-amber:#E0AE5C;
+    /* The scrim is the brand's deepest tone, ink #050506, at 62%: the 32% that
+       separates a dialog from white barely separates one from near-black. */
+    --scrim: rgb(5 5 6 / .62);
+    /* Tags. Not the light eight: a colour that reads on paper goes muddy on a
+       dark ground. The four the brand names are the brand's, the other four are
+       lifted to the same weight. Every one is set as text somewhere -- a status
+       pill, a section heading -- so every one is measured on --panel-3: red 4.70,
+       amber 9.39, green 5.12, teal 6.80, blue 5.29, violet 6.03, pink 5.68,
+       grey 6.07. */
+    --tag-red:#FF4040;
+    --tag-amber:#FFB800;
     --amber-ink:var(--tag-amber);
-    --tag-green:#5FD3A8;
-    --tag-teal:#4FCBD6;
-    --tag-blue:#7FA9FF;
-    --tag-violet:#B79BFF;
-    --tag-pink:#F08AC4;
-    --tag-grey:#9A94B4;
+    --tag-green:#23A55A;
+    --tag-teal:#2FB8C4;
+    --tag-blue:#5C8FFF;
+    --tag-violet:#A48CFF;
+    --tag-pink:#F06AA8;
+    --tag-grey:#9A9EA8;
+    /* Code. The palette was tuned for legibility on a dark ground rather than to
+       the old brand, so it stays. Only the three that are defined as a theme
+       token follow it: a comment is --mute, a variable is --ink, an invalid
+       token is --err. */
     --syn-kw:#C4A9FF;
     --syn-str:#6BD6AE;
     --syn-num:#E0AE5C;
-    --syn-com:#8B87A0;
+    --syn-com:#8F939C;
     --syn-fn:#8FB8FF;
     --syn-type:#6FD8DC;
-    --syn-var:#ECEAF5;
-    --syn-bad:#F0897C;
-    --shadow:0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -14px rgb(0 0 0 / .6);
+    --syn-var:#FFFFFF;
+    --syn-bad:#FF4040;
+    /* Ink under the card, not black: the brand's long soft card shadow. The
+       one-pixel hairline stays because #111214 on #0D0E11 is one step, and a
+       card one step above its canvas needs an edge. */
+    --shadow:0 1px 2px rgb(5 5 6 / .5), 0 18px 50px -30px rgb(5 5 6 / .55);
+    /* The headline sheen as the brand draws it: snow into a pale blue into a warm
+       cream. Its darkest stop, #CFDCFF, is 14.09:1 on --bg. */
+    --sheen:linear-gradient(to bottom right, #FFFFFF 28%, #CFDCFF 68%, #FFF3DF 100%);
+    --glow:0 8px 30px -6px rgb(47 123 246 / .55);
+    --hero:radial-gradient(55% 40% at 50% 30%, rgb(47 123 246 / .28), transparent 70%), radial-gradient(32% 32% at 76% 64%, rgb(255 184 0 / .12), transparent 70%);
   }
 }
 
 /* Explicit dark, so the toggle wins in the other direction too. */
 :root[data-theme="dark"]{
-  --bg:#121118;
-  --panel:#1A1922;
-  --panel-2:#201F2A;
-  --panel-3:#2A2836;
-  --ink:#ECEAF5;
-  --ink-2:#B6B2C8;
-  --mute:#8B87A0;
-  --rule:#2C2A39;
-  --rule-2:#3A3749;
-  --brand:#A99AFF;
-  --brand-2:#C4A9FF;
-  --brand-wash:#241F3C;
-  --ok-wash:#12261F;
-  --err-wash:#2E1815;
-  --warn-wash:#2A2113;
-  --fill:#5A46C8;
-  --on-fill:#F4F1FF;
-  --on-fill-line:rgb(244 241 255 / .34);
-  --on-fill-wash:rgb(244 241 255 / .13);
-  --ok:#6BD6AE;
-  --warn:#E0AE5C;
-  --err:#F0897C;
+  --bg:#0D0E11;          /* canvas */
+  --panel:#111214;       /* card: raised surfaces */
+  --panel-2:#16171B;     /* sunken surfaces, one step above the card */
+  --panel-3:#1E2026;     /* hover on sunken */
+  --ink:#FFFFFF;         /* snow */
+  --ink-2:#E5E5E7;       /* linen */
+  /* BridgeMind has no third text tone and the app needs one: `--mute` is what
+     a hint, a comment and a keyboard chord are set in. A neutral a shade bluer
+     than the canvas, lifted until it passes on the lightest surface it sits
+     on -- 5.29:1 on --panel-3, 6.27:1 on --bg. */
+  --mute:#8F939C;
+  --rule:#212429;        /* 1.24:1 on --bg, the step the light hairline takes */
+  --rule-2:#2E323A;
+  /* The accent as *text*. Bridge-blue itself is 4.10:1 on --panel-3, so links,
+     chips and every "on" state use the blue BridgeMind sets type in: 5.29:1 on
+     --panel-3, 5.28:1 on --brand-wash, 6.28:1 on --bg. */
+  --brand:#5C8FFF;
+  --brand-2:#8FB3FF;     /* the lighter partner; reserved for gradients, unused today */
+  --brand-wash:#12203A;
+  --ok-wash:#0C2417;
+  --err-wash:#2A1214;
+  --warn-wash:#2B2108;
+  /* The filled button. Snow on bridge-blue #2F7BF6 is 3.97:1, and white type at
+     12.5px on a button is not large text. This is bridge-blue pulled 45% of the
+     way to bridge-blue-deep -- the treatment `--amber-ink` gets on paper, the
+     brand value darkened until it passes: 4.64:1 with --on-fill. Hover
+     and press brighten it a step (`filter`) without leaving the family. */
+  --fill:#266EEC;
+  --on-fill:#FFFFFF;
+  --on-fill-line:rgb(255 255 255 / .35);
+  --on-fill-wash:rgb(255 255 255 / .14);
+  /* Status. Green and amber are the brand's own. Red is #FF2D2D lifted one
+     step, because at 4.39:1 on --panel-3 the brand red fails on the hover
+     surface a blocked task's row sits on. Measured on --panel-3 / --bg:
+     ok 5.12 / 6.07, warn 9.39 / 11.13, err 4.70 / 5.57. Err is also 4.68:1
+     on --brand-wash, where the remove button of a sending queue row lands,
+     5.07 on --err-wash and 4.73 on --ok-wash, the editor's current line. */
+  --ok:#23A55A;
+  --warn:#FFB800;
+  --err:#FF4040;
   /* Pressed. Dark surfaces lift rather than darken; the same filter in both
      themes would make one of them look broken. */
   --press: brightness(1.16);
-  /* Darker over a dark page: the same 32% that separates a dialog from white
-     barely separates one from near-black. */
-  --scrim: rgb(0 0 0 / .62);
-  /* Lifted, and not the same eight: a colour that reads on paper goes muddy
-     on a dark ground, and the blues suffer most. */
-  --tag-red:#F0897C;
-  --tag-amber:#E0AE5C;
+  /* The scrim is the brand's deepest tone, ink #050506, at 62%: the 32% that
+     separates a dialog from white barely separates one from near-black. */
+  --scrim: rgb(5 5 6 / .62);
+  /* Tags. Not the light eight: a colour that reads on paper goes muddy on a
+     dark ground. The four the brand names are the brand's, the other four are
+     lifted to the same weight. Every one is set as text somewhere -- a status
+     pill, a section heading -- so every one is measured on --panel-3: red 4.70,
+     amber 9.39, green 5.12, teal 6.80, blue 5.29, violet 6.03, pink 5.68,
+     grey 6.07. */
+  --tag-red:#FF4040;
+  --tag-amber:#FFB800;
   --amber-ink:var(--tag-amber);
-  --tag-green:#5FD3A8;
-  --tag-teal:#4FCBD6;
-  --tag-blue:#7FA9FF;
-  --tag-violet:#B79BFF;
-  --tag-pink:#F08AC4;
-  --tag-grey:#9A94B4;
+  --tag-green:#23A55A;
+  --tag-teal:#2FB8C4;
+  --tag-blue:#5C8FFF;
+  --tag-violet:#A48CFF;
+  --tag-pink:#F06AA8;
+  --tag-grey:#9A9EA8;
+  /* Code. The palette was tuned for legibility on a dark ground rather than to
+     the old brand, so it stays. Only the three that are defined as a theme
+     token follow it: a comment is --mute, a variable is --ink, an invalid
+     token is --err. */
   --syn-kw:#C4A9FF;
   --syn-str:#6BD6AE;
   --syn-num:#E0AE5C;
-  --syn-com:#8B87A0;
+  --syn-com:#8F939C;
   --syn-fn:#8FB8FF;
   --syn-type:#6FD8DC;
-  --syn-var:#ECEAF5;
-  --syn-bad:#F0897C;
-  --shadow:0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -14px rgb(0 0 0 / .6);
+  --syn-var:#FFFFFF;
+  --syn-bad:#FF4040;
+  /* Ink under the card, not black: the brand's long soft card shadow. The
+     one-pixel hairline stays because #111214 on #0D0E11 is one step, and a
+     card one step above its canvas needs an edge. */
+  --shadow:0 1px 2px rgb(5 5 6 / .5), 0 18px 50px -30px rgb(5 5 6 / .55);
+  /* The headline sheen as the brand draws it: snow into a pale blue into a warm
+     cream. Its darkest stop, #CFDCFF, is 14.09:1 on --bg. */
+  --sheen:linear-gradient(to bottom right, #FFFFFF 28%, #CFDCFF 68%, #FFF3DF 100%);
+  --glow:0 8px 30px -6px rgb(47 123 246 / .55);
+  --hero:radial-gradient(55% 40% at 50% 30%, rgb(47 123 246 / .28), transparent 70%), radial-gradient(32% 32% at 76% 64%, rgb(255 184 0 / .12), transparent 70%);
 }
 
 *{ box-sizing:border-box; }
@@ -308,7 +405,18 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   padding-inline:max(var(--sp-8), calc((100% - var(--col)) / 2));
   display:flex; flex-direction:column; gap:var(--sp-5);
 }
-.empty{ margin:auto; max-width:46ch; text-align:center; color:var(--ink-2); line-height:1.6; }
+/* The empty chat is the first thing a person sees after opening a folder, so
+   it is drawn as the brand draws a hero: a soft blue glow above the headline
+   and a warmer one off to one side, both from `--hero`, and both painted on
+   this box alone -- the transcript behind it stays flat. The padding is what
+   gives the glow room to fade before the box edge; without it the gradient
+   stops where the text does. Wider by about the same amount, so the copy
+   keeps its 46ch measure. */
+.empty{
+  margin:auto; max-width:52ch; padding:var(--sp-10) var(--sp-8);
+  text-align:center; color:var(--ink-2); line-height:1.6;
+  letter-spacing:var(--track); background:var(--hero);
+}
 .empty p{ margin:0 0 var(--sp-5); }
 
 .line{ display:flex; gap:var(--sp-4); align-items:flex-start; line-height:1.55; }
@@ -318,7 +426,7 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   padding:var(--sp-4) var(--sp-6);
   /* The tail is on the corner nearest the person who typed it, so it belongs
      to the trailing edge rather than to the right-hand one. */
-  border-radius:var(--r-4); border-end-end-radius:var(--r-1);
+  border-radius:var(--r-3); border-end-end-radius:var(--r-1);
 }
 .line.you .body{ color:var(--on-fill); }
 .line.text{ max-width:82%; }
@@ -565,7 +673,7 @@ body.resizing-v .cmp-grip i{ background:var(--brand); }
 }
 .dropzone span{
   background:var(--panel); color:var(--ink); padding:var(--sp-6) var(--sp-9);
-  border-radius:var(--r-4); border:1px solid var(--rule); font-size:var(--fs-5); font-weight:600;
+  border-radius:var(--r-3); border:1px solid var(--rule); font-size:var(--fs-5); font-weight:600;
 }
 
 /* ── git chip ────────────────────────────────────────────────────────── */
@@ -2165,11 +2273,34 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   flex:1; min-height:0; overflow-y:auto; display:flex; justify-content:center;
   padding:var(--sp-10) var(--sp-8); background:var(--bg);
 }
-.wc-inner{ width:100%; max-width:520px; margin:auto; }
+.wc-inner{ width:100%; max-width:520px; margin:auto; letter-spacing:var(--track); }
 
-.wc-head{ text-align:center; }
-.wc-mark{ width:52px; height:52px; border-radius:var(--r-4); display:block; margin:0 auto var(--sp-6); }
-.wc-head h1{ margin:0 0 var(--sp-3); font-size:var(--fs-8); font-weight:650; letter-spacing:-.01em; }
+/* The hero glow, on the head alone: the recents and the key map below it are
+   lists, and a list on a glow is a list that is harder to read. */
+.wc-head{ text-align:center; padding-block:var(--sp-8); background:var(--hero); }
+/* The card radius, which is the 12px this always had. `--r-4` grew, and a
+   16px clip on a 52px mark sits inside the mark's own drawn corner. */
+.wc-mark{ width:52px; height:52px; border-radius:var(--r-3); display:block; margin:0 auto var(--sp-6); }
+.wc-head h1{ margin:0 0 var(--sp-3); }
+/* The two headlines -- the welcome's and the empty chat's -- are display type
+   in the brand's sense: tight tracking, cut from `--sheen`. The brand's .9
+   line-height is for a headline five times this size; at 18px the type is
+   clipped to a gradient, and below about 1.1 the descenders of a script that
+   has them leave the line box -- and a glyph outside the box is a glyph with
+   nothing painted behind it. The hair of padding is the same insurance.
+   `color` is set outside the `@supports` so a webview without
+   `background-clip:text` draws ink rather than a transparent word over a
+   gradient rectangle. */
+.wc-head h1, .empty-lead{
+  font-size:var(--fs-8); font-weight:650; letter-spacing:-.035em;
+  line-height:1.1; padding-block:.06em; color:var(--ink);
+}
+@supports (-webkit-background-clip:text) or (background-clip:text){
+  .wc-head h1, .empty-lead{
+    background:var(--sheen); -webkit-background-clip:text; background-clip:text;
+    color:transparent;
+  }
+}
 .wc-head p{
   margin:0 auto; max-width:44ch; font-size:var(--fs-4); line-height:1.65; color:var(--mute);
 }
@@ -2180,6 +2311,7 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   font:inherit; font-size:var(--fs-4); font-weight:600;
   border:0; border-radius:var(--r-3); cursor:pointer;
   background:var(--fill); color:var(--on-fill);
+  box-shadow:var(--glow);   /* the brand's primary button sits in its own light */
 }
 .wc-open:hover{ filter:brightness(1.06); }
 .wc-drop{ margin:0; text-align:center; font-size:var(--fs-3); color:var(--mute); }
@@ -2227,11 +2359,13 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .keys kbd{
   display:inline-block; box-sizing:content-box; min-width:7ch; text-align:center;
   font-family:var(--mono); font-size:var(--fs-2); color:var(--ink-2);
+  letter-spacing:0;   /* the body tracking is for prose; a chord keeps its grid */
   padding:var(--sp-1) var(--sp-3); border:1px solid var(--rule-2);
   border-bottom-width:2px; border-radius:var(--r-1); background:var(--panel);
 }
 .empty .keys{ margin-top:var(--sp-8); text-align:start; }
-.empty-lead{ font-size:var(--fs-6); font-weight:600; color:var(--ink); }
+/* `.empty-lead` is set with `.wc-head h1` under "welcome" above: one headline
+   rule for the two screens that have one. */
 
 /* ── review: per-hunk decisions ──────────────────────────────────────── */
 /* The bar stays put while the hunks scroll, so the file you are looking at and
@@ -2381,7 +2515,7 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); }
 .pv-form label{ display:flex; flex-direction:column; gap:var(--sp-1); font-size:var(--fs-1);
   color:var(--mute); text-transform:uppercase; letter-spacing:.06em; }
-.pv-form input, .pv-form select{
+.pv-form input, .pv-form select, .pv-form textarea{
   font:inherit; font-size:var(--fs-3); color:var(--ink); padding:var(--sp-2) var(--sp-3);
   border:1px solid var(--rule); border-radius:var(--r-1); background:var(--bg); outline:none;
   text-transform:none; letter-spacing:normal;
@@ -2811,6 +2945,7 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .wc-key{
   margin-top:var(--sp-9); padding:var(--sp-6);
   border:1px solid var(--brand); border-radius:var(--r-3); background:var(--brand-wash);
+  box-shadow:var(--shadow);   /* a card, so it carries the card shadow */
 }
 .wc-key h2{
   margin:0 0 var(--sp-2); font-size:var(--fs-4); font-weight:600;
@@ -2858,7 +2993,10 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 }
 
 /* With a key still to enter, opening a folder is the second step, not the first. */
-.wc-open.second{ background:var(--panel); color:var(--ink-2); border:1px solid var(--rule-2); }
+.wc-open.second{
+  background:var(--panel); color:var(--ink-2); border:1px solid var(--rule-2);
+  box-shadow:none;   /* the glow is the primary's; a second step does not glow */
+}
 .wc-open.second:hover{ border-color:var(--brand); color:var(--ink); filter:none; }
 
 /* The recovery banner borrows the update banner's shape but not its urgency:
@@ -3191,6 +3329,12 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
  * `.ft-caret.open` on its own.
  */
 :root[dir="rtl"] .ft-caret{ transform:rotate(180deg); }
+/* Tracking is a Latin idea. Arabic-script letters join, and negative
+   letter-spacing pulls the joins apart -- WebKit applies it between every
+   glyph -- so the headline tightening above is switched off when the
+   interface is in one of the three RTL languages. */
+:root[dir="rtl"] .wc-head h1, :root[dir="rtl"] .empty-lead,
+:root[dir="rtl"] .empty, :root[dir="rtl"] .wc-inner{ letter-spacing:0; }
 :root[dir="rtl"] .ft-caret.open{ transform:rotate(90deg); }
 :root[dir="rtl"] .toolrun .tr-caret{ transform:rotate(180deg); }
 :root[dir="rtl"] .toolrun.open .tr-caret{ transform:rotate(90deg); }
@@ -3238,3 +3382,70 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .reorder-x .drop-after::after{ inset-block:0; inset-inline-end:-1px; width:2px; }
 .reorder-y .drop-before::after{ inset-inline:0; inset-block-start:-1px; height:2px; }
 .reorder-y .drop-after::after{ inset-inline:0; inset-block-end:-1px; height:2px; }
+
+/* ── Agent mode: dashboard, routines, plugins, the space switch ─────────────
+   Three panels that share one row grammar with the prompts list (.pr-*): a
+   what-column that ellipsises, a trailing act cluster, a hover wash. The
+   dashboard's facts are the one place a number is allowed to be big. */
+.seg.space button{ padding:3px var(--sp-5); font-weight:500; }
+.seg.lay button{ padding:1px var(--sp-3); font-size:var(--fs-2); }
+
+.rt, .db, .pg{ flex:1; min-height:0; display:flex; flex-direction:column; overflow-y:auto; }
+.rt-sub{ display:flex; align-items:center; justify-content:space-between; }
+.rt-note{ margin:0; padding:0 var(--sp-4) var(--sp-2); font-size:var(--fs-1); color:var(--mute); }
+.rt-agents, .rt-list, .db-list, .pg-list{
+  list-style:none; margin:0; padding:0 var(--sp-3) var(--sp-3); display:flex; flex-direction:column; gap:2px;
+}
+.rt-agent, .rt-row, .db-row, .pg-row{
+  display:flex; align-items:center; gap:var(--sp-2); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-2);
+}
+.rt-agent:hover, .rt-row:hover, .db-row:hover, .pg-row:hover{ background:var(--panel-3); }
+.rt-what, .db-what, .pg-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.rt-what b, .db-what b, .pg-what b{
+  font-size:var(--fs-3); font-weight:500; color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.rt-what > span, .db-what > span, .pg-what > span{
+  font-size:var(--fs-1); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.rt-what em, .db-row > em{ font-style:normal; font-size:var(--fs-1); color:var(--mute); white-space:nowrap; }
+.rt-what em{ white-space:normal; }
+.rt-row.paused .rt-what{ opacity:.55; }
+.rt-row.failed .rt-what em{ color:var(--err); }
+.rt-mode{ flex:none; width:8px; height:8px; border-radius:50%; background:var(--mute); }
+.rt-mode.agent{ background:var(--brand); }
+.rt-acts{ display:flex; align-items:center; gap:1px; flex:none; }
+.rt-agent .todo-x, .rt-row .todo-x{ opacity:0; }
+.rt-agent:hover .todo-x, .rt-row:hover .todo-x, .rt-row .todo-x:focus-visible, .rt-agent .todo-x:focus-visible{ opacity:1; }
+.rt-form{ margin:0 var(--sp-3) var(--sp-3); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); }
+.rt-form textarea{ resize:vertical; min-height:56px; font-family:inherit; line-height:1.4; }
+
+.db-facts{ display:grid; grid-template-columns:repeat(3, 1fr); gap:var(--sp-2); padding:var(--sp-3) var(--sp-4); }
+.db-facts > div{
+  display:flex; flex-direction:column; align-items:flex-start; gap:2px; padding:var(--sp-3);
+  border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); min-inline-size:0;
+}
+.db-facts b{ font-size:var(--fs-8); font-weight:600; line-height:1; color:var(--ink); }
+.db-facts span{ font-size:var(--fs-1); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+.db-facts .bad b{ color:var(--err); }
+.db-missed{
+  display:flex; gap:var(--sp-2); align-items:flex-start; margin:0 var(--sp-4) var(--sp-3); padding:var(--sp-3);
+  border-radius:var(--r-2); background:var(--panel-3); color:var(--amber-ink); font-size:var(--fs-2);
+}
+.db-dot{ flex:none; width:8px; height:8px; border-radius:50%; }
+.db-dot.ok{ background:var(--ok); }
+.db-dot.bad{ background:var(--err); }
+.db-acts{ display:flex; gap:var(--sp-2); padding:var(--sp-3) var(--sp-4); margin-block-start:auto; }
+.db-acts .ghost{ display:inline-flex; align-items:center; gap:var(--sp-2); }
+
+.pg-none{ padding:var(--sp-2) var(--sp-4); }
+.pg-what b{ display:inline-flex; align-items:center; gap:var(--sp-1); }
+.pg-what code{
+  font-family:var(--mono); font-size:var(--fs-1); color:var(--mute);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.pg-tools{ display:flex; flex-wrap:wrap; gap:3px; margin-block-start:2px; }
+.pg-tools em{ font-style:normal; font-size:var(--fs-1); padding:0 5px; border-radius:99px; background:var(--panel-3); color:var(--mute); }
+.pg-row.on .pg-what b{ color:var(--brand); }
+.pg-more{ margin:auto var(--sp-4) var(--sp-4); align-self:flex-start; }
+.mcp-err{ margin:var(--sp-2) var(--sp-4); color:var(--err); font-size:var(--fs-1); }

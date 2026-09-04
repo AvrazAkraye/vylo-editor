@@ -56,7 +56,7 @@ import {
  */
 
 /** The moments that need a human. Nothing else raises anything. */
-export type Kind = 'approval' | 'staged' | 'finished' | 'failed';
+export type Kind = 'approval' | 'staged' | 'finished' | 'failed' | 'routine';
 
 /**
  * What happened.
@@ -144,6 +144,14 @@ const SAYS: Record<Kind, Omit<Summons, 'sound'>> = {
     body: 'The turn ended with an error.',
     attention: 'informational',
   },
+  // A routine ran while nobody was watching, which is the point of one — and
+  // its whole value is that somebody then reads the result. So it counts as
+  // needing a person, the way an approval does, rather than as news.
+  routine: {
+    title: 'A routine finished',
+    body: 'Its result is waiting in a chat for you to review.',
+    attention: 'informational',
+  },
 };
 
 /**
@@ -178,7 +186,7 @@ export function summons(m: Moment, focused: boolean, prefs: Prefs): Summons | nu
   if (prefs.level === 'off') return null;
   // `needed` is the moments somebody is being waited for. A turn that merely
   // ended is news, and news that interrupts is what people switch off.
-  if (prefs.level === 'needed' && m.kind !== 'approval' && m.kind !== 'staged') return null;
+  if (prefs.level === 'needed' && m.kind !== 'approval' && m.kind !== 'staged' && m.kind !== 'routine') return null;
 
   // A kind that is not in the table is a kind nothing here knows how to phrase.
   // Silence beats an empty banner, and this is reachable: the caller is
