@@ -950,6 +950,9 @@ const ar: Dict = {
   'Auto-approve is on: routines may edit and run commands without asking.': 'الموافقة التلقائية مفعّلة: يمكن للروتينات أن تعدّل وتشغّل أوامر دون أن تسأل.',
   'Run now — reads only': 'شغّل الآن — يقرأ فقط',
   'Run now — may edit, behind the approval dialog': 'شغّل الآن — يمكنه التعديل، خلف نافذة الموافقة',
+  'That is the app itself. The pane shows a dev server, not the editor.': 'هذا هو التطبيق نفسه. تعرض هذه اللوحة خادم تطوير، لا المحرِّر.',
+  'That is not a port a server can listen on. Ports run from 1 to 65535.': 'هذا ليس منفذاً يمكن لخادم أن ينصت عليه. المنافذ من 1 إلى 65535.',
+  'That address is too long. The limit is 2048 characters, counted after encoding.': 'هذا العنوان أطول من اللازم. الحد 2048 حرفاً، تُحسب بعد الترميز.',
 };
 
 const ckb: Dict = {
@@ -1874,6 +1877,9 @@ const ckb: Dict = {
   'Auto-approve is on: routines may edit and run commands without asking.': 'ڕەزامەندی خۆکار چالاکە: ڕۆتینەکان دەتوانن دەستکاری بکەن و فەرمان کارپێبکەن بەبێ پرسیارکردن.',
   'Run now — reads only': 'ئێستا کارپێبکە — تەنها دەخوێنێتەوە',
   'Run now — may edit, behind the approval dialog': 'ئێستا کارپێبکە — دەتوانێت دەستکاری بکات، لە پشت پەنجەرەی ڕەزامەندی',
+  'That is the app itself. The pane shows a dev server, not the editor.': 'ئەوە خودی ئەپەکەیە. ئەم پانێلە سێرڤەری گەشەپێدان پیشان دەدات، نەک دەسکاریکەرەکە.',
+  'That is not a port a server can listen on. Ports run from 1 to 65535.': 'ئەوە پۆرتێک نییە کە سێرڤەرێک بتوانێت گوێی لێ بگرێت. پۆرتەکان لە 1ەوە تا 65535ن.',
+  'That address is too long. The limit is 2048 characters, counted after encoding.': 'ئەم ناونیشانە زۆر درێژە. سنوور 2048 پیتە، دوای کۆدکردن دەژمێردرێن.',
 };
 
 const kmr: Dict = {
@@ -2798,6 +2804,9 @@ const kmr: Dict = {
   'Auto-approve is on: routines may edit and run commands without asking.': 'Pejirandina otomatîk vekirî ye: rûtîn dikarin biguherînin û fermanan bimeşînin bêyî ku bipirsin.',
   'Run now — reads only': 'Niha bimeşîne — tenê dixwîne',
   'Run now — may edit, behind the approval dialog': 'Niha bimeşîne — dikare biguherîne, li pişt pencereya pejirandinê',
+  'That is the app itself. The pane shows a dev server, not the editor.': 'ئەڤە سەپان بخۆ یە. ئەڤ پانێلە سێرڤەرا پێشڤەبرنێ نیشان ددەت، نە ئێدیتۆری.',
+  'That is not a port a server can listen on. Ports run from 1 to 65535.': 'ئەڤە نە پۆرتەک ە کو سێرڤەرەک ل سەر گوهدارییێ بکەت. پۆرت ژ 1 هەتا 65535 نە.',
+  'That address is too long. The limit is 2048 characters, counted after encoding.': 'ئەڤ ناڤنیشانە زێدە درێژە. سنوور 2048 تیپ ە، پشتی کۆدکرنێ دهێتە ژمارتن.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

@@ -89,6 +89,22 @@ ok('no headings at all does not divide by nothing', entryLevel('just words') ===
   ok('but a lone ## with a body is a skill', parse('## Solo\n\nGo.\n').length === 1);
   ok('and a lone # with a body is a title, whatever is under it', parse('# Solo\n\nGo.\n').length === 0);
 }
+// Level alone cannot tell `# Title` above `## A` from `## A` above its own
+// `### Section` — they are the same shape — so only a lone `#` is a title.
+// Reading it the other way costs a one-skill file its only skill.
+{
+  const one = '## Review\n\nRead it.\n\n### Findings\n\nOne per line.\n';
+  ok('a lone ## above deeper headings is a skill, not a title', entryLevel(one) === 2, entryLevel(one));
+  const p = parse(one);
+  ok('so the file has that skill', p.length === 1 && p[0].name === 'Review', p.map((x) => x.name));
+  ok('with the section in its sheet', p[0].body === 'Read it.\n\n### Findings\n\nOne per line.', p[0].body);
+  ok('and the next skill goes in beside it', add(one, { name: 'Tests', body: 'Run them.' }).includes('\n## Tests\n'),
+     add(one, { name: 'Tests', body: 'Run them.' }));
+  ok('a lone ##### above a ###### is read the same way', parse('##### A\n\na\n\n###### B\n\nb\n').length === 1);
+  // The `#` case is unchanged: that is a title, and always was.
+  ok('but a lone # above deeper headings is still the title',
+     entryLevel('# Title\n\n## a\n\nb\n\n### c\n\nd\n') === 2 && parse('# Title\n\n## a\n\nb\n').length === 1);
+}
 
 // ── ids ───────────────────────────────────────────────────────────────────
 ok('a slug is lowercase with hyphens', slug('Release notes') === 'release-notes');
@@ -271,6 +287,210 @@ ok('a rename alone keeps the body', (() => {
   return q[0].name === 'Code review' && q[0].id === 'code-review' && q[0].body === p[0].body;
 })());
 
+// ── a heading typed into a sheet ──────────────────────────────────────────
+// The Instructions box takes free-form prose, and a `#` in it used to be
+// written through verbatim. `entryLevel` counts the levels of the whole
+// document, so one body re-levelled the whole file: the real entries stopped
+// being entries and the title became a row a panel could rewrite and remove.
+{
+  const p = parse(STARTER);
+  const after = update(STARTER, p[0].line, { name: 'Review', body: 'Read the change.\n\n# Findings\n\nOne per line.' });
+  const q = parse(after);
+  ok('a # typed into a sheet does not become an entry', q.length === 2, q.map((x) => x.name));
+  ok('and the file still has the skills it had', q.map((x) => x.name).join('|') === 'Review|Release notes', q.map((x) => x.name));
+  ok('the title is still the title', entryLevel(after) === 2 && !q.some((x) => x.name === 'Skills'), entryLevel(after));
+  ok('the section is kept, one level under the entry', q[0].body.includes('\n### Findings\n'), q[0].body);
+  ok('with the words around it', q[0].body.startsWith('Read the change.') && q[0].body.endsWith('One per line.'), q[0].body);
+  ok('the agent is still handed the sheet', textFor(q, ['Review']).Review === q[0].body);
+  ok('and the skill below it is byte for byte the same', q[1].body === p[1].body, q[1].body);
+  // The heading is no longer structure, so `endOf` still ends the entry where
+  // the entry ends — removing the neighbour used to take the file with it.
+  ok('removing the neighbour takes only the neighbour', parse(remove(after, q[1].line)).length === 1);
+  // One fewer hash split the sheet in two and left a phantom skill behind.
+  const two = parse(update(STARTER, p[0].line, { name: 'Review', body: 'Read it.\n\n## Findings\n\nOne per line.' }));
+  ok('nor does a ## split the sheet in two', two.length === 2 && two[0].body.includes('### Findings'), two.map((x) => x.name));
+  // `add` reads the level the same way, so it is poisoned the same way.
+  ok('and the next new skill still goes in at the file\'s level', add(after, { name: 'Third', body: 'c' }).includes('\n## Third\n'));
+}
+// A sheet with sections in it is still one sheet — that was always true of a
+// heading a person hand-wrote, and is what this leaves alone.
+ok('a heading already deeper than the entry is untouched', (() => {
+  const after = update(REAL, parse(REAL)[0].line, { name: 'Review', body: 'a\n\n### Shape\n\nb' });
+  return parse(after)[0].body === 'a\n\n### Shape\n\nb';
+})(), parse(update(REAL, parse(REAL)[0].line, { name: 'Review', body: 'a\n\n### Shape\n\nb' }))[0].body);
+ok('a new skill is written the same way', (() => {
+  const q = parse(add(REAL, { name: 'New', body: '# A\n\nx' }));
+  return q.length === 4 && q[3].body === '### A\n\nx';
+})(), parse(add(REAL, { name: 'New', body: '# A\n\nx' })).map((x) => x.body));
+// The nesting inside a sheet is the author's. Clamping every heading onto one
+// level would put a section beside the section it was written under.
+ok('the sheet keeps its own nesting', (() => {
+  const q = parse(add(REAL, { name: 'New', body: '# A\n\n## B\n\nx' }));
+  return q[3].body === '### A\n\n#### B\n\nx';
+})(), parse(add(REAL, { name: 'New', body: '# A\n\n## B\n\nx' }))[3].body);
+// The form is filled from what `parse` read, and Save on a form nobody
+// touched must write the same bytes — not push the sheet down another level.
+ok('writing a sheet back unchanged writes the same bytes', (() => {
+  const once = add(REAL, { name: 'New', body: '# A\n\nx' });
+  const s = parse(once)[3];
+  return update(once, s.line, { name: s.name, body: s.body }) === once;
+})());
+// The file a hand-written two-skill file with no title becomes when one of
+// them is removed — and then a section typed into the one that is left. The
+// demoted heading used to make `## Review` read as the document's title, and
+// the only skill in the file stopped existing.
+{
+  const one = '## Review\n\nRead it.\n';
+  const after = update(one, 0, { name: 'Review', body: 'Read it.\n\n# Findings\n\nOne per line.' });
+  const q = parse(after);
+  ok('a section typed into the only skill of a title-less file keeps the skill',
+     q.length === 1 && q[0].name === 'Review', q.map((x) => x.name));
+  ok('and the section is in its sheet, one level down', q[0].body === 'Read it.\n\n### Findings\n\nOne per line.', q[0].body);
+  ok('the entry level does not move', entryLevel(after) === 2, entryLevel(after));
+  ok('the agent is still handed the sheet', textFor(q, ['Review']).Review === q[0].body);
+  ok('writing it back writes the same bytes', update(after, q[0].line, { name: 'Review', body: q[0].body }) === after);
+  ok('the skill can still be removed', remove(after, q[0].line).trim() === '');
+  ok('and the next new skill goes in beside it', (() => {
+    const two = parse(add(after, { name: 'Tests', body: 'Run them.' }));
+    return two.length === 2 && two.map((x) => x.name).join('|') === 'Review|Tests';
+  })(), parse(add(after, { name: 'Tests', body: 'Run them.' })).map((x) => x.name));
+}
+
+// ── a fenced block in a sheet ─────────────────────────────────────────────
+// A sheet says how to do something, so it has commands in it, and a shell
+// block has comments in it. To CommonMark, to GitHub and to whoever reads the
+// file, that line is code — on the way out and on the way back in.
+{
+  const body = 'Run this:\n\n```sh\n# install first\nnpm i\n```\n\nDone.';
+  const after = update(STARTER, parse(STARTER)[0].line, { name: 'Review', body });
+  const q = parse(after);
+  ok('a # inside a fence is written through byte for byte', after.includes('\n# install first\nnpm i\n'), after);
+  ok('and read back exactly as it was typed', q[0].body === body, q[0].body);
+  ok('the file still has both its skills', q.map((x) => x.name).join('|') === 'Review|Release notes', q.map((x) => x.name));
+  ok('and the title is still the title', entryLevel(after) === 2 && !q.some((x) => x.name === 'Skills'));
+  ok('saving it again writes the same bytes', update(after, q[0].line, { name: 'Review', body: q[0].body }) === after);
+}
+// The fence's # also set the shift for the whole sheet, so a real section
+// below it went down a level further than it had to.
+ok('a fenced # does not set the shift for the rest of the sheet', (() => {
+  const q = parse(add(REAL, { name: 'New', body: 'a\n\n```sh\n# c\n```\n\n## Section\n\nx' }));
+  return q[3].body === 'a\n\n```sh\n# c\n```\n\n### Section\n\nx';
+})(), parse(add(REAL, { name: 'New', body: 'a\n\n```sh\n# c\n```\n\n## Section\n\nx' }))[3].body);
+// The read side had the same hole from the start: a fenced # a person wrote
+// by hand re-levelled the file exactly the way a typed one did.
+{
+  const hand = '# Skills\n\npara\n\n## A\n\n```sh\n# c\n```\n\n## B\n\nb\n';
+  const p = parse(hand);
+  ok('a hand-written fenced # is not the file\'s shallowest heading', entryLevel(hand) === 2, entryLevel(hand));
+  ok('and does not split the sheet it is in', p.map((x) => x.name).join('|') === 'A|B' && p[0].body === '```sh\n# c\n```', p);
+}
+// `endOf` reads the same file the same way, so a fenced heading is not an
+// entry boundary and is not an entry.
+{
+  const text = '## A\n\n```\n## not a skill\n```\n\n## B\n\nb\n';
+  const p = parse(text);
+  ok('a fenced heading does not end the entry it is in', p.length === 2 && p[0].body === '```\n## not a skill\n```', p);
+  ok('removing the next skill leaves the fenced one whole', remove(text, p[1].line) === '## A\n\n```\n## not a skill\n```\n',
+     remove(text, p[1].line));
+  ok('and a fenced heading cannot be removed as if it were a skill', remove(text, 3) === text);
+  ok('nor rewritten as one', update(text, 3, { name: 'X', body: 'y' }) === text);
+}
+ok('and a fenced heading does not decide the level a new skill goes in at', (() => {
+  // Two `#` lines would be a file written with `#` and no title — but one of
+  // them is code, so this is a title with nothing under it yet.
+  const after = add('# Skills\n\n```\n# c\n```\n', { name: 'B', body: 'b' });
+  const q = parse(after);
+  return after.includes('\n## B\n') && q.length === 1 && q[0].name === 'B';
+})(), add('# Skills\n\n```\n# c\n```\n', { name: 'B', body: 'b' }));
+// CommonMark opens and closes a fence by the rail: the same character, at
+// least as many of it, nothing after it, and no backtick in a backtick
+// fence's info string.
+ok('a longer rail is not closed by a shorter one', (() => {
+  const body = '````\n```\n# still code\n````';
+  return parse(add(REAL, { name: 'New', body }))[3].body === body;
+})(), parse(add(REAL, { name: 'New', body: '````\n```\n# still code\n````' }))[3].body);
+ok('a rail with an info string on it does not close one', (() => {
+  const body = '```sh\n# c\n```js\n# also code\n```';
+  return parse(add(REAL, { name: 'New', body }))[3].body === body;
+})(), parse(add(REAL, { name: 'New', body: '```sh\n# c\n```js\n# also code\n```' }))[3].body);
+ok('a backtick rail whose info string holds a backtick is not a fence at all', (() => {
+  const q = parse(add(REAL, { name: 'New', body: '``` a`b\n\n# S\n\nx' }));
+  return q[3].body === '``` a`b\n\n### S\n\nx';
+})(), parse(add(REAL, { name: 'New', body: '``` a`b\n\n# S\n\nx' }))[3].body);
+// The sheet itself is trimmed on the way in, so an indented rail is one with
+// something above it.
+ok('three spaces in is still a fence', (() => {
+  const body = 'a\n\n   ```\n# c\n   ```\n\n# S\n\nx';
+  return parse(add(REAL, { name: 'New', body }))[3].body === 'a\n\n   ```\n# c\n   ```\n\n### S\n\nx';
+})(), parse(add(REAL, { name: 'New', body: 'a\n\n   ```\n# c\n   ```\n\n# S\n\nx' }))[3].body);
+ok('four is an indented code block, not a rail', (() => {
+  const body = 'a\n\n    ```\n\n# S\n\nx';
+  return parse(add(REAL, { name: 'New', body }))[3].body === 'a\n\n    ```\n\n### S\n\nx';
+})(), parse(add(REAL, { name: 'New', body: 'a\n\n    ```\n\n# S\n\nx' }))[3].body);
+// An open fence runs to the end of the document, so one sheet's stray ``` would
+// take every skill below it out of the file. The fence has to close somewhere.
+ok('a fence a sheet never closes is closed at the end of the sheet', (() => {
+  const q = parse(add(REAL, { name: 'New', body: 'Run:\n\n```sh\nnpm i' }));
+  return q.length === 4 && q[3].body === 'Run:\n\n```sh\nnpm i\n```';
+})(), parse(add(REAL, { name: 'New', body: 'Run:\n\n```sh\nnpm i' }))[3].body);
+ok('so the skills below it are still skills', (() => {
+  const after = update(REAL, parse(REAL)[0].line, { name: 'Review', body: 'Run:\n\n```sh\nnpm i' });
+  return parse(after).map((x) => x.name).join('|') === 'Review|Release notes|Tests';
+})(), parse(update(REAL, parse(REAL)[0].line, { name: 'Review', body: 'Run:\n\n```sh\nnpm i' })).map((x) => x.name));
+ok('it closes with the rail the sheet opened', (() => {
+  const q = parse(add(REAL, { name: 'New', body: '~~~~\nx' }));
+  return q[3].body === '~~~~\nx\n~~~~';
+})(), parse(add(REAL, { name: 'New', body: '~~~~\nx' }))[3].body);
+ok('and closing it is done once', (() => {
+  const once = add(REAL, { name: 'New', body: 'Run:\n\n```sh\nnpm i' });
+  const s = parse(once)[3];
+  return update(once, s.line, { name: s.name, body: s.body }) === once;
+})());
+
+// ── six hashes, and the escape that comes back off ────────────────────────
+// Six hashes is as deep as Markdown goes, so a heading with nowhere left to
+// go is escaped. Capping it at six would be worse than doing nothing: at a
+// level-six entry, six is the entry level, and the capped heading becomes a
+// sibling skill.
+{
+  const deep = update('###### Solo\n\nRead it.\n', 0, { name: 'Solo', body: '# F\n\nx' });
+  const q = parse(deep);
+  ok('a heading with nowhere deeper to go is escaped in the file', deep.includes('\n\\# F\n'), deep);
+  ok('so it is no longer structure', q.length === 1 && q[0].name === 'Solo', q.map((x) => x.name));
+  // The escape used to be one-way: the form showed it, the model was given
+  // it, and a sheet copied into a shallower file carried it for good.
+  ok('but the form is handed the line as it was typed', q[0].body === '# F\n\nx', q[0].body);
+  ok('and so is the model', textFor(q, ['Solo']).Solo === '# F\n\nx');
+  ok('writing that straight back writes the same bytes', update(deep, 0, { name: 'Solo', body: q[0].body }) === deep);
+  ok('and the same sheet in a file with room becomes a heading again', (() => {
+    return parse(add(REAL, { name: 'Copied', body: q[0].body }))[3].body === '### F\n\nx';
+  })(), parse(add(REAL, { name: 'Copied', body: q[0].body }))[3].body);
+}
+{
+  // A sheet that straddles the floor: what fits is demoted, what does not is
+  // escaped. Reading the escape off gives the deeper heading room the next
+  // time — the shallower one it was nested under has moved down — so the
+  // sheet settles after one save and stays there.
+  const once = update('##### Solo\n\nRead it.\n', 0, { name: 'Solo', body: '# A\n\n###### B\n\nx' });
+  ok('what fits is demoted and only the overflow is escaped',
+     once.includes('\n###### A\n') && once.includes('\n\\###### B\n'), once);
+  const b = parse(once)[0].body;
+  const twice = update(once, 0, { name: 'Solo', body: b });
+  ok('and the sheet settles after one save', b === '###### A\n\n###### B\n\nx', b);
+  ok('with the skill intact', parse(twice).length === 1 && parse(twice)[0].body === b, parse(twice));
+  ok('and no further change', update(twice, 0, { name: 'Solo', body: b }) === twice, twice);
+}
+ok('a backslash inside a fence is somebody\'s code and stays', (() => {
+  const body = 'a\n\n```\n\\# literal\n```';
+  return parse(add(REAL, { name: 'New', body }))[3].body === body;
+})(), parse(add(REAL, { name: 'New', body: 'a\n\n```\n\\# literal\n```' }))[3].body);
+// The carriage return is put back per line, so a line the sheet gained must
+// have one too.
+ok('demoting in a CRLF file leaves every line CRLF', (() => {
+  const after = update('# Skills\r\n\r\n## One\r\n\r\nDo it.\r\n', 2, { name: 'One', body: 'a\n# S\nb' });
+  return !/[^\r]\n/.test(after) && parse(after)[0].body === 'a\n### S\nb';
+})(), update('# Skills\r\n\r\n## One\r\n\r\nDo it.\r\n', 2, { name: 'One', body: 'a\n# S\nb' }));
+
 // ── what an agent is handed ───────────────────────────────────────────────
 // `agents.systemPromptFor(agent, skillsText)` takes a record from name to
 // text and looks each of the agent's names up in it, exactly first and then
@@ -376,6 +596,17 @@ ok('a rename alone keeps the body', (() => {
   const onlyGone = remove('# S\r\n\r\npara\r\n\r\n## A\r\n\r\na\r\n', 4);
   ok('and removing the only skill under a title leaves the title and its paragraph, ending in CRLF',
      onlyGone === '# S\r\n\r\npara\r\n', onlyGone);
+
+  // A rail closes a fence when nothing but space follows it, and a carriage
+  // return is space the file put there.
+  const fenced = '# Skills\r\n\r\n## One\r\n\r\n```sh\r\n# c\r\n```\r\n\r\n## Two\r\n\r\nb\r\n';
+  const f = parse(fenced);
+  ok('a fence closes in a CRLF file too', entryLevel(fenced) === 2 && f.map((x) => x.name).join('|') === 'One|Two', f);
+  ok('and its code has no carriage return in it', f[0].body === '```sh\n# c\n```', f[0].body);
+  ok('a fence closed on the way into a CRLF file is CRLF as well', (() => {
+    const out = update('# Skills\r\n\r\n## One\r\n\r\nDo it.\r\n', 2, { name: 'One', body: '```\nx' });
+    return !/[^\r]\n/.test(out) && out.endsWith('## One\r\n\r\n```\r\nx\r\n```\r\n');
+  })(), update('# Skills\r\n\r\n## One\r\n\r\nDo it.\r\n', 2, { name: 'One', body: '```\nx' }));
 }
 
 // ── names in other scripts ────────────────────────────────────────────────

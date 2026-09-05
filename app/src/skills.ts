@@ -82,6 +82,121 @@
  * way, so the title cannot be listed, rewritten or removed by a panel that
  * lists skills.
  *
+ * ## And a title is a `#`, at that level and no other
+ *
+ * `entryLevel` used to look for a title at whatever the shallowest level
+ * happened to be: one heading there, anything deeper below it, and the one
+ * became the title. That reads `## Review` above `### Findings` as a titled
+ * file with one skill called "Findings" — and the skill called "Review",
+ * which is the whole file, stops existing. It is not a hypothetical: it is
+ * what a one-skill file becomes the moment somebody types a section into the
+ * sheet, which is the very thing the demotion below exists to make safe.
+ *
+ * Level and level alone cannot tell `# Title` above `## A` from `## A` above
+ * `### Section` — they are the same shape — so the level is the rule: only a
+ * lone `#` is a title. That is what the section above already promised, what
+ * `titleOnly` already does, and what `add` already writes; `entryLevel` now
+ * says it too, and the three agree. The cost is a file titled `## Skills`
+ * with `### Review` under it, which is now one skill with a section rather
+ * than a title with an entry. Nobody titles a file with two hashes, and the
+ * alternative costs the far commoner file its only skill.
+ *
+ * Writing the missing `# Skills` line into the file instead — so a demoted
+ * section can never be mistaken for an entry — was the other way out. It
+ * fixes the same case and adds a line to somebody's file that they did not
+ * write, in a module whose first promise is that editing one entry leaves
+ * every other byte alone.
+ *
+ * ## A heading typed into a sheet is demoted, not written through
+ *
+ * `parse` reads a heading deeper than the entry level as part of the sheet —
+ * a sheet with sections in it is still one sheet — and that held for text a
+ * person hand-wrote in the file. It did not hold for text the panel wrote.
+ * The Instructions box takes free-form prose, somebody types `# Findings` in
+ * a sheet, and that section is written into the file as a heading at the
+ * title's level. The damage is not to the one entry: `entryLevel` counts the
+ * levels of the whole document, so a single `#` in a single body flips the
+ * entry level for every skill in the file. The real entries stop being
+ * entries, the title becomes a row a panel can rewrite and remove, `remove`
+ * takes the title and everything under it to the next `#`, and the next `add`
+ * writes at the wrong level.
+ *
+ * So the write side enforces what the read side promises. `render` knows the
+ * level the entry is going in at — `add` computes it, `update` takes it from
+ * the heading it is replacing — and shifts every heading in the body that
+ * would sit at or above that level down to one below it, by one amount, so
+ * the sheet's own nesting survives the move. `clean` cannot do this: it is
+ * the level that decides what is too shallow, and `clean` is not told one.
+ *
+ * Refusing the heading was the other option and it is worse: a sheet with
+ * sections in it is a good sheet, the box is a textarea for prose, and an
+ * error that says "no Markdown headings" in a Markdown file is this module's
+ * storage format leaking into somebody's writing.
+ *
+ * ## A `#` inside a fence is not a heading, on the way in or out
+ *
+ * A sheet says how to do something, so a sheet has commands in it, and a
+ * shell block has comments in it:
+ *
+ *     ```sh
+ *     # install first
+ *     npm i
+ *     ```
+ *
+ * To CommonMark, to GitHub and to whoever reads the file, that line is code.
+ * Demoting it wrote `### install first` into somebody's shell script, and —
+ * worse, because it is silent — the `#` set the shift for the whole sheet, so
+ * the real section below it went down a level further than it had to. The
+ * read side had the same hole from the start: a hand-written sheet with a
+ * fenced `#` in it re-levelled the file exactly the way a typed one did.
+ *
+ * So `scan` reads the lines once, tracks fences the way CommonMark opens and
+ * closes them — three or more backticks or tildes, up to three spaces in,
+ * closed by the same character at least as long with nothing after it — and
+ * everything else here asks it rather than the heading pattern. Fenced lines
+ * are content: not headings to `entryLevel`, not entry boundaries to `endOf`,
+ * not candidates for demotion, and not touched by the escape below. They are
+ * written through byte for byte.
+ *
+ * A fence the sheet opens and never closes is the one case that reading it
+ * properly makes worse: to CommonMark it swallows the rest of the document,
+ * so every skill below would leave the panel. The write side answers that the
+ * same way it answers the heading — the fence has to close somewhere, and the
+ * end of the sheet is the only place that keeps the sheet one sheet — so
+ * `render` closes it, with the rail the sheet opened. The person sees the
+ * closing line next time they open the form, which is the truth about what
+ * they wrote, and saving again changes nothing.
+ *
+ * ## Six hashes, and the escape that comes back off
+ *
+ * Six hashes is as deep as Markdown goes, so a heading the shift would push
+ * past six has nowhere to be a section: it is escaped, `\# Findings`, which
+ * is no longer structure to Markdown or to `HEADING` and still reads as the
+ * line the person typed. Capping it at six instead would be worse than doing
+ * nothing — at a level-six entry, six *is* the entry level, and the capped
+ * heading becomes a sibling skill, which is the bug this whole section is
+ * about.
+ *
+ * The escape used to be one-way. `parse` handed the backslash to the form as
+ * if somebody had typed it, the model was given it too, and a sheet copied
+ * into a shallower file — where there is room for the heading — carried it
+ * for good. So `parse` takes it back off, and `demote` puts it on again: the
+ * pair is symmetric, a sheet read and saved untouched is the same bytes, and
+ * the same sheet pasted into a file with room becomes `### Findings` as any
+ * other sheet's heading would. A `\#` a person wrote by hand at the head of a
+ * line is read as the heading it escapes, because nothing distinguishes it
+ * from this module's own, and the form showing what it means beats the form
+ * showing a backslash nobody typed. Inside a fence it is left alone, where a
+ * backslash is somebody's code.
+ *
+ * One sheet does not round-trip byte for byte, and cannot: a sheet whose
+ * headings straddle the floor, where `# A` above `###### B` at a level-five
+ * entry becomes `###### A` above an escaped `B`. Reading the escape off gives
+ * `B` room the next time — the heading it was nested under has moved down —
+ * so the second save writes `B` as a heading and every save after that writes
+ * the same bytes. The nesting was already gone when the first save flattened
+ * it, so nothing is lost that the file still had; it settles, once.
+ *
  * ## Editing is entry-level, as `AGENTS.md` is
  *
  * Changing a skill rewrites that one entry and leaves every other byte where
@@ -111,14 +226,57 @@ export type Draft = Pick<Skill, 'name' | 'body'>;
 /** `## Anything`, at any level. `\r?$` because the file lives in a repository. */
 const HEADING = /^(#{1,6})\s+(.*?)\r?$/;
 
+/**
+ * A code fence, as CommonMark opens and closes one: three or more backticks
+ * or tildes, up to three spaces in, and whatever follows on the line.
+ */
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*?)\r?$/;
+
+/** The backslash `demote` puts in front of a heading it cannot make deeper. */
+const ESCAPE = /^\\(?=#{1,6}\s)/;
+
+/** What one pass over the lines finds. */
+interface Read {
+  /**
+   * Per line, how this module reads it: the heading level, `0` for a line
+   * that is prose, and `-1` for a line a fenced code block owns — the rails
+   * included. A fenced `# comment` is code, so it is neither a heading nor
+   * something to escape or demote; see the header.
+   */
+  at: number[];
+  /** The rail of a fence still open at the end, or '' if none is. */
+  open: string;
+}
+
+/**
+ * Read every line once: what is a heading, what a fence has taken, and
+ * whether a fence was left open.
+ *
+ * One pass because a fence is state — whether a line is a heading depends on
+ * every line above it — and because `parse`, `endOf` and `demote` must all
+ * read the same file the same way or the write side stops matching the read
+ * side, which is the bug the header is about.
+ */
+function scan(lines: readonly string[]): Read {
+  let open = '';
+  const at = lines.map((line) => {
+    const f = FENCE.exec(line);
+    if (open) {
+      // Only the same character, at least as many of it, and nothing but
+      // space after it, closes a fence. Anything else is code.
+      if (f && f[1][0] === open[0] && f[1].length >= open.length && !f[2].trim()) open = '';
+      return -1;
+    }
+    // A backtick fence's info string cannot itself hold a backtick.
+    if (f && !(f[1][0] === '`' && f[2].includes('`'))) { open = f[1]; return -1; }
+    return HEADING.exec(line)?.[1].length ?? 0;
+  });
+  return { at, open };
+}
+
 /** The level of every heading in the file, in order. */
 function levels(text: string): number[] {
-  const out: number[] = [];
-  for (const line of text.split('\n')) {
-    const h = HEADING.exec(line);
-    if (h) out.push(h[1].length);
-  }
-  return out;
+  return scan(text.split('\n')).at.filter((n) => n > 0);
 }
 
 /**
@@ -129,9 +287,15 @@ function levels(text: string): number[] {
  * sentence under the title is not a skill; somebody else writes the whole
  * file with `#`, and every one of those is.
  *
- *   > The shallowest heading level is the entry level, unless there is exactly
- *   > one heading at it and deeper headings exist — then that one is the
- *   > document's title and the next level down holds the entries.
+ *   > The shallowest heading level is the entry level, unless it is level one,
+ *   > exactly one heading is at it, and deeper headings exist — then that one
+ *   > is the document's title and the next level down holds the entries.
+ *
+ * The "level one" is the part `titleOnly` and `add` always had and this did
+ * not, and without it `## Review` above a `### Findings` the sheet's own
+ * author typed is a titled file whose only skill is "Findings" — see the
+ * header. A lone shallowest heading below level one is a skill with sections
+ * under it, which is the commoner file by far.
  */
 export function entryLevel(text: string): number {
   const all = levels(text);
@@ -139,7 +303,7 @@ export function entryLevel(text: string): number {
   const top = Math.min(...all);
   const atTop = all.filter((l) => l === top).length;
   const deeper = all.filter((l) => l > top);
-  if (atTop === 1 && deeper.length) return Math.min(...deeper);
+  if (top === 1 && atTop === 1 && deeper.length) return Math.min(...deeper);
   return top;
 }
 
@@ -181,33 +345,38 @@ export function parse(text: string): Skill[] {
   // skill is removed.
   if (titleOnly(text)) return [];
   const lines = text.split('\n');
+  const { at } = scan(lines);
   const level = entryLevel(text);
   const out: Skill[] = [];
   let name = '';
-  let at = -1;
+  let head = -1;
   let body: string[] = [];
 
   const flush = () => {
-    if (at < 0) return;
+    if (head < 0) return;
     const raw = body.join('\n').trim();
-    if (name && raw) out.push({ id: '', name, body: raw, line: at });
+    if (name && raw) out.push({ id: '', name, body: raw, line: head });
     body = [];
   };
 
   lines.forEach((line, i) => {
-    const h = HEADING.exec(line);
-    if (h) {
-      // A heading shallower than the entry level is the document's title, and
-      // ends whatever entry was open. A deeper one is part of the body — a
-      // sheet with sections in it is still one sheet.
-      if (h[1].length <= level) {
-        flush();
-        if (h[1].length === level) { name = h[2].trim(); at = i; }
-        else { name = ''; at = -1; }
-        return;
-      }
+    // A heading shallower than the entry level is the document's title, and
+    // ends whatever entry was open. A deeper one is part of the body — a
+    // sheet with sections in it is still one sheet.
+    if (at[i] > 0 && at[i] <= level) {
+      flush();
+      if (at[i] === level) { name = (HEADING.exec(line)?.[2] ?? '').trim(); head = i; }
+      else { name = ''; head = -1; }
+      return;
     }
-    if (at >= 0) body.push(line.replace(/\r$/, ''));
+    // The form is filled from this, so it gets the line as the person typed
+    // it: without the carriage return the file carries, and without the
+    // escape `demote` puts on a heading it could not make any deeper. A line
+    // a fence owns keeps its backslash, where it is somebody's code.
+    if (head >= 0) {
+      const l = line.replace(/\r$/, '');
+      body.push(at[i] === 0 ? l.replace(ESCAPE, '') : l);
+    }
   });
   flush();
 
@@ -253,9 +422,63 @@ function clean(draft: Draft): Draft | null {
   return { name, body };
 }
 
-/** The lines of one entry: the heading, a blank line, the sheet. */
+/**
+ * A sheet's own headings, moved to sit under an entry heading at `level`.
+ *
+ * Anything at or above `level` would end the entry as `parse` and `endOf`
+ * read the file — see the header: one `#` typed into the Instructions box
+ * re-levels the whole document. The whole sheet shifts by one amount, taken
+ * from its shallowest heading, so `# A` above `## B` stays `A` above `B`
+ * rather than both flattening onto the same level. A sheet whose headings are
+ * already deeper than the entry is left byte for byte alone, which is what
+ * makes this idempotent: the body `parse` reads back and hands to the form is
+ * written again unchanged. A heading shifted past six has no deeper level to
+ * take, so its hashes are escaped — no longer a heading to Markdown or to
+ * `HEADING`, still the line the person typed, and taken off again by `parse`.
+ *
+ * A line a fence owns is code and is written through: it is not a heading, it
+ * does not set the shift, and it is not escaped. `scan` says which.
+ */
+function demote(body: string, level: number): string {
+  const lines = body.split('\n');
+  const { at } = scan(lines);
+  const found = at.filter((n) => n > 0);
+  const top = found.length ? Math.min(...found) : 0;
+  if (!top || top > level) return body;
+  const shift = level + 1 - top;
+  return lines.map((l, i) => {
+    if (at[i] <= 0) return l;
+    const want = at[i] + shift;
+    return want <= 6 ? l.replace(/^#+/, '#'.repeat(want)) : `\\${l}`;
+  }).join('\n');
+}
+
+/**
+ * A sheet that opens a fence and never closes it, closed at its own end.
+ *
+ * An open fence runs to the end of the document in CommonMark, so one sheet's
+ * stray ``` takes every skill below it out of the file as `parse` reads it.
+ * The fence has to close somewhere and the end of the sheet is the only place
+ * that keeps the sheet one sheet — see the header. The rail it opened with is
+ * the rail it closes with, so a ~~~ block and a longer run of backticks both
+ * close as themselves. A balanced sheet comes back untouched, so saving a
+ * sheet this has already closed writes the same bytes.
+ */
+function closeFence(body: string): string {
+  const { open } = scan(body.split('\n'));
+  return open ? `${body}\n${open}` : body;
+}
+
+/**
+ * The lines of one entry: the heading, a blank line, the sheet.
+ *
+ * `hashes` is the entry's level and the sheet's ceiling both, so the sheet is
+ * demoted under it on the way out — a heading a person typed into the box is
+ * a section of their sheet and never a heading of this file. The fence is
+ * closed first, so that what `demote` reads as code is what the file will.
+ */
 function render(s: Draft, hashes: string): string[] {
-  return [`${hashes} ${s.name}`, '', ...s.body.split('\n')];
+  return [`${hashes} ${s.name}`, '', ...demote(closeFence(s.body), hashes.length).split('\n')];
 }
 
 /**
@@ -295,15 +518,17 @@ export function add(text: string, draft: Draft): string {
   return head ? `${head}${eol}${eol}${entry}` : entry;
 }
 
-/** Where the entry whose heading is at `line` ends: the next heading at or above its level. */
-function endOf(lines: string[], line: number, level: number): number {
-  for (let i = line + 1; i < lines.length; i++) {
-    const h = HEADING.exec(lines[i]);
-    // Stops at the next entry or at anything shallower, never at a heading
-    // *inside* the sheet — a sheet with sections in it goes whole.
-    if (h && h[1].length <= level) return i;
-  }
-  return lines.length;
+/**
+ * Where the entry whose heading is at `line` ends: the next heading at or
+ * above its level, as `scan` read the file.
+ *
+ * Stops at the next entry or at anything shallower, never at a heading
+ * *inside* the sheet — a sheet with sections in it goes whole — and never at
+ * one inside a fenced block, which is not a heading at all.
+ */
+function endOf(at: readonly number[], line: number, level: number): number {
+  for (let i = line + 1; i < at.length; i++) if (at[i] > 0 && at[i] <= level) return i;
+  return at.length;
 }
 
 /**
@@ -317,10 +542,12 @@ function endOf(lines: string[], line: number, level: number): number {
 export function remove(text: string, line: number): string {
   const lines = text.split('\n');
   if (line < 0 || line >= lines.length || titleOnly(text)) return text;
+  const { at } = scan(lines);
   const level = entryLevel(text);
-  const h = HEADING.exec(lines[line]);
-  if (!h || h[1].length !== level) return text;
-  const end = endOf(lines, line, level);
+  // Not an entry heading: the title, a heading inside a sheet, a line inside
+  // a fence, or no heading at all. None of those is a skill to remove.
+  if (at[line] !== level) return text;
+  const end = endOf(at, line, level);
   const before = lines.slice(0, line);
   const after = lines.slice(end);
   // Close the gap the cut left to the one blank line that separated the
@@ -351,13 +578,13 @@ export function remove(text: string, line: number): string {
 export function update(text: string, line: number, draft: Draft): string {
   const lines = text.split('\n');
   if (line < 0 || line >= lines.length || titleOnly(text)) return text;
+  const { at } = scan(lines);
   const level = entryLevel(text);
-  const h = HEADING.exec(lines[line]);
-  if (!h || h[1].length !== level) return text;
+  if (at[line] !== level) return text;
   const s = clean(draft);
   if (!s) return text;
 
-  const end = endOf(lines, line, level);
+  const end = endOf(at, line, level);
   // The blank run before the next heading is the gap, not the entry. Keeping
   // it is what stops an edit from also closing up the file around it.
   let keep = end;
@@ -367,7 +594,7 @@ export function update(text: string, line: number, draft: Draft): string {
   // and dropping it would convert one entry of a CRLF file to LF and leave the
   // rest — a diff on every line of an entry nobody meant to reformat.
   const cr = lines[line].endsWith('\r') ? '\r' : '';
-  lines.splice(line, keep - line, ...render(s, h[1]).map((l) => l + cr));
+  lines.splice(line, keep - line, ...render(s, '#'.repeat(level)).map((l) => l + cr));
   return lines.join('\n');
 }
 

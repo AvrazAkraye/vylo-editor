@@ -397,7 +397,14 @@ pub fn shell_commands() -> Vec<String> {
 #[tauri::command]
 pub fn complete_path(cwd: String, fragment: String, limit: Option<usize>) -> Vec<String> {
     let cap = limit.unwrap_or(50).clamp(1, 200);
+    // A backslash is a shell escape on Unix (`My\ Documents`) and a path
+    // separator on Windows (`C:\Users`). Stripping it on Windows turned
+    // `C:\Users\me` into `C:Usersme`, which is no path at all — the one Rust
+    // test that CI runs on Windows and nowhere else caught it.
+    #[cfg(not(windows))]
     let frag = fragment.replace('\\', "");
+    #[cfg(windows)]
+    let frag = fragment.replace('\\', "/");
 
     let (dir_part, prefix) = match frag.rfind('/') {
         Some(at) => (&frag[..=at], &frag[at + 1..]),
@@ -415,7 +422,8 @@ pub fn complete_path(cwd: String, fragment: String, limit: Option<usize>) -> Vec
             Some(h) => dir.push(h),
             None => return Vec::new(),
         }
-    } else if dir_part.starts_with('/') {
+    } else if dir_part.starts_with('/') || std::path::Path::new(dir_part).is_absolute() {
+        // `C:/…` is absolute on Windows without a leading slash.
         dir.push(dir_part);
     } else {
         dir.push(&cwd);

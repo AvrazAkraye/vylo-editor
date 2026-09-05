@@ -245,6 +245,10 @@ const EXEMPT = [
     why: 'the strip that draws the macOS window buttons, physical with its inset' },
   { selector: '.tl', prop: 'direction',
     why: 'close, minimise, zoom is an order people recognise, not a reading order' },
+  { selector: '.mac .tl', prop: 'margin-right',
+    why: 'clearance from the window-button hover zone, an OS measurement of a corner that does not mirror' },
+  { selector: ':root[dir="rtl"].mac .tl', prop: 'margin-right',
+    why: 'the same clearance, wide enough for the control that lands there in a right-to-left header' },
 
   // 2. The path-truncation trick. `direction:rtl` here puts the ellipsis at the
   //    head of a long path so the tail that identifies the file survives, and

@@ -7,7 +7,7 @@
 // that enters the frame — typed, found in the terminal, or read back from
 // storage — goes through `normalise`, so that is where the rule is tested.
 import {
-  KEY, MAX_RECENT, detect, label, normalise, read, recent, write,
+  KEY, MAX_RECENT, detect, label, normalise, read, recent, refuse, write,
 } from '../.test-build/browser.js';
 
 let pass = 0, fail = 0;
@@ -176,6 +176,41 @@ ok('addresses come back in the order they were printed',
 ok('a port that runs on into a domain is not an address', detect('http://localhost:3000.evil.dev').length === 0);
 ok('nor one that runs on into a word', detect('http://localhost:3000abc').length === 0);
 ok('nor one that runs on into a dash', detect('http://localhost:3000-1').length === 0);
+// And the same line without a scheme is the same line. `App.tsx` puts the
+// first address `detect` returns straight into the frame, so a hit that is not
+// in the text is not a bad suggestion — it is a local port opened by a log line
+// about somewhere else.
+ok('a scheme-less port that runs on into a domain is not an address',
+   detect('proxying to localhost:3000.internal.corp').length === 0
+   && detect('open localhost:3000.evil.dev now').length === 0);
+ok('nor a scheme-less one that runs on into a word', detect('see localhost:3000abc').length === 0);
+ok('nor a scheme-less one that runs on into a dash', detect('localhost:3000-1 here').length === 0);
+// A word in any alphabet. `\w` is ASCII, so a boundary written with it held
+// after `ünchen` and after `.日本` and reported an address that is in neither
+// line — the same hazard as `.internal.corp` above, one alphabet along.
+ok('a port that runs on into a non-ASCII word is not an address',
+   detect('see localhost:3000ünchen').length === 0
+   && detect('http://localhost:3000ünchen').length === 0);
+ok('nor one that runs on into a non-ASCII domain',
+   detect('proxying to localhost:3000.日本.com').length === 0
+   && detect('http://localhost:3000.日本.com').length === 0);
+// And the same rule at the front of the host: a name that merely ends in
+// "localhost" is not the loopback, whatever the label before it is written in.
+ok('nor a host with a non-ASCII label in front of it',
+   detect('日本localhost:3000').length === 0 && detect('notlocalhost:3000').length === 0);
+// What that boundary costs, and what it does not: a language that writes
+// without spaces can print an address this walks past, but an address with
+// space around it is still an address whatever surrounds it.
+ok('an address a space away from other writing is still one',
+   detect('サーバーは localhost:3000 で起動しました').join() === 'http://localhost:3000/');
+// The `u` flag governs the path too, and a non-ASCII path is still a path:
+// the parser encodes it, exactly as it would for one that was typed.
+ok('and a non-ASCII path is kept, encoded',
+   detect('open http://localhost:3000/ページ').join() === 'http://localhost:3000/%E3%83%9A%E3%83%BC%E3%82%B8');
+// The port is not the first five digits of a longer number.
+ok('a number too long to be a port is not a port', detect('Failed to connect to localhost:123456').length === 0);
+ok('though a scheme-less address ended by the sentence still is one',
+   detect('Serving at localhost:3000.').join() === 'http://localhost:3000/');
 ok('though the same host and port, ended properly, still is',
    detect('http://localhost:3000/x http://localhost:4000').join() === 'http://localhost:3000/x,http://localhost:4000/');
 // In order of first appearance means the port's place in the line, not the
@@ -201,6 +236,138 @@ ok('nothing in, nothing out', detect('').length === 0 && detect(null).length ===
 ok('detect returns a fresh array', (() => {
   const a = detect('x'); const b = detect('x');
   return a !== b && Array.isArray(a);
+})());
+
+// ── the one loopback page the frame must not hold ─────────────────────────
+// The app is served from the loopback too, and `allow-same-origin` means a
+// frame on the app's own origin is the app's own origin: it reaches the
+// localStorage the gateway key is in, `parent.document`, and the IPC bridge.
+// The reserved names are refused wherever the app is running.
+ok('the hostnames Tauri serves the app itself from are refused', (() => {
+  for (const s of ['tauri.localhost', 'http://tauri.localhost/', 'https://tauri.localhost:1420/',
+                   'http://ipc.localhost', 'http://asset.localhost/x', 'ASSET.LOCALHOST:3000']) {
+    if (normalise(s) !== null) return false;
+  }
+  return true;
+})());
+ok('and they are not found in terminal output either',
+   detect('serving http://tauri.localhost/ and ipc.localhost:3000').length === 0);
+// Under `tauri dev` the app is an ordinary loopback address — one the dev
+// server prints, so nobody has to type it for it to reach the frame. There is
+// no page in a test, so the origin is stubbed for the length of this one.
+ok('the page the app itself is on is refused, however it is spelled', (() => {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'location');
+  const before = globalThis.location;
+  globalThis.location = { origin: 'http://localhost:1420' };
+  try {
+    return normalise('http://localhost:1420/') === null
+      && normalise('localhost:1420') === null
+      && normalise('1420') === null
+      && normalise('http://localhost:1420/app?x=1') === null
+      // The rewrite lands on it, so the refusal has to come after the rewrite.
+      && normalise('http://0.0.0.0:1420/') === null
+      && detect('  ➜  Local:   http://localhost:1420/\n').length === 0
+      && read('{"url":"http://localhost:1420/","recent":["http://localhost:1420/"]}').url === null
+      // Another port, and another host on the same port, are somebody else's.
+      && normalise('localhost:5173') === 'http://localhost:5173/'
+      && normalise('http://127.0.0.1:1420/') === 'http://127.0.0.1:1420/';
+  } finally {
+    if (had) globalThis.location = before;
+    else delete globalThis.location;
+  }
+})());
+// Nothing about a page whose origin cannot be read, or is opaque, refuses the
+// loopback wholesale: with no page, every address is somebody else's.
+ok('an unreadable or opaque origin refuses nothing', (() => {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'location');
+  const before = globalThis.location;
+  try {
+    for (const origin of ['null', '', undefined]) {
+      globalThis.location = { origin };
+      if (normalise('localhost:1420') !== 'http://localhost:1420/') return false;
+    }
+    return true;
+  } finally {
+    if (had) globalThis.location = before;
+    else delete globalThis.location;
+  }
+})());
+
+// ── which rule refused ────────────────────────────────────────────────────
+// The address bar has to put a sentence in front of somebody, and the one
+// sentence there was — "only an address on this machine … with any port" —
+// is false exactly when what was typed is on the list it recites. Under
+// `tauri dev` that is the likeliest refusal of all: `localhost:1420` is a
+// loopback host with a port, refused for being the page the panel is drawn on.
+ok('an address that is accepted has no reason', refuse('http://localhost:5173/') === null
+   && refuse('5173') === null && refuse('http://app.localhost:3000/') === null);
+ok('somebody else\'s machine, and everything unparseable, is not-local', (() => {
+  for (const s of ['example.com', 'https://example.com:5173/', 'http://192.168.1.5:5173',
+                   'http://localhost.evil.dev/', 'file:///etc/passwd', 'javascript:alert(1)',
+                   'not a url', '', '   ', null, 42, 'http://user:pw@localhost:5173/']) {
+    if (refuse(s) !== 'not-local') return false;
+  }
+  return true;
+})());
+// Every spelling of a port nothing is listening on, including the two the
+// parser will not build a URL for at all: over 65535 it refuses the whole
+// address, so the digits are read back off the text only to name the reason.
+ok('a port nothing can listen on is bad-port', (() => {
+  for (const s of ['0', 'localhost:0', 'http://localhost:0/app', 'http://0.0.0.0:0/', '00',
+                   '65536', '99999', 'localhost:65536', 'https://127.0.0.1:65536/']) {
+    if (refuse(s) !== 'bad-port') return false;
+  }
+  return true;
+})());
+// The host is judged first, so a machine that is not this one is refused for
+// being that whatever port it names — and an address that fails to parse for
+// some other reason is not blamed on the perfectly good port inside it.
+ok('and the port is only the reason when the port is the problem',
+   refuse('http://example.com:0/') === 'not-local'
+   && refuse('http://local host:5173') === 'not-local');
+// The exception, stated in the header: a port over 65535 fails the address
+// before there is a host to look at, so this one is answered about its port.
+ok('except where the parser refuses the address before the host is read',
+   refuse('http://example.com:65536/') === 'bad-port');
+ok('past the ceiling is too-long, measured typed and encoded', (() => {
+  const encoded = `https://localhost:5173/${'é'.repeat(1000)}`;
+  return refuse(`http://localhost:5173/${'a'.repeat(3000)}`) === 'too-long'
+    && encoded.length < 2048 && refuse(encoded) === 'too-long';
+})());
+ok('the hostnames Tauri serves the app from are own-origin', (() => {
+  for (const s of ['tauri.localhost', 'http://ipc.localhost', 'http://asset.localhost/x', 'ASSET.LOCALHOST:3000']) {
+    if (refuse(s) !== 'own-origin') return false;
+  }
+  return true;
+})());
+ok('and so is the page the app is on under tauri dev', (() => {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, 'location');
+  const before = globalThis.location;
+  globalThis.location = { origin: 'http://localhost:1420' };
+  try {
+    return refuse('localhost:1420') === 'own-origin'
+      && refuse('1420') === 'own-origin'
+      && refuse('http://localhost:1420/app?x=1') === 'own-origin'
+      // The rewrite lands on it, and the reason has to survive the rewrite too.
+      && refuse('http://0.0.0.0:1420/') === 'own-origin'
+      // Another port is somebody else's, and has no reason at all.
+      && refuse('localhost:5173') === null;
+  } finally {
+    if (had) globalThis.location = before;
+    else delete globalThis.location;
+  }
+})());
+// Two readings of one verdict. A reason for everything refused and none for
+// anything accepted, or the panel explains a refusal by a rule that would
+// have let it through.
+ok('a reason exists for exactly what normalise refuses', (() => {
+  for (const s of ['5173', 'localhost:5173', 'http://0.0.0.0:8000/', 'HTTPS://APP.LOCALHOST/x?y#z',
+                   '[::1]:9', 'localhost:', '0', '65536', 'example.com', 'tauri.localhost',
+                   'file:///x', '', '   ', null, 'http://user@localhost:5173/',
+                   `http://localhost:5173/${'a'.repeat(3000)}`]) {
+    if ((normalise(s) === null) !== (refuse(s) !== null)) return false;
+  }
+  return true;
 })());
 
 // ── the recent list ───────────────────────────────────────────────────────

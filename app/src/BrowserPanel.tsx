@@ -3,7 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icon';
 import { explain } from './errors';
 import { isOpenable } from './github';
-import { label, normalise } from './browser';
+import { label, normalise, refuse, type Refusal } from './browser';
 
 /**
  * What the dev server is serving, beside the code.
@@ -26,9 +26,15 @@ import { label, normalise } from './browser';
  * `allow-scripts` and `allow-same-origin`, because a dev server's page is an
  * application and needs its scripts, its storage and its cookies to behave as
  * it would in a browser. Together those two are only dangerous when the frame
- * is the *same* origin as the page holding it, and it never is: the app is
- * `tauri://localhost` (or `http://localhost:1420` under `tauri dev`), and the
- * frame is some other port on the loopback. A different origin cannot reach
+ * is the *same* origin as the page holding it, and it is not — but only
+ * because `normalise` excludes that origin on purpose. The app is
+ * `tauri://localhost`, or `http://tauri.localhost` on Windows and Android, or
+ * `http://localhost:1420` under `tauri dev`; all three are loopback addresses
+ * that the policy's `frame-src` allows and that this pane would otherwise
+ * show, and the last one the dev server prints where `detect` reads it. So
+ * `browser.ts` refuses `location.origin` and the reserved `tauri.localhost`,
+ * `ipc.localhost` and `asset.localhost` names, and what is left for the frame
+ * is some *other* address on the loopback. A different origin cannot reach
  * the app's DOM, its `localStorage` — where the gateway key lives — or its
  * Tauri IPC, which is granted to the app's own origin only.
  *
@@ -43,13 +49,27 @@ import { label, normalise } from './browser';
  * The referrer policy is `no-referrer`, so the page under development is not
  * told the app's URL either.
  *
- * ## The address bar completes, and refuses
+ * ## The address bar completes, and refuses, and says which rule refused
  *
  * Enter on `5173` shows `http://localhost:5173/`; Enter on the address already
- * showing reloads it; Enter on an empty field clears the pane. Enter on
- * anything that is not this machine is refused with a sentence saying what
- * is accepted, and the field keeps what was typed so it can be fixed. Escape
- * puts the current address back.
+ * showing reloads it; Enter on an empty field clears the pane. Anything
+ * `browser.ts` will not take is refused, the field keeps what was typed so it
+ * can be fixed, and Escape puts the current address back.
+ *
+ * One sentence cannot do the refusing, which is why `refuse` names the rule
+ * and `sentence` below picks the words. The sentence that lists what is
+ * accepted — an address on this machine, with any port — is read by somebody
+ * who has just typed something that is not on the list, and `localhost:1420`
+ * under `tauri dev` *is* on it: a loopback host with a port, refused for
+ * being the page this panel is drawn on, and answered with a description of
+ * itself. The other two named rules are the same shape. `localhost:0` names
+ * a port nothing can listen on, having been told any port is fine; an address
+ * past the 2048-character ceiling was never a question about hosts.
+ *
+ * `not-local` keeps that list, because when the host really is somebody
+ * else's the list is the answer. Credentials in the address land there too,
+ * as the rarest refusal of the lot, and the list is still the closest true
+ * thing to say to them.
  *
  * ## Back and forward are the panel's
  *
@@ -76,6 +96,30 @@ interface Props {
   /** A new address to show — normalised — or null to clear the pane. */
   onUrl: (url: string | null) => void;
   onError: (message: string) => void;
+}
+
+/**
+ * The words for a refusal.
+ *
+ * `t` is passed in rather than reached for, because a table of translated
+ * sentences built at module scope would be built once, in whichever language
+ * happened to be loaded first, and would then be wrong for the rest of the
+ * session.
+ */
+function sentence(t: (s: string) => string, why: Refusal | null): string {
+  switch (why) {
+    case 'own-origin':
+      return t('That is the app itself. The pane shows a dev server, not the editor.');
+    case 'bad-port':
+      return t('That is not a port a server can listen on. Ports run from 1 to 65535.');
+    case 'too-long':
+      return t('That address is too long. The limit is 2048 characters, counted after encoding.');
+    default:
+      // `not-local`, and null — which cannot arrive, since this is only asked
+      // about an address `normalise` has already turned down and the two are
+      // one judgement. If it ever does, the list is the safe thing to say.
+      return t('Only an address on this machine can be shown here: localhost, 127.0.0.1 or a .localhost name, with any port.');
+  }
 }
 
 /** Where you have been this session, and where in it you are. */
@@ -123,7 +167,7 @@ export function BrowserPanel({ t, url, recent, onUrl, onError }: Props) {
     if (!typed) { onUrl(null); return; }
     const next = normalise(typed);
     if (!next) {
-      onError(t('Only an address on this machine can be shown here: localhost, 127.0.0.1 or a .localhost name, with any port.'));
+      onError(sentence(t, refuse(typed)));
       return;
     }
     if (next === url) reload();

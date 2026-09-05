@@ -54,13 +54,43 @@
  * ## A chord is not a tap
  *
  * Every offered key is a modifier, and modifiers are chorded: someone who picks
- * Right Command still presses Cmd+S with it. The session starts on the way
- * down as it must, but the moment another key goes down during the press the
+ * Right Command still presses Cmd+S with it. A chord has two shapes and they
+ * need different answers, because in one of them the session has already begun
+ * and in the other it never should.
+ *
+ * *The chosen key first, the other one after.* The session started on the way
+ * down as it must, so the moment another key goes down during the press the
  * press is marked as a chord, and its release *ends without sending* — the
  * `toggle` action — however long it lasted. Without this a slow Cmd+S would
- * send whatever was in the composer. Right Option is the default because it is
- * the modifier fewest people chord with; the header of the Settings row says
- * to pick one you do not.
+ * send whatever was in the composer.
+ *
+ * *The other key first.* Then there was never an instant at which this looked
+ * like a press meant for dictation, and opening a session in order to close it
+ * again is worse than not opening one. Windows AltGr is exactly this shape: the
+ * keyboard fires `ControlLeft` and then `AltRight` — the default key — for
+ * every é and every €, so a start-then-stop would send the half-written
+ * composer to the model because somebody typed an accent, and a quick AltGr tap
+ * would leave the microphone open. So a `down` of the chosen key while any
+ * other key is held is not a press at all: no `start`, no `toggle`, nothing on
+ * the way down and nothing on its release, and a hands-free session already
+ * running is left alone by it — that press was aimed at the keyboard layout,
+ * not at the microphone, and the next unchorded tap still ends the session.
+ *
+ * `others` is what makes the difference sayable: the codes of non-chosen keys
+ * currently down, kept from the same `down`s and `up`s the component already
+ * forwards. A modifier let go *before* the chosen key arrives has left it, and
+ * that press is an ordinary one. Blur empties it, because after a blur every
+ * release lands on another window and a code stuck in there would block every
+ * press for ever.
+ *
+ * Right Option is the default because it is the modifier fewest people chord
+ * with; the header of the Settings row says to pick one you do not.
+ *
+ * Both marks are made in here, from keys that are not the chosen one, so they
+ * can only be made for keys the component actually hands over. A listener that
+ * drops keydowns before the reducer sees them — a letter typed into a field,
+ * say — does not quieten the reducer, it blinds it: the press stays a hold and
+ * its release sends. Which is the whole reason for `accept` below.
  *
  * ## Blur cancels a hold, not a hands-free session
  *
@@ -80,6 +110,24 @@
  * ignored. And a setting that is off produces no action for any input at all:
  * the keys are gated, not the session, and one already running is the mic
  * button's to end.
+ *
+ * ## The component decides nothing
+ *
+ * `PushToTalk.tsx` is two listeners and three callbacks, and every rule about
+ * which key events matter lives here, in `accept`. Not for tidiness: a rule
+ * that lives in the listener is a rule no test can reach. The reducer is
+ * byte-identical whether or not a guard stands above the call to it, so a guard
+ * put back there —
+ *
+ *     if (/^Key[A-Z]$/.test(e.code) && e.target instanceof HTMLTextAreaElement) return;
+ *
+ * — passes every test in this module while quietly breaking the chord mark
+ * above. That guard existed once and did exactly that. So `accept` takes the
+ * three things about a key event that this module cannot see for itself — the
+ * code, whether the key is repeating, whether it landed in something editable —
+ * and answers the only question the component is allowed to ask; the tests
+ * state the answer for a printable key in a textarea, which is the case the
+ * guard got wrong, and any future guard has to disagree with a test to exist.
  *
  * ## Which keys, and why Fn is offered but hidden
  *
@@ -132,6 +180,11 @@ const UNPROVEN: ReadonlySet<string> = new Set(['Fn']);
 
 // ── The keys ───────────────────────────────────────────────────────────────
 
+/** Whether a code is one of the keys on offer. The one membership test. */
+export function offered(code: string): boolean {
+  return CHOICES.some((c) => c.code === code);
+}
+
 /** The English label for a code, or the code itself for one not on offer. */
 export function labelOf(code: string): string {
   return CHOICES.find((c) => c.code === code)?.label ?? code;
@@ -145,22 +198,8 @@ export function labelOf(code: string): string {
  * reason in the header. A code that is not a choice at all is never shown.
  */
 export function supports(code: string, seen: readonly string[]): boolean {
-  if (!CHOICES.some((c) => c.code === code)) return false;
+  if (!offered(code)) return false;
   return !UNPROVEN.has(code) || seen.includes(code);
-}
-
-/**
- * Codes that type a character.
- *
- * The component leaves these alone when they land in a field someone is
- * typing into. No offered key is one, so this is a guard against a stored
- * code that is not a choice, and nothing else: a typed letter must never be
- * eaten by a listener that was only ever meant for a modifier.
- */
-const PRINTABLE = /^(Key[A-Z]|Digit\d|Numpad(\d|Add|Subtract|Multiply|Divide|Decimal|Comma|Equal|Paren(Left|Right))|Space|Minus|Equal|Bracket(Left|Right)|Semicolon|Quote|Backquote|Backslash|Comma|Period|Slash|Intl(Backslash|Ro|Yen))$/;
-
-export function printable(code: string): boolean {
-  return PRINTABLE.test(code);
 }
 
 // ── Reading and writing the setting ────────────────────────────────────────
@@ -179,7 +218,7 @@ export function read(raw: string | null): Setting {
     const parsed = raw ? JSON.parse(raw) : null;
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { ...DEFAULT };
     const s = parsed as Record<string, unknown>;
-    const code = typeof s.code === 'string' && CHOICES.some((c) => c.code === s.code) ? s.code : DEFAULT.code;
+    const code = typeof s.code === 'string' && offered(s.code) ? s.code : DEFAULT.code;
     return { enabled: s.enabled === true, code };
   } catch {
     return { ...DEFAULT };
@@ -225,6 +264,50 @@ export function describe(s: Setting): string {
   return out;
 }
 
+// ── What reaches the reducer ───────────────────────────────────────────────
+
+/** What the component knows about a key event and this module cannot see. */
+export interface KeyEvent {
+  /** The `KeyboardEvent.code`. */
+  code: string;
+  /** `KeyboardEvent.repeat`: the OS repeating a key that is already down. */
+  repeat: boolean;
+  /** It landed in a text field, a contenteditable, a terminal's textarea. */
+  targetEditable: boolean;
+}
+
+/**
+ * Whether a keydown or keyup should be folded in. The component's whole policy.
+ *
+ * Two noes and one loud yes.
+ *
+ * A repeat is not a second press. `reduce` folds repeats anyway (`held` says
+ * so) — but only while it still believes the key is down, and the engine can
+ * take that belief away mid-hold: eight seconds of silence ends the session,
+ * the component resets the state, and the next repeat of a key that is still
+ * physically held would read as a fresh press and start a second session. Once
+ * that has happened only the DOM can still tell a repeat from a press, so the
+ * answer has to be taken from the event, here.
+ *
+ * A setting that is off is no. `reduce` says so too and would be harmless, but
+ * `others` is bookkeeping about held keys and there is no reason to accumulate
+ * it for somebody who has not switched any of this on.
+ *
+ * And `targetEditable` is named, passed, and deliberately not consulted — a
+ * printable key that lands in the composer, the editor or the terminal while
+ * the chosen key is held is *precisely* the event the chord rule is made of,
+ * and dropping it is what turned Right Option + O into a 600 ms hold that sent
+ * the draft. It costs nothing to let through: `reduce` sees a code and a clock,
+ * never calls `preventDefault`, and cannot — the letter types where it was
+ * typed. The field is here so that the argument is in the type, and so that the
+ * test that pins the yes has something to say no with.
+ */
+export function accept(ev: KeyEvent, setting: Setting): boolean {
+  if (!setting.enabled) return false;
+  if (ev.repeat) return false;
+  return true;
+}
+
 // ── The reducer ────────────────────────────────────────────────────────────
 
 export interface State {
@@ -238,9 +321,16 @@ export interface State {
   since: number | null;
   /** A session this layer started is running. */
   listening: boolean;
+  /**
+   * The codes of keys that are not the chosen one and are currently down. A
+   * `down` of the chosen key while this is non-empty is a chord from its first
+   * moment and not a press at all; see the header. Never mutated: every step
+   * that changes it builds a new array.
+   */
+  others: readonly string[];
 }
 
-export const IDLE: State = { held: false, since: null, listening: false };
+export const IDLE: State = { held: false, since: null, listening: false, others: [] };
 
 export interface Input {
   type: 'down' | 'up' | 'blur';
@@ -266,7 +356,15 @@ export interface Step {
   action: Action;
 }
 
-/** Whether two states say the same thing. What decides if the pill redraws. */
+/**
+ * Whether two states say the same thing *to the pill*. What decides if it
+ * redraws.
+ *
+ * `others` is left out on purpose. It changes on every letter typed and the
+ * pill says nothing about it, so comparing it would re-render the pill on every
+ * keystroke to no visible end. The component keeps the reducer's latest state
+ * in a ref regardless — this only decides whether React is told about it.
+ */
 export function equal(a: State, b: State): boolean {
   return a.held === b.held && a.since === b.since && a.listening === b.listening;
 }
@@ -285,34 +383,53 @@ export function reduce(state: State, ev: Input, setting: Setting): Step {
 
   switch (ev.type) {
     case 'blur':
-      // The release will land on another window; the key would be held here
-      // for ever. A session nobody is holding the key for is left alone.
-      if (!state.held) return same();
+      // Every release now lands on another window, the chosen key's and the
+      // others'. Forget them all: a code left in `others` would make every
+      // later press a chord for ever.
+      if (!state.held) return { state: { ...state, others: [] }, action: null };
       return { state: { ...IDLE }, action: state.listening ? 'cancel' : null };
 
     case 'down':
       if (ev.code !== setting.code) {
-        // Another key during the press: a chord, so the release must not send.
-        // Nothing to mark once the press is already one that will not.
-        if (state.held && state.since !== null) return { state: { ...state, since: null }, action: null };
-        return same();
+        // It is down, so a chosen key arriving after it is chorded from its
+        // first moment. Idempotent: the DOM repeats keys.
+        const others = state.others.includes(ev.code) ? state.others : [...state.others, ev.code];
+        // And another key during a press is a chord, so that release must not
+        // send. Nothing to mark once the press is already one that will not.
+        const since = state.held && state.since !== null ? null : state.since;
+        return { state: { ...state, since, others }, action: null };
       }
+      // Something else is already down, so this was a chord before it began:
+      // no session, and the `up` below finds no press to end. See the header.
+      if (state.others.length > 0) return same();
       // A held key repeats. The first down was the press.
       if (state.held) return same();
       // A press during a hands-free session: it can only end it, so there is
       // no moment to send from. `since` stays null.
       if (state.listening) return { state: { ...state, held: true }, action: null };
-      return { state: { held: true, since: ev.at, listening: true }, action: 'start' };
+      return { state: { held: true, since: ev.at, listening: true, others: state.others }, action: 'start' };
 
-    case 'up':
-      if (ev.code !== setting.code || !state.held) return same();
+    case 'up': {
+      // Braced: `rest` below is a declaration, and a declaration bare in a
+      // `case` is scoped to the whole switch.
+      if (ev.code !== setting.code) {
+        // Up, so it can no longer make the next press a chord.
+        if (!state.others.includes(ev.code)) return same();
+        return { state: { ...state, others: state.others.filter((c) => c !== ev.code) }, action: null };
+      }
+      // No press to release: it was never pressed here, or its `down` was a
+      // chord this reducer declined to call a press.
+      if (!state.held) return same();
+      // What is still down stays down: only the chosen key came up.
+      const rest = { ...IDLE, others: state.others };
       // A press that will not send on release: the second tap of a hands-free
       // session, or a chord. Either way the session ends and the words stay.
-      if (state.since === null) return { state: { ...IDLE }, action: state.listening ? 'toggle' : null };
+      if (state.since === null) return { state: rest, action: state.listening ? 'toggle' : null };
       // A hold. A clock that cannot be trusted reads as a tap, which is the
       // direction in which nothing gets sent.
-      if (ev.at - state.since >= TAP_MS) return { state: { ...IDLE }, action: state.listening ? 'stop' : null };
+      if (ev.at - state.since >= TAP_MS) return { state: rest, action: state.listening ? 'stop' : null };
       // A tap: the session started on the way down carries on, hands-free.
-      return { state: { held: false, since: null, listening: state.listening }, action: null };
+      return { state: { ...rest, listening: state.listening }, action: null };
+    }
   }
 }

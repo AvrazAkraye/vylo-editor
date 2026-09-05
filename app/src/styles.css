@@ -1620,6 +1620,19 @@ body.resizing{ cursor:col-resize; user-select:none; }
                                        this is a descendant selector, not
                                        `:root.mac` -- and `.tl` renders on
                                        macOS only in any case. */
+/* PHYSICAL ON PURPOSE, the same frame. macOS 26 gives the window buttons a
+   hover zone wider than the buttons: move the pointer across the corner and
+   the zone stays armed over the next ~90px, and a click there goes to the
+   window, not to the page. The buttons are hidden (`mac.rs`) but the zone is
+   not. Whatever the header puts beside the strip must therefore start clear
+   of it -- measured on this machine: a control ending at 161px lost its
+   clicks, one starting at 183px kept them. Left-to-right puts the wordmark
+   there, which nobody clicks, so a small gap keeps the folder button clear;
+   right-to-left puts Settings there -- the first thing a person looks for in
+   a new language -- so the gap is the full width of the zone. Found by
+   somebody who could not open Settings in Arabic. */
+.mac .tl{ margin-right:24px; }
+:root[dir="rtl"].mac .tl{ margin-right:112px; }
 
 /* The account form, opened from Settings rather than only from the welcome
    screen. Wider than the palettes because it holds a form and its explanations,

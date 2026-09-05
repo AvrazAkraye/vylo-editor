@@ -710,14 +710,45 @@ export function App() {
   // being typed. Only when the pane opens — not on every line the terminal
   // writes — because a pane that changes address on its own is a pane you
   // cannot trust to keep showing the thing you were looking at.
+  //
+  // An opening is a *transition* into visible, and that is what this tracks:
+  // the deps carry `railOpen`/`rightOpen`, and the ref carries the previous
+  // answer so only false → true does anything. Depending on them without the
+  // transition re-fronted every detected address on every toggle — collapsing
+  // a sidebar shows nothing and is not an opening — rewriting the store and,
+  // with the pane docked and empty, setting `url` under someone typing in the
+  // address field. Dropping them lost the other half: expanding a collapsed
+  // sidebar over a server that has started since is an opening too, and
+  // neither `rail` nor `rightRail` changed, so that pane came back as empty as
+  // it was left. Tracking the previous state gets both, and the same-value
+  // return below keeps even a genuine re-open from handing the store or
+  // BrowserPanel's `url` effect a change that isn't one.
+  const browserWasVisible = useRef(false);
   useEffect(() => {
-    if (rail !== 'browser' && rightRail !== 'browser') return;
+    // The rail's own two facts, not `shown`/`rightShown`: those are computed
+    // further down the render, and a module's dock is exactly what these deps
+    // already cover.
+    const visible = (rail === 'browser' && railOpen) || (rightRail === 'browser' && rightOpen);
+    const opened = visible && !browserWasVisible.current;
+    // Written before the early returns, or a run that detects nothing would
+    // leave the ref claiming the pane is still shut and the next dep change
+    // would read as a second opening.
+    browserWasVisible.current = visible;
+    if (!opened) return;
     const found = detectUrls(termText.current?.() ?? '');
     if (!found.length) return;
-    setBrowser((b) => ({
-      url: b.url ?? found[0],
-      recent: [...found].reverse().reduce((acc, u) => recentUrl(acc, u), b.recent),
-    }));
+    // Decided out here, and the ref moved out here with it: an updater React
+    // may call more than once for one update has to give the same answer every
+    // time, and one that both reads and sets the flag would seed on the first
+    // call and un-seed itself on the second.
+    const seed = !browserSeeded.current;
+    if (seed) browserSeeded.current = true;
+    setBrowser((b) => {
+      const url = b.url ?? (seed ? found[0] : null);
+      const recent = [...found].reverse().reduce((acc, u) => recentUrl(acc, u), b.recent);
+      const same = url === b.url && recent.length === b.recent.length && recent.every((u, i) => u === b.recent[i]);
+      return same ? b : { url, recent };
+    });
   }, [rail, rightRail, railOpen, rightOpen]);
   /**
    * The checkpoint redo would put back, or null when nothing is undone.
@@ -786,6 +817,19 @@ export function App() {
    * per machine, not per project — the port a person runs on is a habit.
    */
   const [browser, setBrowser] = useState(() => readBrowser(localStorage.getItem(BROWSER_KEY)));
+  /**
+   * Whether that pane has already been given an address.
+   *
+   * `browser.url === null` cannot tell *never opened one* from *cleared it on
+   * purpose* — BrowserPanel's empty-field Enter is a deliberate "show
+   * nothing" — so the terminal seed above re-filled a pane the person had just
+   * emptied. This ref tells them apart: true from the start when a stored
+   * address is restored, and set by the seed and by every address the panel
+   * reports back, the clearing one included. Declared beside the state it
+   * describes rather than beside the effect that reads it, which runs after
+   * this line the same way its `setBrowser` call does.
+   */
+  const browserSeeded = useRef(browser.url !== null);
   useEffect(() => { try { localStorage.setItem(BROWSER_KEY, writeBrowser(browser)); } catch { /* private mode */ } }, [browser]);
   /**
    * Runs that were owed and will not be taken. Reported once, never run.
@@ -976,6 +1020,9 @@ export function App() {
         // The only exit from the session: finalised words, into the box, at the
         // caret, for a person to read and send. Nothing recognised runs.
         onText: (said) => {
+          // The one door finalised words come through, so it is the one place
+          // that can say a session heard anything. See `spoke`.
+          spoke.current = true;
           const el = composer.current;
           const caret = el?.selectionStart ?? promptRef.current.length;
           const r = insertSpoken(promptRef.current, caret, said);
@@ -1006,14 +1053,38 @@ export function App() {
   const [pttSeen, setPttSeen] = useState<string[]>([]);
   /** Set by a push-to-talk release: send the composer once the engine has ended. */
   const sendOnEnd = useRef(false);
+  /**
+   * Whether the session that just ended delivered any finalised words.
+   *
+   * The guard used to be `promptRef.current.trim()` alone, which cannot tell
+   * *nothing was heard* from *there was already a draft in the box*. A hold
+   * that finalises nothing — a press-and-hesitate, a muted microphone, a room
+   * too noisy for the engine to resolve a phrase — therefore sent the
+   * half-written sentence the person was still composing, because they touched
+   * a modifier. Set by `onText`, the one door recognised words come through,
+   * and cleared where a push-to-talk press actually opens a session — not on
+   * every press, because a press that joins a running session or lands on one
+   * still finalising has heard nothing of its own to forget.
+   */
+  const spoke = useRef(false);
   // A release sends, but only once the engine has finished: the last phrase
   // lands through `onText` before the state reaches 'off', and `send()` reads
   // the box. Calling send() in the same tick as stop() would send the words
   // minus the ones still being finalised.
+  //
+  // While a turn is running the release takes the fork ⌘↵ takes in the
+  // composer's own key handler: into the visible queue, not into `send()`.
+  // `send()` refuses a message mid-turn and reports it in an Outcome, and an
+  // effect has nowhere to draw one — so the sentence would vanish with no
+  // transcript line and no error, the silent drop `queueMessage` exists to
+  // prevent. The mic button is disabled while busy; push-to-talk is not, so
+  // the key is the only way into this case.
   useEffect(() => {
     if (dict.phase !== 'off' || !sendOnEnd.current) return;
     sendOnEnd.current = false;
-    if (promptRef.current.trim()) void send();
+    if (!spoke.current || !promptRef.current.trim()) return;
+    if (busy) queueMessage('after');
+    else void send();
   }, [dict.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A microphone left open by a component that no longer exists is the one
@@ -3941,7 +4012,13 @@ export function App() {
             )}
             {shown === 'browser' && (
               <BrowserPanel t={t} url={browser.url} recent={browser.recent}
-                    onUrl={(u) => setBrowser((b) => ({ url: u, recent: u ? recentUrl(b.recent, u) : b.recent }))}
+                    onUrl={(u) => {
+                      // Every call is a person: typed, picked, a back, or the
+                      // empty Enter that clears. All four settle what the pane
+                      // shows, so none of them may be undone by the seed above.
+                      browserSeeded.current = true;
+                      setBrowser((b) => ({ url: u, recent: u ? recentUrl(b.recent, u) : b.recent }));
+                    }}
                     onError={(m) => push({ kind: 'error', text: m })} />
             )}
 
@@ -4266,8 +4343,54 @@ export function App() {
         <PushToTalk
           t={t}
           setting={ptt}
+          /* The engine's word on whether a session is running — and 'off' is
+             the only phase that is not one. A 'stopping' engine still owes
+             this app the phrase it was asked to finish: dictate.ts delivers
+             that final result *while* stopping and `onText` puts it in the
+             composer, so the session is alive in the only sense this pill
+             claims.
+
+             It was narrowed to 'starting'/'listening' to stop a re-press
+             inside the stop's grace window from drawing "Listening — release
+             to send" over a session `Dictation.start()` refuses to open. That
+             cure tore down more than it fixed. The engine also stops itself
+             after eight seconds of silence *mid-hold*, and the moment the
+             phase went to 'stopping' PushToTalk's sync effect (`listening !==
+             false`, PushToTalk.tsx) reset its reducer to IDLE with the key
+             still down; the release then matched no held key, produced no
+             'stop' action, and the sentence stayed in the composer. Told the
+             truth, the reducer keeps believing in the hold, the release still
+             reaches `onStop`, and the reconciliation happens one moment later
+             when 'off' finally arrives. The re-press is handled where it
+             happens instead, in `onStart` below. */
           listening={dict.phase !== 'off'}
-          onStart={() => ensureDictation().start()}
+          onStart={() => {
+            const d = ensureDictation();
+            /* `spoke` records what the *session* has heard, so only a press
+               that actually opens one may clear it. Clearing on every press
+               threw away an utterance already in flight: hold, say "ship it",
+               release (`onStop` arms the send, the engine's final result is
+               still coming), press again inside STOP_MS — the clear ran,
+               `start()` refused as it must, and when 'off' arrived the send
+               effect read `spoke === false` and stranded the sentence in the
+               composer. 'starting' and 'listening' are the same story with a
+               session already running: joining one is not opening one.
+
+               And nothing else is done for a re-press. The send the pending
+               session owes was armed by the release that stopped it, not by a
+               key going down — a press is not a send, and a session ended by
+               a chord or by the mic button deliberately leaves its words in
+               the composer for a person to read, so arming from here would
+               put them on the wire unasked. The reducer is left believing in
+               a session it did not get for at most the grace window; 'off'
+               turns `listening` false and its sync effect returns it to IDLE,
+               so the pill cannot outlive the engine. */
+            if (d.state.phase === 'off') spoke.current = false;
+            // Called whatever the phase: `start()` is the one place that knows
+            // when a session may open, and it no-ops in the three where one
+            // may not.
+            d.start();
+          }}
           onStop={() => {
             // A release after the engine already ended (silence) has nothing to send.
             const d = dictation.current;
