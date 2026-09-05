@@ -181,6 +181,12 @@ export function remove(text: string, line: number): string {
     if (h && h[1].length <= level) { end = i; break; }
   }
   const rest = [...lines.slice(0, line), ...lines.slice(end)];
+  // `split('\n')` takes the newline off a line but leaves the carriage return
+  // on it, so a blank line of a CRLF file is "\r". Cutting the last entry
+  // leaves that blank last, and joining would write its carriage return back
+  // with no newline after it — a stray CR at the end of a file that never had
+  // one. What follows a file's final newline is nothing, so make it nothing.
+  if (rest.length && rest[rest.length - 1] === '\r') rest[rest.length - 1] = '';
   // Collapse the run of blanks the cut left behind to the one that was there.
   const out = rest.join('\n').replace(/\n{3,}/g, '\n\n');
   return out.replace(/^\n+/, '');

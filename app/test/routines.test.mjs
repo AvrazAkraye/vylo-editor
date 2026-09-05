@@ -9,8 +9,8 @@
 // one built the same way, so these hold in any time zone and across the
 // clocks changing: both sides of each check use the same wall-clock rules.
 import {
-  DAYS, GUARD_MS, KEY, MAX_EVERY, MIN_EVERY, TICK_KEY,
-  add, describe, due, markRun, missedWhileClosed, newId, nextRun, normalise,
+  DAYS, GUARD_MS, KEY, MAX_EVERY, MIN_EVERY, PRESENT_MS, TICK_KEY,
+  add, describe, due, hold, markRun, midWork, missedWhileClosed, newId, nextRun, normalise,
   pause, phrase, read, remove, resume, sameSchedule, skip, update, write,
 } from '../.test-build/routines.js';
 
@@ -427,6 +427,66 @@ ok('an empty error is not an error', !('error' in read(JSON.stringify([make({ la
 ok('a missing armedAt is the creation time', read(JSON.stringify([make({ armedAt: undefined })]))[0].armedAt === SAT);
 ok('and one before the creation time is the creation time', read(JSON.stringify([make({ armedAt: SAT - 5 })]))[0].armedAt === SAT);
 ok('the id is never remade', read(JSON.stringify([make({ id: 'kept-as-is' })]))[0].id === 'kept-as-is');
+
+// ── held, not run ─────────────────────────────────────────────────────────
+// The scheduler found the run owed and the window was not free. That is a
+// deferral, and it must not move the anchor: a daily routine "run" at
+// 09:00:10 with nothing opened would be next owed tomorrow, and today's run
+// would be gone without a word.
+{
+  const r = make({ armedAt: local(2026, 9, 4, 12, 0), createdAt: local(2026, 9, 4, 12, 0),   // owes 09:00 today
+                   lastRun: { at: local(2026, 9, 4, 9, 0, 1), chatId: 'c4', ok: false, error: 'boom' } });
+  const at = local(2026, 9, 5, 9, 0, 10);
+  const [h] = hold([r], 'r1', ' Waiting for you to finish. ');
+  ok('hold writes the reason on the row, trimmed', h.held === 'Waiting for you to finish.');
+  ok('and the run stays owed', nextRun(h, at) === local(2026, 9, 5, 9, 0) && due([h], at).length === 1);
+  ok('so the next tick still finds it', due([h], at + 30_000).length === 1 && due([h], at + 2 * HOUR).length === 1);
+  // The alternative, and the bug this replaces: a lastRun with no chat.
+  ok('whereas recording the deferral as a run would have lost today\'s slot', (() => {
+    const [m] = markRun([r], 'r1', { at, chatId: '', ok: false, error: 'busy' });
+    return nextRun(m, at) === local(2026, 9, 6, 9, 0) && due([m], at + 2 * HOUR).length === 0;
+  })());
+  ok('an interval routine held is still owed the same run, not the click plus a period', (() => {
+    const every = make({ schedule: { kind: 'every', minutes: 30 }, armedAt: SAT, createdAt: SAT });
+    const t = SAT + 31 * MIN;
+    const [held] = hold([every], 'r1', 'busy');
+    return nextRun(held, t) === SAT + 30 * MIN && nextRun(held, t) === nextRun(every, t);
+  })());
+  ok('holding leaves the last result alone', h.lastRun.error === 'boom' && h.lastRun.chatId === 'c4');
+  ok('a blank reason clears the note', !('held' in hold([h], 'r1', '  ')[0]));
+  ok('holding an unknown id changes nothing', !('held' in hold([r], 'zz', 'x')[0]));
+  ok('holding does not mutate', !('held' in r));
+  // The key goes, not just the value: a row is read with `in`, and storage
+  // must not carry an `undefined`.
+  ok('the run that starts clears the note', !('held' in markRun([h], 'r1', { at, chatId: 'c5', ok: true })[0]));
+  ok('and so does forgiving the run', !('held' in skip([h], 'r1', at)[0]) && skip([h], 'r1', at)[0].armedAt === at);
+  ok('pausing keeps it — nothing about the deferral changed', pause([h], 'r1')[0].held === 'Waiting for you to finish.');
+  ok('a held note round-trips through storage', read(write([h]))[0].held === 'Waiting for you to finish.');
+  ok('and a note that is not a string is dropped, the routine kept', (() => {
+    for (const held of [7, null, { why: 'x' }, '']) {
+      const [x] = read(JSON.stringify([make({ held })]));
+      if (!x || 'held' in x) return false;
+    }
+    return true;
+  })());
+}
+
+// ── whether the window is free ────────────────────────────────────────────
+// This app has one chat and a run replaces it, so the scheduler asks first.
+{
+  const free = { draft: false, deciding: false, queued: false, lastActivity: 0 };
+  // Launched and left alone is what a routine is for: nobody has ever acted.
+  ok('an app nobody has touched is free', midWork(free, SAT) === false);
+  ok('a draft in the box holds the run', midWork({ ...free, draft: true }, SAT) === true);
+  ok('a decision on screen holds the run', midWork({ ...free, deciding: true }, SAT) === true);
+  ok('a queued message holds the run', midWork({ ...free, queued: true }, SAT) === true);
+  ok('a key or click in the last minute holds the run', midWork({ ...free, lastActivity: SAT - 59_000 }, SAT) === true);
+  ok('the minute is PRESENT_MS exactly', PRESENT_MS === 60_000
+     && midWork({ ...free, lastActivity: SAT - PRESENT_MS + 1 }, SAT) === true
+     && midWork({ ...free, lastActivity: SAT - PRESENT_MS }, SAT) === false);
+  ok('a minute of quiet with an empty box is free', midWork({ ...free, lastActivity: SAT - 5 * MIN }, SAT) === false);
+  ok('now as a Date gives the same answer', midWork({ ...free, lastActivity: SAT - 10_000 }, new Date(SAT)) === true);
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

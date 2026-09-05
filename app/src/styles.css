@@ -3417,6 +3417,12 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .rt-acts{ display:flex; align-items:center; gap:1px; flex:none; }
 .rt-agent .todo-x, .rt-row .todo-x{ opacity:0; }
 .rt-agent:hover .todo-x, .rt-row:hover .todo-x, .rt-row .todo-x:focus-visible, .rt-agent .todo-x:focus-visible{ opacity:1; }
+/* The act cluster (Run now, Open, Pause, Edit) is a .todo-act, which starts at
+   opacity:0 and is revealed only by the row rules written for .tk-row — so on
+   these rows a mouse user saw nothing but the delete ✕, and a blind click on
+   the gap still fired them. The same reveal, for the same reason. */
+.rt-row:hover .todo-act, .rt-row:focus-within .todo-act,
+.db-row:hover .todo-act, .db-row:focus-within .todo-act{ opacity:1; }
 .rt-form{ margin:0 var(--sp-3) var(--sp-3); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); }
 .rt-form textarea{ resize:vertical; min-height:56px; font-family:inherit; line-height:1.4; }
 
@@ -3449,3 +3455,89 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .pg-row.on .pg-what b{ color:var(--brand); }
 .pg-more{ margin:auto var(--sp-4) var(--sp-4); align-self:flex-start; }
 .mcp-err{ margin:var(--sp-2) var(--sp-4); color:var(--err); font-size:var(--fs-1); }
+
+/* ── Skills ───────────────────────────────────────────────────────────── */
+/* ── Skills ───────────────────────────────────────────────────────────────
+   Instruction sheets an agent can carry, from .vylo/SKILLS.md. The list is
+   the agents list from Routines with the row itself as the button: a sheet
+   is edited far more often than it is removed, so pressing the row edits. */
+.sk{ display:flex; flex-direction:column; min-height:0; }
+.sk-sub{ display:flex; align-items:center; justify-content:space-between; }
+.sk-note{ margin:0; padding:0 var(--sp-4) var(--sp-3); font-size:var(--fs-1); color:var(--mute); }
+.sk-list{
+  flex:1; min-height:0; overflow-y:auto; list-style:none; margin:0; padding:0 var(--sp-3) var(--sp-3);
+  display:flex; flex-direction:column; gap:2px;
+}
+.sk-row{ display:flex; align-items:center; gap:var(--sp-1); border-radius:var(--r-2); }
+.sk-row:hover, .sk-row.editing{ background:var(--panel-3); }
+.sk-hit{
+  flex:1; min-inline-size:0; display:flex; flex-direction:column; align-items:stretch; gap:1px;
+  padding:var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-2); background:transparent;
+  font:inherit; color:inherit; cursor:pointer; text-align:start;
+}
+.sk-hit:focus-visible{ outline:2px solid var(--brand); outline-offset:-2px; }
+.sk-hit b{
+  font-size:var(--fs-3); font-weight:500; color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.sk-hit span{ font-size:var(--fs-1); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sk-row .todo-x{ opacity:0; margin-inline-end:var(--sp-2); }
+.sk-row:hover .todo-x, .sk-row .todo-x:focus-visible{ opacity:1; }
+.sk-form{ margin:0 var(--sp-3) var(--sp-3); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); }
+.sk-form textarea{ resize:vertical; min-height:96px; font-family:inherit; line-height:1.4; }
+
+
+/* ── the dev-server pane ───────────────────────────────────────────────────────────── */
+/* ── dev server pane ──────────────────────────────────────────────────
+   The bar above, the frame filling the rest. The frame is another origin, so
+   nothing inside it is styled from here; only its box is. */
+.br{ display:flex; flex-direction:column; block-size:100%; min-block-size:0; }
+.br-bar{
+  flex:none; display:flex; align-items:center; gap:var(--sp-1); margin:0;
+  padding-block:0 var(--sp-3); padding-inline:var(--sp-3); border-block-end:1px solid var(--rule);
+}
+/* `.sb-act` has no disabled state of its own -- nothing in a panel header is
+   ever disabled. Here back, forward, reload and open-outside all are, often. */
+.br-bar .sb-act:disabled{ opacity:.35; cursor:default; background:transparent; color:var(--mute); }
+/* Back points to where you came from, which in a right-to-left interface is
+   the other way. Flipping the button rather than the glyph leaves the icon's
+   own rotation alone. */
+:root[dir="rtl"] .br-nav{ transform:scaleX(-1); }
+.br-bar .br-url{
+  flex:1; min-inline-size:0; font:inherit; font-family:var(--mono); font-size:var(--fs-3);
+  color:var(--ink); padding-block:var(--sp-2); padding-inline:var(--sp-3);
+  border:1px solid var(--rule); border-radius:var(--r-1); background:var(--bg); outline:none;
+}
+.br-url:focus-visible{ border-color:var(--brand); }
+/* White on purpose, in both themes: a browser's canvas is white, and a page
+   under development that sets no background was written against one. A
+   theme-coloured frame behind black text would be unreadable, and behind a
+   page that has not painted yet would read as the panel being broken. */
+.br-frame{ flex:1; min-block-size:0; inline-size:100%; border:0; background:#FFFFFF; }
+/* The empty state scrolls with `.sb-panel`, which already owns the overflow. */
+.br-empty{ flex:1; min-block-size:0; }
+
+
+/* ── push-to-talk ───────────────────────────────────────────────────────────── */
+/* ── Push-to-talk ─────────────────────────────────────────────────────────
+   The pill while a held key (or a tap) has the microphone open. Fixed under
+   the title bar rather than over the composer, which is where the words are
+   landing and the one place it must not cover. Centred by stretching the
+   box across the width and letting auto margins share the slack, which
+   reads the same in either direction without a physical `left`. Above the
+   modals (60): somebody holding the key with Settings open is still
+   dictating. */
+.ptt-pill{
+  position:fixed; top:calc(var(--titlebar) + var(--sp-6)); inset-inline:0; width:fit-content; margin-inline:auto;
+  z-index:70; display:flex; align-items:center; gap:var(--sp-4);
+  padding:var(--sp-3) var(--sp-6); border-radius:999px;
+  background:var(--panel); color:var(--ink); border:1px solid var(--rule); box-shadow:var(--shadow);
+  font-size:var(--fs-4); font-weight:600; white-space:nowrap; pointer-events:none;
+}
+/* The composer mic's own keyframe (`mic-live`, defined beside .cmp-btn.mic),
+   so the two indicators pulse alike. */
+.ptt-dot{
+  width:8px; height:8px; border-radius:50%; background:var(--err);
+  animation:mic-live 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce){ .ptt-dot{ animation:none; } }

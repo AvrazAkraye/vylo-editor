@@ -401,7 +401,14 @@ export function remove(text: string, line: number): string {
   // another agent's brief, are that agent's bytes and stay.
   while (before.length && after.length && !before[before.length - 1].trim() && !after[0].trim()) after.shift();
   while (!before.length && after.length && !after[0].trim()) after.shift();
-  return [...before, ...after].join('\n');
+  const out = [...before, ...after];
+  // `split('\n')` takes the newline off a line but leaves the carriage return
+  // on it, so a blank line of a CRLF file is "\r". Cutting the last entry
+  // leaves that blank last, and joining would write its carriage return back
+  // with no newline after it — a stray CR at the end of a file that never had
+  // one. What follows a file's final newline is nothing, so make it nothing.
+  if (out.length && out[out.length - 1] === '\r') out[out.length - 1] = '';
+  return out.join('\n');
 }
 
 /**

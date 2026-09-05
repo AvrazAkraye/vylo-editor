@@ -33,6 +33,31 @@
  * results are inserted, and the running guess is exposed as `state.interim` for
  * the mic control to show. The caret is then only ever moved by an insertion
  * the person can see arrive.
+ *
+ * ## A stop is a question, and the last final result is its answer
+ *
+ * `stop()` does not cut the engine off — that is `abort()`. It asks the engine
+ * to finish the phrase in progress and then end, so the engine answers it with
+ * one more `result`, marked final, *after* the phase here is already
+ * `stopping`. This module used to drop everything that arrived in that window,
+ * reasoning that results after a stop belong to a session the person has
+ * already ended. That reasoning is right about the interim guesses and wrong
+ * about the final, and push-to-talk is where the difference shows: somebody
+ * holds a key, says "yes", lets go — the release *is* the stop — and the only
+ * final result of the whole session arrives one tick after it. Dropping it
+ * means the composer stays empty and the gesture appears not to work at all.
+ *
+ * So the rule is by kind, not by clock. A **final** result while `stopping` is
+ * delivered: it is the answer to a question this module asked. An **interim**
+ * one is still ignored — it will never be finalised now, and the guess was
+ * wiped off the screen when the stop began, so putting it back would flicker
+ * text that is about to be replaced. Anything at all after `end` is ignored:
+ * the engine is gone and the session with it.
+ *
+ * Delivering it changes nothing else. The phase stays `stopping` (a session on
+ * its way out does not come back on), the interim stays cleared, and the stop's
+ * grace timer is left alone — re-arming the silence timeout there would hand a
+ * closing session a fresh eight seconds to sit in.
  */
 
 /** One result from the engine. */
@@ -315,12 +340,20 @@ export class Dictation {
     },
 
     heard: (at, phrases) => {
-      // Results that arrive after a stop belong to a session the person has
-      // already ended; inserting them would put words in the box after the
-      // control went off.
-      if (this.state.phase === 'off' || this.state.phase === 'stopping') return;
+      // The engine has ended; whatever this is, it belongs to no session.
+      if (this.state.phase === 'off') return;
+      // Folded even while stopping, so `taken` keeps counting: an engine that
+      // redelivers a result it has already finalised must not be committed
+      // twice just because the stop moved the goalposts.
       const { next, said } = fold(this.sofar, at, phrases);
       this.sofar = next;
+      if (this.state.phase === 'stopping') {
+        // The final result stop() asked for. See the header: it is the answer
+        // to the question, and for a held key it is the whole message. Nothing
+        // else moves — not the phase, not the interim, not the grace timer.
+        if (said) this.o.onText(said);
+        return;
+      }
       // Anything heard at all is someone still talking.
       this.arm(this.silence, () => this.stop());
       // Not every engine fires `start`; hearing something proves it is running.

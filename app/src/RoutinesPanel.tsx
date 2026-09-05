@@ -9,7 +9,7 @@ import { watch } from './docs';
 import { fill } from './i18n';
 import {
   STARTER as AGENTS_STARTER, add as addAgent, parse as parseAgents, remove as removeAgent,
-  type Agent, type Mode as AgentMode,
+  type Mode as AgentMode,
 } from './agents';
 import {
   DAYS, MAX_EVERY, MIN_EVERY, add as addRoutine, nextRun, pause, phrase, remove as removeRoutine,
@@ -46,15 +46,15 @@ interface Props {
   /** Open the chat a run wrote to. */
   onOpen: (chatId: string) => void;
   onError: (message: string) => void;
-  /** So the list can be told which agents exist, for the routine form. */
-  onAgents?: (agents: Agent[]) => void;
+  /** The folder picker, for the empty state when no folder is open. */
+  onOpenFolder: () => void;
   /** Whether unattended runs may act — auto-approve is on. */
   unattendedMayAct: boolean;
 }
 
 const BLANK = { name: '', agent: '', brief: '', kind: 'daily' as Schedule['kind'], minutes: 60, at: '09:00', day: 1 };
 
-export function RoutinesPanel({ root, t, routines, onRoutines, onRun, onOpen, onError, onAgents, unattendedMayAct }: Props) {
+export function RoutinesPanel({ root, t, routines, onRoutines, onRun, onOpen, onError, onOpenFolder, unattendedMayAct }: Props) {
   const [text, setText] = useState('');
   const [sha, setSha] = useState('');
   const [ready, setReady] = useState(false);
@@ -84,8 +84,10 @@ export function RoutinesPanel({ root, t, routines, onRoutines, onRun, onOpen, on
   useEffect(() => { setReady(false); void load(); }, [load]);
   useEffect(() => watch(FILE, (next) => { setText(next); void sha256Hex(next).then(setSha); }), []);
 
+  // This panel's own parse, for the list and the form. App keeps its own copy
+  // of the same file for the scheduler and the dashboard, so nothing here has
+  // to push the list up — a save goes through `applyWrite`, and App watches.
   const agents = parseAgents(text);
-  useEffect(() => { onAgents?.(agents); }, [text]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function save(next: string) {
     const before = text;
@@ -154,7 +156,31 @@ export function RoutinesPanel({ root, t, routines, onRoutines, onRun, onOpen, on
     return mins < 1 ? t('Due now') : mins < 60 ? fill(t('In {n} minutes'), { n: mins })
       : fill(t('In {n} hours'), { n: Math.round(mins / 60) });
   };
+  /**
+   * What the row adds after the time: why the owed run is waiting, while it
+   * is owed, else how the last run failed. The hold is the newer news, and
+   * "Due now" with nothing beside it is the question this answers.
+   */
+  const note = (r: Routine) => {
+    const at = nextRun(r, now);
+    if (r.held && at !== null && at <= now) return r.held;
+    return r.lastRun && !r.lastRun.ok && r.lastRun.error ? r.lastRun.error : '';
+  };
 
+  // No folder means no `.vylo/AGENTS.md` to read, and a heading over an empty
+  // column says nothing about why. The same sentence and button the Files
+  // panel gives, because it is the same situation.
+  if (!root) {
+    return (
+      <div className="sb-cta">
+        <p className="ft-empty">{t('Open a folder, or drop one here')}</p>
+        <button className="ghost bordered" onClick={onOpenFolder}>
+          <Icon name="folder" size={13} />
+          <span className="cta-label">{t('Open a folder')}</span>
+        </button>
+      </div>
+    );
+  }
   if (!ready) return null;
 
   return (
@@ -204,12 +230,13 @@ export function RoutinesPanel({ root, t, routines, onRoutines, onRun, onOpen, on
         {routines.map((r) => {
           const ph = phrase(r.schedule);
           const agent = agents.find((a) => a.id === r.agent);
+          const aside = note(r);
           return (
             <li key={r.id} className={`rt-row ${r.paused ? 'paused' : ''} ${r.lastRun && !r.lastRun.ok ? 'failed' : ''}`}>
               <div className="rt-what">
                 <b>{r.name}</b>
                 <span>{agent?.name ?? r.agent} · {fill(t(ph.key), { ...ph.vars, day: typeof ph.vars.day === 'string' ? t(ph.vars.day) : '' })}</span>
-                <em>{when(r)}{r.lastRun && !r.lastRun.ok && r.lastRun.error ? ` — ${r.lastRun.error}` : ''}</em>
+                <em>{when(r)}{aside ? ` — ${aside}` : ''}</em>
               </div>
               <span className="rt-acts">
                 <button className="todo-act" onClick={() => onRun(r)} title={t('Run now')} aria-label={`${t('Run now')} — ${r.name}`}><Icon name="play" size={12} /></button>

@@ -167,6 +167,17 @@ ok('removing the only prompt leaves the prose above it', (() => {
   ok('a CRLF file parses', p.length === 1, p);
   ok('and its title has no carriage return', p[0].title === 'One');
   ok('and its body is still a command', p[0].kind === 'command' && p[0].body === 'npm test');
+
+  // `split('\n')` leaves the carriage return on the line, so the blank that
+  // separated the last entry is "\r" — and putting it back at the end of the
+  // file writes a carriage return with no newline after it, which no editor
+  // wrote and every diff shows.
+  const lastGone = remove('## A\r\n\r\na\r\n\r\n## B\r\n\r\nb\r\n', 4);
+  ok('removing the last prompt of a CRLF file leaves no stray carriage return',
+     lastGone === '## A\r\n\r\na\r\n', lastGone);
+  const onlyGone = remove('# P\r\n\r\npara\r\n\r\n## A\r\n\r\na\r\n', 4);
+  ok('and removing the only prompt under a title leaves the title and its paragraph, ending in CRLF',
+     onlyGone === '# P\r\n\r\npara\r\n', onlyGone);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

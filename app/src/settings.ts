@@ -127,7 +127,7 @@ export type SettingId =
   | 'theme' | 'language'
   | 'inlineCompletion'
   | 'notifyWhen' | 'notifySound'
-  | 'globalShortcut' | 'keyMap'
+  | 'globalShortcut' | 'pushToTalk' | 'keyMap'
   | 'autoApprove'
   | 'modules' | 'railSide' | 'mcpServers'
   | 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory' | 'terminals'
@@ -227,6 +227,20 @@ export const SETTINGS: readonly Setting[] = [
     id: 'globalShortcut', category: 'shortcuts', label: 'Global shortcut',
     hint: 'Off until you set one. Press it anywhere to bring Vylo forward and start a message.',
     keywords: ['hotkey', 'summon', 'bring forward', 'system wide', 'combination', 'chord', 'cmd', 'ctrl', 'record'],
+  },
+  // The catalogue holds no storage keys — a row here is a label, a sentence and
+  // the words that find it, and where a setting is kept is the business of the
+  // module that keeps it. This one lives under `ptt.KEY`, `vylo.ptt.v1`, which
+  // is named there and nowhere else so there is only ever one spelling of it.
+  {
+    id: 'pushToTalk', category: 'shortcuts', label: 'Push-to-talk',
+    // Three things the row has nowhere else to say. That letting go is what
+    // sends — no key name implies that; that a tap is the same key without a
+    // finger pinned down, for the paragraph and for anybody who cannot hold a
+    // key at all; and that the key must be one you do not already chord with,
+    // which is the whole reason the offered four are right-hand modifiers.
+    hint: 'Hold the key and speak; let go and the message is sent. A tap starts hands-free dictation, and a second tap stops it. Pick a key you do not use in shortcuts.',
+    keywords: ['voice', 'speak', 'talk', 'dictate', 'dictation', 'microphone', 'mic', 'hold', 'walkie talkie', 'ptt', 'hands free', 'right option', 'fn', 'speech'],
   },
   {
     id: 'keyMap', category: 'shortcuts', label: 'Keys',

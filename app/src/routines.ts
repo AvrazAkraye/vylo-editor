@@ -74,6 +74,24 @@
  * backstop, not the mechanism: a routine whose start was never recorded fires
  * again a minute later.
  *
+ * ## Held is not a run
+ *
+ * The scheduler can find a run owed and still decline to start it: a turn is
+ * in flight, or somebody is at the keyboard with half a sentence in the box,
+ * and the one chat this app has is theirs for the moment. That is a deferral.
+ * Recording it through `markRun` would move the anchor — a daily routine
+ * "run" at 09:00:10 with nothing opened is next owed tomorrow, and today's
+ * run silently vanishes. So `hold` writes the reason into a field of its own,
+ * `held`, which `nextRun` never reads: the run stays owed, the next free tick
+ * takes it, and until then the row says why it is waiting. The run that
+ * eventually starts clears the note, and so does forgiving the run (`skip`).
+ *
+ * Whether the window is free is `midWork`, kept here so the rule is one
+ * function with a test rather than a condition in the scheduler: anything in
+ * the message box, a decision on screen, a message queued, or a key or click
+ * in the last minute. Nobody who has never acted counts — an app launched and
+ * left alone is exactly the one a routine is for.
+ *
  * ## What is deliberately not here
  *
  * No catch-up runs, no time-zone field, no run history beyond the last one —
@@ -118,6 +136,12 @@ export interface Routine {
    */
   armedAt: number;
   lastRun?: LastRun;
+  /**
+   * Why the scheduler last declined to start the run it is owed, if it did.
+   * A deferral, not a run: `nextRun` never reads it, so the run stays owed.
+   * Cleared when a run starts or the owed run is skipped — see the header.
+   */
+  held?: string;
   createdAt: number;
 }
 
@@ -142,6 +166,9 @@ export const MAX_EVERY = 10080;
 
 /** How recently a routine may have run and still be refused by `due`. */
 export const GUARD_MS = 60_000;
+
+/** How long after a keystroke or click a person still counts as at the keys. */
+export const PRESENT_MS = 60_000;
 
 /** English weekday names, Sunday first, as `Date.getDay` counts. */
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const;
@@ -361,6 +388,39 @@ export function missedWhileClosed(
   });
 }
 
+// ── Whether the window is free ─────────────────────────────────────────────
+
+/**
+ * What a person may be in the middle of. Every field is something the
+ * scheduler can see without asking anybody.
+ */
+export interface Presence {
+  /** Text or an attachment in the message box. */
+  draft: boolean;
+  /** A Try again or Continue on screen: a turn that ended on a decision. */
+  deciding: boolean;
+  /** Messages waiting behind the current turn. */
+  queued: boolean;
+  /** The last keystroke or click, as epoch milliseconds; 0 if there was none. */
+  lastActivity: number;
+}
+
+/**
+ * Whether starting a routine now would take the window from somebody.
+ *
+ * This app has one chat, and a run replaces it. A draft would end up aimed
+ * at the routine's chat, a Try again would leave the screen with its history
+ * behind it, a queued message would come back refused as stale inside a
+ * transcript nobody typed it into — so each of those holds the run, and so
+ * does a key or a click in the last `PRESENT_MS`. A person who has never
+ * acted (`lastActivity` 0) is not mid-anything: that is the launch-and-leave
+ * case routines exist for.
+ */
+export function midWork(p: Presence, now: Now): boolean {
+  if (p.draft || p.deciding || p.queued) return true;
+  return ms(now) - p.lastActivity < PRESENT_MS;
+}
+
 // ── Reading and writing the list ───────────────────────────────────────────
 
 /** A last run worth keeping, or nothing. A routine survives losing this. */
@@ -417,6 +477,8 @@ export function read(raw: string | null): Routine[] {
       };
       const last = lastRunOf(r.lastRun);
       if (last) routine.lastRun = last;
+      const held = text(r.held);
+      if (held) routine.held = held;
       out.push(routine);
     }
     return out;
@@ -525,7 +587,26 @@ export function resume(list: readonly Routine[], id: string, now: Now): Routine[
  */
 export function skip(list: readonly Routine[], id: string, now: Now): Routine[] {
   const t = ms(now);
-  return list.map((r) => (r.id === id ? { ...r, armedAt: t } : r));
+  return list.map((r) => (r.id === id ? { ...unheld(r), armedAt: t } : r));
+}
+
+/** The routine without its `held` note. The key goes, not just the value. */
+function unheld(r: Routine): Routine {
+  const { held: _held, ...rest } = r;
+  return rest;
+}
+
+/**
+ * Note why the run it is owed was not started, and nothing else.
+ *
+ * What the scheduler calls when the window is not free — see the header. The
+ * anchor is untouched, so the run stays owed and the next free tick takes it;
+ * `lastRun` is untouched, so the row goes on saying what last actually
+ * happened. A blank reason clears the note.
+ */
+export function hold(list: readonly Routine[], id: string, why: string): Routine[] {
+  const note = text(why);
+  return list.map((r) => (r.id === id ? (note ? { ...unheld(r), held: note } : unheld(r)) : r));
 }
 
 /**
@@ -534,11 +615,12 @@ export function skip(list: readonly Routine[], id: string, now: Now): Routine[] 
  * Call it when the run *starts*, with the chat it opened and `ok: true`, and
  * again when it ends with the outcome, keeping the same `at`. The start is
  * what moves the anchor, and waiting for the outcome to record it would leave
- * the routine owed — and started again — on every tick in between.
+ * the routine owed — and started again — on every tick in between. A run
+ * that starts is no longer held, whatever held it before.
  */
 export function markRun(list: readonly Routine[], id: string, result: LastRun): Routine[] {
   // A run with no real time would make the routine due on every tick — the
   // anchor arithmetic in `nextRun` has no answer for NaN. Refuse it.
   if (!Number.isFinite(result.at)) return [...list];
-  return list.map((r) => (r.id === id ? { ...r, lastRun: { ...result } } : r));
+  return list.map((r) => (r.id === id ? { ...unheld(r), lastRun: { ...result } } : r));
 }

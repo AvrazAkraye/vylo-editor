@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.53.0.
+version 0.54.0.
 
 ---
 
@@ -241,6 +241,14 @@ Treat both credentials as you would any API key on a machine you control:
 anyone who can use your user account can read them.
 
 ---
+
+**The dev-server pane** (`app/src/BrowserPanel.tsx`) loads one address in a
+sandboxed `<iframe>`, and only an address on this machine — `localhost`,
+`127.0.0.1`, `[::1]` or a `*.localhost` name, on any port — which
+`app/src/browser.ts` enforces on every address typed, found in the terminal or
+read back from storage, and which the policy's `frame-src` repeats. The framed
+page is another origin: it cannot read the app's storage, where your key lives,
+and it has no Tauri command bridge. Nothing in the frame reaches the model.
 
 ## What can write to your disk
 
@@ -512,7 +520,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.53.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.54.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -537,6 +545,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.53.0. Every statement above was read out of the code. If
+*Last checked against 0.54.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

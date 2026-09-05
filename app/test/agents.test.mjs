@@ -386,6 +386,17 @@ ok('ask is ask either way', modeFor({ mode: 'ask' }, true) === 'ask' && modeFor(
   ok('removing from a CRLF file leaves the rest', parse(removed).length === 1 && parse(removed)[0].name === 'Two');
   ok('and does not leave a triple gap', !removed.includes('\r\n\r\n\r\n'), removed);
   ok('and stays CRLF', !/[^\r]\n/.test(removed), removed);
+
+  // `split('\n')` leaves the carriage return on the line, so the blank that
+  // separated the last entry is "\r" — and putting it back at the end of the
+  // file writes a carriage return with no newline after it, which no editor
+  // wrote and every diff shows.
+  const lastGone = remove('## One\r\n- mode: ask\r\n\r\nDo it.\r\n\r\n## Two\r\n\r\nOther.\r\n', 5);
+  ok('removing the last agent of a CRLF file leaves no stray carriage return',
+     lastGone === '## One\r\n- mode: ask\r\n\r\nDo it.\r\n', lastGone);
+  const onlyGone = remove('# Agents\r\n\r\npara\r\n\r\n## One\r\n- mode: ask\r\n\r\nDo it.\r\n', 4);
+  ok('and removing the only agent under a title leaves the title and its paragraph, ending in CRLF',
+     onlyGone === '# Agents\r\n\r\npara\r\n', onlyGone);
 }
 
 // ── what a review found ───────────────────────────────────────────────────

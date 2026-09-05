@@ -51,7 +51,7 @@
 import type { IconName } from './Icon';
 
 export type ModuleId =
-  | 'dashboard' | 'routines' | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'prompts' | 'plugins' | 'memory';
+  | 'dashboard' | 'routines' | 'skills' | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'prompts' | 'browser' | 'plugins' | 'memory';
 
 export interface Module {
   id: ModuleId;
@@ -73,6 +73,7 @@ export const MODULES: readonly Module[] = [
   // Agent mode's two, first: what the teammates did and what they are on.
   { id: 'dashboard', label: 'Dashboard', icon: 'star', about: 'What your agents did, and what is due next.' },
   { id: 'routines', label: 'Routines', icon: 'clock', about: 'Named agents on a schedule. The work runs while the app is open; you review the result.' },
+  { id: 'skills', label: 'Skills', icon: 'clipboard', about: 'Instruction sheets an agent can carry, kept in .vylo/SKILLS.md.' },
   { id: 'files', label: 'Explorer', icon: 'folder', about: 'The file tree for the open folder.' },
   { id: 'search', label: 'Search', icon: 'search', about: 'Find text across every file in the project.' },
   { id: 'outline', label: 'Outline', icon: 'list', about: 'Declarations in the file you have open.' },
@@ -80,6 +81,7 @@ export const MODULES: readonly Module[] = [
   { id: 'chats', label: 'Chats', icon: 'chat', about: 'Every conversation in this folder.' },
   { id: 'todo', label: 'To do', icon: 'check', about: 'The project plan, kept in .vylo/TODO.md.', badge: 'todo' },
   { id: 'prompts', label: 'Prompts', icon: 'sparkle', about: 'Prompts and commands worth keeping, kept in .vylo/PROMPTS.md.' },
+  { id: 'browser', label: 'Dev server', icon: 'bolt', about: 'What your dev server is serving, in a frame beside the code. Addresses on this machine only.' },
   { id: 'plugins', label: 'Plugins', icon: 'branch', about: 'Services attached to the agent through MCP. Every call goes through the approval gate.' },
   { id: 'memory', label: 'Memory', icon: 'memory', about: 'What the agent has been told to remember.' },
 ];

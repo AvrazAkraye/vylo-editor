@@ -19,6 +19,7 @@ import type { Clip } from './clips';
 import type { Available } from './updates';
 import type { Prefs as NotifyPrefs, Level as NotifyLevel } from './notify';
 import type { Theme } from './theme';
+import { CHOICES as PTT_CHOICES, supports as pttSupports, type Setting as PttSetting } from './ptt';
 
 /**
  * Settings.
@@ -90,6 +91,10 @@ interface Props {
   // ── Editor ──
   autocomplete: boolean;
   onAutocomplete: (v: boolean) => void;
+  /** Push-to-talk: the switch, the key, and the codes seen going down this session. */
+  ptt: PttSetting;
+  onPtt: (v: PttSetting) => void;
+  pttSeen: string[];
 
   // ── Notifications ──
   notify: NotifyPrefs;
@@ -524,6 +529,25 @@ function Control({ row, ...p }: ControlProps) {
               </button>
             )}
           </div>
+        </Row>
+      );
+    case 'pushToTalk':
+      // Two controls, because the key is a choice only once the thing is on.
+      // Fn is offered only where a keydown for it has been seen this session:
+      // macOS handles Fn below the event stream, so on most Macs the option
+      // would be a promise the webview cannot keep.
+      return (
+        <Row label={label} hint={hint}>
+          <select className="set-sel" value={p.ptt.enabled ? 'on' : 'off'} aria-label={label}
+                  onChange={(e) => p.onPtt({ ...p.ptt, enabled: e.target.value === 'on' })}>
+            <option value="on">{t('On')}</option>
+            <option value="off">{t('Off')}</option>
+          </select>
+          <select className="set-sel" value={p.ptt.code} aria-label={t('Key')} disabled={!p.ptt.enabled}
+                  onChange={(e) => p.onPtt({ ...p.ptt, code: e.target.value })}>
+            {PTT_CHOICES.filter((c) => c.code === p.ptt.code || pttSupports(c.code, p.pttSeen))
+              .map((c) => <option key={c.code} value={c.code}>{t(c.label)}</option>)}
+          </select>
         </Row>
       );
     case 'keyMap':

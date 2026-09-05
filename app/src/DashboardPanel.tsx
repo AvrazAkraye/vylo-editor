@@ -82,7 +82,9 @@ export function DashboardPanel({ t, routines, agents, missed, onRun, onOpen, onR
                   <b>{r.name}</b>
                   <span>{agentName(r.agent)} · {fill(t(ph.key), { ...ph.vars, day: typeof ph.vars.day === 'string' ? t(ph.vars.day) : '' })}</span>
                 </span>
-                <em>{inWhen(at)}</em>
+                {/* A run the scheduler is holding says why, in place of a "Due
+                    now" that would otherwise sit there unexplained. */}
+                <em>{r.held && at <= now ? r.held : inWhen(at)}</em>
                 <button className="todo-act" onClick={() => onRun(r)} title={t('Run now')} aria-label={`${t('Run now')} — ${r.name}`}><Icon name="play" size={12} /></button>
               </li>
             );

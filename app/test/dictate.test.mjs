@@ -237,19 +237,65 @@ ok('and the resting state carries no error', OFF.error === null && OFF.interim =
      r.d.state.phase === 'listening', r.d.state);
 }
 {
+  // The push-to-talk shape, which is the reason this rule is by kind and not by
+  // clock: a key is held, one short word is said, and the release is the stop.
+  // `stop()` asks the engine to finish the phrase in progress, so the only
+  // final result of the session lands *after* the phase is already `stopping`.
+  // Dropping it — which this used to do — is dropping the whole message.
   const r = rig();
   r.d.start();
   r.engine().sink.started();
+  r.engine().sink.heard(0, [{ text: 'ye', final: false }]);
   r.d.stop();
   ok('stopping asks the engine to finish the phrase rather than dropping it',
      r.engine().calls.includes('stop') && !r.engine().calls.includes('abort'), r.engine().calls);
   ok('and the control shows it is on the way out', r.d.state.phase === 'stopping', r.d.state);
-  ok('the guess is dropped at once, because it will never be finalised now',
+  ok('the guess is dropped at once, because it will never be finalised as it is',
      r.d.state.interim === '', r.d.state);
-  r.engine().sink.heard(2, [{ text: 'too late', final: true }]);
-  ok('results that arrive after a stop are ignored', r.said.length === 0, r.said);
+  const grace = r.timers.ids()[0];
+  r.engine().sink.heard(0, [{ text: 'yes', final: true }]);
+  ok('the final result stop() asked for is the answer to it, and is delivered',
+     r.said.join('|') === 'yes', r.said);
+  ok('but it does not put a session on its way out back on',
+     r.d.state.phase === 'stopping', r.d.state);
+  ok('nor the guess back on screen', r.d.state.interim === '', r.d.state);
+  ok('and the stop keeps its grace period rather than being given eight fresh seconds',
+     r.timers.ids().join() === String(grace) && r.timers.waits().join() === String(STOP_MS),
+     r.timers.waits());
   r.engine().sink.ended();
   ok('the engine ending is what turns the control off', r.d.state.phase === 'off', r.d.state);
+  r.engine().sink.heard(1, [{ text: 'too late', final: true }]);
+  ok('and anything after that end belongs to no session at all',
+     r.said.length === 1, r.said);
+}
+{
+  // The other half of the refined rule. A running guess while stopping will
+  // never be finalised in that form, and the screen was deliberately cleared
+  // when the stop began.
+  const r = rig();
+  r.d.start();
+  r.engine().sink.started();
+  r.d.stop();
+  r.engine().sink.heard(0, [{ text: 'still guessi', final: false }]);
+  ok('a running guess that arrives while stopping is not shown',
+     r.d.state.interim === '', r.d.state);
+  ok('and is certainly not inserted', r.said.length === 0, r.said);
+  ok('nor does it revive the session', r.d.state.phase === 'stopping', r.d.state);
+}
+{
+  // Delivering the last result must not also mean delivering it twice: engines
+  // redeliver, and a stop does not reset what has already been committed.
+  const r = rig();
+  r.d.start();
+  r.engine().sink.started();
+  r.engine().sink.heard(0, [{ text: 'hello there', final: true }]);
+  r.d.stop();
+  r.engine().sink.heard(0, [
+    { text: 'hello there', final: true },
+    { text: 'and more', final: true },
+  ]);
+  ok('a result redelivered after the stop is not committed a second time',
+     r.said.join('|') === 'hello there|and more', r.said);
 }
 {
   // The one failure a person cannot get out of: a button stuck mid-stop.

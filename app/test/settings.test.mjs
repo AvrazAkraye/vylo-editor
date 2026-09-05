@@ -56,7 +56,14 @@ const find = (groups, id) => ids(groups).includes(id);
        by.get(id)?.category === category, `found ${by.get(id)?.category ?? 'nothing'}`);
   }
 
-  const ADDED = ['plan', 'providers', 'keyMap', 'autoApprove', 'modules', 'railSide', 'drafts', 'checkpoints', 'fileHistory',
+  const ADDED = ['plan', 'providers', 'keyMap',
+                 // The hold-a-key-and-speak switch. It is off until somebody
+                 // asks for it, and a hidden hotkey that opens a microphone is
+                 // exactly the kind of control that must not be reachable only
+                 // from wherever it was first built — so it is named here, in
+                 // Shortcuts, beside the other key a person presses.
+                 'pushToTalk',
+                 'autoApprove', 'modules', 'railSide', 'drafts', 'checkpoints', 'fileHistory',
                  'clipboardHistory', 'terminals', 'version', 'updates', 'safety'];
   for (const id of ADDED) ok(`${id} is in the catalogue`, by.has(id));
 

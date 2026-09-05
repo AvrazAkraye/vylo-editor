@@ -99,10 +99,17 @@ import { PluginsPanel } from './PluginsPanel';
 import { RoutinesPanel } from './RoutinesPanel';
 import { DashboardPanel } from './DashboardPanel';
 import {
-  KEY as ROUTINES_KEY, TICK_KEY, due as dueRoutines, markRun, missedWhileClosed,
-  read as readRoutines, skip as skipRoutine, write as writeRoutines, type Routine,
+  KEY as ROUTINES_KEY, TICK_KEY, due as dueRoutines, hold as holdRoutine, markRun, midWork,
+  missedWhileClosed, read as readRoutines, skip as skipRoutine, write as writeRoutines, type Routine,
 } from './routines';
-import { modeFor, systemPromptFor, type Agent } from './agents';
+import { modeFor, parse as parseAgents, systemPromptFor, type Agent } from './agents';
+import { watch as watchDoc } from './docs';
+import { SkillsPanel } from './SkillsPanel';
+import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
+import { BrowserPanel } from './BrowserPanel';
+import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
+import { PushToTalk } from './PushToTalk';
+import { KEY as PTT_KEY, read as readPtt, write as writePtt, type Setting as PttSetting } from './ptt';
 import { SYSTEM as ASK_SYSTEM, ask as askMessage, parse as parseCommand, reason } from './command';
 import { dirFor } from './rtl';
 import {
@@ -233,6 +240,51 @@ const LS = {
  * would spend the user's own rate limit to tell them nothing new.
  */
 const PLAN_EVERY_MS = 5 * 60_000;
+
+/** Where the project's agents live. The Routines panel edits it; App reads it. */
+const AGENTS_FILE = '.vylo/AGENTS.md';
+const SKILLS_FILE = '.vylo/SKILLS.md';
+
+/**
+ * The agents in `.vylo/AGENTS.md` as it stands on disk, or none.
+ *
+ * None for a folder without the file, and none for no folder at all — and
+ * none, rather than a thrown error, when the read fails: an unreadable file
+ * is the same to a scheduled run as an absent one, and the run says so on
+ * its row rather than crashing a tick.
+ */
+async function readAgents(root: string): Promise<Agent[]> {
+  if (!root) return [];
+  try {
+    const r = await invoke<{ text: string }>('read_for_editor', { root, path: AGENTS_FILE });
+    return parseAgents(r.text);
+  } catch {
+    return [];
+  }
+}
+
+/** The skills file, read the same way and for the same reason. */
+async function readSkills(root: string): Promise<Skill[]> {
+  if (!root) return [];
+  try {
+    const r = await invoke<{ text: string }>('read_for_editor', { root, path: SKILLS_FILE });
+    return parseSkills(r.text);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * How a turn ended, for the one caller that records it.
+ *
+ * `converse` catches everything a turn can throw — a stop, the hop cap, a
+ * gateway that never answered — because each of those puts a line and a
+ * button in the chat rather than crashing the turn. Right for a person, and
+ * wrong for a routine, which would see `send` resolve and mark a run that
+ * produced an error line as green. So the outcome comes back as a value;
+ * every other caller discards it. `error` is the sentence for the row.
+ */
+type Outcome = { ok: boolean; error?: string };
 
 export function App() {
   // capi is the gateway's own PUBLIC_BASE_URL and what the other Vylo clients
@@ -617,6 +669,20 @@ export function App() {
   // The active terminal's output, for `@terminal`. The panel hands this over
   // when it mounts so the composer can pull rather than the panel having to push.
   const termText = useRef<(() => string) | null>(null);
+  // "Pick it from what it prints": opening the dev-server pane reads the
+  // terminal for addresses a server announced, so the first one shows without
+  // being typed. Only when the pane opens — not on every line the terminal
+  // writes — because a pane that changes address on its own is a pane you
+  // cannot trust to keep showing the thing you were looking at.
+  useEffect(() => {
+    if (rail !== 'browser' && rightRail !== 'browser') return;
+    const found = detectUrls(termText.current?.() ?? '');
+    if (!found.length) return;
+    setBrowser((b) => ({
+      url: b.url ?? found[0],
+      recent: [...found].reverse().reduce((acc, u) => recentUrl(acc, u), b.recent),
+    }));
+  }, [rail, rightRail, railOpen, rightOpen]);
   /**
    * The checkpoint redo would put back, or null when nothing is undone.
    *
@@ -660,11 +726,31 @@ export function App() {
    * Routines and the agents they run — Agent mode's state.
    *
    * The routines live in localStorage (they are schedules, not project
-   * content); the agents live in `.vylo/AGENTS.md` and arrive through the
-   * Routines panel, which is the one thing that reads that file.
+   * content); the agents live in `.vylo/AGENTS.md`, and App reads that file
+   * itself: on every folder change, and again whenever this app writes it.
+   * They used to arrive through the Routines panel, which meant a scheduled
+   * run could only find its agent if that panel had been opened this session
+   * — a run that depends on which rail the window was left on is not
+   * unattended. A run reads the file once more as it starts, for edits that
+   * arrived some other way (see `runRoutine`).
    */
   const [routines, setRoutines] = useState<Routine[]>(() => readRoutines(localStorage.getItem(ROUTINES_KEY)));
   const [agentsList, setAgentsList] = useState<Agent[]>([]);
+  useEffect(() => {
+    // Cleared first: the old folder's agents must not stand in for the new
+    // one's, even for the moment the read takes.
+    setAgentsList([]);
+    let live = true;
+    void readAgents(root).then((list) => { if (live) setAgentsList(list); });
+    return () => { live = false; };
+  }, [root]);
+  useEffect(() => watchDoc(AGENTS_FILE, (next) => setAgentsList(parseAgents(next))), []);
+  /**
+   * The dev-server pane: the address showing and the ones shown before. Kept
+   * per machine, not per project — the port a person runs on is a habit.
+   */
+  const [browser, setBrowser] = useState(() => readBrowser(localStorage.getItem(BROWSER_KEY)));
+  useEffect(() => { try { localStorage.setItem(BROWSER_KEY, writeBrowser(browser)); } catch { /* private mode */ } }, [browser]);
   /** Runs that fell due while the app was closed. Reported once, never run. */
   const [missedRuns, setMissedRuns] = useState<Routine[]>([]);
   /**
@@ -719,7 +805,7 @@ export function App() {
   const langRef = useRef(lang);
   langRef.current = lang;
 
-  function dictate() {
+  function ensureDictation(): Dictation {
     if (!dictation.current) {
       dictation.current = new Dictation({
         open: (sink) => browserOpen(recognitionLang(langRef.current, navigator.language))(sink),
@@ -742,8 +828,29 @@ export function App() {
         onState: setDict,
       });
     }
-    dictation.current.toggle();
+    return dictation.current;
   }
+  function dictate() { ensureDictation().toggle(); }
+
+  /**
+   * Push-to-talk: hold a key, speak, let go, and the message goes. Off until
+   * a person turns it on, and the key is theirs to choose (`ptt.ts`).
+   */
+  const [ptt, setPtt] = useState<PttSetting>(() => readPtt(localStorage.getItem(PTT_KEY)));
+  useEffect(() => { try { localStorage.setItem(PTT_KEY, writePtt(ptt)); } catch { /* private mode */ } }, [ptt]);
+  /** Key codes seen going down this session, so Settings offers Fn only where it fires. */
+  const [pttSeen, setPttSeen] = useState<string[]>([]);
+  /** Set by a push-to-talk release: send the composer once the engine has ended. */
+  const sendOnEnd = useRef(false);
+  // A release sends, but only once the engine has finished: the last phrase
+  // lands through `onText` before the state reaches 'off', and `send()` reads
+  // the box. Calling send() in the same tick as stop() would send the words
+  // minus the ones still being finalised.
+  useEffect(() => {
+    if (dict.phase !== 'off' || !sendOnEnd.current) return;
+    sendOnEnd.current = false;
+    if (promptRef.current.trim()) void send();
+  }, [dict.phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A microphone left open by a component that no longer exists is the one
   // failure nobody can see to fix.
@@ -2531,59 +2638,109 @@ export function App() {
   }
 
   /**
+   * The gap between a run being asked for and `send` flipping `busy`, which
+   * now holds a file read. A second Run now in that gap — a double-click, or
+   * the tick landing on it — would open a second chat for the same run.
+   */
+  const routineStarting = useRef(false);
+
+  /**
    * Run one routine, now.
    *
    * A fresh chat, so the run's transcript is its own and the result has an
-   * address to open later. The agent's mode is `ask` when the run is
-   * unattended unless auto-approve is on — in which case the person decided in
-   * advance, which is what auto-approve means. `markRun` is written at the
-   * start and again at the end: the start is what stops a second tick from
-   * launching it twice, the end is what the dashboard reads.
+   * address to open later. The agent is read from `.vylo/AGENTS.md` as it
+   * stands *now*, not from state: the line that says what it may do is the
+   * one a review can see, and a `git pull` that changed it while the app was
+   * open is not something this app's own write notifications hear about.
+   * Its mode is `ask` when the run is unattended unless auto-approve is on —
+   * in which case the person decided in advance, which is what auto-approve
+   * means.
+   *
+   * `markRun` is written at the start and again at the end, with `send`'s
+   * outcome: the start is what stops a second tick from launching it twice,
+   * the end is what the dashboard reads. Nothing writes one for a refusal
+   * because a turn is in flight: that is a deferral, not a run, and recording
+   * it would move the anchor and lose the owed slot. A missing agent or key
+   * *is* recorded — the routine cannot run until somebody fixes it, and the
+   * row is where they find out — but before the chat is reset, so a run that
+   * never started leaves no chat holding only its header and opens no
+   * Settings in a window nobody is at.
    */
   async function runRoutine(r: Routine) {
-    const at = Date.now();
-    if (busy) {
-      setRoutines((p) => markRun(p, r.id, { at, chatId: '', ok: false, error: t('The app was busy; it will try at the next slot.') }));
+    if (busy || routineStarting.current) {
+      push({ kind: 'error', text: t('A turn is running; try again when it ends.') });
       return;
     }
-    const agent = agentsList.find((a) => a.id === r.agent);
-    if (!agent) {
-      setRoutines((p) => markRun(p, r.id, { at, chatId: '', ok: false, error: t('Its agent is no longer in .vylo/AGENTS.md.') }));
-      return;
-    }
-    const id = newChatId();
-    setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: true }));
-    // The same reset `newChat` does, with an id known up front.
-    setChatId(id);
-    history.current = [];
-    setLines([]);
-    setChanges([]);
-    pending.current.clear();
-    setChatTokens(NO_USAGE);
-    setLastTurn(NO_USAGE);
-    setCtx(null);
-    setActive('chat');
-    push({ kind: 'result', text: `${t('Routine')} — ${r.name} · ${agent.name}` });
-    teammate.current = {
-      brief: systemPromptFor(agent, {}),
-      mode: modeFor(agent, autoOn(auto)),
-    };
+    if (!root) { push({ kind: 'error', text: t('Open a folder first.') }); return; }
+    routineStarting.current = true;
     try {
-      await send(r.brief);
+      const at = Date.now();
+      const agents = await readAgents(root);
+      setAgentsList(agents);
+      // Skills the same way: what the file says now is what the agent carries.
+      const skills = await readSkills(root);
+      const agent = agents.find((a) => a.id === r.agent);
+      if (!agent) {
+        setRoutines((p) => markRun(p, r.id, { at, chatId: '', ok: false, error: t('Its agent is no longer in .vylo/AGENTS.md.') }));
+        return;
+      }
+      if (!armed({ baseUrl: wired.baseUrl, key: wired.apiKey })) {
+        setRoutines((p) => markRun(p, r.id, { at, chatId: '', ok: false, error: t('Add an API key in Settings first.') }));
+        return;
+      }
+      const id = newChatId();
       setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: true }));
-    } catch (e) {
-      setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: false, error: explain(e, t('run the routine')) }));
+      // The same reset `newChat` does, with an id known up front.
+      setChatId(id);
+      history.current = [];
+      setLines([]);
+      setChanges([]);
+      pending.current.clear();
+      setChatTokens(NO_USAGE);
+      setLastTurn(NO_USAGE);
+      setCtx(null);
+      setActive('chat');
+      push({ kind: 'result', text: `${t('Routine')} — ${r.name} · ${agent.name}` });
+      teammate.current = {
+        brief: systemPromptFor(agent, skillsTextFor(skills, agent.skills)),
+        mode: modeFor(agent, autoOn(auto)),
+      };
+      try {
+        const outcome = await send(r.brief);
+        setRoutines((p) => markRun(p, r.id, { at, chatId: id, ...outcome }));
+      } catch (e) {
+        setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: false, error: explain(e, t('run the routine')) }));
+      } finally {
+        teammate.current = null;
+        raiseSummons({ kind: 'routine' });
+      }
     } finally {
-      teammate.current = null;
-      raiseSummons({ kind: 'routine' });
+      routineStarting.current = false;
     }
   }
 
   /**
-   * The scheduler. A tick every half minute, one run per tick, only while
-   * nothing else is running. The tick time is kept so the next launch can say
-   * what was missed while the app was closed — and skip it, rather than run a
-   * week of Monday reports on a Friday.
+   * The last keystroke or click anywhere in the window, for the scheduler.
+   *
+   * Capture phase, so a handler that stops propagation — the editor, the
+   * terminal — still counts as somebody being here.
+   */
+  const lastActivity = useRef(0);
+  useEffect(() => {
+    const bump = () => { lastActivity.current = Date.now(); };
+    window.addEventListener('keydown', bump, true);
+    window.addEventListener('pointerdown', bump, true);
+    return () => {
+      window.removeEventListener('keydown', bump, true);
+      window.removeEventListener('pointerdown', bump, true);
+    };
+  }, []);
+
+  /**
+   * The scheduler. A tick every half minute, one run per tick, only while the
+   * window is free. The tick time is kept so the next launch can say what was
+   * missed while the app was closed — and skip it, rather than run a week of
+   * Monday reports on a Friday.
    */
   useEffect(() => {
     const last = Number(localStorage.getItem(TICK_KEY)) || null;
@@ -2595,16 +2752,51 @@ export function App() {
     }
     // Once, at launch.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * One tick: start the routine that is owed, or say why not.
+   *
+   * This app has one chat and a run replaces it, so a run starts only when
+   * the window is free — nothing running, nothing in the box, no decision on
+   * screen, nobody at the keys in the last minute (`midWork`). Otherwise the
+   * routine is *held*: the reason goes on its row and the run stays owed, so
+   * the next free tick takes it. Never `markRun` here — that moves the anchor
+   * and the owed run is lost (see routines.ts, "Held is not a run"). The
+   * previous chat needs no saving: the effect that persists it already ran.
+   */
+  function tick(now: number) {
+    if (!root) return;
+    const d = dueRoutines(routines, now);
+    if (!d.length) return;
+    const why = busy ? t('The app was busy; it will try at the next slot.')
+      : midWork({
+        draft: prompt.trim().length > 0 || shots.length > 0,
+        deciding: needsDecision.current,
+        queued: queued(queue).length > 0,
+        lastActivity: lastActivity.current,
+      }, now) ? t('Waiting for you to finish.') : null;
+    if (why) {
+      if (d[0].held !== why) setRoutines((p) => holdRoutine(p, d[0].id, why));
+      return;
+    }
+    void runRoutine(d[0]);
+  }
+  // Set once, and read the newest render's `tick` through a ref. An interval
+  // rebuilt on every dependency change restarts its thirty seconds each time
+  // a run is recorded; one built once over a plain closure sends a run out
+  // with the key, model and tools of whatever render it was made in, and a
+  // key added in Settings five minutes ago is not on it. The ref gives the
+  // tick current state without either.
+  const tickRef = useRef(tick);
+  tickRef.current = tick;
   useEffect(() => {
     const id = window.setInterval(() => {
       const now = Date.now();
       try { localStorage.setItem(TICK_KEY, String(now)); } catch { /* private mode */ }
-      if (busy || !root) return;
-      const d = dueRoutines(routines, now);
-      if (d.length) void runRoutine(d[0]);
+      tickRef.current(now);
     }, 30_000);
     return () => window.clearInterval(id);
-  }, [routines, busy, root, agentsList, auto]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   function openChat(c: Chat) {
     setChatId(c.id);
@@ -2898,14 +3090,24 @@ export function App() {
    * worked belongs to whatever is typed next, not to something queued three
    * hops ago.
    */
-  async function send(queued?: string) {
+  async function send(queued?: string): Promise<Outcome> {
     const text = (queued ?? prompt).trim();
     const carriedShots = queued ? [] : shots;
+    if (busy) return { ok: false, error: t('A turn is running; try again when it ends.') };
     // An image on its own is a legitimate message -- "what is wrong here?"
     // with a screenshot needs no words.
-    if ((!text && carriedShots.length === 0) || busy) return;
-    if (!root) { push({ kind: 'error', text: t('Open a folder first.') }); return; }
-    if (!armed({ baseUrl: wired.baseUrl, key: wired.apiKey })) { push({ kind: 'error', text: t('Add an API key in Settings first.') }); setShowSettings(true); return; }
+    if (!text && carriedShots.length === 0) return { ok: false };
+    if (!root) {
+      const error = t('Open a folder first.');
+      push({ kind: 'error', text: error });
+      return { ok: false, error };
+    }
+    if (!armed({ baseUrl: wired.baseUrl, key: wired.apiKey })) {
+      const error = t('Add an API key in Settings first.');
+      push({ kind: 'error', text: error });
+      setShowSettings(true);
+      return { ok: false, error };
+    }
 
     if (!queued) {
       // The message is gone; anything still being said belongs to the next one,
@@ -2941,7 +3143,7 @@ export function App() {
     history.current.push({ role: 'user', content });
     if (!queued) setShots([]);
 
-    await converse();
+    return converse();
   }
 
   /**
@@ -2952,7 +3154,7 @@ export function App() {
    * assistant's half is built inside `runAgent` and discarded when it throws —
    * so trying again is the same request, not a repair.
    */
-  async function converse() {
+  async function converse(): Promise<Outcome> {
     // Only the newest failure offers a retry; an older one would re-ask a
     // question two answers back. Continue goes the same way: it resumes the
     // conversation as it stands, so a button left on an older line would
@@ -3054,6 +3256,7 @@ export function App() {
       // A turn that ran to the end. News rather than a decision, so it only
       // fires at the "everything" level.
       raiseSummons({ kind: 'finished' });
+      return { ok: true };
     } catch (e) {
       // Stopping is a choice, not a failure, and reporting it as an error would
       // read like something went wrong. What was said before the stop is kept:
@@ -3063,6 +3266,9 @@ export function App() {
       if (e instanceof Stopped) {
         history.current = e.messages;
         push({ kind: 'result', text: t('Stopped.') });
+        // Not an error line, and not a finished run either: a routine whose
+        // run was stopped has a result nobody should read as complete.
+        return { ok: false, error: t('Stopped.') };
       } else if (e instanceof HopLimit) {
         // Everything this turn read is on the exception, so keep it. The old
         // behaviour threw it away and offered Try again, which bought the same
@@ -3072,19 +3278,18 @@ export function App() {
         // request as it stands; nothing is appended to it. And it is a press:
         // a cap that continues by itself is not a cap.
         history.current = e.messages;
-        push({
-          kind: 'result',
-          text: t('Reached the step limit for this turn. Nothing is lost — press Continue to carry on.'),
-          more: true,
-        });
+        const text = t('Reached the step limit for this turn. Nothing is lost — press Continue to carry on.');
+        push({ kind: 'result', text, more: true });
         // Which is also why the queue must not drain over it: a queued message
         // would press Continue on the user's behalf and buy the hops.
         needsDecision.current = true;
+        return { ok: false, error: text };
       } else {
         // Retryable in the sense that the same request can be sent again: the
         // history still ends with the user's message. Whether it will work is
         // the gateway's business, and the button says nothing about that.
-        push({ kind: 'error', text: explain(e, t('send the message')), retry: true });
+        const error = explain(e, t('send the message'));
+        push({ kind: 'error', text: error, retry: true });
         // There is a Try again on screen now, and the queue must not send over
         // the top of it -- see `needsDecision`.
         needsDecision.current = true;
@@ -3093,6 +3298,7 @@ export function App() {
         // ago, and telling somebody that what they just asked for has happened
         // is how notifications get switched off.
         raiseSummons({ kind: 'failed' });
+        return { ok: false, error };
       }
     } finally {
       abort.current = null;
@@ -3269,14 +3475,23 @@ export function App() {
                     onRun={(r) => void runRoutine(r)}
                     onOpen={(id) => { const c = chatsIn(root).find((x) => x.id === id); if (c) openChat(c); }}
                     onError={(m) => push({ kind: 'error', text: m })}
-                    onAgents={setAgentsList}
+                    onOpenFolder={() => void pickFolder()}
                     unattendedMayAct={autoOn(auto)} />
+            )}
+            {shown === 'skills' && (
+              <SkillsPanel root={root} t={t}
+                    onError={(m) => push({ kind: 'error', text: m })} />
             )}
             {shown === 'plugins' && (
               <PluginsPanel root={root} t={t}
                     servers={mcpServers} tools={mcpTools} error={mcpError}
                     onToggle={(sv) => void toggleServer(sv)}
                     onSettings={() => { setSettingsAt('modules'); setShowSettings(true); }} />
+            )}
+            {shown === 'browser' && (
+              <BrowserPanel t={t} url={browser.url} recent={browser.recent}
+                    onUrl={(u) => setBrowser((b) => ({ url: u, recent: u ? recentUrl(b.recent, u) : b.recent }))}
+                    onError={(m) => push({ kind: 'error', text: m })} />
             )}
 
             {shown === 'prompts' && (
@@ -3596,6 +3811,23 @@ export function App() {
           WKWebView's JavaScript panels — so thirteen actions silently did
           nothing, or silently answered no. */}
       <AskHost t={t} />
+      {canDictate && (
+        <PushToTalk
+          t={t}
+          setting={ptt}
+          listening={dict.phase !== 'off'}
+          onStart={() => ensureDictation().start()}
+          onStop={() => {
+            // A release after the engine already ended (silence) has nothing to send.
+            const d = dictation.current;
+            if (!d || d.state.phase === 'off') return;
+            sendOnEnd.current = true;
+            d.stop();
+          }}
+          onCancel={() => dictation.current?.stop()}
+          onKeyCodeSeen={(code) => setPttSeen((seen) => (seen.includes(code) ? seen : [...seen, code]))}
+        />
+      )}
 
       {signInOpen && (
         <div className="pal-back" onMouseDown={() => setSignInOpen(false)}>
@@ -3669,6 +3901,9 @@ export function App() {
           }}
           auto={auto}
           onAuto={setAuto}
+          ptt={ptt}
+          onPtt={setPtt}
+          pttSeen={pttSeen}
           modules={modules}
           onModules={setModules}
           baseUrl={baseUrl}

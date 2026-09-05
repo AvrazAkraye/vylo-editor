@@ -11,6 +11,7 @@
 // carry the model's proposed command would be a shell command approved from the
 // notification centre with the string never on screen, so these tests try to get
 // one into the body by every route the type system does not already close.
+import { readFileSync } from 'fs';
 import {
   DEFAULT, KEY, LEVELS, QUIET_MS, SENTENCES, SOUND_KEY,
   again, loadPrefs, savePrefs, summons,
@@ -67,12 +68,30 @@ ok('every sentence a banner can carry is one written in the module',
    })));
 
 // If this fails, a sentence was added: it needs an ar, ckb and kmr translation
-// in `i18n.ts` before `test/i18n.test.mjs` will agree, and the count here is the
-// reminder. Eight is three titles and five bodies.
-// Ten since routines arrived: a finished routine is a result waiting for a
-// person, and gets its own two sentences.
+// in `i18n.ts`, and the count here is the reminder. Eight was three titles and
+// five bodies; ten since routines arrived, because a finished routine is a
+// result waiting for a person and gets its own two sentences.
 ok('the closed set is the ten sentences the module writes out',
    SENTENCES.length === 10 && new Set(SENTENCES).size === 10, SENTENCES);
+
+// And the translations themselves. `raise` hands each title and body to the
+// caller's translator, and a key the catalogue lacks comes back as English —
+// on the OS banner, in an Arabic interface, where nothing else is. Nothing in
+// test/i18n.test.mjs can see that: its forward check reads `t('…')` literals
+// out of the source, and these sentences reach `t` through `say`. So the
+// catalogue is read here, as text, the same way that test reads it.
+{
+  const src = readFileSync('src/i18n.ts', 'utf8').replace(/\r\n/g, '\n');
+  const ENTRY = /^ {2}'((?:[^'\\]|\\.)+)':[ \t]*\n?[ \t]*'((?:[^'\\]|\\.)*)',[ \t]*$/gm;
+  for (const lang of ['ar', 'ckb', 'kmr']) {
+    const from = src.indexOf(`const ${lang}: Dict = {`);
+    const to = src.indexOf('\n};', from);
+    const keys = new Set([...src.slice(from, to).matchAll(ENTRY)].map((m) => m[1]));
+    const missing = SENTENCES.filter((s) => !keys.has(s));
+    ok(`every sentence a banner can carry is in the ${lang} catalogue`,
+       from !== -1 && keys.size > 50 && missing.length === 0, missing);
+  }
+}
 
 ok('no sentence names a file, a command, a tool or a model',
    SENTENCES.every((s) => !/[`$|<>]|\.\/|--/.test(s)), SENTENCES);
