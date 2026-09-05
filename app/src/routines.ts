@@ -65,6 +65,16 @@
  * then calls `skip` on each so the next run counts from now; without that the
  * owed run would fire on the first tick.
  *
+ * That gap is one clock for the whole app, so it cannot see a slot that passed
+ * while another project was open: the scheduler ticked through project A's nine
+ * o'clock with project B on screen, `TICK_KEY` moved past it, and A's run then
+ * sat *behind* the launch window — not missed, not reported, and first in the
+ * queue the moment A was opened, days late. So opening a folder asks the same
+ * question about that folder alone. `owedNow` names every routine of the folder
+ * being opened whose run is already owed, and the app reports and skips them
+ * exactly as it does at launch: a run owed while its project was closed was
+ * missed, whichever of the two made it so.
+ *
  * ## The double-fire guard
  *
  * The scheduler ticks every few seconds and the store it reads is React state,
@@ -86,11 +96,51 @@
  * takes it, and until then the row says why it is waiting. The run that
  * eventually starts clears the note, and so does forgiving the run (`skip`).
  *
- * Whether the window is free is `midWork`, kept here so the rule is one
- * function with a test rather than a condition in the scheduler: anything in
- * the message box, a decision on screen, a message queued, or a key or click
- * in the last minute. Nobody who has never acted counts — an app launched and
- * left alone is exactly the one a routine is for.
+ * Whether the window is free is `holdReason`, kept here so the rule is one
+ * function with a test rather than a condition in the scheduler: staged edits
+ * waiting in the review pane, anything in the message box, a decision on
+ * screen, a message queued, or a key or click in the last minute. Nobody who
+ * has never acted counts — an app launched and left alone is exactly the one a
+ * routine is for.
+ *
+ * Staged edits are on that list because they are a decision waiting for a
+ * person, not a person waiting for the app. A turn that ended by proposing
+ * three files leaves `busy` false and the keyboard untouched; the tick used to
+ * pass every guard a minute later and the runner then cleared the review pane
+ * with no transcript line. `notify.ts` already calls that moment one a person
+ * is being waited for, and this agrees with it.
+ *
+ * ## A routine belongs to the folder it was made in
+ *
+ * The list is one list for the whole app — a schedule is not project content
+ * and does not belong in a repository — but `agent` is a slug from *one*
+ * project's `.vylo/AGENTS.md`, and the starter file gives every project a
+ * `## Reviewer`. So a routine written against project A's `reviewer` would
+ * resolve, in project B, against B's heading of the same name and run B's
+ * mode with A's brief. `folder` records which project the routine was made
+ * in and `inFolder` is the filter the scheduler and both panels use.
+ *
+ * The launch report is the one caller that is deliberately *not* filtered. A
+ * run that was skipped was skipped wherever it belongs, and naming only the
+ * open project's would leave every other project's quietly owed; so
+ * `missedWhileClosed` reads the whole list, and the report labels anything
+ * from elsewhere with that project's folder name rather than showing a bare
+ * name from a project nobody is looking at.
+ *
+ * A routine stored before this field existed has no folder, and that is not a
+ * routine belonging everywhere: it resolves its agent slug against whatever
+ * project happens to be open, which is the defect this whole section closes.
+ * It belongs to nobody until `adopt` claims it for the first project opened
+ * after this version — dropping somebody's schedule silently would be worse,
+ * and leaving it floating would be the bug itself.
+ *
+ * ## Ids are never reused
+ *
+ * The id used to be the lowest free `r<n>`, so deleting a routine handed its
+ * id to the next one created — and a run that finished after the delete
+ * stamped its result, and its chat id, onto a row that had never run. Ids are
+ * now minted from the clock, and `read` accepts whatever shape it finds so a
+ * list written by an older version keeps working.
  *
  * ## What is deliberately not here
  *
@@ -120,11 +170,20 @@ export interface LastRun {
 }
 
 export interface Routine {
-  /** Stable, generated once. */
+  /** Stable, generated once, and never reused — see `newId`. */
   id: string;
   name: string;
   /** The agent that runs it, by id. */
   agent: string;
+  /**
+   * The project folder this routine was made in, as an absolute path.
+   *
+   * `agent` is a slug from that folder's `.vylo/AGENTS.md` and means nothing
+   * anywhere else — see the header. Empty only for a routine stored before the
+   * field existed: it belongs to no project at all until `adopt` claims it for
+   * the first one opened, and `inFolder` matches it nowhere until then.
+   */
+  folder: string;
   /** The whole instruction. Self-contained: a fresh chat has no other context. */
   brief: string;
   schedule: Schedule;
@@ -375,6 +434,12 @@ export function due(routines: readonly Routine[], now: Now): Routine[] {
  * was owed *before* the last tick — while the app was open — is not missed, it
  * is due, and the scheduler will start it.
  *
+ * The whole list, every project's, and not this folder's: a run that was
+ * skipped was skipped wherever it belongs, and one belonging to a project that
+ * is not open would otherwise sit owed until it was — and then fire late. The
+ * report names the project each one came from; `owedNow` covers the slots this
+ * window is blind to, which are the ones that passed with another project open.
+ *
  * These are for a notice, not a queue: call `skip` on each after showing it.
  */
 export function missedWhileClosed(
@@ -388,6 +453,79 @@ export function missedWhileClosed(
   });
 }
 
+// ── Which folder a routine belongs to ──────────────────────────────────────
+
+/**
+ * The routines that belong to `folder`, and only those.
+ *
+ * The filter the scheduler, both panels and the row that offers to open a
+ * run's chat all use. A routine names its agent by a slug from one project's
+ * `.vylo/AGENTS.md`, and the starter file gives every project a `## Reviewer`
+ * — so an unfiltered list means a routine written in one project runs, in
+ * another, whatever that project happens to call the same thing, with that
+ * project's mode. See the header. The launch report is the deliberate
+ * exception and does not come through here.
+ *
+ * A routine with no folder matches nothing but the no-folder case. It used to
+ * match every folder, which read as generosity and was the defect wearing a
+ * kindness: a schedule written against project A's `reviewer` went on
+ * resolving that slug against whichever project was open, which is what
+ * `folder` exists to stop. It belongs to nobody until `adopt` claims it.
+ */
+export function inFolder(list: readonly Routine[], folder: string): Routine[] {
+  const want = text(folder);
+  return list.filter((r) => r.folder === want);
+}
+
+/**
+ * Claim every routine that has no folder for `folder`, re-armed at `now`.
+ *
+ * Called when a project is opened — at launch and on every folder change — so
+ * a list written before folders were recorded acquires one from the first
+ * project opened after this version, rather than floating and resolving its
+ * agent slug against whatever happens to be on screen. After this, "a routine
+ * made in one project never runs in another" is true of the old ones too, and
+ * a person who wants a different project simply edits the routine there.
+ *
+ * Re-armed, and that is the safety half rather than tidiness. An unscoped
+ * routine's anchor was set in a project it never belonged to, and the run it
+ * is owed — if it is owed one — is owed there and not here. Adopting without
+ * re-arming would fire that run in the claiming project on the very next tick,
+ * which is the thing folder scoping exists to prevent. Its first run here is
+ * its next slot from this moment, the rule `resume` already uses. The held
+ * note goes with the run it was about.
+ *
+ * A blank `folder` claims nothing: there is no project to claim for, and
+ * stamping the empty string would be a no-op wearing a change's clothes.
+ */
+export function adopt(list: readonly Routine[], folder: string, now: Now): Routine[] {
+  const want = text(folder);
+  if (!want) return [...list];
+  const t = ms(now);
+  return list.map((r) => (r.folder ? r : { ...unheld(r), folder: want, armedAt: t }));
+}
+
+/**
+ * The routines of `folder` that are already owed a run the moment it opens.
+ *
+ * The blind spot `missedWhileClosed` cannot cover, and the reason this exists
+ * beside it — see the header. The tick is one clock for the whole app, so a
+ * slot that passed while a different project was on screen is behind the
+ * launch window rather than inside it, and the routine would otherwise fire
+ * the instant its project was opened, days late.
+ *
+ * Owed, not "fell in a window": anything at or before `now`. Paused and manual
+ * routines have no next run and are never here. The caller reports these and
+ * calls `skip` on each, exactly as it does at launch.
+ */
+export function owedNow(list: readonly Routine[], folder: string, now: Now): Routine[] {
+  const t = ms(now);
+  return inFolder(list, folder).filter((r) => {
+    const next = nextRun(r, t);
+    return next !== null && next <= t;
+  });
+}
+
 // ── Whether the window is free ─────────────────────────────────────────────
 
 /**
@@ -395,6 +533,13 @@ export function missedWhileClosed(
  * scheduler can see without asking anybody.
  */
 export interface Presence {
+  /**
+   * Proposed edits sitting in the review pane, or a command dialog on screen.
+   *
+   * A decision waiting for a person rather than a person waiting for the app,
+   * and the one the scheduler used to be blind to — see the header.
+   */
+  staged: boolean;
   /** Text or an attachment in the message box. */
   draft: boolean;
   /** A Try again or Continue on screen: a turn that ended on a decision. */
@@ -406,19 +551,38 @@ export interface Presence {
 }
 
 /**
- * Whether starting a routine now would take the window from somebody.
+ * The two reasons a hold can have, as `i18n.ts` keys.
  *
- * This app has one chat, and a run replaces it. A draft would end up aimed
- * at the routine's chat, a Try again would leave the screen with its history
- * behind it, a queued message would come back refused as stale inside a
- * transcript nobody typed it into — so each of those holds the run, and so
- * does a key or a click in the last `PRESENT_MS`. A person who has never
- * acted (`lastActivity` 0) is not mid-anything: that is the launch-and-leave
- * case routines exist for.
+ * Keys and not sentences: this module holds no dictionary, the same way
+ * `phrase` returns one. Module-private, because the only thing worth exporting
+ * is the decision below — a caller that wanted to compare against one of these
+ * would be re-implementing `holdReason`.
  */
-export function midWork(p: Presence, now: Now): boolean {
-  if (p.draft || p.deciding || p.queued) return true;
-  return ms(now) - p.lastActivity < PRESENT_MS;
+const HELD_STAGED = 'Changes are waiting for review.';
+const HELD_PERSON = 'Waiting for you to finish.';
+
+/**
+ * Why starting a routine now would take the window from somebody, or null.
+ *
+ * The reason and not just a yes or no, because the reason is what goes on the
+ * routine's row: a run that has been owed since nine o'clock and a row saying
+ * nothing is the shape a person reads as broken.
+ *
+ * This app has one chat, and a run replaces it. Staged edits would be cleared
+ * with no transcript line, a draft would end up aimed at the routine's chat, a
+ * Try again would leave the screen with its history behind it, a queued
+ * message would come back refused as stale inside a transcript nobody typed it
+ * into — so each of those holds the run, and so does a key or a click in the
+ * last `PRESENT_MS`. A person who has never acted (`lastActivity` 0) is not
+ * mid-anything: that is the launch-and-leave case routines exist for.
+ *
+ * Staged edits are first because they are the most expensive to lose and the
+ * most likely to be true while every other field is false.
+ */
+export function holdReason(p: Presence, now: Now): string | null {
+  if (p.staged) return HELD_STAGED;
+  if (p.draft || p.deciding || p.queued) return HELD_PERSON;
+  return ms(now) - p.lastActivity < PRESENT_MS ? HELD_PERSON : null;
 }
 
 // ── Reading and writing the list ───────────────────────────────────────────
@@ -442,8 +606,10 @@ function lastRunOf(raw: unknown): LastRun | undefined {
  * run needs — an id, an agent, a brief, a schedule that parses, a creation
  * time to count from — is dropped whole rather than half-kept. Everything
  * else is repaired: a blank name becomes the id, `paused` is false unless it is
- * exactly true, a bad last run is forgotten, and `armedAt` falls back to the
- * creation time and never sits before it.
+ * exactly true, a bad last run is forgotten, `armedAt` falls back to the
+ * creation time and never sits before it, and a missing `folder` becomes the
+ * empty string — a list written before folders were recorded is read, not
+ * thrown away, and `adopt` gives it a project the first time one is opened.
  */
 export function read(raw: string | null): Routine[] {
   try {
@@ -474,6 +640,7 @@ export function read(raw: string | null): Routine[] {
         paused: r.paused === true,
         armedAt,
         createdAt,
+        folder: text(r.folder),
       };
       const last = lastRunOf(r.lastRun);
       if (last) routine.lastRun = last;
@@ -492,10 +659,22 @@ export function write(list: readonly Routine[]): string {
   return JSON.stringify(list);
 }
 
-/** A fresh id. Distinct enough for a list nobody will put fifty entries in. */
-export function newId(taken: readonly string[]): string {
-  for (let n = 1; ; n++) {
-    const id = `r${n}`;
+/**
+ * A fresh id, which no routine in this list has ever had.
+ *
+ * Minted from the clock rather than counted, and that is the whole point: the
+ * old `r1, r2, r3…` handed a deleted routine's id straight to the next one
+ * created, so a run still in flight when its routine was deleted stamped its
+ * result — and its chat id — onto a row belonging to something else (see the
+ * header). Two routines created inside the same millisecond, or a clock that
+ * stepped back onto an id already taken, get a suffix; `taken` is still
+ * consulted so this is a guarantee and not a probability.
+ */
+export function newId(taken: readonly string[], now: Now = Date.now()): string {
+  const base = `r${ms(now).toString(36)}`;
+  if (!taken.includes(base)) return base;
+  for (let n = 2; ; n++) {
+    const id = `${base}-${n}`;
     if (!taken.includes(id)) return id;
   }
 }
@@ -513,8 +692,17 @@ export function newId(taken: readonly string[]): string {
  * schedule does not parse: half a routine is a schedule with nothing to send
  * or nobody to send it. Armed at `now`, so its first run is one interval, or
  * the next slot, from here — never this instant.
+ *
+ * `folder` is the project the routine is being made in, because `agent` is a
+ * slug from that project's `.vylo/AGENTS.md` and means nothing anywhere else
+ * (see the header). It has a default so a caller that does not know about
+ * folders still produces a routine rather than a type error; the one that
+ * does — `App.tsx` — stamps the open folder on anything that comes back
+ * without one.
  */
-export function add(list: readonly Routine[], draft: Draft, now: Now): Routine[] {
+export function add(
+  list: readonly Routine[], draft: Draft, now: Now, folder = '',
+): Routine[] {
   const name = text(draft.name);
   const agent = text(draft.agent);
   const brief = text(draft.brief);
@@ -522,11 +710,12 @@ export function add(list: readonly Routine[], draft: Draft, now: Now): Routine[]
   if (!name || !agent || !brief || !schedule) return [...list];
   const t = ms(now);
   return [...list, {
-    id: newId(list.map((r) => r.id)),
+    id: newId(list.map((r) => r.id), t),
     name, agent, brief, schedule,
     paused: false,
     armedAt: t,
     createdAt: t,
+    folder: text(folder),
   }];
 }
 

@@ -3392,7 +3392,16 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 
 .rt, .db, .pg{ flex:1; min-height:0; display:flex; flex-direction:column; overflow-y:auto; }
 .rt-sub{ display:flex; align-items:center; justify-content:space-between; }
-.rt-note{ margin:0; padding:0 var(--sp-4) var(--sp-2); font-size:var(--fs-1); color:var(--mute); }
+/* --fs-1 is for file-type badges and gutter numbers, and this is a sentence.
+   At 9px, --mute on the hover wash measures 4.15:1 — under AA for text this
+   size, and this panel's readers are reading it in Arabic and Sorani. Row meta
+   moves to --fs-2, matching the .pr-what span it was written against; the
+   note, which is prose, to --fs-3. */
+.rt-note{ margin:0; padding:0 var(--sp-4) var(--sp-2); font-size:var(--fs-3); color:var(--mute); }
+/* The empty agents state offers two starts, so it is the sidebar CTA rather
+   than a sentence — tighter than the whole-panel one, which has no heading
+   above it. */
+.rt-cta{ gap:var(--sp-3); padding:var(--sp-2) var(--sp-4) var(--sp-5); }
 .rt-agents, .rt-list, .db-list, .pg-list{
   list-style:none; margin:0; padding:0 var(--sp-3) var(--sp-3); display:flex; flex-direction:column; gap:2px;
 }
@@ -3406,11 +3415,24 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .rt-what > span, .db-what > span, .pg-what > span{
-  font-size:var(--fs-1); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-size:var(--fs-2); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
-.rt-what em, .db-row > em{ font-style:normal; font-size:var(--fs-1); color:var(--mute); white-space:nowrap; }
+.rt-what em, .db-row > em{ font-style:normal; font-size:var(--fs-2); color:var(--mute); white-space:nowrap; }
 .rt-what em{ white-space:normal; }
-.rt-row.paused .rt-what{ opacity:.55; }
+/* Paused says so in a pill. It used to say so by dropping the whole column to
+   55% opacity, which put --mute at about 2:1 on the sidebar — below AA at any
+   size, on the one word carrying the state. The pill is bordered rather than
+   filled so it survives the hover wash, which is the same colour a filled
+   badge would have used.
+   --fs-2, not --fs-1. The rule above moved this panel's row meta off 9px
+   because Arabic and Sorani are read here and 9px --mute measures 4.15:1 on
+   the wash; the pill then put the one word that carries the state — the word
+   that rule was written about — straight back onto 9px. A border around it
+   does not make the text bigger. */
+.rt-pill{
+  display:inline-block; padding:0 5px; border-radius:99px;
+  border:1px solid var(--rule); color:var(--ink); font-size:var(--fs-2); line-height:1.6;
+}
 .rt-row.failed .rt-what em{ color:var(--err); }
 .rt-mode{ flex:none; width:8px; height:8px; border-radius:50%; background:var(--mute); }
 .rt-mode.agent{ background:var(--brand); }
@@ -3432,12 +3454,34 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); min-inline-size:0;
 }
 .db-facts b{ font-size:var(--fs-8); font-weight:600; line-height:1; color:var(--ink); }
-.db-facts span{ font-size:var(--fs-1); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:100%; }
+/* The label wraps. Three tiles across a 248px sidebar leave about 60px of
+   text box each, and "li ser bernameyê" does not fit in that on one line —
+   ellipsised, it read as a different word. A tile is a column with room
+   below it; the row of them grows together. */
+.db-facts span{ font-size:var(--fs-2); color:var(--mute); overflow-wrap:anywhere; max-width:100%; }
 .db-facts .bad b{ color:var(--err); }
 .db-missed{
   display:flex; gap:var(--sp-2); align-items:flex-start; margin:0 var(--sp-4) var(--sp-3); padding:var(--sp-3);
   border-radius:var(--r-2); background:var(--panel-3); color:var(--amber-ink); font-size:var(--fs-2);
 }
+/* The notice names the routines and the slots they wanted: a count is a fact
+   nobody can act on. The dismiss is optional — see the panel's onDismiss —
+   so this styles it only for when it is there. */
+.db-missed-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:2px; }
+.db-missed-what ul{ list-style:none; margin:0; padding:0; }
+/* The lines wrap, for the reason `.db-facts span` above wraps. At the default
+   248px sidebar this text box is about 180px, and "Weekly release notes ·
+   Weekly on Monday at 09:00" ellipsised in it reads "Weekly release notes ·
+   Weekly on M…" — it cuts the slot, which is the half the notice exists to
+   name. A notice has room below it; a truncated one has nothing a person can
+   act on. `overflow-wrap:anywhere` so a long unbroken name breaks rather than
+   pushing the dismiss off the edge. */
+.db-missed-what li{ overflow-wrap:anywhere; }
+.db-missed .todo-x{
+  flex:none; display:grid; place-items:center; width:20px; height:20px;
+  border:0; border-radius:var(--r-1); background:transparent; color:inherit; cursor:pointer; opacity:.75;
+}
+.db-missed .todo-x:hover, .db-missed .todo-x:focus-visible{ opacity:1; background:var(--panel); }
 .db-dot{ flex:none; width:8px; height:8px; border-radius:50%; }
 .db-dot.ok{ background:var(--ok); }
 .db-dot.bad{ background:var(--err); }

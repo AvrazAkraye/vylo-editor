@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.54.0.
+version 0.55.0.
 
 ---
 
@@ -71,6 +71,18 @@ The list matches on text, so it will sometimes stop a command that was
 harmless. That is the direction to be wrong in, and the cost of being wrong is
 one dialog.
 
+**Always allow this cannot reach that list.** The refusal is worked out before
+anything is allowed to answer on your behalf, and the button is not offered at
+all for a command the list caught (`askToRun` in `app/src/App.tsx`). Allowing
+`git push` once does not stop it asking the next time, and nothing does.
+
+**At the third level an MCP tool call runs too.** Every rule above is written
+against a shell command, and the string `runTool` builds for a tool call —
+`server: tool({"the":"arguments"})`, in `app/src/agent.ts` — matches none of
+them. So during your own turn, at that level, an enabled server's tool runs
+without asking, exactly as any other command does. A routine's turn is the
+exception, and the next section says so.
+
 ---
 
 ### Routines
@@ -84,12 +96,51 @@ having just typed something, so it gets the strictest reading of the rule:
   given, unless auto-approve is on (`modeFor` in `app/src/agents.ts`,
   `app/test/agents.test.mjs`). Auto-approve was a decision made in advance for
   this session; a routine runs under that decision and no wider one.
-- The refuse-list above applies to a routine exactly as it does to you.
+- The refuse-list above applies to a routine exactly as it does to you. So does
+  the other half of that promise: a routine never spends an Always allow this
+  you granted at a dialog you were sitting in front of, because that was a
+  person answering a question and this is not (`askToRun`).
+- **An unattended run never uses an MCP tool without asking**, at any level —
+  which, with nobody at the dialog, means it does not use one at all. The
+  refuse-list is written against shell commands and describes none of these
+  calls, and a third-party tool's side effects are not visible from its name.
+- **A routine belongs to the folder it was made in.** It names its agent by a
+  heading in that project's `.vylo/AGENTS.md`, and the starter file gives every
+  project the same headings — so the list is filtered by `folder` before the
+  scheduler or either panel sees it (`inFolder` in `app/src/routines.ts`). A
+  routine made in one project never runs in another. Routines made before
+  0.55.0 carry no folder, and used to belong to whichever project was open —
+  the very thing this closes. The first project opened after this version
+  adopts them, a line in the transcript says how many, and one that belongs
+  elsewhere is moved by editing it there (`adopt` in `app/src/routines.ts`).
+- **Run now is attended.** You are at the approval dialog by definition, so a
+  run you start by hand uses the agent's own mode; only the scheduler's runs
+  are held to reads-only.
 - Every run is a chat of its own, so what a routine did is a transcript you can
-  open afterwards, and every write it made is checkpointed.
+  open afterwards, and every write it made is checkpointed. Its first line names
+  the routine, the agent and the mode the run was given, so a transcript read a
+  week later still says what that agent was allowed to do at the time, even if
+  `.vylo/AGENTS.md` has been edited since.
+- **While a run is in flight the window is its own.** Opening another folder,
+  starting a new chat or opening an old one is refused until it ends — otherwise
+  the run streams into that chat and is saved there instead of under its own.
+  Stop ends it immediately.
 - Runs missed while the app was closed are reported and skipped, never run
   late (`missedWhileClosed` in `app/src/routines.ts`): a week of Monday
-  reports is not something to catch up on on a Friday.
+  reports is not something to catch up on on a Friday. That report deliberately
+  covers every project's routines and not only the open one's — a run that was
+  skipped was skipped wherever it belongs — and each routine from another
+  project is named with that project's folder, so a name out of a checkout you
+  cannot see is still one you can place. The dashboard notice has no room for
+  that label and is given the open project's share. The report goes into the
+  transcript as well as onto the dashboard, which is a module you can switch off.
+- **Opening a project settles what that project is already owed.** The tick is
+  one clock for the whole app, so a slot that passed while a different project
+  was on screen sits behind the launch window: it would be reported by nothing,
+  and the routine would fire the moment its own project was opened, days late.
+  Opening a folder therefore asks the same question about that folder alone and
+  answers it the same way — reported, and skipped (`owedNow` in
+  `app/src/routines.ts`).
 
 ## What reaches the network
 
@@ -520,7 +571,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.54.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.55.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -545,6 +596,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.54.0. Every statement above was read out of the code. If
+*Last checked against 0.55.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

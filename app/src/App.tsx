@@ -99,9 +99,12 @@ import { PluginsPanel } from './PluginsPanel';
 import { RoutinesPanel } from './RoutinesPanel';
 import { DashboardPanel } from './DashboardPanel';
 import {
-  KEY as ROUTINES_KEY, TICK_KEY, due as dueRoutines, hold as holdRoutine, markRun, midWork,
-  missedWhileClosed, read as readRoutines, skip as skipRoutine, write as writeRoutines, type Routine,
+  KEY as ROUTINES_KEY, TICK_KEY, adopt as adoptRoutines, due as dueRoutines,
+  hold as holdRoutine, holdReason, inFolder as routinesIn, markRun, missedWhileClosed,
+  owedNow, read as readRoutines, skip as skipRoutine, write as writeRoutines,
+  type LastRun, type Phrase, type Routine,
 } from './routines';
+import { missedRuns as missedPhrase } from './when';
 import { modeFor, parse as parseAgents, systemPromptFor, type Agent } from './agents';
 import { watch as watchDoc } from './docs';
 import { SkillsPanel } from './SkillsPanel';
@@ -124,7 +127,7 @@ import { MAX_PANES, prune as prunePanes, toggle as togglePane } from './panes';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import { ContextMenu } from './ContextMenu';
 import {
-  LEVEL_LABEL, appliesEdits, decide as decideAuto, isOn as autoOn,
+  LEVEL_LABEL, appliesEdits, decide as decideAuto, isOn as autoOn, refusedFor,
   type Level as AutoLevel,
 } from './auto';
 import type { Item as MenuItem, Point as MenuPoint } from './menu';
@@ -240,6 +243,26 @@ const LS = {
  * would spend the user's own rate limit to tell them nothing new.
  */
 const PLAN_EVERY_MS = 5 * 60_000;
+
+/**
+ * How many routine chats keep their teammate. See `teammates` in App.
+ *
+ * A cap and not a lifetime: what it protects against is a session that ran a
+ * routine every five minutes for a week, and thirty-two transcripts back is
+ * far past anything anybody is still pressing Try again on.
+ */
+const MAX_TEAMMATES = 32;
+
+/**
+ * The last segment of a folder path: what a project is called in one word.
+ *
+ * For the launch report, which names runs from every project. A row reading
+ * "Nightly review" with no idea which of four checkouts it belongs to is the
+ * report saying less than it knows; the folder's own name is the shortest
+ * thing that answers it. Both separators, because the path comes from the
+ * platform's folder picker and Windows uses the other one.
+ */
+const baseName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
 
 /** Where the project's agents live. The Routines panel edits it; App reads it. */
 const AGENTS_FILE = '.vylo/AGENTS.md';
@@ -380,6 +403,19 @@ export function App() {
   // The turn in flight, so it can be stopped. Streaming makes a long turn
   // visible, which makes not being able to interrupt one obvious.
   const abort = useRef<AbortController | null>(null);
+  /**
+   * Whether a turn is in flight, set *synchronously*.
+   *
+   * `busy` is React state, so every guard reading it reads the value of the
+   * render its closure was made in. The queue drain calls `send`, `setBusy`
+   * lands a task later, and the thirty-second tick firing in that gap saw
+   * `false`, started a routine, wiped the live turn's chat and called `send`
+   * again — whose own `busy` check was the same stale `false`. This is the
+   * flag that closes that window: set before the first `await` in `send` and
+   * at the top of `converse`, cleared in `converse`'s `finally`, and read by
+   * `tick`, `runRoutine` and `send`. `busy` stays, because it is what renders.
+   */
+  const inFlight = useRef(false);
   /**
    * Whether the turn that just ended left a decision on screen — a failure with
    * Try again, or the hop cap with Continue.
@@ -751,16 +787,96 @@ export function App() {
    */
   const [browser, setBrowser] = useState(() => readBrowser(localStorage.getItem(BROWSER_KEY)));
   useEffect(() => { try { localStorage.setItem(BROWSER_KEY, writeBrowser(browser)); } catch { /* private mode */ } }, [browser]);
-  /** Runs that fell due while the app was closed. Reported once, never run. */
+  /**
+   * Runs that were owed and will not be taken. Reported once, never run.
+   *
+   * Two scans fill it and both report the same way: the launch scan, over
+   * every project's routines, and the folder scan, over the routines of a
+   * project as it opens. Every project's, because a skipped run is skipped
+   * wherever it belongs — see routines.ts, "A routine belongs to the folder it
+   * was made in". Appended rather than replaced, so the second scan of a
+   * launch does not swallow the first one's notice.
+   */
   const [missedRuns, setMissedRuns] = useState<Routine[]>([]);
   /**
-   * The teammate the current turn is speaking as, if a routine started it.
+   * The teammate a chat belongs to, keyed by chat id.
    *
-   * A ref, because `converse` reads it inside a callback created once per
-   * turn; and cleared in the run's `finally`, so a routine cannot leave its
-   * brief attached to the next thing a person types.
+   * Keyed by the chat and not by the turn, which is the whole point. It used
+   * to be one ref cleared in the run's `finally`, so pressing Try again or
+   * Continue on a routine's failed turn re-sent that history with the agent's
+   * brief gone from the system prompt and in whatever mode the *person* is in
+   * — possibly `agent` with write tools, where the run itself had read only.
+   * A routine's chat keeps its teammate for as long as the session does, so a
+   * retry is the same request.
+   *
+   * Two modes, because a retry is not the run. `unattended` is what the
+   * scheduler started it with (`ask`, unless auto-approve is on); `attended`
+   * is the agent's own, for a press — there is somebody at the approval
+   * dialog by definition. `converse` picks by whether a run is in flight.
+   *
+   * It applies to exactly two turns and no others: the run's own, and a Try
+   * again or Continue on it. Being keyed by the chat is what made that easy to
+   * get wrong — the entry outlives the run, and `converse` used to find it for
+   * *any* turn in that transcript, so a person who opened the run's chat,
+   * pressed Ask and typed a question got the agent's own mode (often `agent`,
+   * with write tools) and the agent's brief in front of their message, while
+   * the toggle said Ask. So the lookup is gated on `routineRun` or the retry
+   * flag the two buttons set, and `send` deletes the entry for the chat the
+   * moment a person sends their own message into it.
+   *
+   * A ref, because `converse` reads it inside callbacks created once per turn
+   * and nothing renders from it. Bounded, because a session that ran a routine
+   * every five minutes for a week should not be holding a thousand briefs.
    */
-  const teammate = useRef<{ brief: string; mode: Mode } | null>(null);
+  const teammates = useRef(new Map<string, { brief: string; unattended: Mode; attended: Mode }>());
+
+  /**
+   * The routine whose turn is in flight, with the chat it started in — or null
+   * when nothing is running unattended.
+   *
+   * Three things read it. `askToRun` refuses to spend a person's "Always allow
+   * this" on a turn they are not watching, and refuses an MCP tool call
+   * outright — which is why `attended` is on it: Run now has somebody at the
+   * dialog, the scheduler does not. `converse` finds the turn's teammate by
+   * the chat it opened, which the render this closure came from has not been
+   * told about yet. And `pickFolder`, `openFolder`, `newChat`, `openChat` and
+   * `removeChat` refuse to move the window out from under it: this app has one
+   * chat, and switching mid-run left the run streaming onto the new folder's
+   * transcript and saved it there under that folder's chat id — the run's own
+   * id never got a file, so "Open the last run" was a silent no-op. Refusing
+   * loses nothing that Stop does not give back.
+   *
+   * The folder the run started in was on here too, and is not, because the
+   * only use anybody could find for it was to let a switch *back* to that same
+   * folder or chat through — and each of those paths clears `history.current`
+   * and `lines` on its way, so "you are already here" would throw the live
+   * run's transcript away rather than leave it alone. `runRoutine` keeps the
+   * folder it captured in a local, which is where the run actually reads it.
+   */
+  const routineRun = useRef<{ id: string; attended: boolean } | null>(null);
+
+  /**
+   * That this turn is a Try again or a Continue, set by those two buttons.
+   *
+   * The one thing `converse` cannot work out for itself. A retry is the same
+   * request as the turn it repeats, so in a routine's chat it has to carry the
+   * agent's brief and the agent's mode; a message a person typed into that
+   * same chat is a different request and must not. Both arrive as `converse`
+   * on the same chat id, so the difference has to be told, and the two press
+   * handlers are the only places that know it. Read once at the top of
+   * `converse` and cleared there, so nothing inherits it.
+   */
+  const retrying = useRef(false);
+
+  /**
+   * The mode the turn in flight is actually running in, or null between turns.
+   *
+   * The working line used to render the mode toggle, which is the person's
+   * setting and not always the turn's: a routine's run, and a retry of it, go
+   * out in the agent's mode. A line that says Ask over a turn holding write
+   * tools is worse than no line, so the turn tells it what it got.
+   */
+  const [turnMode, setTurnMode] = useState<Mode | null>(null);
 
   const [space, setSpace] = useState<Space>(() => {
     const v = localStorage.getItem('vylo.space.v1');
@@ -768,6 +884,54 @@ export function App() {
   });
   useEffect(() => { try { localStorage.setItem('vylo.space.v1', space); } catch { /* private mode */ } }, [space]);
   useEffect(() => { try { localStorage.setItem(ROUTINES_KEY, writeRoutines(routines)); } catch { /* private mode */ } }, [routines]);
+  /**
+   * The routines of the folder that is open — what both panels are given.
+   *
+   * The list is one list for the whole app, but a routine names its agent by a
+   * slug from one project's `.vylo/AGENTS.md` and the starter file gives every
+   * project a `## Reviewer`: unfiltered, project A's "Nightly review" ran in
+   * project B against B's heading of the same name, in B's mode, with A's
+   * brief. See routines.ts, "A routine belongs to the folder it was made in".
+   */
+  const myRoutines = useMemo(() => routinesIn(routines, root), [routines, root]);
+  /**
+   * The open folder's share of the missed-run notice.
+   *
+   * The transcript report names every project's, each foreign one labelled
+   * with its folder; the dashboard row is `{name} · {schedule}` with nowhere
+   * to put a label, and a list of names from projects that are not open is
+   * exactly the notice a person cannot act on. So the panel gets this one.
+   */
+  const missedHere = useMemo(() => routinesIn(missedRuns, root), [missedRuns, root]);
+  /**
+   * Put the open folder's list back, leaving every other folder's alone.
+   *
+   * The panel is handed a filtered list and hands back a filtered list, so a
+   * plain `setRoutines` would delete every other project's routines the first
+   * time somebody renamed one. Anything that comes back without a folder was
+   * just added — the panel does not know about folders — and is stamped with
+   * the one that is open.
+   *
+   * In place, and that is the point of the map. Rebuilding the list as
+   * "everybody else, then this folder" moved this project's rows to the end of
+   * storage on every save, so pausing one routine rewrote the order of all of
+   * them, and a person switching between two projects watched the file churn
+   * for no reason. Each stored row is replaced where it stands, a row the
+   * panel dropped is dropped, and only a genuinely new one is appended.
+   */
+  const saveRoutines = useCallback((next: Routine[]) => setRoutines((prev) => {
+    const stamped = next.map((r) => (r.folder ? r : { ...r, folder: root }));
+    const byId = new Map(stamped.map((r) => [r.id, r]));
+    const seen = new Set<string>();
+    const kept = prev.flatMap((r) => {
+      if (r.folder !== root) return [r];
+      const now = byId.get(r.id);
+      if (!now) return [];
+      seen.add(r.id);
+      return [now];
+    });
+    return [...kept, ...stamped.filter((r) => !seen.has(r.id))];
+  }), [root]);
   // Hiding the panel must not kill what is running in it -- a dev server you
   // cannot see is still a dev server. So the panel is mounted on first use and
   // stays mounted, hidden, until the last shell is closed.
@@ -1670,7 +1834,6 @@ export function App() {
       setChatTokens(latest.tokens ?? NO_USAGE);
       setLastTurn(NO_USAGE);
       setCtx(null);
-    setCtx(null);
     } else {
       setChatId(newChatId());
       setLines([]);
@@ -1678,7 +1841,6 @@ export function App() {
       setChatTokens(NO_USAGE);
       setLastTurn(NO_USAGE);
       setCtx(null);
-    setCtx(null);
     }
   }, [root]);
 
@@ -2529,21 +2691,54 @@ export function App() {
     catch (e) { push({ kind: 'error', text: explain(e, `${t('run')} ${command}`) }); }
   }
 
+  /**
+   * Ask about one command, or answer for the person if they decided in advance.
+   *
+   * The order of the three checks below is the guarantee, and it used to be
+   * wrong. "Always allow this" was consulted *first*, above the refuse-list —
+   * so a `git push origin main` trusted once during an attended turn ran with
+   * no dialog and no transcript line, at every auto-approve level, including
+   * inside a routine nobody was watching. SAFETY.md says the refuse-list
+   * "always asks, at every level, and there is no setting that turns this
+   * off"; that is only true if the refusal is computed before anything can
+   * short-circuit past it, which is what happens here now.
+   *
+   * Two further things a routine's turn does not get. It does not spend a
+   * person's trust: "Always allow this" is somebody answering a dialog they
+   * were looking at, and an unattended run gets only what auto-approve itself
+   * decided. And it does not run MCP tools — every rule in the refuse-list is
+   * shell-shaped (`\brm\s+-`, `\bgit\s+push\b`), so `slack: post_message(…)`
+   * matches nothing and level `all` would otherwise post to a channel with
+   * nobody there. Asking, unattended, means it does not run.
+   */
   function askToRun(req: CommandRequest): Promise<RunChoice> {
-    if (trusted.current.has(req.command)) return Promise.resolve('pipe');
+    // First, before trust and before the level. `decide` checks the same list
+    // within itself; this is the copy that no branch below can skip.
+    const refused = refusedFor(req.command);
+    const unattended = routineRun.current !== null && !routineRun.current.attended;
+    if (!refused && !unattended && trusted.current.has(req.command)) {
+      // Said out loud, because "you will not be asked again" is not the same
+      // promise as "this happened and you were not told".
+      push({ kind: 'result', text: `${t('Ran without asking')} — ${req.command}` });
+      return Promise.resolve('pipe');
+    }
     // Auto-approve answers the dialog; it does not go round it. The command
     // still passes through here, is still recorded, and still runs down the
     // same path — so turning the mode off leaves nothing behind.
+    const unattendedTool = unattended && req.kind === 'mcp';
     const call = decideAuto(req.command, auto);
-    if (call.kind === 'run') {
+    if (call.kind === 'run' && !unattendedTool) {
       push({ kind: 'result', text: `${t('Ran without asking')} — ${req.command}` });
       return Promise.resolve('pipe');
     }
     // A command the mode would have run, held back by the refuse-list. Saying
     // which rule caught it is the difference between a dialog that looks broken
     // and one that is doing its job.
-    if (autoOn(auto) && call.why) {
-      push({ kind: 'result', text: `${t('Asking anyway, because')} ${t(call.why)} — ${req.command}` });
+    const sayWhy = unattendedTool
+      ? t('an unattended run may not use MCP tools')
+      : call.kind === 'ask' && call.why ? t(call.why) : null;
+    if (autoOn(auto) && sayWhy) {
+      push({ kind: 'result', text: `${t('Asking anyway, because')} ${sayWhy} — ${req.command}` });
     }
     setAskRun(req);
     // The loop is suspended on the promise below until somebody clicks, so this
@@ -2561,7 +2756,36 @@ export function App() {
     });
   }
 
+  /**
+   * Whether a routine's turn is in flight, said out loud if it is.
+   *
+   * The guard on every door that would take this app's one chat away from a
+   * run: picking or opening another folder, starting a new chat, opening or
+   * deleting an old one. None of them used to check anything, so a run in `/A`
+   * went on streaming into `/B`'s transcript, `history.current` overwrote
+   * `/B`'s history, and the persistence effect filed the routine's whole turn
+   * under `/B`'s chat id — while the id the row points at never got a file at
+   * all.
+   *
+   * It refuses on the run, not on where the door leads, and that is a decision
+   * rather than a missing check. Every one of these paths clears
+   * `history.current` and `lines` before it does anything else, so letting
+   * "you are already in that folder" or "that is the run's own chat" through
+   * would throw the live transcript away in the name of leaving it alone.
+   *
+   * Refusing rather than aborting, because refusing loses nothing: the run
+   * finishes, is saved under its own id in its own folder, and "Open the last
+   * run" finds it. Anybody who does not want to wait has Stop, which is the
+   * same button it always was.
+   */
+  function heldByRoutine(): boolean {
+    if (!routineRun.current) return false;
+    push({ kind: 'result', text: t('A routine is running. Stop it, or wait for it to finish.') });
+    return true;
+  }
+
   function openFolder(path: string) {
+    if (heldByRoutine()) return;
     setRoot(path);
     // Cleared here and repopulated by the restore effect above, so switching
     // between projects never shows one project's transcript against another's
@@ -2625,7 +2849,7 @@ export function App() {
   }
 
   function newChat() {
-    if (!root) return;
+    if (!root || heldByRoutine()) return;
     setChatId(newChatId());
     history.current = [];
     setLines([]);
@@ -2638,9 +2862,11 @@ export function App() {
   }
 
   /**
-   * The gap between a run being asked for and `send` flipping `busy`, which
-   * now holds a file read. A second Run now in that gap — a double-click, or
-   * the tick landing on it — would open a second chat for the same run.
+   * The gap between a run being asked for and `send` setting `inFlight`, which
+   * now holds two file reads. A second Run now in that gap — a double-click,
+   * or the tick landing on it — would open a second chat for the same run.
+   * This guards run-against-run; `inFlight` guards run-against-turn, and both
+   * are checked at the top of `runRoutine` and again after the reads.
    */
   const routineStarting = useRef(false);
 
@@ -2652,22 +2878,32 @@ export function App() {
    * stands *now*, not from state: the line that says what it may do is the
    * one a review can see, and a `git pull` that changed it while the app was
    * open is not something this app's own write notifications hear about.
-   * Its mode is `ask` when the run is unattended unless auto-approve is on —
-   * in which case the person decided in advance, which is what auto-approve
-   * means.
+   *
+   * `byHand` is the difference between the scheduler and the Run now button,
+   * and it decides the mode. An unattended run is `ask` — reads only — unless
+   * auto-approve is on, in which case the person decided in advance. A hand
+   * run has a person at the approval dialog by definition, so it gets the
+   * agent's own mode; the button used to downgrade it to reads-only while the
+   * dot beside it said "May stage edits and ask to run commands".
+   *
+   * The mode goes in the transcript. A run recorded only as
+   * `Routine — name · agent` cannot be told apart, a week later, from one
+   * whose agent's mode has since been edited in `.vylo/AGENTS.md`, and SAFETY
+   * says what a routine did is a transcript you can open afterwards.
    *
    * `markRun` is written at the start and again at the end, with `send`'s
    * outcome: the start is what stops a second tick from launching it twice,
-   * the end is what the dashboard reads. Nothing writes one for a refusal
-   * because a turn is in flight: that is a deferral, not a run, and recording
-   * it would move the anchor and lose the owed slot. A missing agent or key
-   * *is* recorded — the routine cannot run until somebody fixes it, and the
-   * row is where they find out — but before the chat is reset, so a run that
-   * never started leaves no chat holding only its header and opens no
-   * Settings in a window nobody is at.
+   * the end is what the dashboard reads. Both go through `record`, which
+   * refuses to write onto a row that is no longer the same routine. Nothing
+   * writes one for a refusal because a turn is in flight: that is a deferral,
+   * not a run, and recording it would move the anchor and lose the owed slot.
+   * A missing agent or key *is* recorded — the routine cannot run until
+   * somebody fixes it, and the row is where they find out — but before the
+   * chat is reset, so a run that never started leaves no chat holding only its
+   * header and opens no Settings in a window nobody is at.
    */
-  async function runRoutine(r: Routine) {
-    if (busy || routineStarting.current) {
+  async function runRoutine(r: Routine, byHand = false) {
+    if (busy || inFlight.current || routineStarting.current) {
       push({ kind: 'error', text: t('A turn is running; try again when it ends.') });
       return;
     }
@@ -2675,21 +2911,46 @@ export function App() {
     routineStarting.current = true;
     try {
       const at = Date.now();
-      const agents = await readAgents(root);
+      // The run's own folder, captured before anything can await. Everything
+      // below is written against this and not against `root` as it stands at
+      // the end.
+      const runRoot = root;
+      /**
+       * Write the run onto its row — if the row is still this routine.
+       *
+       * Ids are minted from the clock and never reused, so this is a second
+       * lock on the same door: a routine deleted mid-run, with another created
+       * afterwards, must not have this run's result and chat id stamped onto
+       * it. `createdAt` is the identity that survives a rename and a reschedule.
+       */
+      const record = (result: LastRun) => setRoutines((p) => (
+        p.find((x) => x.id === r.id)?.createdAt === r.createdAt ? markRun(p, r.id, result) : p));
+      const agents = await readAgents(runRoot);
       setAgentsList(agents);
       // Skills the same way: what the file says now is what the agent carries.
-      const skills = await readSkills(root);
+      const skills = await readSkills(runRoot);
+      // Two file reads have happened since the guard at the top, and a person
+      // can start a turn across them — press Enter, release push-to-talk, or
+      // have the queue drain. Everything below wipes the chat, so the flag is
+      // read again here rather than trusted from a render ago.
+      if (inFlight.current || routineRun.current) {
+        push({ kind: 'error', text: t('A turn is running; try again when it ends.') });
+        return;
+      }
       const agent = agents.find((a) => a.id === r.agent);
       if (!agent) {
-        setRoutines((p) => markRun(p, r.id, { at, chatId: '', ok: false, error: t('Its agent is no longer in .vylo/AGENTS.md.') }));
+        record({ at, chatId: '', ok: false, error: t('Its agent is no longer in .vylo/AGENTS.md.') });
         return;
       }
       if (!armed({ baseUrl: wired.baseUrl, key: wired.apiKey })) {
-        setRoutines((p) => markRun(p, r.id, { at, chatId: '', ok: false, error: t('Add an API key in Settings first.') }));
+        record({ at, chatId: '', ok: false, error: t('Add an API key in Settings first.') });
         return;
       }
       const id = newChatId();
-      setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: true }));
+      record({ at, chatId: id, ok: true });
+      // Set before the chat is touched, so nothing can switch folder or chat
+      // from here until the run ends — see `heldByRoutine`.
+      routineRun.current = { id, attended: byHand };
       // The same reset `newChat` does, with an id known up front.
       setChatId(id);
       history.current = [];
@@ -2700,18 +2961,28 @@ export function App() {
       setLastTurn(NO_USAGE);
       setCtx(null);
       setActive('chat');
-      push({ kind: 'result', text: `${t('Routine')} — ${r.name} · ${agent.name}` });
-      teammate.current = {
+      const runMode = modeFor(agent, byHand || autoOn(auto));
+      const said = runMode === 'ask'
+        ? t('Reads only')
+        : fill(t('May act (auto-approve: {level})'), { level: t(LEVEL_LABEL[auto]) });
+      push({ kind: 'result', text: `${t('Routine')} — ${r.name} · ${agent.name} · ${said}` });
+      // Kept against the chat, not against the turn, so Try again and Continue
+      // in this transcript are still this agent — see `teammates`.
+      if (teammates.current.size >= MAX_TEAMMATES) {
+        teammates.current.delete(teammates.current.keys().next().value as string);
+      }
+      teammates.current.set(id, {
         brief: systemPromptFor(agent, skillsTextFor(skills, agent.skills)),
-        mode: modeFor(agent, autoOn(auto)),
-      };
+        unattended: runMode,
+        attended: modeFor(agent, true),
+      });
       try {
         const outcome = await send(r.brief);
-        setRoutines((p) => markRun(p, r.id, { at, chatId: id, ...outcome }));
+        record({ at, chatId: id, ...outcome });
       } catch (e) {
-        setRoutines((p) => markRun(p, r.id, { at, chatId: id, ok: false, error: explain(e, t('run the routine')) }));
+        record({ at, chatId: id, ok: false, error: explain(e, t('run the routine')) });
       } finally {
-        teammate.current = null;
+        routineRun.current = null;
         raiseSummons({ kind: 'routine' });
       }
     } finally {
@@ -2737,48 +3008,169 @@ export function App() {
   }, []);
 
   /**
-   * The scheduler. A tick every half minute, one run per tick, only while the
-   * window is free. The tick time is kept so the next launch can say what was
-   * missed while the app was closed — and skip it, rather than run a week of
-   * Monday reports on a Friday.
+   * Say which runs were owed and will not be taken, and forgive them.
+   *
+   * One reporter for the two scans below, because they are the same news: a
+   * run owed at a moment nobody could take it is a run that was skipped, and
+   * SAFETY says a skipped run is reported and never run late. It goes into the
+   * transcript as well as onto the dashboard — the dashboard is a module that
+   * can be switched off in Settings, and a report that exists only on a panel
+   * nobody has open is not a report.
+   *
+   * A routine from another project is named with that project's folder. The
+   * launch scan reads every project's routines, and "Nightly review" out of a
+   * checkout that is not open is a name the reader cannot place — which was
+   * the objection to reporting the whole list at all. The dashboard notice has
+   * nowhere to put the label, so it is handed the open folder's share only.
+   */
+  const reportMissed = (missed: Routine[], now: number) => {
+    if (!missed.length) return;
+    const m = missedPhrase(missed.length);
+    const named = missed
+      .map((r) => (r.folder && r.folder !== root ? `${r.name} (${baseName(r.folder)})` : r.name))
+      .join(' · ');
+    push({ kind: 'result', text: `${fill(t(m.key), m.vars)} ${named}` });
+    // Appended, not replaced: on launch both scans run in the same commit, and
+    // the second must not swallow the first one's notice. By id, so a scan
+    // that names a routine already in the notice refreshes it rather than
+    // listing it twice.
+    setMissedRuns((p) => [...p.filter((x) => !missed.some((r) => r.id === x.id)), ...missed]);
+    setRoutines((p) => missed.reduce((acc, r) => skipRoutine(acc, r.id, now), p));
+  };
+
+  /**
+   * What the launch scan named, so the folder scan does not name it twice.
+   *
+   * Both effects below run in the same commit on mount, and both read
+   * `routines` from that one render — so the launch scan's `skip` has not
+   * landed by the time the folder scan asks what the open project is owed, and
+   * every run the launch scan named in that project is owed by definition.
+   * Read once and emptied; on a later folder change there is nothing to
+   * subtract, because a scan that has already run has already skipped.
+   */
+  const launchScan = useRef<Set<string> | null>(null);
+
+  /**
+   * The launch scan. What fell due while the app was closed, over every
+   * project's routines.
+   *
+   * Deliberately over the whole list rather than this folder's. SAFETY says
+   * missed runs are reported *and skipped, never run late*, and a routine
+   * belonging to a project that is not open would otherwise sit owed until
+   * that project was opened and then fire a day late. Skipping it is the
+   * promise; naming it — with its project's folder, since it is not this one —
+   * is what makes the skip something a person can act on.
+   *
+   * Routines with no folder are left out: the effect below is about to hand
+   * them the open project and re-arm them there, so there is nothing owed yet
+   * to report. The tick time this measures from is written by `tick`, not by
+   * the interval — see there.
    */
   useEffect(() => {
     const last = Number(localStorage.getItem(TICK_KEY)) || null;
     const now = Date.now();
-    const missed = missedWhileClosed(routines, last, now);
-    if (missed.length) {
-      setMissedRuns(missed);
-      setRoutines((p) => missed.reduce((acc, r) => skipRoutine(acc, r.id, now), p));
-    }
+    const missed = missedWhileClosed(routines.filter((r) => r.folder), last, now);
+    launchScan.current = new Set(missed.map((r) => r.id));
+    reportMissed(missed, now);
     // Once, at launch.
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
+   * Opening a project: claim the routines that belong to nobody, and settle
+   * what this project is already owed.
+   *
+   * Two things a folder change has to do, and both of them are the same
+   * promise — that a routine runs in the project it was written for, on time
+   * or not at all.
+   *
+   * **Adoption.** A routine stored before `folder` existed has none, and used
+   * to be treated as belonging wherever it was read: it resolved its agent
+   * slug against whatever project happened to be open, which is the defect
+   * folder scoping closes. The first project opened after this version claims
+   * them, re-armed from that moment so the claim itself cannot fire a run
+   * here, and one line says how many — silently moving somebody's schedules
+   * into a project is not something to do without saying it.
+   *
+   * **What it is already owed.** `TICK_KEY` is one clock for the whole app, so
+   * a slot that passed while a *different* project was on screen is behind the
+   * launch window rather than inside it: not missed, not reported, and first
+   * in the queue the moment its project opens, days late. Opening the folder
+   * asks the same question about that folder alone (`owedNow`) and answers it
+   * the same way — reported, and skipped.
+   *
+   * Runs on mount, which is the launch case for whichever project the app
+   * reopens on, and that is why `launchScan` exists.
+   */
+  useEffect(() => {
+    if (!root) return;
+    const now = Date.now();
+    const orphans = routines.filter((r) => !r.folder).length;
+    if (orphans) {
+      // The same shape `when.ts` returns, and the same reason for it: the
+      // singular is its own sentence, and the number sits inside the sentence
+      // where a translator can move it.
+      const said: Phrase = orphans === 1
+        ? { key: '1 routine made before folders existed now belongs to this project.', vars: {} }
+        : { key: '{n} routines made before folders existed now belong to this project.', vars: { n: orphans } };
+      push({ kind: 'result', text: fill(t(said.key), said.vars) });
+    }
+    const already = launchScan.current;
+    launchScan.current = null;
+    const owed = owedNow(routines, root, now).filter((r) => !already?.has(r.id));
+    // Adoption first, so the skips below land on the list it produced.
+    setRoutines((p) => adoptRoutines(p, root, now));
+    reportMissed(owed, now);
+  }, [root]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
    * One tick: start the routine that is owed, or say why not.
    *
-   * This app has one chat and a run replaces it, so a run starts only when
-   * the window is free — nothing running, nothing in the box, no decision on
-   * screen, nobody at the keys in the last minute (`midWork`). Otherwise the
-   * routine is *held*: the reason goes on its row and the run stays owed, so
-   * the next free tick takes it. Never `markRun` here — that moves the anchor
-   * and the owed run is lost (see routines.ts, "Held is not a run"). The
-   * previous chat needs no saving: the effect that persists it already ran.
+   * This app has one chat and a run replaces it, so a run starts only when the
+   * window is free — nothing running, no edits waiting in the review pane, no
+   * command dialog or decision on screen, nothing in the box, nobody at the
+   * keys in the last minute (`holdReason`). Otherwise the routine is *held*:
+   * the reason goes on its row and the run stays owed, so the next free tick
+   * takes it. Never `markRun` here — that moves the anchor and the owed run is
+   * lost (see routines.ts, "Held is not a run"). The previous chat needs no
+   * saving: the effect that persists it already ran.
+   *
+   * Only this folder's routines, because `agent` is a slug from this folder's
+   * `.vylo/AGENTS.md` — see routines.ts, "A routine belongs to the folder it
+   * was made in".
+   *
+   * `TICK_KEY` is written *here*, and only once every guard is past. The
+   * interval used to write it before calling this, so a morning spent with no
+   * folder open still advanced "the last time the scheduler ran" past a 09:00
+   * slot that could never have started — and the next launch, comparing
+   * against it, found nothing missed and let the tick run yesterday's routine
+   * a day late. What the next launch needs to measure from is the last moment
+   * a run *could* have started, which is exactly this line.
    */
   function tick(now: number) {
     if (!root) return;
-    const d = dueRoutines(routines, now);
-    if (!d.length) return;
-    const why = busy ? t('The app was busy; it will try at the next slot.')
-      : midWork({
-        draft: prompt.trim().length > 0 || shots.length > 0,
-        deciding: needsDecision.current,
-        queued: queued(queue).length > 0,
-        lastActivity: lastActivity.current,
-      }, now) ? t('Waiting for you to finish.') : null;
+    const why = busy || inFlight.current
+      ? t('The app was busy; it will try at the next slot.')
+      : (() => {
+        const held = holdReason({
+          // A dialog on screen is a decision waiting for a person, and so are
+          // proposals in the review pane: `runRoutine` clears both.
+          staged: changes.length > 0 || pending.current.list().length > 0 || askRun !== null,
+          draft: prompt.trim().length > 0 || shots.length > 0,
+          deciding: needsDecision.current,
+          queued: queued(queue).length > 0,
+          lastActivity: lastActivity.current,
+        }, now);
+        return held ? t(held) : null;
+      })();
+    const mine = routinesIn(routines, root);
     if (why) {
-      if (d[0].held !== why) setRoutines((p) => holdRoutine(p, d[0].id, why));
+      const d = dueRoutines(mine, now);
+      if (d.length && d[0].held !== why) setRoutines((p) => holdRoutine(p, d[0].id, why));
       return;
     }
+    try { localStorage.setItem(TICK_KEY, String(now)); } catch { /* private mode */ }
+    const d = dueRoutines(mine, now);
+    if (!d.length) return;
     void runRoutine(d[0]);
   }
   // Set once, and read the newest render's `tick` through a ref. An interval
@@ -2790,15 +3182,12 @@ export function App() {
   const tickRef = useRef(tick);
   tickRef.current = tick;
   useEffect(() => {
-    const id = window.setInterval(() => {
-      const now = Date.now();
-      try { localStorage.setItem(TICK_KEY, String(now)); } catch { /* private mode */ }
-      tickRef.current(now);
-    }, 30_000);
+    const id = window.setInterval(() => tickRef.current(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, []);
 
   function openChat(c: Chat) {
+    if (heldByRoutine()) return;
     setChatId(c.id);
     setLines(c.lines);
     history.current = c.history;
@@ -2813,6 +3202,10 @@ export function App() {
   }
 
   function removeChat(id: string) {
+    // Checked here as well as in `openChat`, and not left to it: this function
+    // deletes the file first, so a refusal one line later would leave `chatId`
+    // pointing at something that is gone.
+    if (heldByRoutine()) return;
     deleteChat(id);
     const left = chatsIn(root);
     setChats(left);
@@ -2823,6 +3216,11 @@ export function App() {
   }
 
   async function pickFolder() {
+    // Before the dialog, not after it. `openFolder` refuses anyway, so the only
+    // thing the old order bought was a native modal opened over a running turn,
+    // browsed, and answered — and then a transcript line saying it was all for
+    // nothing.
+    if (heldByRoutine()) return;
     const picked = await open({ directory: true, multiple: false, title: t('Open a project folder') });
     if (typeof picked === 'string') openFolder(picked);
   }
@@ -3093,7 +3491,9 @@ export function App() {
   async function send(queued?: string): Promise<Outcome> {
     const text = (queued ?? prompt).trim();
     const carriedShots = queued ? [] : shots;
-    if (busy) return { ok: false, error: t('A turn is running; try again when it ends.') };
+    // `inFlight` as well as `busy`: `busy` is the value of the render this
+    // closure was made in, and the whole point of the ref is that it is not.
+    if (busy || inFlight.current) return { ok: false, error: t('A turn is running; try again when it ends.') };
     // An image on its own is a legitimate message -- "what is wrong here?"
     // with a screenshot needs no words.
     if (!text && carriedShots.length === 0) return { ok: false };
@@ -3115,35 +3515,54 @@ export function App() {
       dictation.current?.stop();
       setPrompt('');
     }
+    // A person's own message into a routine's chat ends that chat's teammate.
+    // Everything that reaches here came out of the composer or the queue —
+    // Try again and Continue call `converse` directly — so this is somebody
+    // asking their own question, and it runs in their mode with no brief in
+    // front of it. The one caller that is not a person is `runRoutine`, which
+    // has set `routineRun` before it gets here. See `teammates`.
+    if (!routineRun.current) teammates.current.delete(chatId);
     push({ kind: 'you', text, shots: carriedShots.length ? [...carriedShots] : undefined });
+    // Before the first `await`, and synchronously: `setBusy` lands a task
+    // later, and the thirty-second tick firing in that gap used to read `busy`
+    // as false and start a routine over the top of this turn. Cleared in
+    // `converse`'s `finally`, and again below for the paths that never reach it.
+    inFlight.current = true;
     setBusy(true);
+    try {
+      // Images ride in the same user turn as the question, before the text, so
+      // the model reads the picture and then what is being asked about it. Text
+      // files have no block type of their own, so they are folded into the
+      // written turn with a header saying which file each one is.
+      // Mentions are read at send time from the text as it finally stands, so a
+      // file named and then deleted from the message is never attached.
+      const { items: fromMentions, errors: mentionErrors } = await resolveAttachments(
+        queued ? findMentions(queued, resolveMention, termMounted) : mentioned,
+      );
+      for (const e of mentionErrors) push({ kind: 'error', text: e });
+      const carried = [...fromMentions, ...carriedShots];
 
-    // Images ride in the same user turn as the question, before the text, so
-    // the model reads the picture and then what is being asked about it. Text
-    // files have no block type of their own, so they are folded into the
-    // written turn with a header saying which file each one is.
-    // Mentions are read at send time from the text as it finally stands, so a
-    // file named and then deleted from the message is never attached.
-    const { items: fromMentions, errors: mentionErrors } = await resolveAttachments(
-      queued ? findMentions(queued, resolveMention, termMounted) : mentioned,
-    );
-    for (const e of mentionErrors) push({ kind: 'error', text: e });
-    const carried = [...fromMentions, ...carriedShots];
+      const images = carried.filter(isImage);
+      const docs = carried.filter(isDoc);
+      const files = carried.filter(isText);
+      const written_ = files.length ? `${files.map(textBlock).join('\n\n')}\n\n${text}` : text;
+      // Documents before images before the question, which is the order the
+      // model reads them in: the thing being asked about, then the thing being
+      // asked.
+      const attached = [...docs.map(toDocBlock), ...images.map(toImageBlock)];
+      const content: Block[] | string = attached.length
+        ? [...attached, { type: 'text' as const, text: written_ }]
+        : written_;
+      history.current.push({ role: 'user', content });
+      if (!queued) setShots([]);
 
-    const images = carried.filter(isImage);
-    const docs = carried.filter(isDoc);
-    const files = carried.filter(isText);
-    const written_ = files.length ? `${files.map(textBlock).join('\n\n')}\n\n${text}` : text;
-    // Documents before images before the question, which is the order the model
-    // reads them in: the thing being asked about, then the thing being asked.
-    const attached = [...docs.map(toDocBlock), ...images.map(toImageBlock)];
-    const content: Block[] | string = attached.length
-      ? [...attached, { type: 'text' as const, text: written_ }]
-      : written_;
-    history.current.push({ role: 'user', content });
-    if (!queued) setShots([]);
-
-    return converse();
+      return await converse();
+    } finally {
+      // `converse` has already done this; the second write is for the case
+      // where nothing above it got that far, so a throw between here and there
+      // cannot leave the scheduler thinking a turn runs forever.
+      inFlight.current = false;
+    }
   }
 
   /**
@@ -3153,8 +3572,35 @@ export function App() {
    * history still ends with the user's message and nothing after it — the
    * assistant's half is built inside `runAgent` and discarded when it throws —
    * so trying again is the same request, not a repair.
+   *
+   * Which is why the teammate is looked up by chat id rather than read off the
+   * turn. Try again and Continue in a routine's transcript are the same
+   * request too, and they used to be sent with the agent's brief gone and in
+   * the person's own mode. A press has a person at the approval dialog, so it
+   * gets the agent's attended mode; the scheduler's own turn gets the mode the
+   * run started with.
    */
   async function converse(): Promise<Outcome> {
+    // Synchronously, before anything can await — see `inFlight`. Set here as
+    // well as in `send`, because Try again and Continue call this directly.
+    inFlight.current = true;
+    // Two turns get a teammate and no others: the run's own, and a Try again
+    // or Continue on it. The run's chat is read off `routineRun`, because
+    // `runRoutine` called `setChatId` a moment ago and this closure still
+    // holds the previous id; a retry is the chat on screen, and only while the
+    // flag those two buttons set is up. Any other turn in that transcript is a
+    // person's own message, which `send` has already unhooked — this is the
+    // second lock on the same door, and the one that holds if a path is ever
+    // added that reaches here without going through `send`.
+    const retry = retrying.current;
+    retrying.current = false;
+    const mate = routineRun.current
+      ? teammates.current.get(routineRun.current.id)
+      : retry ? teammates.current.get(chatId) : undefined;
+    // What the turn is really running as, for the working line: the agent's
+    // own mode when a mate applies, never more than Ask when unattended.
+    const runningAs: Mode = mate ? (routineRun.current ? mate.unattended : mate.attended) : mode;
+    setTurnMode(runningAs);
     // Only the newest failure offers a retry; an older one would re-ask a
     // question two answers back. Continue goes the same way: it resumes the
     // conversation as it stands, so a button left on an older line would
@@ -3176,7 +3622,7 @@ export function App() {
         askToRun,
         // A routine's turn runs as its agent: that agent's mode (never more than
         // Ask when unattended — see modeFor) and its brief on top of memory.
-        mode: teammate.current?.mode ?? mode,
+        mode: runningAs,
         onUsage: (u) => { setLastTurn(u); setChatTokens((p) => add(p, u)); },
         onContext: (used, limit) => setCtx({ used, limit }),
         onHop: (hop) => note({ kind: 'hop', hop }),
@@ -3199,8 +3645,8 @@ export function App() {
           return termRun.current(command);
         },
         environment,
-        memory: teammate.current
-          ? `${memoryPrompt(memory)}\n\n${teammate.current.brief}`.trim()
+        memory: mate
+          ? `${memoryPrompt(memory)}\n\n${mate.brief}`.trim()
           : memoryPrompt(memory),
         onDelta: (text) => { note({ kind: 'delta', chars: text.length }); stream(text); },
         onEvent: (e) => push({ kind: e.kind, text: e.text }),
@@ -3303,9 +3749,13 @@ export function App() {
     } finally {
       abort.current = null;
       openLine.current = null;
+      // Before `setBusy`, which lands a task later: the tick must not see an
+      // idle app one moment before the ref says the turn is over.
+      inFlight.current = false;
       // Back to idle, which is also what makes every late callback from an
       // aborted request a no-op rather than a spinner over a finished reply.
       note({ kind: 'stop' });
+      setTurnMode(null);
       setBusy(false);
     }
   }
@@ -3464,15 +3914,16 @@ export function App() {
                 `kbd` has something to be pushed away from; see the note on
                 `.ghost.bordered` in the stylesheet. */}
             {shown === 'dashboard' && (
-              <DashboardPanel t={t} routines={routines} agents={agentsList} missed={missedRuns}
-                    onRun={(r) => void runRoutine(r)}
+              <DashboardPanel t={t} routines={myRoutines} agents={agentsList} missed={missedHere}
+                    onRun={(r) => void runRoutine(r, true)}
                     onOpen={(id) => { const c = chatsIn(root).find((x) => x.id === id); if (c) openChat(c); }}
                     onRoutines={() => { setRail('routines'); setRailOpen(true); }}
+                    onDismiss={() => setMissedRuns([])}
                     onNewChat={newChat} />
             )}
             {shown === 'routines' && (
-              <RoutinesPanel root={root} t={t} routines={routines} onRoutines={setRoutines}
-                    onRun={(r) => void runRoutine(r)}
+              <RoutinesPanel root={root} t={t} lang={lang} routines={myRoutines} onRoutines={saveRoutines}
+                    onRun={(r) => void runRoutine(r, true)}
                     onOpen={(id) => { const c = chatsIn(root).find((x) => x.id === id); if (c) openChat(c); }}
                     onError={(m) => push({ kind: 'error', text: m })}
                     onOpenFolder={() => void pickFolder()}
@@ -4177,13 +4628,18 @@ export function App() {
                 <Icon name="restore" size={12} />{t('Undo this write')}
               </button>
             )}
+            {/* Both raise `retrying` first: a retry is the same request as the
+                turn it repeats, so in a routine's chat it goes out with that
+                agent's brief and mode rather than the person's. */}
             {item.retry && (
-              <button className="undo-cp" disabled={busy} onClick={() => void converse()}>
+              <button className="undo-cp" disabled={busy}
+                      onClick={() => { retrying.current = true; void converse(); }}>
                 <Icon name="restore" size={12} />{t('Try again')}
               </button>
             )}
             {item.more && (
-              <button className="undo-cp" disabled={busy} onClick={() => void converse()}>
+              <button className="undo-cp" disabled={busy}
+                      onClick={() => { retrying.current = true; void converse(); }}>
                 <Icon name="send" size={12} />{t('Continue')}
               </button>
             )}
@@ -4204,7 +4660,7 @@ export function App() {
           <Working
             progress={progress}
             t={t}
-            mode={t(mode === 'ask' ? 'Ask' : 'Agent')}
+            mode={t((turnMode ?? mode) === 'ask' ? 'Ask' : 'Agent')}
             model={MODELS.find((m) => m.id === wired.model)?.short ?? wired.model}
             context={ctx ? Math.round((ctx.used / ctx.limit) * 100) : null}
             onStop={() => abort.current?.abort()}
@@ -4398,10 +4854,16 @@ export function App() {
             </div>
             <div className="ask-btns">
               <button className="reject" onClick={() => decide.current?.('no')}>{t('Decline')}</button>
-              <button className="ghost keep" onClick={() => {
-                trusted.current.add(askRun.command);
-                decide.current?.('pipe');
-              }}>{t('Always allow this')}</button>
+              {/* Not offered for anything the refuse-list caught. SAFETY says
+                  those always ask, at every level, with no setting that turns
+                  it off — and a button that quietly created such a setting was
+                  the loudest way to break that promise. */}
+              {!refusedFor(askRun.command) && (
+                <button className="ghost keep" onClick={() => {
+                  trusted.current.add(askRun.command);
+                  decide.current?.('pipe');
+                }}>{t('Always allow this')}</button>
+              )}
               {/* The same approved string, on a surface you can watch and
                   interrupt. Not a second decision — the string was already read
                   and approved by the time either button is pressed. */}

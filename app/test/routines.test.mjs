@@ -10,8 +10,9 @@
 // clocks changing: both sides of each check use the same wall-clock rules.
 import {
   DAYS, GUARD_MS, KEY, MAX_EVERY, MIN_EVERY, PRESENT_MS, TICK_KEY,
-  add, describe, due, hold, markRun, midWork, missedWhileClosed, newId, nextRun, normalise,
-  pause, phrase, read, remove, resume, sameSchedule, skip, update, write,
+  add, adopt, describe, due, hold, holdReason, inFolder, markRun, missedWhileClosed,
+  newId, nextRun, normalise, owedNow, pause, phrase, read, remove, resume,
+  sameSchedule, skip, update, write,
 } from '../.test-build/routines.js';
 
 let pass = 0, fail = 0;
@@ -36,7 +37,7 @@ const make = (over = {}) => ({
   id: 'r1', name: 'Nightly review', agent: 'reviewer',
   brief: 'Review whatever landed overnight and list anything that looks wrong.',
   schedule: { kind: 'daily', at: '09:00' },
-  paused: false, armedAt: SAT, createdAt: SAT,
+  paused: false, armedAt: SAT, createdAt: SAT, folder: '/work/a',
   ...over,
 });
 
@@ -314,70 +315,94 @@ ok('once a start is recorded, the next tick finds nothing due', (() => {
 const DRAFT = { name: '  Morning digest ', agent: 'digest', brief: 'Summarise the open pull requests.\n', schedule: { kind: 'every', minutes: 3 } };
 {
   const list = add([], DRAFT, SAT);
-  ok('add makes one routine', list.length === 1 && list[0].id === 'r1');
+  ok('add makes one routine', list.length === 1 && typeof list[0].id === 'string' && list[0].id.length > 1);
   ok('it is armed and created now, unpaused, never run',
      list[0].armedAt === SAT && list[0].createdAt === SAT && list[0].paused === false && !('lastRun' in list[0]));
   ok('its fields are trimmed', list[0].name === 'Morning digest' && list[0].brief === 'Summarise the open pull requests.');
   ok('its schedule went through normalise', list[0].schedule.minutes === MIN_EVERY);
   ok('and it is not due the instant it was saved', due(list, SAT).length === 0 && nextRun(list[0], SAT) === SAT + MIN_EVERY * MIN);
-  ok('a second gets the next id', add(list, DRAFT, SAT)[1].id === 'r2');
+  ok('a second gets an id of its own', add(list, DRAFT, SAT)[1].id !== list[0].id);
+  ok('no folder given is no folder recorded', list[0].folder === '');
+  ok('the folder it was made in is recorded', add([], DRAFT, SAT, ' /work/a ')[0].folder === '/work/a');
 }
 ok('a blank name is refused', add([], { ...DRAFT, name: ' ' }, SAT).length === 0);
 ok('a blank brief is refused', add([], { ...DRAFT, brief: '' }, SAT).length === 0);
 ok('a blank agent is refused', add([], { ...DRAFT, agent: '' }, SAT).length === 0);
 ok('a schedule that does not parse is refused', add([], { ...DRAFT, schedule: { kind: 'daily', at: 'noon' } }, SAT).length === 0);
 ok('adding does not mutate', (() => { const l = []; add(l, DRAFT, SAT); return l.length === 0; })());
-ok('a fresh id avoids the taken ones', newId(['r1', 'r2']) === 'r3' && newId([]) === 'r1');
+// The id used to be the lowest free `r<n>`, so deleting r2 handed its id to
+// the next routine created and a run finishing afterwards stamped the new row.
+ok('a fresh id avoids the taken ones', (() => {
+  const first = newId([], SAT);
+  return newId([first], SAT) !== first && newId([first, `${first}-2`], SAT) !== first;
+})());
+ok('an id is never reused after a delete', (() => {
+  const two = add(add([], DRAFT, SAT), { ...DRAFT, name: 'Two' }, SAT + 1);
+  const left = remove(two, two[1].id);
+  const again = add(left, { ...DRAFT, name: 'Three' }, SAT + 2);
+  return again[1].id !== two[1].id;
+})());
+ok('two made in the same millisecond still differ', (() => {
+  const a = add([], DRAFT, SAT);
+  const b = add(a, { ...DRAFT, name: 'Two' }, SAT);
+  return b[0].id !== b[1].id;
+})());
+ok('the id carries the moment it was minted', newId([], SAT) === `r${SAT.toString(36)}`);
 
 {
   const list = add([], DRAFT, SAT);
+  const id = list[0].id;
   const later = SAT + 2 * HOUR;
   ok('a rename does not re-arm', (() => {
-    const [r] = update(list, 'r1', { name: 'Evening digest' }, later);
+    const [r] = update(list, id, { name: 'Evening digest' }, later);
     return r.name === 'Evening digest' && r.armedAt === SAT;
   })());
   // Moved from ten to nine at half past nine runs tomorrow at nine, not now.
   ok('a schedule change re-arms', (() => {
-    const [r] = update(list, 'r1', { schedule: { kind: 'daily', at: '09:00' } }, later);
+    const [r] = update(list, id, { schedule: { kind: 'daily', at: '09:00' } }, later);
     return r.schedule.kind === 'daily' && r.armedAt === later && nextRun(r, later) === local(2026, 9, 6, 9, 0);
   })());
-  ok('the same schedule again does not', update(list, 'r1', { schedule: { kind: 'every', minutes: 5 } }, later)[0].armedAt === SAT);
-  ok('a blank field in a patch keeps the old value', update(list, 'r1', { name: '', brief: '  ' }, later)[0].name === 'Morning digest');
+  ok('the same schedule again does not', update(list, id, { schedule: { kind: 'every', minutes: 5 } }, later)[0].armedAt === SAT);
+  ok('a blank field in a patch keeps the old value', update(list, id, { name: '', brief: '  ' }, later)[0].name === 'Morning digest');
   ok('a bad schedule in a patch keeps the old one', (() => {
-    const [r] = update(list, 'r1', { schedule: { kind: 'weekly', day: 9, at: '09:00' } }, later);
+    const [r] = update(list, id, { schedule: { kind: 'weekly', day: 9, at: '09:00' } }, later);
     return r.schedule.kind === 'every' && r.armedAt === SAT;
   })());
-  ok('an unknown id changes nothing', ids(update(list, 'zz', { name: 'x' }, later)) === 'r1' && update(list, 'zz', { name: 'x' }, later)[0].name === 'Morning digest');
+  ok('an unknown id changes nothing', ids(update(list, 'zz', { name: 'x' }, later)) === id && update(list, 'zz', { name: 'x' }, later)[0].name === 'Morning digest');
   ok('updating does not mutate', list[0].name === 'Morning digest' && list[0].armedAt === SAT);
+  ok('an update keeps the folder it was made in',
+     update(add([], DRAFT, SAT, '/work/a'), add([], DRAFT, SAT, '/work/a')[0].id, { name: 'Two' }, later)[0].folder === '/work/a');
 }
 
 {
   const list = add(add([], DRAFT, SAT), { ...DRAFT, name: 'Two' }, SAT);
-  ok('remove takes one out', ids(remove(list, 'r1')) === 'r2');
-  ok('and an unknown id leaves both', ids(remove(list, 'zz')) === 'r1,r2');
-  ok('pause pauses', pause(list, 'r1')[0].paused === true && nextRun(pause(list, 'r1')[0], SAT + HOUR) === null);
-  ok('pausing does not mutate', list[0].paused === false);
-  const paused = pause(list, 'r1');
+  const [one, two] = list.map((r) => r.id);
   const days = SAT + 3 * 24 * HOUR;
+  ok('remove takes one out', ids(remove(list, one)) === two);
+  ok('and an unknown id leaves both', ids(remove(list, 'zz')) === `${one},${two}`);
+  ok('pause pauses', pause(list, one)[0].paused === true && nextRun(pause(list, one)[0], SAT + HOUR) === null);
+  ok('pausing does not mutate', list[0].paused === false);
+  const paused = pause(list, one);
   ok('resume unpauses and re-arms', (() => {
-    const [r] = resume(paused, 'r1', days);
+    const [r] = resume(paused, one, days);
     return r.paused === false && r.armedAt === days;
   })());
   // Paused on Saturday, resumed three days later: it was not "owed" all that
   // time, it was paused. The next run is an interval from the resume.
   ok('so a routine resumed days later is not due at once', (() => {
-    const back = resume(paused, 'r1', days);
-    return due(back, days).every((r) => r.id !== 'r1') && nextRun(back[0], days) === days + MIN_EVERY * MIN;
+    const back = resume(paused, one, days);
+    return due(back, days).every((r) => r.id !== one) && nextRun(back[0], days) === days + MIN_EVERY * MIN;
   })());
-  ok('resuming what is not paused changes nothing', resume(list, 'r1', days)[0].armedAt === SAT);
+  ok('resuming what is not paused changes nothing', resume(list, one, days)[0].armedAt === SAT);
 }
 
 {
   const list = add([], DRAFT, SAT);
-  const [r] = markRun(list, 'r1', { at: SAT + 5 * MIN, chatId: 'chat-7', ok: true });
+  const id = list[0].id;
+  const [r] = markRun(list, id, { at: SAT + 5 * MIN, chatId: 'chat-7', ok: true });
   ok('markRun records the run', r.lastRun.at === SAT + 5 * MIN && r.lastRun.chatId === 'chat-7' && r.lastRun.ok === true);
   ok('and a second call, with the outcome, replaces it', (() => {
-    const [done] = markRun([r], 'r1', { at: SAT + 5 * MIN, chatId: 'chat-7', ok: false, error: 'The agent stopped.' });
+    const [done] = markRun([r], id, { at: SAT + 5 * MIN, chatId: 'chat-7', ok: false, error: 'The agent stopped.' });
     return done.lastRun.ok === false && done.lastRun.error === 'The agent stopped.' && done.lastRun.at === SAT + 5 * MIN;
   })());
   ok('the recorded run is what the next one counts from', nextRun(r, SAT + 6 * MIN) === SAT + 10 * MIN);
@@ -427,6 +452,14 @@ ok('an empty error is not an error', !('error' in read(JSON.stringify([make({ la
 ok('a missing armedAt is the creation time', read(JSON.stringify([make({ armedAt: undefined })]))[0].armedAt === SAT);
 ok('and one before the creation time is the creation time', read(JSON.stringify([make({ armedAt: SAT - 5 })]))[0].armedAt === SAT);
 ok('the id is never remade', read(JSON.stringify([make({ id: 'kept-as-is' })]))[0].id === 'kept-as-is');
+// A list written before folders were recorded is read, not thrown away.
+ok('a missing folder is the empty string, not a dropped record', (() => {
+  const [r] = read(JSON.stringify([make({ folder: undefined })]));
+  return !!r && r.folder === '';
+})());
+ok('a folder that is not a string is repaired the same way',
+   read(JSON.stringify([make({ folder: 7 })]))[0].folder === '');
+ok('a folder is trimmed and kept', read(JSON.stringify([make({ folder: ' /work/b ' })]))[0].folder === '/work/b');
 
 // ── held, not run ─────────────────────────────────────────────────────────
 // The scheduler found the run owed and the window was not free. That is a
@@ -474,18 +507,128 @@ ok('the id is never remade', read(JSON.stringify([make({ id: 'kept-as-is' })]))[
 // ── whether the window is free ────────────────────────────────────────────
 // This app has one chat and a run replaces it, so the scheduler asks first.
 {
-  const free = { draft: false, deciding: false, queued: false, lastActivity: 0 };
+  const free = { staged: false, draft: false, deciding: false, queued: false, lastActivity: 0 };
+  const held = (p, now = SAT) => holdReason(p, now) !== null;
   // Launched and left alone is what a routine is for: nobody has ever acted.
-  ok('an app nobody has touched is free', midWork(free, SAT) === false);
-  ok('a draft in the box holds the run', midWork({ ...free, draft: true }, SAT) === true);
-  ok('a decision on screen holds the run', midWork({ ...free, deciding: true }, SAT) === true);
-  ok('a queued message holds the run', midWork({ ...free, queued: true }, SAT) === true);
-  ok('a key or click in the last minute holds the run', midWork({ ...free, lastActivity: SAT - 59_000 }, SAT) === true);
+  ok('an app nobody has touched is free', held(free) === false);
+  ok('a draft in the box holds the run', held({ ...free, draft: true }) === true);
+  ok('a decision on screen holds the run', held({ ...free, deciding: true }) === true);
+  ok('a queued message holds the run', held({ ...free, queued: true }) === true);
+  ok('a key or click in the last minute holds the run', held({ ...free, lastActivity: SAT - 59_000 }) === true);
   ok('the minute is PRESENT_MS exactly', PRESENT_MS === 60_000
-     && midWork({ ...free, lastActivity: SAT - PRESENT_MS + 1 }, SAT) === true
-     && midWork({ ...free, lastActivity: SAT - PRESENT_MS }, SAT) === false);
-  ok('a minute of quiet with an empty box is free', midWork({ ...free, lastActivity: SAT - 5 * MIN }, SAT) === false);
-  ok('now as a Date gives the same answer', midWork({ ...free, lastActivity: SAT - 10_000 }, new Date(SAT)) === true);
+     && held({ ...free, lastActivity: SAT - PRESENT_MS + 1 }) === true
+     && held({ ...free, lastActivity: SAT - PRESENT_MS }) === false);
+  ok('a minute of quiet with an empty box is free', held({ ...free, lastActivity: SAT - 5 * MIN }) === false);
+  ok('now as a Date gives the same answer', held({ ...free, lastActivity: SAT - 10_000 }, new Date(SAT)) === true);
+
+  // The hole this closed: a turn that ended by staging three files leaves
+  // `busy` false and nobody at the keys, and the run then cleared the review
+  // pane with no transcript line.
+  ok('staged changes hold the run', held({ ...free, staged: true }) === true);
+  ok('and they hold it with nobody at the keyboard for an hour',
+     held({ ...free, staged: true, lastActivity: SAT - HOUR }) === true);
+
+  ok('a free window has no reason', holdReason(free, SAT) === null);
+  ok('staged changes say so', holdReason({ ...free, staged: true }, SAT) === 'Changes are waiting for review.');
+  ok('and staged wins over a draft, being the more expensive to lose',
+     holdReason({ ...free, staged: true, draft: true }, SAT) === 'Changes are waiting for review.');
+  ok('a person mid-anything says so', holdReason({ ...free, draft: true }, SAT) === 'Waiting for you to finish.'
+     && holdReason({ ...free, deciding: true }, SAT) === 'Waiting for you to finish.'
+     && holdReason({ ...free, queued: true }, SAT) === 'Waiting for you to finish.'
+     && holdReason({ ...free, lastActivity: SAT - 10_000 }, SAT) === 'Waiting for you to finish.');
+  ok('a reason and a refusal are the same answer', [
+    free,
+    { ...free, staged: true },
+    { ...free, draft: true },
+    { ...free, lastActivity: SAT - 10_000 },
+    { ...free, lastActivity: SAT - HOUR },
+  ].every((p) => held(p) === (holdReason(p, SAT) !== null)));
+  // The reasons are i18n keys, so they are asserted as text: the catalogues
+  // carry these exact sentences and a rewording here has to move with them.
+  ok('the reasons are the catalogue keys', new Set([
+    holdReason({ ...free, staged: true }, SAT),
+    holdReason({ ...free, draft: true }, SAT),
+  ]).size === 2);
+}
+
+// ── which folder a routine belongs to ─────────────────────────────────────
+// A routine names its agent by a slug from one project's AGENTS.md, and the
+// starter file gives every project a `## Reviewer`.
+{
+  const a = make({ id: 'a', folder: '/work/a' });
+  const b = make({ id: 'b', folder: '/work/b' });
+  const old = make({ id: 'old', folder: '' });
+  const list = [a, b, old];
+  ok('a folder sees its own routines', ids(inFolder(list, '/work/a')) === 'a');
+  ok('and not another folder\'s', ids(inFolder(list, '/work/b')) === 'b');
+  // The defect `folder` exists to close, and the reason '' is not "everywhere":
+  // an unscoped routine would otherwise resolve its agent slug against whatever
+  // project happened to be open.
+  ok('a routine with no folder belongs to nobody',
+     inFolder(list, '/anywhere').length === 0 && inFolder(list, '/work/a').every((r) => r.id !== 'old'));
+  ok('with no folder open only the unscoped ones match', ids(inFolder(list, '')) === 'old');
+  ok('the folder is trimmed before it is compared', ids(inFolder(list, ' /work/a ')) === 'a');
+  ok('filtering does not mutate', list.length === 3);
+
+  // ── adoption ───────────────────────────────────────────────────────────
+  // A list written before folders were recorded is claimed by the first
+  // project opened afterwards, and re-armed so the claim itself cannot fire a
+  // run in a project the routine was never written for.
+  {
+    const claimed = adopt(list, '/work/c', SAT + HOUR);
+    ok('an unscoped routine is claimed by the open project',
+       claimed.find((r) => r.id === 'old').folder === '/work/c');
+    ok('and re-armed from the moment it was claimed',
+       claimed.find((r) => r.id === 'old').armedAt === SAT + HOUR);
+    ok('a routine that already has a folder is left alone',
+       claimed.find((r) => r.id === 'a').folder === '/work/a'
+       && claimed.find((r) => r.id === 'a').armedAt === SAT);
+    ok('adoption does not mutate', list.find((r) => r.id === 'old').folder === '');
+    ok('the folder is trimmed before it is stamped',
+       adopt(list, '  /work/c  ', SAT).find((r) => r.id === 'old').folder === '/work/c');
+    ok('no folder open claims nothing',
+       adopt(list, '', SAT).find((r) => r.id === 'old').folder === '');
+    ok('after adoption the routine is in exactly one folder',
+       ids(inFolder(claimed, '/work/c')) === 'old' && inFolder(claimed, '/work/a').length === 1);
+    // The safety half: an unscoped daily whose slot has gone would otherwise
+    // be owed the instant a project claimed it.
+    const stale = [make({ id: 'old', folder: '', armedAt: local(2026, 9, 4, 12, 0), createdAt: local(2026, 9, 4, 12, 0) })];
+    ok('the fixture is owed a run before it is adopted', due(inFolder(stale, ''), SAT).length === 1);
+    ok('and is owed nothing after it', due(adopt(stale, '/work/c', SAT), SAT).length === 0);
+    ok('adoption clears a held note left by another window', (() => {
+      const stuck = adopt([make({ id: 'old', folder: '', held: 'Waiting for you to finish.' })], '/work/c', SAT);
+      return !('held' in stuck[0]);
+    })());
+  }
+
+  // ── owed the moment a folder opens ─────────────────────────────────────
+  // `TICK_KEY` is one clock for the whole app, so a slot that passed while
+  // another project was on screen is behind the launch window: not missed, not
+  // reported, and ready to fire days late. Opening the folder asks again.
+  {
+    const early = { armedAt: local(2026, 9, 4, 12, 0), createdAt: local(2026, 9, 4, 12, 0) };
+    const here = make({ id: 'here', folder: '/work/a', ...early });   // owes 09:00 today
+    const there = make({ id: 'there', folder: '/work/b', ...early });
+    // Armed this morning, so tonight's slot is ahead of it and nothing is owed.
+    const later = make({ id: 'later', folder: '/work/a', schedule: { kind: 'daily', at: '23:00' } });
+    const off = make({ id: 'off', folder: '/work/a', paused: true, ...early });
+    const byHand = make({ id: 'hand', folder: '/work/a', schedule: { kind: 'manual' }, ...early });
+    const all = [here, there, later, off, byHand];
+    ok('opening a folder finds the run it is owed', ids(owedNow(all, '/work/a', SAT)) === 'here');
+    ok('and not another folder\'s', ids(owedNow(all, '/work/b', SAT)) === 'there');
+    ok('a slot still ahead is not owed', owedNow([later], '/work/a', SAT).length === 0);
+    ok('paused and manual are never owed', owedNow([off, byHand], '/work/a', SAT).length === 0);
+    // Behind the launch window, which is the whole reason this exists.
+    ok('a slot the launch scan cannot see is found here',
+       missedWhileClosed([here], local(2026, 9, 5, 9, 30), SAT).length === 0
+       && ids(owedNow([here], '/work/a', SAT)) === 'here');
+    ok('reported once: skipping it moves the run to tomorrow',
+       owedNow(skip([here], 'here', SAT), '/work/a', SAT).length === 0);
+    ok('an unadopted routine is owed to nobody', owedNow([make({ id: 'old', folder: '', ...early })], '/work/a', SAT).length === 0);
+    ok('a Date and epoch milliseconds agree',
+       ids(owedNow(all, '/work/a', new Date(SAT))) === ids(owedNow(all, '/work/a', SAT)));
+    ok('asking does not mutate', all.length === 5 && here.armedAt === early.armedAt);
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

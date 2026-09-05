@@ -868,7 +868,6 @@ const ar: Dict = {
   'Remove this agent?': 'إزالة هذا الوكيل؟',
   'New routine': 'روتين جديد',
   'Add an agent first': 'أضف وكيلاً أولاً',
-  'Routines run in Ask mode — reads only — unless auto-approve is on.': 'تعمل الروتينات في وضع السؤال — قراءة فقط — ما لم تكن الموافقة التلقائية مفعّلة.',
   'Nothing scheduled. A routine is an agent, a brief and a time.': 'لا شيء مجدول. الروتين هو وكيل وموجز ووقت.',
   'Open the last run': 'افتح آخر تشغيل',
   'Resume': 'استئناف',
@@ -920,6 +919,37 @@ const ar: Dict = {
   'Push-to-talk': 'اضغط للتحدث',
   'Hold the key and speak; let go and the message is sent. A tap starts hands-free dictation, and a second tap stops it. Pick a key you do not use in shortcuts.': 'اضغط مطولاً على المفتاح وتحدث؛ اتركه فتُرسل الرسالة. الضغطة الخفيفة تبدأ إملاءً دون إمساك، وضغطة ثانية توقفه. اختر مفتاحاً لا تستخدمه في الاختصارات.',
   'Key': 'المفتاح',
+  // Agent mode: the singular of every unit, days as a unit, and the sentence a
+  // form says about the one field that is wrong.
+  '1 minute ago': 'قبل دقيقة واحدة',
+  '1 hour ago': 'قبل ساعة واحدة',
+  '1 day ago': 'قبل يوم واحد',
+  'In 1 minute': 'بعد دقيقة واحدة',
+  'In 1 hour': 'بعد ساعة واحدة',
+  'In 1 day': 'بعد يوم واحد',
+  'In {n} days': 'بعد {n} أيام',
+  '1 run was due while the app was closed and was skipped.': 'حان موعد تشغيل واحد أثناء إغلاق التطبيق وتم تخطيه.',
+  'May edit': 'يمكنه التعديل',
+  'Start with two examples': 'ابدأ بمثالين',
+  'Name an agent': 'سمِّ وكيلاً',
+  'Nothing scheduled. A routine is an agent, a brief and a time — so add an agent first.': 'لا شيء مجدول. الروتين هو وكيل وموجز ووقت — فأضف وكيلاً أولاً.',
+  'Give the routine a name.': 'أعطِ الروتين اسماً.',
+  'Choose the agent that runs it.': 'اختر الوكيل الذي يشغّله.',
+  'Say what it should do.': 'اذكر ما ينبغي أن يفعله.',
+  'How often, between {min} and {max} minutes.': 'كل كم دقيقة، بين {min} و{max} دقيقة.',
+  'A time of day, on the 24-hour clock — 09:00.': 'وقت من اليوم، بنظام 24 ساعة — 09:00.',
+  'Changes are waiting for review.': 'هناك تغييرات بانتظار المراجعة.',
+  'A routine is running. Stop it, or wait for it to finish.': 'هناك روتين قيد التشغيل. أوقفه، أو انتظر حتى ينتهي.',
+  'May act (auto-approve: {level})': 'يمكنه التصرّف (الموافقة التلقائية: {level})',
+  'an unattended run may not use MCP tools': 'أن التشغيل دون إشراف لا يستخدم أدوات MCP',
+  '1 routine made before folders existed now belongs to this project.':
+    'روتين واحد أُنشئ قبل وجود المجلدات صار الآن يخصّ هذا المشروع.',
+  '{n} routines made before folders existed now belong to this project.':
+    '{n} روتينات أُنشئت قبل وجود المجلدات صارت الآن تخصّ هذا المشروع.',
+  'Scheduled runs use Ask mode — reads only. Run now uses the agent’s own mode, behind the approval dialog.': 'التشغيلات المجدولة تستخدم وضع السؤال — قراءة فقط. أما «شغّل الآن» فيستخدم وضع الوكيل نفسه، خلف نافذة الموافقة.',
+  'Auto-approve is on: routines may edit and run commands without asking.': 'الموافقة التلقائية مفعّلة: يمكن للروتينات أن تعدّل وتشغّل أوامر دون أن تسأل.',
+  'Run now — reads only': 'شغّل الآن — يقرأ فقط',
+  'Run now — may edit, behind the approval dialog': 'شغّل الآن — يمكنه التعديل، خلف نافذة الموافقة',
 };
 
 const ckb: Dict = {
@@ -1762,7 +1792,6 @@ const ckb: Dict = {
   'Remove this agent?': 'ئەم ئەیجێنتە لاببرێت؟',
   'New routine': 'ڕۆتینی نوێ',
   'Add an agent first': 'سەرەتا ئەیجێنتێک زیاد بکە',
-  'Routines run in Ask mode — reads only — unless auto-approve is on.': 'ڕۆتینەکان لە دۆخی پرسیاردا کاردەکەن — تەنها خوێندنەوە — مەگەر ڕەزامەندی خۆکار چالاک بێت.',
   'Nothing scheduled. A routine is an agent, a brief and a time.': 'هیچ شتێک خشتە نەکراوە. ڕۆتین بریتییە لە ئەیجێنتێک و ڕاسپاردەیەک و کاتێک.',
   'Open the last run': 'دوا کارپێکردن بکەرەوە',
   'Resume': 'بەردەوامبوون',
@@ -1814,6 +1843,37 @@ const ckb: Dict = {
   'Push-to-talk': 'پەنجەنان بۆ قسەکردن',
   'Hold the key and speak; let go and the message is sent. A tap starts hands-free dictation, and a second tap stops it. Pick a key you do not use in shortcuts.': 'کلیلەکە ڕابگرە و قسە بکە؛ بەریدە پەیامەکە دەنێردرێت. لێدانێک خوێندنەوەی بێ دەست دەست پێدەکات، و لێدانی دووەم دەیوەستێنێت. کلیلێک هەڵبژێرە کە لە کورتبڕەکاندا بەکاری ناهێنیت.',
   'Key': 'کلیل',
+  // Agent mode: the singular of every unit, days as a unit, and the sentence a
+  // form says about the one field that is wrong.
+  '1 minute ago': 'پێش خولەکێک',
+  '1 hour ago': 'پێش کاتژمێرێک',
+  '1 day ago': 'پێش ڕۆژێک',
+  'In 1 minute': 'لە خولەکێکدا',
+  'In 1 hour': 'لە کاتژمێرێکدا',
+  'In 1 day': 'لە ڕۆژێکدا',
+  'In {n} days': 'لە {n} ڕۆژدا',
+  '1 run was due while the app was closed and was skipped.': 'کارپێکردنێک کاتی هات لە کاتی داخرانی ئەپەکە و پەڕێنرا.',
+  'May edit': 'دەتوانێت دەستکاری بکات',
+  'Start with two examples': 'بە دوو نموونە دەست پێبکە',
+  'Name an agent': 'ناوێک لە ئەیجێنتێک بنێ',
+  'Nothing scheduled. A routine is an agent, a brief and a time — so add an agent first.': 'هیچ شتێک خشتە نەکراوە. ڕۆتین بریتییە لە ئەیجێنتێک و ڕاسپاردەیەک و کاتێک — کەواتە سەرەتا ئەیجێنتێک زیاد بکە.',
+  'Give the routine a name.': 'ناوێک بۆ ڕۆتینەکە دابنێ.',
+  'Choose the agent that runs it.': 'ئەو ئەیجێنتە هەڵبژێرە کە کاری پێدەکات.',
+  'Say what it should do.': 'بڵێ دەبێت چی بکات.',
+  'How often, between {min} and {max} minutes.': 'هەموو چەند خولەکێک جارێک، لە نێوان {min} و {max} خولەکدا.',
+  'A time of day, on the 24-hour clock — 09:00.': 'کاتێکی ڕۆژ، بە کاتژمێری ٢٤ کاتژمێری — 09:00.',
+  'Changes are waiting for review.': 'گۆڕانکارییەکان چاوەڕێی پێداچوونەوەن.',
+  'A routine is running. Stop it, or wait for it to finish.': 'ڕۆتینێک کاردەکات. بیوەستێنە، یان چاوەڕێ بکە تا تەواو دەبێت.',
+  'May act (auto-approve: {level})': 'دەتوانێت کار بکات (ڕەزامەندی خۆکار: {level})',
+  'an unattended run may not use MCP tools': 'کارپێکردنی بێ چاودێری بۆی نییە ئامرازەکانی MCP بەکاربهێنێت',
+  '1 routine made before folders existed now belongs to this project.':
+    'ڕۆتینێک کە پێش بوونی بوخچەکان دروستکرابوو ئێستا سەر بەم پڕۆژەیەیە.',
+  '{n} routines made before folders existed now belong to this project.':
+    '{n} ڕۆتین کە پێش بوونی بوخچەکان دروستکرابوون ئێستا سەر بەم پڕۆژەیەن.',
+  'Scheduled runs use Ask mode — reads only. Run now uses the agent’s own mode, behind the approval dialog.': 'کارپێکردنە خشتەکراوەکان دۆخی پرسیار بەکاردەهێنن — تەنها خوێندنەوە. بەڵام «ئێستا کارپێبکە» دۆخی خودی ئەیجێنتەکە بەکاردەهێنێت، لە پشت پەنجەرەی ڕەزامەندی.',
+  'Auto-approve is on: routines may edit and run commands without asking.': 'ڕەزامەندی خۆکار چالاکە: ڕۆتینەکان دەتوانن دەستکاری بکەن و فەرمان کارپێبکەن بەبێ پرسیارکردن.',
+  'Run now — reads only': 'ئێستا کارپێبکە — تەنها دەخوێنێتەوە',
+  'Run now — may edit, behind the approval dialog': 'ئێستا کارپێبکە — دەتوانێت دەستکاری بکات، لە پشت پەنجەرەی ڕەزامەندی',
 };
 
 const kmr: Dict = {
@@ -2656,7 +2716,6 @@ const kmr: Dict = {
   'Remove this agent?': 'Ev ajan were rakirin?',
   'New routine': 'Rûtîna nû',
   'Add an agent first': 'Pêşî ajanekê zêde bike',
-  'Routines run in Ask mode — reads only — unless auto-approve is on.': 'Rûtîn di moda Pirsê de dimeşin — tenê xwendin — heta ku pejirandina otomatîk vekirî nebe.',
   'Nothing scheduled. A routine is an agent, a brief and a time.': 'Tiştek nehatiye bernamekirin. Rûtînek ajanek, kurteyek û demek e.',
   'Open the last run': 'Meşandina dawî veke',
   'Resume': 'Bidomîne',
@@ -2708,6 +2767,37 @@ const kmr: Dict = {
   'Push-to-talk': 'Bitikîne û bipeyive',
   'Hold the key and speak; let go and the message is sent. A tap starts hands-free dictation, and a second tap stops it. Pick a key you do not use in shortcuts.': 'Bişkokê bigire û bipeyive; berde û peyam tê şandin. Lêdanek dîktekirina bê dest dest pê dike, û lêdana duyem wê radiwestîne. Bişkokek hilbijêre ku tu di kurteriyan de bi kar naynî.',
   'Key': 'Bişkok',
+  // Agent mode: the singular of every unit, days as a unit, and the sentence a
+  // form says about the one field that is wrong.
+  '1 minute ago': 'berî deqîqeyekê',
+  '1 hour ago': 'berî saetekê',
+  '1 day ago': 'berî rojekê',
+  'In 1 minute': 'Piştî deqîqeyekê',
+  'In 1 hour': 'Piştî saetekê',
+  'In 1 day': 'Piştî rojekê',
+  'In {n} days': 'Piştî {n} rojan',
+  '1 run was due while the app was closed and was skipped.': 'Dema meşandinekê hat dema sepan girtî bû û hate derbaskirin.',
+  'May edit': 'Dikare biguherîne',
+  'Start with two examples': 'Bi du mînakan dest pê bike',
+  'Name an agent': 'Ajanekê bi nav bike',
+  'Nothing scheduled. A routine is an agent, a brief and a time — so add an agent first.': 'Tiştek nehatiye bernamekirin. Rûtînek ajanek, kurteyek û demek e — loma pêşî ajanekê zêde bike.',
+  'Give the routine a name.': 'Navekî li rûtînê bike.',
+  'Choose the agent that runs it.': 'Ajanê ku wê dimeşîne hilbijêre.',
+  'Say what it should do.': 'Bibêje divê çi bike.',
+  'How often, between {min} and {max} minutes.': 'Çend caran, di navbera {min} û {max} deqîqeyan de.',
+  'A time of day, on the 24-hour clock — 09:00.': 'Demek ji rojê, li gorî saeta 24 saetî — 09:00.',
+  'Changes are waiting for review.': 'Guhertin li benda nirxandinê ne.',
+  'A routine is running. Stop it, or wait for it to finish.': 'Rûtînek dimeşe. Wê rawestîne, an li benda qedandina wê bimîne.',
+  'May act (auto-approve: {level})': 'Dikare tevbigere (pejirandina otomatîk: {level})',
+  'an unattended run may not use MCP tools': 'meşandineke bêserpereştî nikare amûrên MCP bi kar bîne',
+  '1 routine made before folders existed now belongs to this project.':
+    'Rûtînek ku berî hebûna peldankan hatiye çêkirin niha ya vê projeyê ye.',
+  '{n} routines made before folders existed now belong to this project.':
+    '{n} rûtîn ku berî hebûna peldankan hatine çêkirin niha yên vê projeyê ne.',
+  'Scheduled runs use Ask mode — reads only. Run now uses the agent’s own mode, behind the approval dialog.': 'Meşandinên bernamekirî moda Pirsê bi kar tînin — tenê xwendin. «Niha bimeşîne» moda ajanê bi xwe bi kar tîne, li pişt pencereya pejirandinê.',
+  'Auto-approve is on: routines may edit and run commands without asking.': 'Pejirandina otomatîk vekirî ye: rûtîn dikarin biguherînin û fermanan bimeşînin bêyî ku bipirsin.',
+  'Run now — reads only': 'Niha bimeşîne — tenê dixwîne',
+  'Run now — may edit, behind the approval dialog': 'Niha bimeşîne — dikare biguherîne, li pişt pencereya pejirandinê',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
