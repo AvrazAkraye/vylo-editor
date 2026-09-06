@@ -4914,6 +4914,29 @@ export function App() {
             </aside>
           </>
         )}
+        {/* A rail for the other side, once there is something to choose
+            between. One module docked there needs no tabs — the panel is
+            the tab — but two or more were reachable only through the left
+            rail's dimmer "also on" mark, which is a poor way to switch. The
+            same component as the first rail, minus the Settings button,
+            which belongs to one edge. */}
+        {rightIds.length > 1 && (
+          <Rail
+            far
+            items={docked(modules, 'other').map((m) => ({
+              id: m.id,
+              icon: m.icon,
+              label: t(m.label),
+              badge: m.badge === 'changes' ? changes.length + tracked.length
+                : m.badge === 'todo' ? todoLeft : undefined,
+            }))}
+            active={rightShown ?? rightIds[0]}
+            collapsed={!rightOpen}
+            onSelect={pickRail}
+            onMenu={(id, at) => setRailMenu({ id, at })}
+            label={t('Sections on the other side')}
+          />
+        )}
       </div>
 
       {drafts.length > 0 && (

@@ -44,15 +44,25 @@ interface Props {
   onSelect: (id: ModuleId) => void;
   /** A right-click on an icon: dock it on the other side, or turn it off. */
   onMenu?: (id: ModuleId, at: { x: number; y: number }) => void;
-  settings: () => void;
-  settingsLabel: string;
+  /**
+   * The Settings button, on the rail that has one. The rail for the other
+   * side leaves it out: Settings belongs to one edge, not both.
+   */
+  settings?: () => void;
+  settingsLabel?: string;
   /** The rail is navigation, so it needs a name in the language in use. */
   label: string;
+  /**
+   * Drawn on the edge opposite the first rail, for the modules docked on
+   * that side. Shown only once there are two or more of them to choose
+   * between; with one, the panel itself is the tab.
+   */
+  far?: boolean;
 }
 
-export function Rail({ items, active, alsoOn = null, collapsed, onSelect, onMenu, settings, settingsLabel, label }: Props) {
+export function Rail({ items, active, alsoOn = null, collapsed, onSelect, onMenu, settings, settingsLabel, label, far = false }: Props) {
   return (
-    <nav className="rail" aria-label={label}>
+    <nav className={`rail ${far ? 'far' : ''}`} aria-label={label}>
       {items.map((it) => (
         <button
           key={it.id}
@@ -67,10 +77,14 @@ export function Rail({ items, active, alsoOn = null, collapsed, onSelect, onMenu
           {it.badge ? <span className="rail-badge">{it.badge > 99 ? '99+' : it.badge}</span> : null}
         </button>
       ))}
-      <span className="rail-sp" />
-      <button className="rail-btn" onClick={settings} title={settingsLabel} aria-label={settingsLabel}>
-        <Icon name="settings" size={19} />
-      </button>
+      {settings && (
+        <>
+          <span className="rail-sp" />
+          <button className="rail-btn" onClick={settings} title={settingsLabel} aria-label={settingsLabel}>
+            <Icon name="settings" size={19} />
+          </button>
+        </>
+      )}
     </nav>
   );
 }

@@ -1334,6 +1334,11 @@ body.resizing-v .cmp-grip i{ background:var(--brand); }
 /* The border has to move with it, or the rail sits against the window edge
    with a line down its inner side pointing nowhere. */
 .body.rail-end .rail{ border-inline-end:0; border-inline-start:1px solid var(--rule); }
+/* The rail for the other side: last in the row when the first rail leads,
+   first when the first rail has been moved to the far edge — always on the
+   edge its sidebar is against, with its border facing the work. */
+.rail.far{ border-inline-end:0; border-inline-start:1px solid var(--rule); }
+.body.rail-end .rail.far{ order:-2; border-inline-start:0; border-inline-end:1px solid var(--rule); }
 
 .sidebar{
   flex:none; display:flex; flex-direction:column; min-height:0;

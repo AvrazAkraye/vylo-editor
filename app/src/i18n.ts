@@ -953,6 +953,7 @@ const ar: Dict = {
   'That is the app itself. The pane shows a dev server, not the editor.': 'هذا هو التطبيق نفسه. تعرض هذه اللوحة خادم تطوير، لا المحرِّر.',
   'That is not a port a server can listen on. Ports run from 1 to 65535.': 'هذا ليس منفذاً يمكن لخادم أن ينصت عليه. المنافذ من 1 إلى 65535.',
   'That address is too long. The limit is 2048 characters, counted after encoding.': 'هذا العنوان أطول من اللازم. الحد 2048 حرفاً، تُحسب بعد الترميز.',
+  'Sections on the other side': 'الأقسام في الجهة الأخرى',
 };
 
 const ckb: Dict = {
@@ -1880,6 +1881,7 @@ const ckb: Dict = {
   'That is the app itself. The pane shows a dev server, not the editor.': 'ئەوە خودی ئەپەکەیە. ئەم پانێلە سێرڤەری گەشەپێدان پیشان دەدات، نەک دەسکاریکەرەکە.',
   'That is not a port a server can listen on. Ports run from 1 to 65535.': 'ئەوە پۆرتێک نییە کە سێرڤەرێک بتوانێت گوێی لێ بگرێت. پۆرتەکان لە 1ەوە تا 65535ن.',
   'That address is too long. The limit is 2048 characters, counted after encoding.': 'ئەم ناونیشانە زۆر درێژە. سنوور 2048 پیتە، دوای کۆدکردن دەژمێردرێن.',
+  'Sections on the other side': 'بەشەکان لە لایەکەی دیکە',
 };
 
 const kmr: Dict = {
@@ -2807,6 +2809,7 @@ const kmr: Dict = {
   'That is the app itself. The pane shows a dev server, not the editor.': 'ئەڤە سەپان بخۆ یە. ئەڤ پانێلە سێرڤەرا پێشڤەبرنێ نیشان ددەت، نە ئێدیتۆری.',
   'That is not a port a server can listen on. Ports run from 1 to 65535.': 'ئەڤە نە پۆرتەک ە کو سێرڤەرەک ل سەر گوهدارییێ بکەت. پۆرت ژ 1 هەتا 65535 نە.',
   'That address is too long. The limit is 2048 characters, counted after encoding.': 'ئەڤ ناڤنیشانە زێدە درێژە. سنوور 2048 تیپ ە، پشتی کۆدکرنێ دهێتە ژمارتن.',
+  'Sections on the other side': 'بەشێن ل لایێ دی',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
