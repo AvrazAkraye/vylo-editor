@@ -15,6 +15,24 @@
 
 ---
 
+## Download
+
+| | |
+|---|---|
+| **macOS** (Apple Silicon) | [Vylo-Editor-macOS-AppleSilicon.dmg](https://github.com/AvrazAkraye/vylo-editor/releases/latest/download/Vylo-Editor-macOS-AppleSilicon.dmg) |
+| **Windows** (x64) | [Vylo-Editor-Windows-x64-setup.exe](https://github.com/AvrazAkraye/vylo-editor/releases/latest/download/Vylo-Editor-Windows-x64-setup.exe) |
+
+Those two links always fetch the newest release; the app updates itself after
+that, so it is the last time you download it by hand. Every version, with its
+notes, is on the [releases page](https://github.com/AvrazAkraye/vylo-editor/releases).
+Intel Macs are not built yet.
+
+**Both systems will warn you on first launch, and they are right to.** These
+binaries are not code-signed, so the OS cannot tell you who built them — check
+where you got the file from before overriding it, here as anywhere else. On
+macOS, right-click the app and choose *Open*, then *Open* again; double-clicking
+will not offer you the choice. On Windows, choose *More info*, then *Run anyway*.
+
 ## What it is
 
 Open a folder. Ask a question and the agent answers it citing `path:line`.

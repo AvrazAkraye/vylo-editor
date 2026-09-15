@@ -80,6 +80,13 @@ SERVED=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$TMP/Vy
 rm -rf "$TMP"
 [ "$SERVED" = "$VERSION" ] || { echo "the served tarball contains $SERVED, not $VERSION"; exit 1; }
 
+# The front door, after the update channel: somebody who has never installed
+# the app downloads the .dmg from the repository page, and it is the same build
+# just verified above rather than a second one nobody checked.
+"$HERE/gh-release.sh" "$VERSION" \
+  "$(dirname "$BUNDLE")/dmg/Vylo Editor_${VERSION}_aarch64.dmg" \
+  "Vylo-Editor-macOS-AppleSilicon.dmg" "$NOTES"
+
 open -a "/Applications/Vylo Editor.app"
 echo "==> $VERSION published and verified end to end"
 echo "    Windows: run scripts/publish-windows.sh once CI has built this commit"

@@ -50,6 +50,12 @@ esac
 
 "$HERE/push-update.sh" windows-x86_64 "$ZIP" "$SIG" "$VERSION"
 
+# The download a person clicks is the installer itself, never the `.nsis.zip`
+# the updater may prefer: somebody on the releases page needs something they
+# can run, and `$ZIP` is whichever of the two this Tauri version publishes.
+EXE=$(find "$TMP" -name '*-setup.exe' | head -1)
+"$HERE/gh-release.sh" "$VERSION" "$EXE" "Vylo-Editor-Windows-x64-setup.exe"
+
 echo "==> a Windows client on an older version is now offered:"
 curl -s "https://capi.vylo-tech.com/updates/windows/x86_64/0.0.1" \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print("   ", d["version"], d["platforms"].get("windows-x86_64",{}).get("url","MISSING"))'

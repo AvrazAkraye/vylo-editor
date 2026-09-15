@@ -66,7 +66,16 @@ a signed malicious update, which is precisely what signing exists to prevent.
 4. Update `$VYLO_UPDATE_DIR/latest.json` with the new `version`, `notes`,
    `pub_date`, and the `signature` printed by step 2.
 
-5. Verify before announcing:
+5. Nothing to do for the download page. `publish-macos.sh` and
+   `publish-windows.sh` each call `gh-release.sh`, which creates the GitHub
+   release for the version the first time it is needed and adds that platform's
+   installer to it. The asset names carry no version so that
+   `/releases/latest/download/<name>` — what the README links to — keeps working
+   for ever. It never fails a publish: by the time it runs the release is
+   already live on the gateway, so a missing `gh` or an expired login is
+   reported and skipped.
+
+6. Verify before announcing:
    ```bash
    curl -s https://capi.vylo-tech.com/updates/darwin/aarch64/<PREVIOUS> | jq .version
    curl -s -o /dev/null -w '%{http_code}\n' https://capi.vylo-tech.com/updates/darwin/aarch64/<VERSION>
