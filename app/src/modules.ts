@@ -51,7 +51,7 @@
 import type { IconName } from './Icon';
 
 export type ModuleId =
-  | 'dashboard' | 'routines' | 'skills' | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'prompts' | 'browser' | 'plugins' | 'memory';
+  | 'dashboard' | 'routines' | 'skills' | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'prompts' | 'browser' | 'plugins' | 'usage' | 'memory';
 
 export interface Module {
   id: ModuleId;
@@ -83,6 +83,7 @@ export const MODULES: readonly Module[] = [
   { id: 'prompts', label: 'Prompts', icon: 'sparkle', about: 'Prompts and commands worth keeping, kept in .vylo/PROMPTS.md.' },
   { id: 'browser', label: 'Dev server', icon: 'bolt', about: 'What your dev server is serving, in a frame beside the code. Addresses on this machine only.' },
   { id: 'plugins', label: 'Plugins', icon: 'branch', about: 'Services attached to the agent through MCP. Every call goes through the approval gate.' },
+  { id: 'usage', label: 'Usage', icon: 'flame', about: 'What your plan, this conversation and this project have spent.' },
   { id: 'memory', label: 'Memory', icon: 'memory', about: 'What the agent has been told to remember.' },
 ];
 

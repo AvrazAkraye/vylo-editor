@@ -77,3 +77,67 @@ export function summarise(u: Usage): string {
   const cached = u.cacheRead > 0 ? ` (${compact(u.cacheRead)} cached)` : '';
   return `${compact(u.input)}${cached} in · ${compact(u.output)} out`;
 }
+
+/* ── across a project ─────────────────────────────────────────────────────
+   The status bar answers "what did that turn cost". These answer "what has
+   this project cost", which is the question somebody watching an allowance
+   actually has. */
+
+/** Anything carrying a recorded cost. `Chat` in `store.ts` is the one that does;
+ *  the shape is restated here so this module keeps having no imports. */
+export interface Spent {
+  tokens?: Partial<Usage>;
+}
+
+/** A record from disk, with anything missing or nonsensical read as zero. */
+const figure = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+const figures = (t: Partial<Usage>): Usage => ({
+  input: figure(t.input), output: figure(t.output),
+  cacheRead: figure(t.cacheRead), cacheWrite: figure(t.cacheWrite),
+});
+
+/**
+ * Every chat's tokens, added up.
+ *
+ * Chats written before tokens were recorded carry none and contribute nothing.
+ * That is not the same as having cost nothing, which is why `counted` exists:
+ * a total is only honest beside the number of chats it was drawn from.
+ */
+export function across(chats: readonly Spent[]): Usage {
+  return chats.reduce((sum, c) => (c.tokens ? add(sum, figures(c.tokens)) : sum), NO_USAGE);
+}
+
+/** How many of them actually carried a figure. The rest are unknown, not zero. */
+export function counted(chats: readonly Spent[]): number {
+  return chats.filter((c) => c.tokens && total(figures(c.tokens)) > 0).length;
+}
+
+/**
+ * The chats that cost the most, dearest first.
+ *
+ * Chats with nothing recorded are left out rather than sorted to the bottom.
+ * A list of zeros answers no question, and it would put the oldest chats —
+ * the ones from before this was recorded — at the end of a list titled by
+ * cost, which reads as a claim that they were cheap.
+ */
+export function heaviest<T extends Spent>(chats: readonly T[], top: number): { chat: T; used: number }[] {
+  return chats
+    .map((chat) => ({ chat, used: chat.tokens ? total(figures(chat.tokens)) : 0 }))
+    .filter((r) => r.used > 0)
+    .sort((a, b) => b.used - a.used)
+    .slice(0, Math.max(0, top));
+}
+
+/**
+ * A percentage for a bar, or null when there is no ceiling to measure against.
+ *
+ * Null rather than zero on an unmetered plan: a bar drawn at zero says the
+ * allowance is untouched, which is a different claim and a false one. The
+ * header's rule about wrong figures applies hardest to the one that looks
+ * like money.
+ */
+export function percentOf(part: number, ceiling: number | null | undefined): number | null {
+  if (typeof ceiling !== 'number' || !Number.isFinite(ceiling) || ceiling <= 0) return null;
+  if (!Number.isFinite(part) || part < 0) return 0;
+  return Math.min(100, Math.round((part / ceiling) * 100));
+}
