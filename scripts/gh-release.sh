@@ -20,6 +20,19 @@
 # Never fatal. By the time this runs the release is already live on the
 # gateway, so a missing `gh`, an expired login or a network failure must not
 # fail the publish that already succeeded. It says what it skipped and returns.
+#
+# ## The tag has to be pinned, and this is why
+#
+# `gh release create` with no `--target` tags the *remote's* current head. This
+# script runs inside a publish, which happens before the push — so every tag it
+# made pointed at the previous release's commit: `v0.60.0` sat on the 0.59.0
+# source, and so did the two before it. Nothing downstream noticed, because the
+# installers are uploaded by name and never read back from the tag. Somebody
+# checking out `v0.60.0` to see what they were running would have read the
+# wrong code, which is the whole purpose of a tag.
+#
+# So the commit is named explicitly, and a commit the remote has never seen is
+# a skip rather than a tag in the wrong place: push first, then publish.
 set -euo pipefail
 
 VERSION="$1"; FILE="$2"; ASSET="$3"; NOTES="${4:-}"
@@ -32,9 +45,14 @@ command -v gh >/dev/null 2>&1        || skip "gh is not installed"
 gh auth status >/dev/null 2>&1       || skip "gh is not signed in"
 [ -f "$FILE" ]                       || skip "no file at $FILE"
 
+SHA="$(git rev-parse HEAD 2>/dev/null || true)"
+[ -n "$SHA" ] || skip "not in a git checkout, so there is no commit to tag"
+
 if ! gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-  echo "==> creating the GitHub release $TAG"
-  gh release create "$TAG" --repo "$REPO" --title "Vylo Editor $VERSION" --latest \
+  gh api "repos/$REPO/commits/$SHA" >/dev/null 2>&1 \
+    || skip "$SHA is not on the remote yet — push, then re-run scripts/gh-release.sh"
+  echo "==> creating the GitHub release $TAG at ${SHA:0:8}"
+  gh release create "$TAG" --repo "$REPO" --target "$SHA" --title "Vylo Editor $VERSION" --latest \
      --notes "${NOTES:-Vylo Editor $VERSION}
 
 Download the file for your system below. The app updates itself afterwards, so

@@ -3,10 +3,12 @@ name: Build desktop apps
 # Windows cannot be built from a Mac -- Tauri needs the target's own toolchain
 # and WebView2 headers -- so CI is not a nicety here, it is the only way the
 # Windows .exe gets produced at all.
+# Dispatched by hand, as part of a release, and not on a tag. The tag is now
+# created by `gh-release.sh` *after* the build it describes, so a tag trigger
+# would build the release's own commit a second time and produce a second set
+# of installers for a release that already has them.
 on:
   workflow_dispatch:
-  push:
-    tags: ['v*']
 
 jobs:
   build:
@@ -98,11 +100,13 @@ jobs:
         with:
           projectPath: app
           args: --target ${{ matrix.target }}
-          # A tag build publishes a draft release; a manual run just uploads
-          # artifacts, so the button is safe to press whenever.
-          tagName: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
-          releaseName: ${{ startsWith(github.ref, 'refs/tags/') && format('Vylo Editor {0}', github.ref_name) || '' }}
-          releaseDraft: true
+          # This job builds; it does not publish. `scripts/gh-release.sh` owns
+          # the release page, and the two disagreed badly: a tag build attached
+          # its own installers and a `latest.json` to whatever release was newest,
+          # so the v0.60.0 page offered 0.59.0 binaries under Tauri's own names
+          # beside the right ones. Two files claiming to be the same release is
+          # worse than one file missing. `publish-windows.sh` takes what it needs
+          # from the artifact below, so nothing here needs a release at all.
 
       - name: Upload installers
         uses: actions/upload-artifact@v4

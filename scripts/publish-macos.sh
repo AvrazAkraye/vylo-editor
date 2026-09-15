@@ -83,10 +83,15 @@ rm -rf "$TMP"
 # The front door, after the update channel: somebody who has never installed
 # the app downloads the .dmg from the repository page, and it is the same build
 # just verified above rather than a second one nobody checked.
+#
+# Push before running this. The release carries a tag, and a tag can only point
+# at a commit the remote already has — so an unpushed release commit is skipped
+# with a message rather than tagged onto whatever the remote's head happens to
+# be, which is what put `v0.60.0` on the 0.59.0 source.
 "$HERE/gh-release.sh" "$VERSION" \
   "$(dirname "$BUNDLE")/dmg/Vylo Editor_${VERSION}_aarch64.dmg" \
   "Vylo-Editor-macOS-AppleSilicon.dmg" "$NOTES"
 
 open -a "/Applications/Vylo Editor.app"
 echo "==> $VERSION published and verified end to end"
-echo "    Windows: run scripts/publish-windows.sh once CI has built this commit"
+echo "    Windows: gh workflow run build.yml --ref main, then scripts/publish-windows.sh <run-id>"
