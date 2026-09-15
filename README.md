@@ -186,6 +186,28 @@ The product and roadmap documents are not in this repository. They are working
 notes about customers, pricing and what is not finished yet, and they are kept
 where notes like that belong.
 
+## Licence
+
+Source-available under the [PolyForm Noncommercial 1.0.0](LICENSE.md) licence,
+which is a standard, lawyer-drafted licence rather than one written here.
+
+| | |
+|---|---|
+| Personal use | ✅ |
+| Study, research and teaching | ✅ |
+| Read the source, change it, build your own copy | ✅ |
+| Share your changes, on the same terms | ✅ |
+| Use it commercially, including inside a company | ❌ |
+| Sell it, or sell anything built on it | ❌ |
+
+In one line: do anything you like with it that is not a commercial purpose. The
+licence spells out what counts — personal projects, study, hobby work, and use
+by schools, universities, charities, public research and government are all
+permitted, whoever funds them.
+
+If you want it for commercial use, that is a conversation rather than a refusal:
+open an issue. Nothing here restricts Vylo Tech, which holds the copyright.
+
 ## Brand
 
 `brand/` holds the Vylo Editor mark: the **V** of Vylo drawn as a code chevron,
