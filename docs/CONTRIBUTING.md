@@ -86,7 +86,7 @@ plus its replacement, for whoever owns the file to apply.
 The files that attract simultaneous edits, and are worth checking ownership
 before touching: `README.md`, `app/package.json`, `app/src/i18n.ts`,
 `app/src/App.tsx`, `app/src/styles.css`, `app/src-tauri/Cargo.toml`,
-`app/src-tauri/src/lib.rs`, `docs/BACKLOG.md`.
+`app/src-tauri/src/lib.rs`.
 
 ## 4. i18n is checked in both directions, and both bite
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.23.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.58.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -48,11 +48,17 @@ exact string. The Rust commands that actually do anything — write a file
 server, drive the terminal (`pty_*`), take a screenshot — are **absent from that
 schema**, so no amount of prompting reaches them. They are callable only from a
 button a person pressed, and `test/modes.test.mjs` names each of them and fails
-if one ever appears. There is no blanket auto-approve to switch on: the one
-thing that carries an approval forward is **Always allow this**, which remembers
-that one command string, matched exactly, in memory, until you open a different
-folder. A repository that contains *"ignore previous instructions and…"* gets
-you a dialog, not a write. See [SAFETY.md](SAFETY.md).
+if one ever appears. Two things can carry an approval forward, and both are
+decisions a person makes: **Always allow this**, which remembers one command
+string, matched exactly, in memory, until you open a different folder; and
+**auto-approve** (Settings → Approval), which answers the dialog for a class of
+action you chose in advance. Auto-approve is off every time the app starts,
+nothing but a person can turn it on, a refuse-list — `rm -rf`, `git push`,
+`sudo`, `curl … | sh` and the rest — always asks at every level, and every
+write it applies is checkpointed so it can be undone. It answers the gate; it
+does not remove it, and the model gains no tool either way. A repository that
+contains *"ignore previous instructions and…"* gets you a dialog, not a write.
+See [SAFETY.md](SAFETY.md).
 
 **It runs on a gateway we own.** Cursor is $20/month on an international card,
 and for customers in Iraq and Kurdistan that card is more often the blocker than
@@ -74,8 +80,12 @@ produces both the macOS `.app` and the Windows `.exe`.
 
 ## What it will not do
 
-- **Act on its own.** No autonomous mode, no background or cloud agents. Each
-  would mean model output reaching a shell with nobody having read it.
+- **Act on its own uninvited.** A routine runs a named agent on a schedule, so
+  the app does work you did not just ask for — but only a routine you wrote,
+  only while the app is open, only in the folder it was made in, and reads-only
+  unless you turned auto-approve on. Nothing runs when the app is closed: a
+  slot missed while it was shut is reported and skipped, never run late. There
+  is no cloud agent and no account of ours running anything.
 - **Replace your IDE.** Not a VS Code fork; no language servers, no debugger, no
   extension marketplace. The editor exists so you can read and correct what the
   agent is talking about.
@@ -92,11 +102,11 @@ produces both the macOS `.app` and the Windows `.exe`.
 
 ## What is not finished
 
-- **Windows lags.** macOS is built, gated and published from the maintainer's
-  own Mac; Windows binaries can only be produced in CI, because Tauri needs the
-  target's own toolchain. This release has not been built there, and the update
-  manifest carries a macOS entry only — so a Windows install is offered no
-  update at all rather than a mismatched one.
+- **Windows is built but not lived in.** Both platforms are published at the
+  same version, and the full suite — frontend and Rust — runs on a Windows
+  runner in CI before each release. But nobody has sat and worked in it on a
+  Windows machine. A green build is not the same as an hour of real use, and
+  the difference is where the remaining bugs will be.
 - **Nothing is code-signed.** macOS needs right-click → *Open* the first time,
   Windows needs *More info → Run anyway* past SmartScreen. Update artifacts are
   signed — with a minisign key whose public half is compiled into the app — but
@@ -106,7 +116,7 @@ produces both the macOS `.app` and the Windows `.exe`.
   served.
 - **It is not on sale.** The gateway enforces plans and meters usage, but the
   commercial switchover is not done and nobody is being charged for anything
-  yet. See §10 of the PRD.
+  yet.
 
 ## Building it
 
@@ -118,8 +128,8 @@ cd app
 npm install
 npm run dev                    # Vite; or npx tauri dev for the shell
 npm run build                  # typecheck and bundle
-npm test                       # frontend suite (1,397 tests)
-cd src-tauri && cargo test     # tool layer (109 tests)
+npm test                       # frontend suite (4,282 tests)
+cd src-tauri && cargo test     # tool layer (129 tests)
 npx tauri build                # .app and .dmg
 ```
 
@@ -140,10 +150,6 @@ through `scripts/push-update.sh`, which is the only thing that does.
 
 ## Read next
 
-- **[docs/PRD.md](docs/PRD.md)** — what the product is: goals and non-goals,
-  architecture, the security model, pricing, risks.
-- **[docs/PRD-IMPROVEMENT.md](docs/PRD-IMPROVEMENT.md)** — what to fix next and
-  in what order, written against the code and a competing product.
 - **[SAFETY.md](SAFETY.md)** — the approval gate in detail, what it does not
   cover, and how to report a way around it. Also in
   [العربية](SAFETY.ar.md), [کوردیی ناوەندی](SAFETY.ckb.md) and
@@ -155,6 +161,12 @@ through `scripts/push-update.sh`, which is the only thing that does.
   builds while one Mac publishes.
 - **[VYLO.md](VYLO.md)** — the notes the agent carries into every session in
   this project.
+- **[docs/decisions/](docs/decisions)** — the architecture decisions that were
+  taken once and are expensive to revisit, with the reasoning kept.
+
+The product and roadmap documents are not in this repository. They are working
+notes about customers, pricing and what is not finished yet, and they are kept
+where notes like that belong.
 
 ## Brand
 
