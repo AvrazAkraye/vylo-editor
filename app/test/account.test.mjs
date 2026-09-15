@@ -19,9 +19,9 @@
 // because the assertions that matter are about the request as much as the
 // answer: which URL, which header, and — twice — which header is *absent*.
 import {
-  accountBase, API_PATH, forgetToken, loadToken, login, looksLikeToken,
-  LOW_PERCENT, LOW_TOKENS, me, mintKey, offline, planSummary, register,
-  saveToken, signOut, TOKEN_KEY, verdict,
+  accountBase, allows, API_PATH, cheapestWith, forgetToken, loadToken, login,
+  looksLikeToken, LOW_PERCENT, LOW_TOKENS, me, mintKey, modelList, money,
+  offline, planSummary, plans, register, saveToken, signOut, TOKEN_KEY, verdict,
 } from '../.test-build/account.js';
 import { compact } from '../.test-build/usage.js';
 
@@ -518,6 +518,115 @@ const MAX_PLAN = { ...TRIAL, code: 'max', name: 'Max', is_trial: 0, monthly_toke
     remaining_tokens: 1200000, percent_used: 92 });
   ok('the balance is formatted by compact(), like every other token count',
      s.left === '1.2M' && s.left === compact(1200000), s.left);
+}
+
+// ─── what a plan may run ──────────────────────────────────────────────────
+//
+// The gateway sends the model list as a comma string, and the composer greys
+// out what the plan cannot run. The dangerous case is the one where it says
+// nothing at all: an older gateway, or a field renamed, must not grey out every
+// model in the picker — a person who can still run Haiku would be shown an app
+// that claims they can run nothing.
+
+ok('a comma list becomes ids', JSON.stringify(modelList('claude-haiku-4-5,claude-sonnet-5'))
+   === JSON.stringify(['claude-haiku-4-5', 'claude-sonnet-5']));
+ok('spaces around the commas are not part of the id',
+   JSON.stringify(modelList(' claude-haiku-4-5 , claude-sonnet-5 '))
+   === JSON.stringify(['claude-haiku-4-5', 'claude-sonnet-5']));
+ok('an empty entry is not a model', JSON.stringify(modelList('a,,b')) === JSON.stringify(['a', 'b']));
+ok('a missing field is no models rather than a crash',
+   JSON.stringify(modelList(undefined)) === JSON.stringify([]));
+ok('and neither is an array, which this endpoint does not send',
+   JSON.stringify(modelList(['a'])) === JSON.stringify([]));
+
+{
+  const starter = planSummary(usage({ plan: { ...TRIAL, code: 'starter', name: 'Starter',
+    is_trial: 0, models: 'claude-haiku-4-5,claude-sonnet-5' } }));
+  ok('the plan carries its models', starter.models.length === 2, starter.models);
+  ok('and its code, so a price can be matched to it', starter.code === 'starter', starter.code);
+  ok('a listed model is allowed', allows(starter, 'claude-sonnet-5'));
+  ok('an unlisted one is not', !allows(starter, 'claude-opus-4-8'));
+
+  const quiet = planSummary(usage({ plan: { ...TRIAL, models: null } }));
+  ok('a plan that named no models allows everything', allows(quiet, 'claude-opus-4-8'), quiet.models);
+  ok('and so does no plan at all, which is most people on a pasted key',
+     allows(null, 'claude-opus-4-8'));
+}
+{
+  const s = planSummary(usage({ plan: TRIAL, requests: 12, input_tokens: 30000, output_tokens: 10000 }));
+  ok('the rate limit is carried, because it is the ceiling that bites first',
+     s.ratePerMin === 5, s.ratePerMin);
+  ok('and so are the requests already made', s.requests === 12, s.requests);
+  ok('sent and received arrive uncounted, not compacted',
+     s.sent === 30000 && s.received === 10000, [s.sent, s.received]);
+}
+
+// ─── money ────────────────────────────────────────────────────────────────
+//
+// The only money in this app is the gateway's own price for a plan. Every
+// figure below is quoted from `/plans`; nothing here turns tokens into money.
+
+ok('whole dollars lose the decimals, as the page selling them writes it',
+   money(2000) === '$20', money(2000));
+ok('and cents keep them', money(1999) === '$19.99', money(1999));
+ok('zero is a price, not a missing one', money(0) === '$0', money(0));
+ok('a missing price is not a free plan', money(null) === null);
+ok('and neither is a negative one', money(-100) === null);
+ok('a currency that is not dollars still prints', money(5000, 'EUR') === '€50', money(5000, 'EUR'));
+ok('and an unknown one falls back to its code rather than the wrong symbol',
+   money(5000, 'XYZ') === 'XYZ 50', money(5000, 'XYZ'));
+
+{
+  const PLANS = {
+    plans: [
+      { code: 'pro', name: 'Pro', price_cents: 5000, currency: 'USD', monthly_tokens: 6000000,
+        rate_per_min: 60, models: 'claude-haiku-4-5,claude-sonnet-5,claude-opus-4-8' },
+      { code: 'trial', name: 'Free trial', price_cents: 0, is_trial: 1, monthly_tokens: 100000,
+        rate_per_min: 5, models: 'claude-haiku-4-5' },
+      { code: 'starter', name: 'Starter', price_cents: 2000, currency: 'USD',
+        monthly_tokens: 2000000, rate_per_min: 20, models: 'claude-haiku-4-5,claude-sonnet-5' },
+      { code: '  ', name: 'Nameless' },
+    ],
+  };
+  const calls = stubFetch({ status: 200, body: PLANS });
+  const r = await plans(BASE, JWT);
+  ok('the plans arrive', r.ok && r.value.length === 3, r.ok ? r.value.length : r.why);
+  ok('a plan with no code is dropped rather than shown as a blank row',
+     r.ok && !r.value.some((o) => o.name === 'Nameless'));
+  ok('cheapest first, whatever order the server sent',
+     r.ok && r.value.map((o) => o.code).join() === 'trial,starter,pro',
+     r.ok && r.value.map((o) => o.code));
+  ok('the price list goes to /app/api/plans', calls[0].url.endsWith('/app/api/plans'), calls[0].url);
+  ok('and carries the session token, not a minted key',
+     headersOf(calls[0]).authorization === `Bearer ${JWT}`);
+  ok('a currency the server left out is dollars, which is what it charges in',
+     r.ok && r.value[0].currency === 'USD', r.ok && r.value[0].currency);
+
+  const offers = r.value;
+  const held = (code) => offers.find((o) => o.code === code) ?? null;
+  ok('the cheapest plan with Opus is named, which is the answer to "how do I get it"',
+     cheapestWith(offers, 'claude-opus-4-8', held('starter'))?.code === 'pro');
+  ok('nothing cheaper than the plan held is ever offered — that is a downgrade,'
+     + ' and it would lose the allowance being paid for',
+     cheapestWith(offers, 'claude-haiku-4-5', held('pro')) === null);
+  ok('a trial is never an upgrade, however cheap it is',
+     cheapestWith(offers, 'claude-haiku-4-5', null)?.code === 'starter',
+     cheapestWith(offers, 'claude-haiku-4-5', null));
+  ok('the plan already held is not an upgrade to itself',
+     cheapestWith(offers, 'claude-sonnet-5', held('starter'))?.code === 'pro');
+  ok('and a model no plan sells has no answer rather than a wrong one',
+     cheapestWith(offers, 'claude-opus-9', held('starter')) === null);
+}
+{
+  // Prices are the one thing on this screen nobody needs. A gateway that has no
+  // /plans must leave the panel showing a plan without a price, not an error.
+  stubFetch({ status: 404, body: { error: { message: 'Not found' } } });
+  const r = await plans(BASE, JWT);
+  ok('a gateway with no price list fails quietly rather than throwing', r.ok === false, r);
+  stubFetch({ status: 200, body: { ok: true } });
+  const empty = await plans(BASE, JWT);
+  ok('and a 200 with no plans in it is no plans, not a crash',
+     empty.ok && empty.value.length === 0, empty);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

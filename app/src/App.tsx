@@ -82,9 +82,10 @@ import { applyMessages, applyTarget, parseApply } from './apply';
 import { askRaw } from './inline';
 import { ALT, IS_MAC, MOD, Shortcuts, Welcome } from './Welcome';
 import {
+  allows, plans,
   forgetToken, loadToken, me, planSummary, saveToken, signOut,
-  type PlanSummary,
-} from './account';
+  type PlanOffer, type PlanSummary } from './account';
+import { MODELS } from './models';
 import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { TodoPanel } from './TodoPanel';
@@ -161,18 +162,6 @@ type Line = SavedLine & { shots?: Attached[] };
 
 /** One checkpoint as `checkpoint_list` reports it. */
 type CpMeta = { seq: number; at: number; paths: string[]; undone: boolean; redoable: boolean };
-
-/**
- * A list rather than a text field. Anthropic writes "Opus 4.8" in prose but
- * `claude-opus-4-8` in the API, so a free-text box invites a dotted id and a
- * 404 the gateway can only pass along. The gateway now repairs that too, but
- * not offering the mistake is better than fixing it.
- */
-const MODELS = [
-  { id: 'claude-haiku-4-5', short: 'Haiku 4.5', label: 'Haiku 4.5 — fastest, cheapest' },
-  { id: 'claude-sonnet-5', short: 'Sonnet 5', label: 'Sonnet 5 — balanced' },
-  { id: 'claude-opus-4-8', short: 'Opus 4.8', label: 'Opus 4.8 — most capable' },
-];
 
 /**
  * Tabs that are not files.
@@ -329,6 +318,12 @@ export function App() {
   // rendered as a zero balance — see `planSummary`, which is where the
   // unmetered case is decided.
   const [plan, setPlan] = useState<PlanSummary | null>(null);
+  /**
+   * What the gateway charges for each plan. Read once per sign-in rather than
+   * on the `/me` timer: a price list is not a running total, and refreshing it
+   * every few minutes would spend requests against the rate limit it describes.
+   */
+  const [offers, setOffers] = useState<PlanOffer[]>([]);
   const [model, setModel] = useState(() => localStorage.getItem(LS.model) || 'claude-haiku-4-5');
   /**
    * The providers a person added, and which provider+model is chosen.
@@ -1278,6 +1273,16 @@ export function App() {
     const timer = setInterval(ask, PLAN_EVERY_MS);
     return () => { live = false; clearInterval(timer); };
   }, [token, baseUrl, busy]);
+
+  // The price list, once. Failing is not worth reporting: every card that uses
+  // it is written to render without it, so an older gateway simply shows the
+  // plan without a price rather than an error about money.
+  useEffect(() => {
+    if (!token) { setOffers([]); return; }
+    let live = true;
+    void plans(baseUrl, token).then((r) => { if (live && r.ok) setOffers(r.value); });
+    return () => { live = false; };
+  }, [token, baseUrl]);
 
   // Applying on every change rather than only on click also covers the first
   // paint, so the window never flashes the wrong theme on launch.
@@ -4007,7 +4012,7 @@ export function App() {
             )}
             {shown === 'usage' && (
               <UsagePanel t={t} plan={plan} chat={chatTokens} lastTurn={lastTurn}
-                    chats={chats} ctx={ctx}
+                    chats={chats} offers={offers} ctx={ctx}
                     onOpen={(id) => { const c = chatsIn(root).find((x) => x.id === id); if (c) openChat(c); }}
                     onSettings={() => { setSettingsAt('account'); setShowSettings(true); }} />
             )}
@@ -5366,7 +5371,19 @@ export function App() {
                             if (c) setChoice({ provider: c.provider, model: c.model });
                           }}
                           aria-label={t('Model')}>
-                    {MODELS.map((m, i) => <option key={m.id} value={String(i)}>{m.short}</option>)}
+                    {/* A model the plan cannot run is shown and disabled rather than
+                        hidden: hiding it makes the gateway's refusal a mystery, and the
+                        list is also the answer to "what would upgrading get me". `allows`
+                        treats a plan that named no models as allowing everything, so an
+                        older gateway greys out nothing. */}
+                    {MODELS.map((m, i) => {
+                      const ok = allows(plan, m.id);
+                      return (
+                        <option key={m.id} value={String(i)} disabled={!ok}>
+                          {ok ? m.short : `${m.short} — ${t('not on your plan')}`}
+                        </option>
+                      );
+                    })}
                     {providers.filter((p) => p.models.length).map((p) => (
                       <optgroup key={p.id} label={p.name}>
                         {p.models.map((pm) => {

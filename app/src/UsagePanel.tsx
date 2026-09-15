@@ -2,7 +2,8 @@ import { Icon } from './Icon';
 import { fill } from './i18n';
 import { across, compact, counted, heaviest, percentOf, total, type Usage } from './usage';
 import { daysLeft } from './session';
-import type { PlanSummary } from './account';
+import { cheapestWith, money, type PlanOffer, type PlanSummary } from './account';
+import { MODELS, modelName } from './models';
 import type { Chat } from './store';
 
 /**
@@ -33,6 +34,12 @@ import type { Chat } from './store';
  * how many chats it was drawn from, so a small number beside a large library
  * is visible as incompleteness rather than as thrift.
  *
+ * There is no price per conversation, and that is the same rule. A token has
+ * no price here: the gateway sells plans, not tokens, and turning a token
+ * count into money would mean inventing a rate. The money on this screen is
+ * the money the gateway itself publishes — what a plan costs a month — which
+ * is quoted, not derived.
+ *
  * And there is no chart of tokens per day, though it is the obvious next
  * thing to draw. A chat records a lifetime total and the day it was last
  * touched; attributing a week of work to its final afternoon would be a
@@ -50,6 +57,8 @@ interface Props {
   lastTurn: Usage;
   /** Every chat in the open folder. */
   chats: Chat[];
+  /** The plans the gateway sells, cheapest first. Empty when it did not say. */
+  offers: PlanOffer[];
   /**
    * How full the model's context window is — the same pair the status bar
    * reads, so the two can never disagree about the same conversation.
@@ -75,13 +84,30 @@ function Bar({ percent, tone = '' }: { percent: number | null; tone?: '' | 'low'
   );
 }
 
-export function UsagePanel({ t, plan, chat, lastTurn, chats, ctx, onOpen, onSettings }: Props) {
+export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen, onSettings }: Props) {
   const project = across(chats);
   const withFigures = counted(chats);
   const top = heaviest(chats, 5);
   const biggest = top.length ? top[0].used : 0;
   const ctxPercent = ctx ? percentOf(ctx.used, ctx.limit) : null;
   const days = plan ? daysLeft(plan.renews, Date.now()) : null;
+
+  // The offer matching the plan in hand is where its price comes from: `/me`
+  // reports what has been spent, `/plans` what it costs, and only the second
+  // knows about money.
+  const mine = offers.find((o) => o.code === plan?.code) ?? null;
+  const price = mine ? money(mine.priceCents, mine.currency) : null;
+
+  // Everything above what is held today, in price order, so "what would more
+  // money get me" is answered in one place instead of on a website.
+  const bigger = offers.filter((o) =>
+    !o.trial && o.code !== plan?.code && (o.priceCents ?? 0) > (mine?.priceCents ?? -1));
+
+  // A model this build offers that the plan cannot run is not a dead end — it
+  // is a question with an answer, and the answer is a plan and a price.
+  const locked = MODELS
+    .filter((m) => plan && plan.models.length && !plan.models.includes(m.id))
+    .map((m) => ({ model: m, on: cheapestWith(offers, m.id, mine) }));
 
   return (
     <div className="us">
@@ -97,6 +123,11 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, ctx, onOpen, onSett
           <div className="us-head">
             <b>{plan.name || t('Your plan')}</b>
             {plan.trial && <span className="us-tag">{t('Trial')}</span>}
+            {/* The price sits beside the name, not under the bar: it is part of
+                what the plan *is*, and under the bar it would read as a figure
+                that had been spent. */}
+            {price && <span className="us-tag money">{price === '$0'
+              ? t('Free') : fill(t('{price} a month'), { price })}</span>}
             {/* The bar fills with what has been spent, while the line below
                 leads with what is left. Without this the two could be read as
                 the same quantity. */}
@@ -120,7 +151,74 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, ctx, onOpen, onSett
               : days === 1 ? t('The allowance resets tomorrow.')
               : fill(t('The allowance resets in {n} days.'), { n: days })}</p>
           )}
+          {/* The rate limit is the other ceiling, and the one that actually
+              bites: a plan with tokens to spare still refuses a turn that asks
+              too fast, and the refusal reads like a broken model unless the
+              number is somewhere. */}
+          {(plan.ratePerMin !== null || plan.requests !== null) && (
+            <p className="us-flat us-quiet">{[
+              plan.ratePerMin !== null
+                ? fill(t('{n} requests a minute'), { n: plan.ratePerMin }) : null,
+              plan.requests !== null
+                ? fill(t('{n} made this period'), { n: plan.requests }) : null,
+            ].filter(Boolean).join(' · ')}</p>
+          )}
         </div>
+      )}
+
+      {/* ── what it can run ──────────────────────────────────────────── */}
+      {plan && plan.models.length > 0 && (
+        <>
+          <div className="sb-sub">{t('What you can run')}</div>
+          <div className="us-card">
+            <ul className="us-models">
+              {plan.models.map((id) => (
+                <li key={id}><Icon name="check" size={12} /><b>{modelName(id)}</b></li>
+              ))}
+              {locked.map(({ model, on }) => (
+                <li key={model.id} className="off">
+                  <Icon name="close" size={12} />
+                  <b>{model.short}</b>
+                  <span>{on
+                    ? fill(t('on {plan}, {price} a month'),
+                           { plan: on.name, price: money(on.priceCents, on.currency) ?? '—' })
+                    : t('not on any plan here')}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
+
+      {/* ── what more would cost ─────────────────────────────────────── */}
+      {bigger.length > 0 && (
+        <>
+          <div className="sb-sub">{t('More room')}</div>
+          <ul className="us-list">
+            {bigger.map((o) => {
+              const adds = o.models.filter((m) => !(plan?.models ?? []).includes(m));
+              return (
+                <li key={o.code}>
+                  <div className="us-offer">
+                    <div className="us-head">
+                      <b>{o.name}</b>
+                      <em>{money(o.priceCents, o.currency) ?? t('Price on request')}
+                        {o.priceCents !== null && <span>{t('a month')}</span>}</em>
+                    </div>
+                    <p className="us-flat">{[
+                      o.monthlyTokens !== null
+                        ? fill(t('{n} tokens a month'), { n: compact(o.monthlyTokens) }) : null,
+                      o.ratePerMin !== null
+                        ? fill(t('{n} requests a minute'), { n: o.ratePerMin }) : null,
+                      adds.length
+                        ? fill(t('adds {models}'), { models: adds.map(modelName).join(', ') }) : null,
+                    ].filter(Boolean).join(' · ')}</p>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
 
       {/* ── this conversation ────────────────────────────────────────── */}
@@ -194,7 +292,7 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, ctx, onOpen, onSett
 
       <p className="us-note">
         <Icon name="bolt" size={12} />
-        {t('Plans are sold by the token, so tokens are what is shown here rather than a price.')}
+        {t('Prices are what this gateway charges for a plan. Tokens have no price of their own here, so no conversation is shown as money.')}
       </p>
     </div>
   );

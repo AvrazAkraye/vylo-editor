@@ -3662,6 +3662,29 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .us-row em{ flex:none; font-style:normal; font-size:var(--fs-2); color:var(--mute);
   font-variant-numeric:tabular-nums; }
 
+/* Money wears the neutral chip, not the brand one: a price beside the plan
+   name is a fact about it, and the brand wash would read as an offer. */
+.us-tag.money{ background:var(--panel-3); color:var(--mute); font-weight:500; }
+
+/* Included and not-included in one list, because the answer to "why can I not
+   run this" is the line above it. */
+.us-models{ list-style:none; margin:0; padding:0; display:flex;
+  flex-direction:column; gap:var(--sp-2); }
+.us-models li{ display:flex; align-items:center; gap:var(--sp-2); min-inline-size:0; }
+.us-models b{ font-size:var(--fs-3); font-weight:500; color:var(--ink); }
+.us-models span{ margin-inline-start:auto; font-size:var(--fs-1); color:var(--mute);
+  text-align:end; }
+.us-models svg{ flex:none; color:var(--ok); }
+.us-models li.off{ color:var(--mute); }
+.us-models li.off b{ color:var(--mute); font-weight:400; }
+.us-models li.off svg{ color:var(--mute); opacity:.7; }
+
+.us-offer{ display:grid; gap:var(--sp-2); padding:var(--sp-3);
+  border:1px solid var(--line); border-radius:var(--r-3); background:var(--panel-2); }
+.us-offer .us-head em{ display:flex; align-items:baseline; gap:4px;
+  font-size:var(--fs-4); font-weight:600; color:var(--ink); }
+.us-offer .us-head em span{ font-size:var(--fs-1); font-weight:500; color:var(--mute); }
+
 .us-note{
   display:flex; gap:var(--sp-2); align-items:flex-start;
   margin:var(--sp-2) var(--sp-4) 0; font-size:var(--fs-1); color:var(--mute);

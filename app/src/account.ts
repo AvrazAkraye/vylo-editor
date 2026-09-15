@@ -456,6 +456,81 @@ export async function signOut(store: Store, baseUrl: string, token: string): Pro
   } catch { /* the session is gone from this machine either way */ }
 }
 
+/* ── what the plans cost ──────────────────────────────────────────────────
+   `usage.ts` refuses to put a price on a token, and is right to: that would
+   mean hardcoding somebody else's rate card. This is the other kind of money
+   — what the gateway itself charges for a plan, which the gateway publishes.
+   Quoting its own figure is reporting, not guessing. */
+
+export interface PlanOffer {
+  code: string;
+  name: string;
+  /** null when the server sent no price, which is not the same as free. */
+  priceCents: number | null;
+  currency: string;
+  monthlyTokens: number | null;
+  ratePerMin: number | null;
+  models: string[];
+  trial: boolean;
+}
+
+/** Every plan on offer, cheapest first. */
+export async function plans(baseUrl: string, token: string): Promise<Result<PlanOffer[]>> {
+  const r = await call<Record<string, unknown>>({
+    baseUrl, path: '/plans', sent: 'session', token,
+  });
+  if (!r.ok) return r;
+  const raw = Array.isArray(r.value.plans) ? r.value.plans : [];
+  const out: PlanOffer[] = [];
+  for (const item of raw) {
+    const p = item && typeof item === 'object' ? item as Record<string, unknown> : null;
+    if (!p || typeof p.code !== 'string' || !p.code.trim()) continue;
+    out.push({
+      code: p.code.trim(),
+      name: typeof p.name === 'string' && p.name.trim() ? p.name.trim() : p.code.trim(),
+      priceCents: num(p.price_cents),
+      currency: typeof p.currency === 'string' && p.currency.trim() ? p.currency.trim() : 'USD',
+      monthlyTokens: num(p.monthly_tokens),
+      ratePerMin: num(p.rate_per_min),
+      models: modelList(p.models),
+      trial: p.is_trial === true || p.is_trial === 1,
+    });
+  }
+  out.sort((a, b) => (a.priceCents ?? 0) - (b.priceCents ?? 0));
+  return { ok: true, value: out };
+}
+
+/**
+ * The cheapest plan *above the one held* that can run a model, or null.
+ *
+ * "Above" is the whole point. Answering "which plan runs Opus" with a plan
+ * cheaper than the one already paid for would be telling someone to downgrade
+ * to gain a model — a suggestion that is not merely useless but wrong, since
+ * moving down loses the allowance they are on. A trial is never an answer for
+ * the same reason, and neither is the plan in hand.
+ */
+export function cheapestWith(offers: readonly PlanOffer[], model: string, have: PlanOffer | null): PlanOffer | null {
+  const floor = have ? have.priceCents ?? 0 : -1;
+  for (const o of offers) {
+    if (o.trial || (have && o.code === have.code)) continue;
+    if ((o.priceCents ?? 0) <= floor) continue;
+    if (o.models.includes(model)) return o;
+  }
+  return null;
+}
+
+/**
+ * Cents as the money people say. Whole units lose the decimals — "$20 a month"
+ * is what the page they would buy it on says, and "$20.00" reads like a total
+ * on a receipt.
+ */
+export function money(cents: number | null, currency = 'USD'): string | null {
+  if (cents === null || !Number.isFinite(cents) || cents < 0) return null;
+  const symbol = currency === 'USD' ? '$' : currency === 'EUR' ? '\u20ac' : currency === 'IQD' ? 'IQD ' : `${currency} `;
+  const whole = cents / 100;
+  return `${symbol}${cents % 100 === 0 ? whole : whole.toFixed(2)}`;
+}
+
 /** Who this token belongs to, and what their plan has left. */
 export async function me(baseUrl: string, token: string): Promise<Result<Me>> {
   const r = await call<Record<string, unknown>>({
@@ -528,6 +603,42 @@ export interface PlanSummary {
   level: PlanLevel;
   /** When the allowance resets, exactly as the server wrote it. */
   renews: string | null;
+  /** The plan's code (`starter`), for matching against the plans list. */
+  code: string | null;
+  /**
+   * The models this plan may run, already split out of the comma list the
+   * server sends. Empty means the server did not say — which is not the same
+   * as "no models", so a caller must treat empty as "do not know" and allow
+   * everything rather than offering nothing.
+   */
+  models: string[];
+  /** Requests a minute this plan is allowed, or null when the server is quiet. */
+  ratePerMin: number | null;
+  /** Requests made this period. */
+  requests: number | null;
+  /** Tokens sent and received this period, uncompacted. */
+  sent: number | null;
+  received: number | null;
+}
+
+/**
+ * Whether a plan may run a model.
+ *
+ * A plan that named no models allows everything. The alternative — an empty
+ * list meaning "nothing" — would grey out every model in the picker the first
+ * time an older gateway answered without the field, which is a worse failure
+ * than letting a request through to be refused by the server that knows.
+ */
+export function allows(plan: PlanSummary | null, model: string): boolean {
+  if (!plan || !plan.models.length) return true;
+  return plan.models.includes(model);
+}
+
+/** The comma list the server sends, as ids. */
+export function modelList(raw: unknown): string[] {
+  return typeof raw === 'string'
+    ? raw.split(',').map((m) => m.trim()).filter(Boolean)
+    : [];
 }
 
 /**
@@ -573,6 +684,7 @@ export function planSummary(usage: unknown): PlanSummary {
   const none: PlanSummary = {
     name: null, trial: false, metered: false, left: null, used: null,
     allowance: null, percent: null, level: 'unknown', renews: null,
+    code: null, models: [], ratePerMin: null, requests: null, sent: null, received: null,
   };
 
   const u = usage && typeof usage === 'object' ? usage as Record<string, unknown> : null;
@@ -582,7 +694,7 @@ export function planSummary(usage: unknown): PlanSummary {
   const plan = raw && typeof raw === 'object' ? raw as Record<string, unknown> : null;
   const used = num(u.used_tokens) ?? 0;
 
-  if (!plan) return { ...none, used: compact(used), level: 'none' };
+  if (!plan) return { ...none, used: compact(used), level: 'none', ...counts(u) };
 
   const name = typeof plan.name === 'string' && plan.name.trim() ? plan.name.trim() : null;
   // `is_trial` arrives as 0 or 1 from SQLite, not as a boolean.
@@ -601,7 +713,7 @@ export function planSummary(usage: unknown): PlanSummary {
   if (!metered) {
     return {
       name, trial, metered: false, left: null, used: compact(used),
-      allowance: null, percent: null, level: 'ok', renews,
+      allowance: null, percent: null, level: 'ok', renews, ...facts(plan, u),
     };
   }
 
@@ -630,5 +742,25 @@ export function planSummary(usage: unknown): PlanSummary {
     percent,
     level: spent ? 'out' : low ? 'low' : 'ok',
     renews,
+    ...facts(plan, u),
+  };
+}
+
+/** The counting half of a summary: what this period has done. */
+function counts(u: Record<string, unknown>) {
+  return {
+    requests: num(u.requests),
+    sent: num(u.input_tokens),
+    received: num(u.output_tokens),
+  };
+}
+
+/** The plan half, plus the counts. Every field here is one the server sends. */
+function facts(plan: Record<string, unknown>, u: Record<string, unknown>) {
+  return {
+    code: typeof plan.code === 'string' && plan.code.trim() ? plan.code.trim() : null,
+    models: modelList(plan.models),
+    ratePerMin: num(plan.rate_per_min),
+    ...counts(u),
   };
 }
