@@ -87,16 +87,31 @@ const store = (init = []) => {
 }
 
 // ── what a secret looks like ──────────────────────────────────────────────
+//
+// The shapes below are assembled from fragments rather than written out.
+// This repository is public, and GitHub and the vendors both scan public code
+// for credential shapes — a convincing fake raises a real alert against a real
+// account, and one of those vendors is the one this product runs on. Nothing
+// here has to look convincing to do its job: `looksSecret` asks only for a
+// known prefix and twenty characters, or a thirty-two character token that
+// changes character class often. Every value below is deliberately outside
+// each vendor's own pattern (wrong length, and dashes where they allow none),
+// so a scanner reads them as the examples they are.
+const FAKE = 'Ex-4mPl3-N0t-4-R34l-Cr3d3nt14l-Ex-4mPl3';
+const pre = (...parts) => parts.join('');
+const GH_TOKEN = pre('ghp', '_') + FAKE;
+const pem = (kind) => `-----BEGIN ${kind} PRIVATE ` + `KEY-----\n${FAKE}\n-----END ${kind} PRIVATE ` + `KEY-----`;
+const jwt = () => [pre('eyJ', 'hbGciOiJub25lIn0'), pre('eyJ', 'zdWIiOiJleGFtcGxlIn0'), 'n0t-a-s1gnatur3'].join('.');
 {
   const secret = [
-    ['an OpenAI-style key', 'EXAMPLE-anthropic-key-removed'],
-    ['a GitHub token', 'EXAMPLE-github-token-removed'],
-    ['an AWS access key id', 'EXAMPLE-aws-key-id-removed'],
-    ['an AWS secret in a shell export', 'export AWS_SECRET_ACCESS_KEY=EXAMPLE-aws-secret-removed'],
-    ['a Slack bot token', 'EXAMPLE-slack-token-removed'],
-    ['an OpenSSH private key', '-----BEGIN OPENSSH EXAMPLE BLOCK-----\nb3BlbnNzaC1rZXkK\n-----END OPENSSH EXAMPLE BLOCK-----'],
-    ['an RSA private key', '-----BEGIN RSA EXAMPLE BLOCK-----\nMIIEpAIBAAKCAQEA\n-----END RSA EXAMPLE BLOCK-----'],
-    ['a JWT', 'EXAMPLE-jwt-removed'],
+    ['an OpenAI-style key', pre('sk', '-ant-') + FAKE],
+    ['a GitHub token', GH_TOKEN],
+    ['an AWS access key id', pre('AKI', 'A') + 'EX4MPL3N0T4R34LK3Y'],
+    ['an AWS secret in a shell export', 'export AWS_SECRET_ACCESS_KEY=' + FAKE],
+    ['a Slack bot token', pre('xox', 'b-') + FAKE],
+    ['an OpenSSH private key', pem('OPENSSH')],
+    ['an RSA private key', pem('RSA')],
+    ['a JWT', jwt()],
     ['a random-looking token inside JSON', '{ "token": "R8kPz2XvNq7mLw4TbY6HcJ3FdG5sA1eU" }'],
     ['a token on a line of its own in a config file', 'API_TOKEN = "Kp7mQz2XvNq9LwTbY6HcJ3FdG5sA1eU4"'],
   ];
@@ -124,14 +139,14 @@ const store = (init = []) => {
   ok('nor is a database URL carrying credentials',
      looksSecret('postgres://admin:letmein@db.internal:5432/app') === false);
 
-  const clips = record([], 'EXAMPLE-github-token-removed', { now: 1 });
+  const clips = record([], GH_TOKEN, { now: 1 });
   ok('and a secret-shaped paste is not recorded at all', clips.length === 0);
 }
 
 // ── secrets across the truncation boundary ────────────────────────────────
 {
   const filler = 'lorem ipsum dolor sit amet '.repeat(300);
-  const token = 'EXAMPLE-github-token-removed';
+  const token = GH_TOKEN;
 
   // Half of an API key is still the half that would be written to disk, so a
   // token straddling the cut has to be judged whole.
@@ -143,7 +158,7 @@ const store = (init = []) => {
   const beyond = `${filler.slice(0, MAX_TEXT + 600)} ${token}`;
   const kept = record([], beyond, { now: 1 });
   ok('a secret far past the end of what is stored does not block the paste', kept.length === 1);
-  ok('and it is not in what was stored either', !kept[0].text.includes('ghp_'));
+  ok('and it is not in what was stored either', !kept[0].text.includes(pre('ghp', '_')));
 }
 
 // ── markers the source set ────────────────────────────────────────────────
@@ -202,7 +217,7 @@ const store = (init = []) => {
   remember(s, '   ', { now: 3 });
   ok('a paste that was refused does not touch storage', s.peek() === before);
 
-  remember(s, 'EXAMPLE-github-token-removed', { now: 4 });
+  remember(s, GH_TOKEN, { now: 4 });
   ok('nor does a secret-shaped one', s.peek() === before);
 
   remember(s, 'first', { now: 5 });
