@@ -12,3 +12,16 @@ ios/Pods/
 .test-build/
 *.key
 *.key.pub
+
+# Infrastructure: the update server's address and path live here, not in the
+# repository, so publishing works on this machine without naming the server
+# to everyone who reads it.
+scripts/.release.env
+
+# Internal planning. Candid notes about revenue, customers and what is not
+# working yet — written to be useful, not to be published. Kept on disk and
+# out of git; the history before this line was rewritten to remove them.
+docs/BACKLOG.md
+docs/PRD.md
+docs/PRD-IMPROVEMENT.md
+docs/ROADMAP.md

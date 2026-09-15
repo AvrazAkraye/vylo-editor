@@ -1,5 +1,14 @@
 # Releasing
 
+> **Before you start.** The update server is not named in this repository.
+> Create `scripts/.release.env` (git ignores it) with the two lines the scripts
+> read:
+>
+> ```sh
+> VYLO_UPDATE_HOST=user@your-server      # ssh destination
+> VYLO_UPDATE_DIR=/opt/<gateway>/updates # where latest.json and files/ live
+> ```
+
 Updates are served by the Vylo gateway, not GitHub Releases: the repo is private,
 so release assets would need a token, and a token shipped inside the app to fetch
 its own updates is not a credential anyone can rotate.
@@ -51,10 +60,10 @@ a signed malicious update, which is precisely what signing exists to prevent.
    `immutable` caching, so a name must never be reused for different bytes:
    ```bash
    scp "src-tauri/target/release/bundle/macos/Vylo Editor.app.tar.gz" \
-       $VYLO_UPDATE_HOST:/opt/<gateway>/updates/files/vylo-editor-<VERSION>-darwin-aarch64.app.tar.gz
+       "$VYLO_UPDATE_HOST:$VYLO_UPDATE_DIR/files/vylo-editor-<VERSION>-darwin-aarch64.app.tar.gz"
    ```
 
-4. Update `/opt/<gateway>/updates/latest.json` with the new `version`, `notes`,
+4. Update `$VYLO_UPDATE_DIR/latest.json` with the new `version`, `notes`,
    `pub_date`, and the `signature` printed by step 2.
 
 5. Verify before announcing:

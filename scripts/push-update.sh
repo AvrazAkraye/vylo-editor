@@ -10,8 +10,15 @@
 set -euo pipefail
 
 PLATFORM="$1"; ARTIFACT="$2"; SIGFILE="$3"; VERSION="$4"; NOTES="${5:-}"
-HOST="${VYLO_UPDATE_HOST:-user@your-server}"
-REMOTE="/opt/<gateway>/updates"
+# The server these publish to is deliberately not in this repository. It is
+# infrastructure: a public repository should not hand out its address or the
+# account that logs into it. Put both in `scripts/.release.env`, which is
+# ignored by git — `docs/RELEASING.md` says what goes in it.
+HERE_ENV="$(cd "$(dirname "$0")" && pwd)/.release.env"
+# shellcheck disable=SC1090
+[ -f "$HERE_ENV" ] && . "$HERE_ENV"
+HOST="${VYLO_UPDATE_HOST:?set VYLO_UPDATE_HOST (e.g. user@host) in scripts/.release.env}"
+REMOTE="${VYLO_UPDATE_DIR:?set VYLO_UPDATE_DIR (e.g. /opt/<gateway>/updates) in scripts/.release.env}"
 BASE="https://capi.vylo-tech.com/updates"
 
 [ -f "$ARTIFACT" ] || { echo "no artifact at $ARTIFACT"; exit 1; }
