@@ -9,7 +9,7 @@ import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
-  MODULES, DEFAULT, KEY, moduleOf, labelOf, read, write, isOn, enabled,
+  MODULES, DEFAULT, INITIAL_ON, KEY, OLD_KEY, migrate, moduleOf, labelOf, read, write, isOn, enabled,
   toggle, isLast, moveTo, reset, active, setSide, railFirst, dock, dockOf, docked,
 } from '../.test-build/modules.js';
 
@@ -35,16 +35,47 @@ ok('the descriptor comes back by id', moduleOf('todo').label === 'To do');
 ok('and the label with it', labelOf('memory') === 'Memory');
 ok('the storage key is versioned, so a later shape is tellable apart',
    /\.v\d+$/.test(KEY), KEY);
-ok('the default has everything on, in declaration order',
-   DEFAULT.order.join() === ids.join() && DEFAULT.off.length === 0);
+ok('the default lists every module, in declaration order',
+   DEFAULT.order.join() === ids.join());
+
+// ── what a new window shows ───────────────────────────────────────────────
+//
+// Four, not fourteen. A rail of everything is a menu to be read before
+// anything can be done, and most of it answers questions somebody who has just
+// opened a folder has not asked yet.
+ok('a new window starts with four sections on',
+   enabled(DEFAULT).length === 4, enabled(DEFAULT).map((m) => m.id));
+ok('and they are the four that are useful before anything is set up',
+   enabled(DEFAULT).map((m) => m.id).sort().join() === ['chats', 'files', 'prompts', 'usage'].join(),
+   enabled(DEFAULT).map((m) => m.id));
+ok('INITIAL_ON and the off-list are the same statement, not two',
+   ids.every((id) => INITIAL_ON.includes(id) !== DEFAULT.off.includes(id)));
+ok('every module named in INITIAL_ON exists', INITIAL_ON.every((id) => ids.includes(id)));
+// The rail is furniture; the sections it shows are the choice.
+ok('nothing is removed, only switched off', DEFAULT.order.length === ids.length);
+ok('the first module on is the file tree, which is where the rail opens',
+   enabled(DEFAULT)[0].id === 'files');
 
 // ── reading a saved layout ────────────────────────────────────────────────
 ok('nothing saved is the default', read(null).order.join() === ids.join());
+ok('and nothing saved means the four, not all of them',
+   enabled(read(null)).length === 4, enabled(read(null)).map((m) => m.id));
+ok('the default is copied, never handed out to be mutated', (() => {
+  const a = read(null); a.off.push('files'); a.order.reverse();
+  return read(null).off.join() === DEFAULT.off.join()
+      && read(null).order.join() === ids.join() && DEFAULT.off.includes('files') === false;
+})());
 // A layout is a convenience. The cost of a bad one is the default arrangement,
 // never a window that will not open.
 ok('not JSON is the default', read('{{{').order.join() === ids.join());
 ok('a JSON scalar is the default', read('7').order.join() === ids.join());
 ok('an empty object is the default', read('{}').order.join() === ids.join());
+// An empty `off` is a real choice — everything on — and no layout at all is a
+// new window. They want opposite things, so they must not be the same value.
+ok('a saved layout with nothing off keeps everything on',
+   enabled(read('{"order":[],"off":[]}')).length === ids.length);
+ok('while an object with none of these fields is a new window instead',
+   enabled(read('{"theme":"dark"}')).length === 4);
 ok('and none of those throw', (() => {
   for (const bad of [null, '', '[]', '{"order":null}', '{"order":{}}', 'undefined']) read(bad);
   return true;
@@ -96,9 +127,12 @@ ok('write then read is the same layout', (() => {
 })());
 
 // ── turning them on and off ───────────────────────────────────────────────
+// Built rather than defaulted: these are about the switch itself, and reading
+// them should not require knowing which modules happen to ship on.
+const allOn = () => read(JSON.stringify({ order: ids, off: [] }));
 {
-  const l = read(null);
-  ok('everything starts on', enabled(l).length === ids.length);
+  const l = allOn();
+  ok('everything on is everything on', enabled(l).length === ids.length);
   const off = toggle(l, 'search');
   ok('toggling turns one off', !isOn(off, 'search') && enabled(off).length === ids.length - 1);
   ok('and the rest keep their order',
@@ -109,14 +143,22 @@ ok('write then read is the same layout', (() => {
   ok('an unknown id changes nothing', toggle(l, 'ghost') === l);
 }
 {
+  const l = read(null);
+  ok('a module that ships off turns on from the default',
+     isOn(toggle(l, 'memory'), 'memory') && enabled(toggle(l, 'memory')).length === 5);
+  ok('and one that ships on turns off',
+     !isOn(toggle(l, 'chats'), 'chats') && enabled(toggle(l, 'chats')).length === 3);
+}
+{
   // The control is disabled, so reaching here means something else called it —
   // and the useful behaviour is to hold the invariant quietly.
-  let l = read(null);
+  let l = allOn();
   for (const id of ids.slice(1)) l = toggle(l, id);
   ok('the last module on cannot be turned off', enabled(l).length === 1, l.off);
   ok('and trying returns the layout unchanged', toggle(l, ids[0]) === l);
   ok('isLast says so before the button is pressed', isLast(l, ids[0]) === true);
   ok('and is false while there are two', isLast(read(null), 'files') === false);
+  ok('and false for one of the four a new window shows', isLast(read(null), 'chats') === false);
   ok('isLast is false for a module that is already off', isLast(l, ids[1]) === false);
 }
 
@@ -138,16 +180,21 @@ ok('write then read is the same layout', (() => {
     return moveTo(withOff, 0, 2).order.join() ===
       [ids[1], ids[2], ids[0], ...ids.slice(3)].join();
   })(), moveTo(toggle(l, ids[1]), 0, 2).order);
-  ok('reset puts everything back', (() => {
+  // "Back" is how it ships, which is no longer everything-on — pressing Reset
+  // and getting fourteen icons would be a surprise, not a reset.
+  ok('reset puts it back to how it ships', (() => {
     const messed = moveTo(toggle(l, 'search'), 5, 0);
     const r = reset();
-    return r.order.join() === ids.join() && r.off.length === 0 && messed.order[0] === ids[5];
+    return r.order.join() === ids.join()
+        && r.off.join() === DEFAULT.off.join()
+        && r.side === 'left' && r.right.length === 0
+        && messed.order[0] === ids[5];
   })());
 }
 
 // ── which section the sidebar shows ───────────────────────────────────────
 {
-  const l = read(null);
+  const l = allOn();
   ok('the one asked for, when it is on', active(l, 'todo') === 'todo');
   // Turning off the section you were looking at has to move you somewhere.
   ok('the first one on, when it is not', active(toggle(l, 'todo'), 'todo') === ids[0]);
@@ -221,7 +268,7 @@ ok('and the first child in a right-to-left one', railFirst('right', 'rtl') === t
 // ── the second sidebar ────────────────────────────────────────────────────
 ok('everything starts beside the rail', ids.every((id) => dockOf(read(null), id) === 'rail'));
 {
-  const l = dock(read(null), 'outline', 'other');
+  const l = dock(allOn(), 'outline', 'other');
   ok('a module can be sent to the other side', dockOf(l, 'outline') === 'other');
   ok('and the rest stay', dockOf(l, 'files') === 'rail');
   ok('the other side lists it, in rail order', docked(l, 'other').map((m) => m.id).join() === 'outline');
@@ -241,6 +288,60 @@ ok('a stored dock naming a module that no longer exists is dropped',
 ok('reset clears the other side', reset().right.length === 0);
 ok('a saved layout from before this field reads as nothing docked',
    read('{"order":[],"off":[]}').right.length === 0);
+
+// ── the v1 → v2 migration ─────────────────────────────────────────────────
+//
+// The effect that saves this runs on mount, so everybody who has ever opened
+// the app has a v1 entry. Changing the shipping default alone would therefore
+// have reached nobody — not one existing window, including the author's. The
+// question migration answers is which of those entries were a decision.
+
+ok('the keys are different, and both versioned',
+   KEY !== OLD_KEY && /\.v2$/.test(KEY) && /\.v1$/.test(OLD_KEY), [KEY, OLD_KEY]);
+
+ok('nothing stored at all is a new window', enabled(migrate(null, null)).length === 4);
+
+{
+  // v1's default: every module on, because that was v1's default — not because
+  // anyone looked at fourteen icons and approved of them.
+  const v1 = JSON.stringify({ order: ids, off: [], side: 'left', right: [] });
+  const m = migrate(null, v1);
+  ok('a v1 layout nobody touched becomes the new arrangement',
+     enabled(m).map((x) => x.id).sort().join() === ['chats', 'files', 'prompts', 'usage'].join(),
+     enabled(m).map((x) => x.id));
+}
+{
+  // …but an arrangement is an arrangement. Someone who moved the rail or sent
+  // a panel to the far side did that on purpose, and keeps it.
+  const v1 = JSON.stringify({ order: [...ids].reverse(), off: [], side: 'right', right: ['outline'] });
+  const m = migrate(null, v1);
+  ok('the order they set survives the migration', m.order[0] === ids[ids.length - 1], m.order[0]);
+  ok('and the side', m.side === 'right');
+  ok('and the far-side dock', m.right.join() === 'outline');
+  ok('while the sections still become the new four',
+     enabled(m).map((x) => x.id).sort().join() === ['chats', 'files', 'prompts', 'usage'].join());
+}
+{
+  // Somebody who had already switched something off has said what they want.
+  const v1 = JSON.stringify({ order: ids, off: ['browser'], side: 'left', right: [] });
+  const m = migrate(null, v1);
+  ok('a v1 layout with something switched off is left exactly alone',
+     m.off.join() === 'browser' && enabled(m).length === ids.length - 1, m.off);
+  ok('and is not quietly cut down to four', enabled(m).length > 4);
+}
+{
+  // Once v2 exists it is the only answer; v1 is not consulted again, or the
+  // next launch would undo whatever was just chosen.
+  const v2 = JSON.stringify({ order: ids, off: [], side: 'left', right: [] });
+  const v1 = JSON.stringify({ order: ids, off: ['files'], side: 'right', right: [] });
+  const m = migrate(v2, v1);
+  ok('v2 wins over v1 whenever it is there',
+     enabled(m).length === ids.length && m.side === 'left', [enabled(m).length, m.side]);
+}
+ok('a corrupt v1 does not stop the app starting, it just starts fresh',
+   enabled(migrate(null, '{{{')).length === 4);
+ok('and a corrupt v2 does not fall through to v1 either',
+   enabled(migrate('{{{', JSON.stringify({ order: ids, off: ['files'] }))).length === 4);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

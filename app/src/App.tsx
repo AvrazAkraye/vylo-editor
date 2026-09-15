@@ -52,8 +52,9 @@ const TerminalPanel = lazy(() => import('./TerminalPanel'));
 import { Icon } from './Icon';
 import { Rail } from './Rail';
 import {
-  KEY as MODULES_KEY, dock as dockModule, dockOf, docked, enabled as enabledModules,
-  labelOf, railFirst, read as readModules, toggle as toggleModule, write as writeModules,
+  KEY as MODULES_KEY, OLD_KEY as OLD_MODULES_KEY, dock as dockModule, dockOf, docked,
+  enabled as enabledModules, labelOf, migrate as migrateModules, railFirst,
+  toggle as toggleModule, write as writeModules,
   type Layout as ModuleLayout, type ModuleId,
 } from './modules';
 import { SettingsPanel } from './SettingsPanel';
@@ -560,7 +561,10 @@ export function App() {
    * half-written value is the default arrangement rather than a window that
    * will not open.
    */
-  const [modules, setModules] = useState<ModuleLayout>(() => readModules(localStorage.getItem(MODULES_KEY)));
+  // v2 if it is there, otherwise whatever v1 held — see `migrate`. The effect
+  // below writes v2 straight back, so this runs once per person, ever.
+  const [modules, setModules] = useState<ModuleLayout>(() =>
+    migrateModules(localStorage.getItem(MODULES_KEY), localStorage.getItem(OLD_MODULES_KEY)));
   /**
    * The second sidebar: which docked module it shows, whether it is open, and
    * how wide it is. Separate from the rail's own state on purpose — the point

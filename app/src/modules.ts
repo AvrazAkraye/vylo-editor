@@ -160,11 +160,65 @@ export function docked(layout: Layout, where: Dock): Module[] {
 export const railFirst = (side: Side, dir: 'ltr' | 'rtl'): boolean =>
   dir === 'rtl' ? side === 'right' : side === 'left';
 
-/** Everything on, in declaration order. */
-export const DEFAULT: Layout = { order: [...IDS], off: [], side: 'left', right: [] };
+/**
+ * What a new window shows: four sections, not fourteen.
+ *
+ * Every module here earns its place eventually, but not on the first morning.
+ * A rail of fourteen icons is a menu to be read before anything can be done,
+ * and most of it is answering questions somebody who has just opened a folder
+ * has not asked yet — there are no routines to review, no plugins attached, no
+ * skills written. The four that survive are the ones that are useful before
+ * anything has been set up: where the files are, what was asked, what is worth
+ * asking again, and what it is costing.
+ *
+ * The rest are one switch away in Settings → Modules, which is a better place
+ * to meet them than a crowded rail on day one. Nothing is removed and nothing
+ * is hidden — `ModuleList` shows all fourteen with their descriptions, off
+ * ones included.
+ */
+export const INITIAL_ON: readonly ModuleId[] = ['files', 'chats', 'prompts', 'usage'];
 
-/** Where the layout is kept. Versioned, so a future shape can be told apart. */
-export const KEY = 'vylo.modules.v1';
+/** In declaration order, with everything outside `INITIAL_ON` switched off. */
+export const DEFAULT: Layout = {
+  order: [...IDS],
+  off: IDS.filter((id) => !INITIAL_ON.includes(id)),
+  side: 'left',
+  right: [],
+};
+
+/** A fresh copy, since `DEFAULT`'s arrays must never be handed out to mutate. */
+const fresh = (): Layout => ({
+  order: [...DEFAULT.order], off: [...DEFAULT.off], side: DEFAULT.side, right: [],
+});
+
+/**
+ * Where the layout is kept. Versioned, so a future shape can be told apart.
+ *
+ * v2 is the shipping default above. v1 kept every module on, and the effect
+ * that saves this runs on mount — so *everybody* who has ever opened the app
+ * has a v1 entry, and changing the default alone would have reached nobody.
+ * `migrate` reads v1 once for those people.
+ */
+export const KEY = 'vylo.modules.v2';
+
+/** The key v2 replaced. Read once, by `migrate`, and then left alone. */
+export const OLD_KEY = 'vylo.modules.v1';
+
+/**
+ * The layout to start from, given whatever is in storage.
+ *
+ * The only interesting case is somebody who has a v1 layout and never touched
+ * it. Their `off` list is empty because that was v1's default, not because
+ * they decided every section was worth a place — so they get the new
+ * arrangement, keeping any order or sides they *did* set. Somebody who had
+ * turned something off has said what they want, and is left alone.
+ */
+export function migrate(saved: string | null, old: string | null): Layout {
+  if (saved !== null) return read(saved);
+  if (old === null) return fresh();
+  const was = read(old);
+  return was.off.length ? was : { ...was, off: [...DEFAULT.off] };
+}
 
 /**
  * Read a saved layout, repairing anything that cannot be trusted.
@@ -180,28 +234,33 @@ export const KEY = 'vylo.modules.v1';
  * discovers.
  */
 export function read(raw: string | null): Layout {
-  let order: ModuleId[] = [];
-  let off: ModuleId[] = [];
-  let side: Side = 'left';
-  let right: ModuleId[] = [];
-
+  let saved: Record<string, unknown> | null = null;
   try {
-    const saved = raw ? JSON.parse(raw) : null;
-    if (saved && typeof saved === 'object') {
-      const known = (xs: unknown): ModuleId[] =>
-        Array.isArray(xs)
-          ? xs.filter((x): x is ModuleId => IDS.includes(x as ModuleId))
-              .filter((x, i, a) => a.indexOf(x) === i)
-          : [];
-      order = known(saved.order);
-      off = known(saved.off);
-      right = known(saved.right);
-      if (saved.side === 'right' || saved.side === 'left') side = saved.side;
-    }
+    const v = raw ? JSON.parse(raw) : null;
+    if (v && typeof v === 'object' && !Array.isArray(v)) saved = v as Record<string, unknown>;
   } catch {
     // Not JSON. A layout is a convenience, so the cost of a bad one is the
     // default arrangement, never a window that will not open.
   }
+
+  // Nothing readable is not an empty arrangement, and the difference now
+  // matters: an empty `off` means "everything on", which is a real choice
+  // somebody can make, while no layout at all means a new window — and those
+  // want opposite things. A saved object with none of the fields this writes
+  // is the second kind, whatever put it there.
+  const has = (k: string) => saved !== null && Array.isArray(saved[k]);
+  if (!saved || (!has('order') && !has('off') && !has('right')
+                 && saved.side !== 'left' && saved.side !== 'right')) return fresh();
+
+  const known = (xs: unknown): ModuleId[] =>
+    Array.isArray(xs)
+      ? xs.filter((x): x is ModuleId => IDS.includes(x as ModuleId))
+          .filter((x, i, a) => a.indexOf(x) === i)
+      : [];
+  const order: ModuleId[] = known(saved.order);
+  let off: ModuleId[] = known(saved.off);
+  const right: ModuleId[] = known(saved.right);
+  const side: Side = saved.side === 'right' ? 'right' : 'left';
 
   for (const id of IDS) if (!order.includes(id)) order.push(id);
   // An empty rail beside an empty sidebar reads as a broken app rather than as
@@ -265,9 +324,9 @@ export function setSide(layout: Layout, side: Side): Layout {
   return side === layout.side ? layout : { ...layout, side };
 }
 
-/** Everything on, in declaration order, forgetting whatever was arranged. */
+/** How it ships, forgetting whatever was arranged. */
 export function reset(): Layout {
-  return { order: [...IDS], off: [], side: 'left', right: [] };
+  return fresh();
 }
 
 /**

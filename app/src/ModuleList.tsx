@@ -1,7 +1,7 @@
 import { Icon } from './Icon';
 import { useReorder } from './useReorder';
 import {
-  MODULES, dock, dockOf, isLast, isOn, moduleOf, moveTo, reset, setSide, toggle,
+  DEFAULT, dock, dockOf, isLast, isOn, moduleOf, moveTo, reset, setSide, toggle,
   type Layout, type ModuleId, type Side,
 } from './modules';
 
@@ -50,7 +50,15 @@ export function ModuleList({ layout, onChange, t }: Props) {
     onMove: (from, to) => onChange(moveTo(layout, from, to)),
   });
 
-  const arranged = layout.order.join() !== MODULES.map((m) => m.id).join() || layout.off.length > 0;
+  // Against how it *ships*, not against everything-on: most modules start off
+  // now, so `off.length > 0` would offer a Reset to somebody who has never
+  // changed anything — and pressing it would appear to do nothing.
+  const same = (a: readonly string[], b: readonly string[]) =>
+    [...a].sort().join() === [...b].sort().join();
+  const arranged = layout.order.join() !== DEFAULT.order.join()
+    || !same(layout.off, DEFAULT.off)
+    || layout.side !== DEFAULT.side
+    || layout.right.length > 0;
 
   return (
     <div className="mod">
