@@ -394,8 +394,19 @@ pub fn shell_commands() -> Vec<String> {
 ///
 /// Directories come back with a trailing slash, which is both the hint that it
 /// is one and the character somebody would type next.
+///
+/// `dirs_only` is for the handful of commands that cannot take a file at all —
+/// `cd`, `pushd`, `rmdir`. Offering `cd README.md` is not a near miss that
+/// saves typing; it is a completion list putting an error under the cursor,
+/// and the caller decides because the caller is the one reading the line.
 #[tauri::command]
-pub fn complete_path(cwd: String, fragment: String, limit: Option<usize>) -> Vec<String> {
+pub fn complete_path(
+    cwd: String,
+    fragment: String,
+    limit: Option<usize>,
+    dirs_only: Option<bool>,
+) -> Vec<String> {
+    let dirs_only = dirs_only.unwrap_or(false);
     let cap = limit.unwrap_or(50).clamp(1, 200);
     // A backslash is a shell escape on Unix (`My\ Documents`) and a path
     // separator on Windows (`C:\Users`). Stripping it on Windows turned
@@ -453,6 +464,16 @@ pub fn complete_path(cwd: String, fragment: String, limit: Option<usize>) -> Vec
             continue;
         }
         let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
+        // A symlink reports as a symlink rather than as what it points at, and
+        // a link to a directory is a directory as far as `cd` is concerned —
+        // so the metadata call that follows the link decides, and only when it
+        // has to, because it is a second syscall per entry.
+        let usable = !dirs_only
+            || is_dir
+            || std::fs::metadata(entry.path()).map(|m| m.is_dir()).unwrap_or(false);
+        if !usable {
+            continue;
+        }
         // Rebuilt with the directory part, so choosing it replaces the whole
         // fragment and the path stays whole.
         out.push(format!("{dir_part}{name}{}", if is_dir { "/" } else { "" }));
@@ -540,7 +561,7 @@ mod tests {
         std::fs::write(tmp.join("src/main.rs"), "x").unwrap();
         let cwd = tmp.to_string_lossy().to_string();
 
-        let all = super::complete_path(cwd.clone(), String::new(), None);
+        let all = super::complete_path(cwd.clone(), String::new(), None, None);
         assert!(all.contains(&"App.js".to_string()), "{all:?}");
         // A directory is marked, which is both the hint and the next character.
         assert!(all.contains(&"src/".to_string()), "{all:?}");
@@ -548,24 +569,42 @@ mod tests {
         assert!(!all.iter().any(|x| x.starts_with('.')), "no dot files unasked: {all:?}");
 
         // Typing the dot asks for them.
-        let dots = super::complete_path(cwd.clone(), ".".into(), None);
+        let dots = super::complete_path(cwd.clone(), ".".into(), None, None);
         assert!(dots.contains(&".hidden".to_string()), "{dots:?}");
 
+        // `cd README.md` is not a near miss worth completing — it is an error
+        // the shell will refuse, so the list must not put it under the cursor.
+        let only_dirs = super::complete_path(cwd.clone(), String::new(), None, Some(true));
+        assert!(only_dirs.contains(&"src/".to_string()), "{only_dirs:?}");
+        assert!(
+            !only_dirs.iter().any(|x| !x.ends_with('/')),
+            "cd offers directories and nothing else: {only_dirs:?}"
+        );
+        // And the same prefix rules still apply inside that narrowing.
+        let nested = super::complete_path(cwd.clone(), "sr".into(), None, Some(true));
+        assert_eq!(nested, vec!["src/".to_string()], "{nested:?}");
+        // A prefix that only matches files comes back empty rather than
+        // falling back to offering them anyway.
+        assert!(
+            super::complete_path(cwd.clone(), "App".into(), None, Some(true)).is_empty(),
+            "no files when only directories will do"
+        );
+
         // Case-insensitive, as a shell's completion is on a Mac.
-        let apps = super::complete_path(cwd.clone(), "app".into(), None);
+        let apps = super::complete_path(cwd.clone(), "app".into(), None, None);
         assert!(apps.contains(&"App.js".to_string()) && apps.contains(&"app.json".to_string()), "{apps:?}");
 
         // A fragment with a directory in it keeps the directory, so choosing it
         // replaces the whole fragment and the path stays whole.
-        let inner = super::complete_path(cwd.clone(), "src/ma".into(), None);
+        let inner = super::complete_path(cwd.clone(), "src/ma".into(), None, None);
         assert_eq!(inner, vec!["src/main.rs".to_string()], "{inner:?}");
 
         // A directory that is not there is an empty list, not an error.
-        assert!(super::complete_path(cwd.clone(), "nope/x".into(), None).is_empty());
-        assert!(super::complete_path("/nowhere/at/all".into(), String::new(), None).is_empty());
+        assert!(super::complete_path(cwd.clone(), "nope/x".into(), None, None).is_empty());
+        assert!(super::complete_path("/nowhere/at/all".into(), String::new(), None, None).is_empty());
 
         // The cap is honoured.
-        assert!(super::complete_path(cwd.clone(), String::new(), Some(2)).len() <= 2);
+        assert!(super::complete_path(cwd.clone(), String::new(), Some(2), None).len() <= 2);
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -579,7 +618,7 @@ mod tests {
         std::fs::write(tmp.join("marker.txt"), "x").unwrap();
 
         let frag = format!("{}/mark", tmp.to_string_lossy());
-        let got = super::complete_path("/completely/elsewhere".into(), frag, None);
+        let got = super::complete_path("/completely/elsewhere".into(), frag, None, None);
         assert_eq!(got.len(), 1, "{got:?}");
         assert!(got[0].ends_with("marker.txt"), "{got:?}");
 

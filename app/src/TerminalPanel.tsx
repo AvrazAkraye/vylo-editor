@@ -17,8 +17,8 @@ import { fragment } from './suggest';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import { PRESETS, apply as applyPreset, describe as describeLayout, type Preset } from './layouts';
 import {
-  NOTHING as NO_INPUT, keystrokes, kindOf, quotePath, remember, suggest,
-  typedPart, worth, type Suggestion, type Typed,
+  NOTHING as NO_INPUT, keystrokes, kindOf, preview, quotePath, remember, suggest,
+  typedPart, wantsDir, worth, type Suggestion, type Typed,
 } from './suggest';
 import { ContextMenu } from './ContextMenu';
 import type { Item as MenuItem, Point as MenuPoint } from './menu';
@@ -389,11 +389,21 @@ export function TerminalPanel({
 
   useEffect(() => {
     live.current.exposeFocus((id) => {
+      // After paint, and that is the whole reason this is deferred: a pane
+      // that is being shown, or re-laid-out to fill the window, has not been
+      // fitted yet, and a caret placed in it beforehand lands in a terminal
+      // that is about to change size underneath it.
+      const caret = (to: string) => requestAnimationFrame(() => handles.current.get(to)?.focus());
+      // No id means "whatever is already active" — what entering the Terminal
+      // space needs, which is a caret in the shell without choosing a pane on
+      // anybody's behalf.
+      if (!id) { caret(live.current.active); return; }
       if (!tabsRef.current.some((x) => x.id === id)) return;
       setActive(id);
       // Focusing a pane that is not drawn would do nothing anybody could see.
       // An id already on screen keeps the split it is part of.
       setShown((p) => (p.includes(id) ? p : only(id)));
+      caret(id);
     });
     return () => live.current.exposeFocus(null);
   }, []);
@@ -645,7 +655,13 @@ export function TerminalPanel({
           .then((list: string[]) => { programs.current = list; done(list); })
           .catch(() => done([]));
       } else {
-        void invoke<string[]>('complete_path', { cwd: cwds[focus] || root, fragment: fragment(input.line) })
+        // `cd` and its two relatives cannot take a file, so they are not
+        // offered one — see `wantsDir`.
+        void invoke<string[]>('complete_path', {
+          cwd: cwds[focus] || root,
+          fragment: fragment(input.line),
+          dirsOnly: wantsDir(input.line),
+        })
           .then(done)
           .catch(() => done([]));
       }
@@ -1034,6 +1050,22 @@ export function TerminalPanel({
                   // whole point — and pressing it with no list showing falls
                   // through to the shell as it always did.
                   if (e.key === 'Tab') { take(matches[pickAt] ?? matches[0]); return true; }
+                  /**
+                   * Right arrow takes it too, which is fish's gesture and
+                   * Warp's, and it is safe here for a reason worth writing
+                   * down: `sure` is false after any escape sequence, and every
+                   * key that moves the caret off the end of the line — an
+                   * arrow, Home, Ctrl-A — is one. So a list on screen *is* a
+                   * caret at the end of the line, where Right does nothing at
+                   * all. Nothing is taken from the shell by taking it here.
+                   *
+                   * Modified arrows are left alone: Alt-Right is a word jump
+                   * in every shell, and Shift-Right starts a selection.
+                   */
+                  if (e.key === 'ArrowRight' && !e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                    take(matches[pickAt] ?? matches[0]);
+                    return true;
+                  }
                   return false;
                 }}
                 cwd={restoring.get(tab.id)?.cwd || root}
@@ -1054,6 +1086,27 @@ export function TerminalPanel({
               {tab.id === focus && worth(input, matches)
                 && !handles.current.get(tab.id)?.fullScreen() && (
                 <div className="sug" role="listbox" aria-label={t('Completions')}>
+                  {/* The line as it would read, before the list of what else
+                      it could be. The pane's own caret is somewhere up in the
+                      scrollback and finding it means measuring a character
+                      cell; this says the same thing a character ahead of the
+                      cursor would, in a place that is always correct. */}
+                  {(() => {
+                    const best = matches[pickAt] ?? matches[0];
+                    const line = preview(input.line, best);
+                    // Case-insensitive matching means the completion can
+                    // rewrite what was typed — `app` choosing `App.js`. When
+                    // it does, the whole line is the new text rather than a
+                    // tail added to the old, and showing it any other way
+                    // would claim characters are staying that are not.
+                    const kept = line.startsWith(input.line) ? input.line.length : 0;
+                    return (
+                      <div className="sug-ghost" aria-hidden="true">
+                        <b>{line.slice(0, kept)}</b><span>{line.slice(kept)}</span>
+                      </div>
+                    );
+                  })()}
+                  <div className="sug-list">
                   {matches.map((m, n) => (
                     <button key={`${m.kind}:${m.text}`} role="option" aria-selected={n === pickAt}
                             className={`sug-row ${n === pickAt ? 'on' : ''} ${m.kind} ${m.text.endsWith('/') ? 'dir' : ''}`}
@@ -1070,7 +1123,8 @@ export function TerminalPanel({
                       </span>
                     </button>
                   ))}
-                  <span className="sug-hint">{t('Tab to take it')}</span>
+                  <span className="sug-hint">{t('Tab or → to take it')}</span>
+                  </div>
                 </div>
               )}
 

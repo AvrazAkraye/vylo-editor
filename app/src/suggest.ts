@@ -125,6 +125,36 @@ export function kindOf(line: string): 'command' | 'path' {
 }
 
 /**
+ * Commands whose argument can only ever be a directory.
+ *
+ * Small and literal on purpose. Guessing from a name — anything ending in
+ * `dir`, anything whose first argument "looks like" a folder — would be wrong
+ * for `mkdir`, which takes a name that does *not* exist yet and for which a
+ * list of existing folders is the least useful thing on offer.
+ */
+const DIR_ONLY = new Set(['cd', 'chdir', 'pushd', 'rmdir']);
+
+/**
+ * Whether the word being typed can only be a directory.
+ *
+ * `cd` with a filename is not a slip somebody wants completed for them: it is
+ * an error the shell will refuse, and offering it is the completion list
+ * putting a wrong answer under the cursor. The same goes for `pushd` and
+ * `rmdir`. Everything else takes files, so everything else gets both.
+ *
+ * The governing command is the first word of the *current* simple command,
+ * not of the line — `ls /tmp && cd sr` is completing for `cd`, and a rule that
+ * read the first word of the line would offer files there.
+ */
+export function wantsDir(line: string): boolean {
+  if (kindOf(line) === 'command') return false;
+  const before = line.slice(0, line.length - fragment(line).length);
+  const segment = before.split(/[|;&(]/).pop() ?? '';
+  const first = segment.trim().split(/\s+/)[0] ?? '';
+  return DIR_ONLY.has(first);
+}
+
+/**
  * Order candidates the way a shell would.
  *
  * Prefix first, and an exactly-cased prefix before a differently-cased one:
@@ -186,6 +216,20 @@ export interface Suggestion {
 export function keystrokes(state: Typed, choice: Suggestion): string {
   const eaten = choice.kind === 'history' ? state.line.length : fragment(state.line).length;
   return '\x7f'.repeat(eaten) + choice.text;
+}
+
+/**
+ * The line as it would read if this choice were taken.
+ *
+ * Deliberately written as the same arithmetic as `keystrokes`, from the same
+ * `eaten`: the dim text shown ahead of the cursor and the keystrokes sent to
+ * the pty must describe one action, and the way they stop describing one is by
+ * being worked out twice. `suggest.test.mjs` checks they agree by applying the
+ * keystrokes and comparing.
+ */
+export function preview(line: string, choice: Suggestion): string {
+  const eaten = choice.kind === 'history' ? line.length : fragment(line).length;
+  return line.slice(0, line.length - eaten) + choice.text;
 }
 
 /**

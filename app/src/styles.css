@@ -2024,12 +2024,28 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    find out, and without a popup that would cover the output somebody is
    reading in the pane above it. */
 .sug{
-  flex:none; display:flex; align-items:center; gap:var(--sp-2);
+  flex:none; display:flex; flex-direction:column; gap:2px;
   padding-block:var(--sp-2); padding-inline:var(--sp-4) var(--sp-3);
   border-block-start:1px solid var(--rule); background:var(--panel-2);
+}
+/* The chips scroll sideways; the line above them does not, because it is the
+   answer and the chips are the alternatives. */
+.sug-list{
+  display:flex; align-items:center; gap:var(--sp-2);
   overflow-x:auto; scrollbar-width:none;
 }
-.sug::-webkit-scrollbar{ display:none; }
+.sug-list::-webkit-scrollbar{ display:none; }
+
+/* What the line would say. Monospace and the terminal's own size, so it reads
+   as the prompt continuing rather than as a caption about it — the typed part
+   in the foreground ink, the part being offered dimmed the way the editor's
+   own inline completion dims its ghost. */
+.sug-ghost{
+  font-family:var(--mono); font-size:var(--fs-2); line-height:1.4;
+  white-space:pre-wrap; overflow-wrap:anywhere;
+}
+.sug-ghost b{ font-weight:400; color:var(--ink); }
+.sug-ghost span{ color:var(--mute); opacity:.75; }
 .sug-row{
   flex:none; display:inline-flex; align-items:center; gap:var(--sp-2);
   padding:2px var(--sp-3); border:1px solid transparent; border-radius:var(--r-1);

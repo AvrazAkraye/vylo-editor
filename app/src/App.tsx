@@ -93,7 +93,7 @@ import { TodoPanel } from './TodoPanel';
 import { Working } from './Working';
 
 /** The three ways of working. See `space` in App. */
-type Space = 'agent' | 'code' | 'chat';
+type Space = 'agent' | 'code' | 'chat' | 'terminal';
 import { OutlinePanel } from './OutlinePanel';
 import { KEY as TERMS_KEY, bytes as termBytesOf } from './scrollback';
 import { PromptsPanel } from './PromptsPanel';
@@ -924,9 +924,28 @@ export function App() {
 
   const [space, setSpace] = useState<Space>(() => {
     const v = localStorage.getItem('vylo.space.v1');
-    return v === 'agent' || v === 'chat' ? v : 'code';
+    return v === 'agent' || v === 'chat' || v === 'terminal' ? v : 'code';
   });
+  /**
+   * The space, for handlers registered once.
+   *
+   * The window's key bindings are installed on an empty dependency list, so
+   * they hold the first render's closures for ever. Anything of theirs that
+   * has to know where it is reads it here instead of capturing it.
+   */
+  const spaceRef = useRef(space);
+  spaceRef.current = space;
   useEffect(() => { try { localStorage.setItem('vylo.space.v1', space); } catch { /* private mode */ } }, [space]);
+  /**
+   * A window closed in the Terminal space reopens in it.
+   *
+   * The space itself is restored above, but the arrangement it implies is not
+   * — the terminal open and filling the window, the sidebars shut — so without
+   * this the switcher would say Terminal over a Code layout, which is a window
+   * in two states at once. Once, on mount, through the same path the button
+   * uses, so there is one description of what Terminal means.
+   */
+  useEffect(() => { if (spaceRef.current === 'terminal') goTo('terminal'); }, []);
   useEffect(() => { try { localStorage.setItem(ROUTINES_KEY, writeRoutines(routines)); } catch { /* private mode */ } }, [routines]);
   /**
    * The routines of the folder that is open — what both panels are given.
@@ -1315,7 +1334,12 @@ export function App() {
         setTheme((t0) => t0 === 'dark' ? 'light' : 'dark');
       } else if (e.ctrlKey && !e.metaKey && (e.key === '`' || e.key === '~')) {
         e.preventDefault();
-        if (e.shiftKey) { setTermMounted(true); setShowTerm(true); setTermFull((v) => !v); }
+        if (e.shiftKey) {
+          // Un-maximising is a way out of the Terminal space, the same as the
+          // panel's own button — the space is the terminal maximised.
+          if (spaceRef.current === 'terminal') { leaveTerminal(); setTermFull(false); setShowTerm(true); }
+          else { setTermMounted(true); setShowTerm(true); setTermFull((v) => !v); }
+        }
         else toggleTerm();
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'p') {
         e.preventDefault();
@@ -2432,8 +2456,71 @@ export function App() {
    * because a switch that lost your place would be a switch nobody flipped.
    */
   const lastCodeMode = useRef<Mode>(mode === 'chat' ? 'agent' : mode);
+
+  /**
+   * What the terminal and the two sidebars were doing before Terminal took
+   * them over.
+   *
+   * Terminal is the one space that borrows rather than arranges: it needs the
+   * panel open, filling the window, with nothing either side of it, and those
+   * are all settings somebody already has an opinion about. Leaving has to be
+   * the same gesture backwards or the space is a one-way door that quietly
+   * maximises your terminal and closes your file tree.
+   */
+  const beforeTerm = useRef<{ show: boolean; full: boolean; rail: boolean; right: boolean } | null>(null);
+
+  /**
+   * Hand back everything Terminal borrowed, and say what `showTerm` was.
+   *
+   * The caller sets `showTerm` itself, because the two ways out disagree about
+   * it: leaving by the mode switch puts the panel back the way it was found,
+   * while closing the panel means closed whatever it was before.
+   */
+  function restoreTerm(): { show: boolean } {
+    const was = beforeTerm.current ?? { show: false, full: false, rail: true, right: true };
+    beforeTerm.current = null;
+    setTermFull(was.full);
+    setRailOpen(was.rail);
+    setRightOpen(was.right);
+    return { show: was.show };
+  }
+
+  /**
+   * Leave the Terminal space for Code.
+   *
+   * Written out of refs and setters alone, so it is safe to call from the
+   * window's key bindings — those are installed once and hold the first
+   * render's closures for ever, and `goTo` reads state that would be stale
+   * there. Anything that stops the terminal filling the window comes through
+   * here.
+   */
+  function leaveTerminal() {
+    setSpace('code');
+    setShowTerm(restoreTerm().show);
+    setRail('files');
+    setRailOpen(true);
+  }
+
   function goTo(next: Space) {
+    if (spaceRef.current === 'terminal' && next !== 'terminal') setShowTerm(restoreTerm().show);
     setSpace(next);
+    if (next === 'terminal') {
+      // Read before anything is set, or what is remembered is what this is
+      // about to do rather than what was there.
+      if (!beforeTerm.current) {
+        beforeTerm.current = { show: showTerm, full: termFull, rail: railOpen, right: rightOpen };
+      }
+      setTermMounted(true);
+      setShowTerm(true);
+      setTermFull(true);
+      setRailOpen(false);
+      setRightOpen(false);
+      // A terminal you have to click before typing in is not a terminal space.
+      // After paint, because the pane is about to be re-laid out to fill the
+      // window and the caret should land in it at its final size.
+      requestAnimationFrame(() => focusSession.current?.(''));
+      return;
+    }
     if (next === 'chat') {
       if (mode !== 'chat') lastCodeMode.current = mode;
       setMode('chat');
@@ -2587,6 +2674,12 @@ export function App() {
   }
 
   function toggleTerm() {
+    // In the Terminal space the terminal *is* the space, so closing it is a
+    // request to leave rather than a request to look at an empty window — and
+    // it is still a request to close, so the panel goes with it. The ref and
+    // `leaveTerminal` between them keep this correct from the key bindings,
+    // which hold the first render's copy of this function for ever.
+    if (spaceRef.current === 'terminal') { leaveTerminal(); setShowTerm(false); return; }
     setShowTerm((v) => { if (!v) setTermMounted(true); return !v; });
   }
 
@@ -4299,17 +4392,19 @@ export function App() {
           </span>
         )}
         <span className="bar-sp" />
-        {/* Agent · Code · Chat. In the title bar because it is about the whole
-            window, not about the next message — that toggle stays in the
-            composer. */}
+        {/* Agent · Code · Chat · Terminal. In the title bar because it is about
+            the whole window, not about the next message — that toggle stays in
+            the composer. */}
         <span className="seg space" role="group" aria-label={t('Way of working')}>
-          {(['agent', 'code', 'chat'] as Space[]).map((sp) => (
+          {(['agent', 'code', 'chat', 'terminal'] as Space[]).map((sp) => (
             <button key={sp} className={space === sp ? 'on' : ''} aria-pressed={space === sp}
                     onClick={() => goTo(sp)}
                     title={t(sp === 'agent' ? 'Teammates on routines'
                       : sp === 'code' ? 'Terminals and files over this folder'
-                      : 'A conversation not tied to a project')}>
-              {t(sp === 'agent' ? 'Agent' : sp === 'code' ? 'Code' : 'Chat')}
+                      : sp === 'chat' ? 'A conversation not tied to a project'
+                      : 'A shell, filling the window')}>
+              {t(sp === 'agent' ? 'Agent' : sp === 'code' ? 'Code'
+                : sp === 'chat' ? 'Chat' : 'Terminal')}
             </button>
           ))}
         </span>
@@ -4900,8 +4995,22 @@ export function App() {
                   onSessions={setSessions}
                   exposeFocus={(f) => { focusSession.current = f; }}
                   full={termFull}
-                  onToggleFull={() => setTermFull((v) => !v)}
+                  onToggleFull={() => {
+                    // The Terminal space *is* the terminal filling the window,
+                    // so un-maximising it is a way of leaving — and the person
+                    // is still looking at the shell, so it stays open.
+                    if (space === 'terminal') {
+                      leaveTerminal();
+                      setTermFull(false);  // after leaveTerminal, so this wins
+                      setShowTerm(true);   // they are still looking at the shell
+                      return;
+                    }
+                    setTermFull((v) => !v);
+                  }}
                   onClose={(drop) => {
+                    if (space === 'terminal') leaveTerminal();
+                    // Last, so it beats whatever `leaveTerminal` put back:
+                    // closing the panel means closed, whatever it was before.
                     setShowTerm(false);
                     // `drop` tears the panel down, so its panes are gone. The
                     // list has to go with them or the one search field offers
@@ -5184,8 +5293,12 @@ export function App() {
 
       {dragging && <div className="dropzone"><span>{t('Drop a folder to open it, or files to attach')}</span></div>}
 
+      {/* Hidden rather than unmounted in the Terminal space: `display:none`
+          takes it out of the tab order and off the screen, which is what was
+          asked, while a half-written message and the caret inside it survive
+          going to the shell and coming back. */}
       {root && (
-      <div className="composer">
+      <div className={`composer ${space === 'terminal' ? 'gone' : ''}`}>
         <div className="cmp-card">
           {/* Up is taller. Double-click hands the height back to the text. */}
           <div className="cmp-grip" role="separator" aria-orientation="horizontal" tabIndex={0}

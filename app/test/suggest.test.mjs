@@ -6,8 +6,8 @@
 // list, because it is one somebody presses Tab on — so most of this file is
 // about when it gives up.
 import {
-  HISTORY_MAX, NOTHING, fragment, keystrokes, kindOf, rank, remember,
-  quotePath, suggest, typed, typedPart, worth,
+  HISTORY_MAX, NOTHING, fragment, keystrokes, kindOf, preview, rank, remember,
+  quotePath, suggest, typed, typedPart, wantsDir, worth,
 } from '../.test-build/suggest.js';
 
 let pass = 0, fail = 0;
@@ -218,6 +218,70 @@ ok('a single quote closes, escapes and reopens', (() => {
   return q === `'/a/it'\\''s here.png'`;
 })(), quotePath("/a/it's here.png"));
 ok('an empty path is an empty argument, not nothing', quotePath('') === "''");
+
+// ── what only takes a directory ───────────────────────────────────────────
+//
+// `cd README.md` is not a near miss worth completing: it is an error the shell
+// will refuse, so offering it is the list putting a wrong answer under the
+// cursor. Three commands, named literally — guessing from the name would be
+// wrong for `mkdir`, whose argument is a folder that does not exist yet and
+// for which a list of existing ones is the least useful thing on offer.
+
+ok('cd wants a directory', wantsDir('cd sr'));
+ok('and so does pushd', wantsDir('pushd '));
+ok('and rmdir', wantsDir('rmdir old'));
+ok('ls does not — it takes files, and mostly is given them', !wantsDir('ls sr'));
+ok('mkdir does not, because its argument does not exist yet', !wantsDir('mkdir new'));
+ok('the command word itself is never a directory, however it is spelled',
+   !wantsDir('cd') && !wantsDir('c'));
+// `ls /tmp && cd sr` completes for `cd`, not for `ls`.
+ok('the governing command is the current one, not the first on the line',
+   wantsDir('ls /tmp && cd sr'), 'ls /tmp && cd sr');
+ok('after a pipe too', wantsDir('cat x | pushd '));
+ok('and a command after a separator does not inherit the last one',
+   !wantsDir('cd /tmp && ls sr'), 'cd /tmp && ls sr');
+ok('a path already deep in still belongs to its command', wantsDir('cd ~/Doc'));
+ok('an argument that is not the first still belongs to it', !wantsDir('cp a b'));
+
+// ── the dim text ahead of the cursor ──────────────────────────────────────
+//
+// The ghost and the keystrokes are one action described twice, and the way two
+// descriptions of one action stop agreeing is by being worked out separately.
+// So the test is not "preview looks right" — it is that typing the keystrokes
+// produces exactly the previewed line.
+
+/** What the line becomes once the keystrokes land, backspaces and all. */
+const applied = (line, choice) => {
+  let out = line;
+  for (const c of keystrokes({ line, sure: true }, choice)) {
+    if (c === '\x7f') out = out.slice(0, -1);
+    else out += c;
+  }
+  return out;
+};
+for (const [line, choice] of [
+  ['cd sr', { text: 'src/', kind: 'path' }],
+  ['cd ', { text: 'src/', kind: 'path' }],
+  ['l', { text: 'ls', kind: 'command' }],
+  ['git', { text: 'git commit --amend', kind: 'history' }],
+  ['cat src/ma', { text: 'src/main.rs', kind: 'path' }],
+  ['app', { text: 'App.js', kind: 'path' }],
+  ['  ls sr', { text: 'src/', kind: 'path' }],
+]) {
+  ok(`preview matches the keystrokes: ${JSON.stringify(line)} -> ${choice.text}`,
+     preview(line, choice) === applied(line, choice),
+     [preview(line, choice), applied(line, choice)]);
+}
+ok('a path completion keeps what came before it on the line',
+   preview('cat src/ma', { text: 'src/main.rs', kind: 'path' }) === 'cat src/main.rs');
+ok('a history line replaces the whole line, leading spaces and all',
+   preview('  git', { text: 'git push', kind: 'history' }) === 'git push');
+// Case-insensitive matching can rewrite what was typed, and the ghost has to
+// admit it rather than claim characters are staying that are not.
+ok('a completion that rewrites the typed characters does not start with them',
+   preview('app', { text: 'App.js', kind: 'path' }).startsWith('app') === false);
+ok('while one that only adds to them does',
+   preview('App', { text: 'App.js', kind: 'path' }).startsWith('App'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
