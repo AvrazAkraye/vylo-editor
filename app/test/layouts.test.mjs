@@ -30,8 +30,9 @@ const FOUR = ['a', 'b', 'c', 'd'];
 const BENCH = { a: 1.3, b: 0.7 };
 
 // ── the buttons ───────────────────────────────────────────────────────────
-ok('five presets, shapes first and the repair last',
-   same(PRESETS.map((p) => p.id), ['solo', 'pair', 'workbench', 'quad', 'tidy']), PRESETS.map((p) => p.id));
+ok('six presets, shapes first and the repair last',
+   same(PRESETS.map((p) => p.id), ['solo', 'pair', 'workbench', 'quad', 'grid', 'tidy']),
+   PRESETS.map((p) => p.id));
 ok('each has a one-word label, because it is a button',
    PRESETS.every((p) => /^[A-Z][a-z]+$/.test(p.label)), PRESETS.map((p) => p.label));
 ok('and a sentence about it', PRESETS.every((p) => p.about.length > 10 && p.about.endsWith('.')));
@@ -193,6 +194,28 @@ ok('and asks for one more when there are none to take',
    apply('quad', row('a', ONE, ONE)).needsNew === true);
 ok('a row already at the cap is not rearranged by quad',
    same(apply('quad', row('b', FOUR, FOUR)).shown, FOUR));
+
+// ── grid ──────────────────────────────────────────────────────────────────
+//
+// The same four panes as quad. Which of the two you are looking at is not
+// something `apply` decides — two rows is not a width, so it cannot be read
+// back out of `shown` and `weights`, and the panel stores it. What `apply`
+// owes the grid is the four panes, evenly sized.
+ok('grid fills the row to the cap, like quad',
+   same(apply('grid', row('a', ONE, FOUR)).shown, apply('quad', row('a', ONE, FOUR)).shown));
+ok('and evens them out', (() => {
+  const r = apply('grid', row('a', FOUR, FOUR, { a: 3, b: 1, c: 1, d: 1 }));
+  return FOUR.every((id) => r.weights[id] === 1);
+})());
+ok('the pane you are in stays', apply('grid', row('d', ['d'], FOUR)).shown.includes('d'));
+ok('and it asks for a session when there are none to take',
+   apply('grid', row('a', ONE, ONE)).needsNew === true);
+// `describeLayout` reads widths, and a grid's widths are a quad's — so it says
+// quad, and the stored flag is what tells the two apart. Pinned here because
+// the panel's lit-button logic depends on exactly this.
+ok('a grid reads back as a quad, which is why the panel stores the difference',
+   describe(apply('grid', row('a', ONE, FOUR)).shown,
+            apply('grid', row('a', ONE, FOUR)).weights) === 'quad');
 
 // ── a row that has gone stale ─────────────────────────────────────────────
 // A layout restored from disk can name sessions that have since closed.

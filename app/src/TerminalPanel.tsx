@@ -15,7 +15,7 @@ import {
 import { fill } from './i18n';
 import { fragment } from './suggest';
 import {
-  DRAG_PATH, describe as describeFile, head as pasteHead, isBulk, pastedFile,
+  DRAG_PANE, DRAG_PATH, describe as describeFile, head as pasteHead, isBulk, pastedFile,
   pathForPrompt, size as pasteSize, summarise as pasteInfo, under, worthHolding,
   type PastedFile,
 } from './paste';
@@ -409,6 +409,9 @@ export function TerminalPanel({
    */
   const [dropOn, setDropOn] = useState<string | null>(null);
 
+  /** The pane being dragged, if one is. Null the rest of the time. */
+  const [lifting, setLifting] = useState<string | null>(null);
+
   /** Start renaming, with the current name in the field to type over. */
   function rename(tab: Tab) {
     setRenaming(tab.id);
@@ -703,9 +706,28 @@ export function TerminalPanel({
    * exist yet.
    */
   const wanted = useRef<Preset | null>(null);
+  /**
+   * Whether the panes are two above two rather than four across.
+   *
+   * Stored rather than derived, and that is the difference between this and
+   * every other shape: `describeLayout` can read Solo, Pair and Workbench back
+   * out of which panes are drawn and how wide they are, because those *are*
+   * widths. Two rows is not a width — the same four panes, evenly sized, are a
+   * row or a grid depending only on what somebody asked for, so the asking has
+   * to be remembered.
+   */
+  const [grid, setGrid] = useState(() => localStorage.getItem('vylo.tgrid') === '1');
+  useEffect(() => {
+    try { localStorage.setItem('vylo.tgrid', grid ? '1' : '0'); } catch { /* private mode */ }
+  }, [grid]);
+
   function snap(preset: Preset) {
     const r = applyPreset(preset, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
     if (r.needsNew) { wanted.current = preset; add(true); return; }
+    // Every shape but `tidy` says how the panes are arranged, so every shape
+    // but `tidy` answers this. Tidy is a repair — it evens out what is there
+    // and has no opinion about rows.
+    if (preset !== 'tidy') setGrid(preset === 'grid');
     setShown(r.shown);
     setWeights(r.weights);
   }
@@ -713,6 +735,7 @@ export function TerminalPanel({
     if (!wanted.current || tabs.length < 2) return;
     const preset = wanted.current;
     wanted.current = null;
+    if (preset !== 'tidy') setGrid(preset === 'grid');
     const r = applyPreset(preset, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
     setShown(r.shown);
     setWeights(r.weights);
@@ -859,7 +882,11 @@ export function TerminalPanel({
           )}
           <span className="seg lay" role="group" aria-label={t('Layout')}>
             {PRESETS.map((p) => {
-              const on = p.id !== 'tidy' && describeLayout(onScreen, weights) === p.id;
+              // Grid and Quad are the same widths; only the stored flag
+              // tells them apart, so it decides which of the two is lit.
+              const shape = describeLayout(onScreen, weights);
+              const on = p.id !== 'tidy' && shape === (p.id === 'grid' ? 'quad' : p.id)
+                && (p.id === 'grid' || p.id === 'quad' ? grid === (p.id === 'grid') : true);
               return (
                 <button key={p.id} className={on ? 'on' : ''} aria-pressed={on}
                         onClick={() => snap(p.id)} title={t(p.about)}>
@@ -1189,7 +1216,10 @@ export function TerminalPanel({
              }} />
       )}
 
-      <div ref={row} className={`panel-body ${onScreen.length > 1 ? 'split' : ''}`}>
+      {/* `grid` only bites with more than two panes: two above one another is
+          not what anybody means by a grid, and a single pane in one would be
+          half a panel of empty space. */}
+      <div ref={row} className={`panel-body ${onScreen.length > 1 ? 'split' : ''} ${grid && onScreen.length > 2 ? 'grid' : ''}`}>
         {tabs.map((tab) => {
           const on = onScreen.includes(tab.id);
           const title = titleOf(tab, t('Terminal'));
@@ -1221,7 +1251,7 @@ export function TerminalPanel({
                  onDoubleClick={() => setWeights((w) => evened(onScreen, w))}
                  title={t('Drag to resize, double-click to even them out')} />
 
-            <div className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''} ${dropOn === tab.id ? 'dropping' : ''}`}
+            <div className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''} ${dropOn === tab.id ? (lifting ? 'taking' : 'dropping') : ''} ${lifting === tab.id ? 'lifting' : ''}`}
                  ref={(el) => {
                    // Only drawn panes are droppable; a hidden one has no box.
                    if (el && on) boxes.current.set(tab.id, el);
@@ -1237,6 +1267,16 @@ export function TerminalPanel({
                   * tree knows it. Both end in the same place.
                   */
                  onDragOver={(e) => {
+                   // A pane dropped on a pane changes places with it. Checked
+                   // first because a drag carries both types only if something
+                   // has gone wrong, and a pane is the more specific answer.
+                   if (e.dataTransfer.types.includes(DRAG_PANE)) {
+                     if (lifting === tab.id) return;
+                     e.preventDefault();
+                     e.dataTransfer.dropEffect = 'move';
+                     setDropOn(tab.id);
+                     return;
+                   }
                    if (!e.dataTransfer.types.includes(DRAG_PATH)) return;
                    // Without this the browser refuses the drop and the drag
                    // springs back, which reads as "the terminal will not take
@@ -1252,6 +1292,17 @@ export function TerminalPanel({
                    setDropOn((c) => (c === tab.id ? null : c));
                  }}
                  onDrop={(e) => {
+                   const moved = e.dataTransfer.getData(DRAG_PANE);
+                   if (moved) {
+                     e.preventDefault();
+                     setDropOn(null);
+                     setLifting(null);
+                     // The same exchange the name's picker makes — see
+                     // `swap`: two panes on one shell would both be live.
+                     setShown(swapPane(onScreen, at, moved));
+                     setActive(moved);
+                     return;
+                   }
                    const rel = e.dataTransfer.getData(DRAG_PATH);
                    setDropOn(null);
                    if (!rel) return;
@@ -1277,7 +1328,17 @@ export function TerminalPanel({
                       places with this one rather than appearing twice: two
                       panes on one shell are both live, each echoing the
                       other's keystrokes. */}
-                  <span className={`tpane-name ${title.mono ? 'mono' : ''}`} title={title.text}>
+                  <span className={`tpane-name ${title.mono ? 'mono' : ''}`} title={title.text}
+                        draggable
+                        onDragStart={(e) => {
+                          // The name, not the pane: a terminal is full of
+                          // selectable text, and making the whole thing a drag
+                          // source would mean nobody could select any of it.
+                          e.dataTransfer.setData(DRAG_PANE, tab.id);
+                          e.dataTransfer.effectAllowed = 'move';
+                          setLifting(tab.id);
+                        }}
+                        onDragEnd={() => { setLifting(null); setDropOn(null); }}>
                     {title.text}
                     <Icon name="chevron" size={9} turn={90} />
                     <select value={tab.id}

@@ -2011,6 +2011,35 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 
 .panel-body{ flex:1; min-height:0; position:relative; display:flex; }
 
+/* ── two above two ───────────────────────────────────────────────────────
+   The row's own argument against a fourth pane was about width: a quarter of
+   the panel is narrower than the eighty columns command output is written
+   for. A grid answers it — each pane is half the panel wide instead of a
+   quarter, paid for in height, which a terminal band has more of than it
+   needs once there are four things in it.
+
+   `grid-auto-rows:1fr` rather than a fixed two rows, so three panes make two
+   rows and four make two rows, and neither leaves a hole.
+
+   The drag handles between panes are hidden here rather than removed: they
+   resize a row, and there is no single row to resize. `Quad` brings them
+   back, which is the honest way to get them — pulling a grid's edges around
+   is a different feature with a different model behind it. */
+.panel-body.grid{
+  display:grid; grid-template-columns:1fr 1fr; grid-auto-rows:1fr;
+  gap:1px; background:var(--rule);
+}
+.panel-body.grid > .tdiv{ display:none !important; }
+/* The flex growth written on each pane is meaningless in a grid, and a grid
+   item needs its minimums zeroed for the same reason a flex one does. */
+.panel-body.grid > .tpane{ flex:initial; min-inline-size:0; min-block-size:0; }
+
+/* A pane being dragged onto, and the one being dragged. */
+.tpane.taking{ outline:2px solid var(--brand); outline-offset:-2px; }
+.tpane.lifting{ opacity:.55; }
+.tpane-name[draggable="true"]{ cursor:grab; }
+.tpane-name[draggable="true"]:active{ cursor:grabbing; }
+
 /* ── Split panes ──────────────────────────────────────────────────────────
    Two or three terminals at once. Panes are flex children with a basis of
    zero, so they share the width evenly however many there are, and `min-width`

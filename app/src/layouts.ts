@@ -14,7 +14,11 @@
  *   pair       two panes, even. Reading one thing against another.
  *   workbench  two panes, the one you are in wide. Working in one and
  *              glancing at the other — a server log, a test runner.
- *   quad       four panes, even. The cap, in one press.
+ *   quad       four panes, even, in a row. The cap, in one press.
+ *   grid       the same four, two above two. The row's own argument against
+ *              a fourth pane was about width, and a grid answers it: each
+ *              pane is half the panel wide instead of a quarter, at the cost
+ *              of height the panel has more of than it needs.
  *   tidy       whatever is on screen, evened out. Not a shape but a repair:
  *              after a few drags the row is 40/23/37 and nobody chose that.
  *              BridgeMind's phrase for it is "squares the layout back up".
@@ -67,7 +71,7 @@ import { MAX_PANES } from './panes';
 import { evened, shares, type Weights } from './split';
 
 /** The shapes a row can be in. What `describe` recognises. */
-export type Shape = 'solo' | 'pair' | 'workbench' | 'quad';
+export type Shape = 'solo' | 'pair' | 'workbench' | 'quad' | 'grid';
 
 /** What a button does: a shape, or `tidy`, which is a repair rather than a shape. */
 export type Preset = Shape | 'tidy';
@@ -87,6 +91,7 @@ export const PRESETS: readonly PresetInfo[] = [
   { id: 'pair', label: 'Pair', about: 'Two panes, side by side and even.' },
   { id: 'workbench', label: 'Workbench', about: 'Two panes, with the one you are in wider.' },
   { id: 'quad', label: 'Quad', about: 'Four panes, side by side and even. Wants a wide window.' },
+  { id: 'grid', label: 'Grid', about: 'Four panes, two above two. Half the width each, and twice as tall.' },
   { id: 'tidy', label: 'Tidy', about: 'Keep the panes you have and square them back up.' },
 ];
 
@@ -185,7 +190,7 @@ export function apply(preset: Preset, from: Layout): Applied {
   // How many panes the shape is. `tidy` is however many there are — plus the
   // focused one, if it was somehow not among them — and never more than the cap.
   const size = preset === 'solo' ? 1
-    : preset === 'quad' ? MAX_PANES
+    : preset === 'quad' || preset === 'grid' ? MAX_PANES
     : preset === 'tidy' ? live.length + (live.includes(focus) ? 0 : 1)
     : 2;
   const want = Math.min(MAX_PANES, Math.max(1, size));
@@ -210,14 +215,23 @@ export function apply(preset: Preset, from: Layout): Applied {
  * is no three-pane preset. A workbench is a workbench whichever side is wide,
  * because the buttons show the shape, and which pane got the width is not
  * something a highlight can say.
+ *
+ * `grid` is never the answer either, for a different reason: it and `quad` are
+ * the same four even widths, and which of the two you are looking at is not
+ * in the widths. Four even panes are a `quad` here, and the panel remembers
+ * whether it put them in two rows.
  */
 export function describe(shown: readonly string[], weights: Weights): Shape | 'custom' {
   if (shown.length === 1) return 'solo';
+  const near = (x: number, to: number) => Math.abs(x - to) <= TOLERANCE + 1e-9;
+  if (shown.length === MAX_PANES) {
+    const parts = shares(shown, weights);
+    return parts.every((x) => near(x, 1 / MAX_PANES)) ? 'quad' : 'custom';
+  }
   if (shown.length !== 2) return 'custom';
-  const [a, b] = shares(shown, weights);
   // Inclusive at the edge, in spite of the arithmetic: 0.52 - 0.5 is a hair
   // over 0.02 in floating point, and the contract says 0.02 off still counts.
-  const near = (x: number, to: number) => Math.abs(x - to) <= TOLERANCE + 1e-9;
+  const [a, b] = shares(shown, weights);
   if (near(a, 0.5)) return 'pair';
   if (near(a, WIDE) || near(b, WIDE)) return 'workbench';
   return 'custom';

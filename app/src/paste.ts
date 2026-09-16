@@ -119,6 +119,15 @@ export function head(text: string, width = 60): string {
  */
 export const DRAG_PATH = 'application/x-vylo-path';
 
+/**
+ * The drag type a terminal pane puts on itself.
+ *
+ * Its own type, and no `text/plain` beside it: a pane is not a thing that
+ * means anything anywhere else, and offering it as text would put a session
+ * id into a message box or a prompt if somebody let go over one.
+ */
+export const DRAG_PANE = 'application/x-vylo-pane';
+
 /** Whether a path names a place rather than something inside a project. */
 export function isAbsolute(path: string): boolean {
   return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');

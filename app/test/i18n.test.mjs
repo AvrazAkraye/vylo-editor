@@ -15,6 +15,7 @@
 // It reads the file as text rather than importing it, because the dictionaries
 // are module-private and the point is to check the file, not the runtime.
 import { readFileSync, readdirSync, existsSync } from 'fs';
+import { PRESETS } from '../.test-build/layouts.js';
 import { join, resolve as resolvePath } from 'path';
 
 let pass = 0, fail = 0;
@@ -147,6 +148,27 @@ const untranslated = [...used].filter((k) => !base.has(k));
 
 ok('every string the UI hands to t() is in the catalogues',
    untranslated.length === 0, untranslated.join(' | '));
+
+// ── strings the scanner cannot see ────────────────────────────────────────
+//
+// The scanner reads `t('…')` out of the source, so it only finds strings
+// written at the call. A label kept in a data table and handed over as
+// `t(p.label)` is invisible to it — and the terminal's layout presets are
+// exactly that. Every one of them happened to be translated, by hand, with
+// nothing checking; the fifth was added and would have shipped in English in
+// all three languages.
+//
+// The same shape exists for the module registry, which `modules.test.mjs`
+// already guards. This is the other one.
+{
+  const missing = [];
+  for (const p of PRESETS) {
+    if (!base.has(p.label)) missing.push(`label: ${p.label}`);
+    if (!base.has(p.about)) missing.push(`about: ${p.about}`);
+  }
+  ok('every layout preset has its label and its sentence in the catalogues',
+     missing.length === 0, missing.join(' | '));
+}
 
 // The scanner above is the thing most likely to be wrong, and it *was* wrong
 // for as long as the app had a label that depends on state — so it is checked
