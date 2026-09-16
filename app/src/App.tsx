@@ -4916,6 +4916,40 @@ export function App() {
             );})}
           </div>
 
+          {/* Where the open file is.
+              The tab says its name and the status bar says the whole path in
+              the far corner, which is the one place nobody looks while
+              reading code. Two files called `index.ts` are the ordinary case
+              in any project, and the tab strip cannot tell them apart — so the
+              folders live here, between the tabs and the text, where the eye
+              already is.
+
+              Relative to the open folder, because the part that repeats on
+              every file is the part worth leaving out. Clicking a segment
+              searches for it, which is the useful thing to do with a folder
+              name you have just read. */}
+          {isFile(active) && root && (
+            <div className="crumbs" aria-label={t('Where this file is')}>
+              {active.replace(root, '').replace(/^[\\/]+/, '').split(/[\\/]/).map((part, i, all) => (
+                <Fragment key={`${part}-${i}`}>
+                  {i > 0 && <Icon name="chevron" size={10} />}
+                  {i === all.length - 1 ? (
+                    <b>{part}</b>
+                  ) : (
+                    <button onClick={() => openFind(part)}
+                            title={fill(t('Find {name}'), { name: part })}>{part}</button>
+                  )}
+                </Fragment>
+              ))}
+              <span className="bar-sp" />
+              <button className="crumbs-copy" title={t('Copy the full path')}
+                      aria-label={t('Copy the full path')}
+                      onClick={() => void navigator.clipboard.writeText(active).catch(() => {})}>
+                <Icon name="clipboard" size={11} />
+              </button>
+            </div>
+          )}
+
           {/* The disk moved under a file with unsaved edits in it. A watcher
               that reloaded this on its own would destroy work with no undo
               entry and no warning, so it is a question. Clean tabs never reach

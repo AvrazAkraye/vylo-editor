@@ -2075,7 +2075,76 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    own inline completion dims its ghost. */
 .sug-ghost{
   font-family:var(--mono); font-size:var(--fs-2); line-height:1.4;
-  /* ── a file over a pane ──────────────────────────────────────────────────
+  /* ── where the open file is ──────────────────────────────────────────────
+   Between the tabs and the text, because that is where the eye already is —
+   the status bar has carried the whole path for a while, in the far corner,
+   which is the one place nobody looks while reading code. One line, cut from
+   the front when it is too long: the end of a path identifies the file and the
+   beginning repeats on every file in the project. */
+.crumbs{
+  flex:none; display:flex; align-items:center; gap:var(--sp-2);
+  padding-block:var(--sp-2); padding-inline:var(--sp-5) var(--sp-3);
+  border-block-end:1px solid var(--rule); background:var(--panel-2);
+  font-size:var(--fs-2); color:var(--mute);
+  overflow:hidden; white-space:nowrap;
+}
+.crumbs > svg{ flex:none; opacity:.6; }
+.crumbs b{ font-weight:600; color:var(--ink); }
+.crumbs button{
+  padding:1px var(--sp-2); border:0; border-radius:var(--r-1);
+  background:transparent; color:inherit; font:inherit; cursor:pointer;
+  overflow:hidden; text-overflow:ellipsis;
+}
+.crumbs button:hover{ background:var(--panel-3); color:var(--ink); }
+.crumbs-copy{ flex:none; display:inline-flex; }
+
+/* ── sessions as a strip ─────────────────────────────────────────────────
+   The other half of `View as`. Scrolls sideways rather than wrapping: a strip
+   that grows to two rows moves the terminal under it every time a shell is
+   opened, and the pane is the thing being looked at. */
+.ttabs{
+  flex:none; display:flex; align-items:stretch; gap:2px;
+  padding-block:var(--sp-2); padding-inline:var(--sp-2);
+  border-block-end:1px solid var(--rule); background:var(--panel-2);
+  overflow-x:auto; scrollbar-width:none;
+}
+.ttabs::-webkit-scrollbar{ display:none; }
+.ttab{
+  flex:none; display:flex; align-items:center; max-inline-size:220px;
+  border:1px solid transparent; border-radius:var(--r-2);
+  background:transparent; color:var(--mute);
+}
+.ttab:hover{ background:var(--panel-3); color:var(--ink); }
+.ttab.on{ background:var(--bg); border-color:var(--rule); color:var(--ink); }
+.ttab-hit{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-2);
+  padding-block:var(--sp-2); padding-inline:var(--sp-3) var(--sp-2);
+  border:0; background:transparent; color:inherit; font:inherit; font-size:var(--fs-2);
+  cursor:pointer; text-align:start;
+}
+.ttab-hit span{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ttab-hit span.mono{ font-family:var(--mono); font-size:var(--fs-1); }
+/* The same three states the rows carry, as one dot — there is no second line
+   here to spell them out on. */
+.ttab-dot{ flex:none; inline-size:6px; block-size:6px; border-radius:50%; background:var(--mute); }
+.ttab-dot.live{ background:var(--ok); }
+.ttab-dot.busy{ background:var(--brand); }
+.ttab-dot.ok{ background:var(--ok); opacity:.5; }
+.ttab-dot.failed{ background:var(--err); }
+.ttab-x{
+  flex:none; display:inline-flex; padding:3px; margin-inline-end:var(--sp-2);
+  border:0; border-radius:var(--r-1); background:transparent; color:var(--mute);
+  cursor:pointer; opacity:0;
+}
+.ttab:hover .ttab-x, .ttab.on .ttab-x{ opacity:1; }
+.ttab-x:hover{ background:var(--panel-3); color:var(--ink); }
+.ttab-add{
+  flex:none; display:inline-flex; align-items:center; padding-inline:var(--sp-3);
+  border:0; border-radius:var(--r-2); background:transparent; color:var(--mute); cursor:pointer;
+}
+.ttab-add:hover{ background:var(--panel-3); color:var(--ink); }
+
+/* ── a file over a pane ──────────────────────────────────────────────────
    Dropping files on a terminal has worked since panes could be split; what it
    never had was anything on screen saying so, and a file dragged over a
    terminal that gives no sign is a file nobody lets go of. An outline on the

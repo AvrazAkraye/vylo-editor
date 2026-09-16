@@ -173,11 +173,28 @@ export type TitleAs = 'command' | 'cwd' | 'branch';
 /** How much room a row takes. */
 export type Density = 'comfortable' | 'compact';
 
+/**
+ * How the sessions are laid out.
+ *
+ * `panes` is the list down the side with any of them side by side, which is
+ * what this panel has always done and what makes two shells watchable at once.
+ * `tabs` is one strip across the top and one shell under it, which is what
+ * every other terminal does and what somebody who keeps six shells and looks
+ * at one of them wants — the list is a column of furniture they are paying for
+ * and not using.
+ *
+ * It is a view, not a mode: the sessions, their scrollback and their processes
+ * are the same either way, and switching is a decision about the furniture
+ * rather than about the work.
+ */
+export type LayoutAs = 'panes' | 'tabs';
+
 export interface RowView {
   titleAs: TitleAs;
   /** Which extras appear on the second line. */
   meta: { branch: boolean; cwd: boolean; state: boolean };
   density: Density;
+  as: LayoutAs;
 }
 
 export const ROW_VIEW: RowView = {
@@ -187,6 +204,10 @@ export const ROW_VIEW: RowView = {
   titleAs: 'command',
   meta: { branch: true, cwd: false, state: true },
   density: 'comfortable',
+  // Panes, because that is what this panel was built to do and what somebody
+  // who has never opened the menu is already using. Tabs is the other answer,
+  // one toggle away.
+  as: 'panes',
 };
 
 export const ROW_VIEW_KEY = 'vylo.rowview.v1';
@@ -200,6 +221,7 @@ export function readView(raw: string | null): RowView {
     const r = v as Record<string, unknown>;
     if (r.titleAs === 'command' || r.titleAs === 'cwd' || r.titleAs === 'branch') out.titleAs = r.titleAs;
     if (r.density === 'compact' || r.density === 'comfortable') out.density = r.density;
+    if (r.as === 'panes' || r.as === 'tabs') out.as = r.as;
     const m = (r.meta ?? {}) as Record<string, unknown>;
     for (const k of ['branch', 'cwd', 'state'] as const) {
       if (typeof m[k] === 'boolean') out.meta[k] = m[k] as boolean;

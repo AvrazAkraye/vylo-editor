@@ -190,6 +190,16 @@ export function TerminalPanel({
    * every launch is furniture somebody arranges every morning.
    */
   const [railHidden, setRailHidden] = useState(() => localStorage.getItem('vylo.tslhide') === '1');
+
+  /**
+   * Whether the sessions column is on screen.
+   *
+   * Two reasons it might not be, and they are different in kind: somebody
+   * collapsed it, or the layout is tabs and there is a strip across the top
+   * doing the same job. The button that collapses it is left alone in tabs —
+   * hiding a column that is already gone is a control with nothing to do.
+   */
+  const listOff = railHidden || view.as === 'tabs';
   const [railW, setRailW] = useState(() => {
     const v = Number(localStorage.getItem('vylo.tslw'));
     return Number.isFinite(v) && v >= 160 ? Math.min(v, 420) : 236;
@@ -891,9 +901,45 @@ export function TerminalPanel({
         );
       })()}
 
+      {/* One strip, one shell under it — what every other terminal does, and
+          what somebody who keeps six shells and looks at one of them wants.
+          Above `panel-split` rather than inside it: that is a row of columns,
+          and this is a line across all of them. */}
+      {view.as === 'tabs' && (
+        <div className="ttabs" role="tablist" aria-label={t('Terminal sessions')}>
+          {tabs.map((tab) => {
+            const title = titleOf(tab, t('Terminal'));
+            const state = stateOf(tab);
+            return (
+              <div key={tab.id} className={`ttab ${tagClass(tab.tag)} ${tab.id === focus ? 'on' : ''}`}
+                   onContextMenu={(e) => {
+                     e.preventDefault();
+                     setRowMenu({ id: tab.id, at: { x: e.clientX, y: e.clientY } });
+                   }}>
+                <button className="ttab-hit" role="tab" aria-selected={tab.id === focus}
+                        onClick={() => { setActive(tab.id); setShown(only(tab.id)); }}
+                        onDoubleClick={() => rename(tab)}
+                        title={title.text}>
+                  <i className={`ttab-dot ${state}`} aria-hidden="true" />
+                  <span className={title.mono ? 'mono' : ''}>{title.text}</span>
+                </button>
+                <button className="ttab-x" onClick={() => close(tab.id)}
+                        title={t('Close')} aria-label={`${t('Close')} — ${title.text}`}>
+                  <Icon name="close" size={10} />
+                </button>
+              </div>
+            );
+          })}
+          <button className="ttab-add" onClick={() => add()}
+                  title={t('New terminal')} aria-label={t('New terminal')}>
+            <Icon name="plus" size={13} />
+          </button>
+        </div>
+      )}
+
       <div className="panel-split">
         <div className="tsl" role="navigation" aria-label={t('Terminal sessions')}
-             style={{ inlineSize: railW, display: railHidden ? 'none' : 'flex' }}>
+             style={{ inlineSize: railW, display: listOff ? 'none' : 'flex' }}>
           <div className="tsl-head">
             <span className="tsl-find">
               <Icon name="search" size={13} />
@@ -915,6 +961,26 @@ export function TerminalPanel({
 
           {tuning && (
             <div className="tsv">
+              {/* First, because it decides what the rest of this menu is
+                  about: with tabs there is no second line to put anything on,
+                  so Title and Also show describe a list that is not there. */}
+              <div className="tsv-set">
+                <span className="tsv-label">{t('View as')}</span>
+                <span className="tk-pills">
+                  {([['panes', 'Panes'], ['tabs', 'Tabs']] as const).map(([k, label]) => (
+                    <button key={k} className={`tk-pill ${view.as === k ? 'on' : ''}`}
+                            aria-pressed={view.as === k}
+                            onClick={() => {
+                              setView((v) => ({ ...v, as: k }));
+                              // Tabs shows one shell at a time. Leaving a split
+                              // behind would put two panes under a strip that
+                              // has one of them lit, which is a window
+                              // disagreeing with itself.
+                              if (k === 'tabs') setShown(only(focus));
+                            }}>{t(label)}</button>
+                  ))}
+                </span>
+              </div>
               <div className="tsv-set">
                 <span className="tsv-label">{t('Title')}</span>
                 <span className="tk-pills">
@@ -1071,7 +1137,7 @@ export function TerminalPanel({
       {/* The line between the rail and the panes. Same design as the pane
           dividers: a 1px line you see, six pixels you hit. Double-click puts
           the width back. */}
-      {!railHidden && (
+      {!listOff && (
         <div className="tdiv" role="separator" aria-orientation="vertical" tabIndex={0}
              aria-label={t('Resize the sessions list')}
              title={t('Drag to resize, double-click to reset')}

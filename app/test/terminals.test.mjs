@@ -242,5 +242,27 @@ ok('a command pane is titled by its command',
   ok('no clock given means no age', rowOf(sh(), {}, ROW_VIEW, {}).subs.every((x) => x.kind !== 'age'));
 }
 
+// ── how the sessions are laid out ─────────────────────────────────────────
+//
+// A view, not a mode: the sessions, their scrollback and their processes are
+// the same either way, so the only thing that has to survive is the choice.
+ok('a new window shows panes, which is what this panel was built to do',
+   ROW_VIEW.as === 'panes');
+ok('the choice survives a save and a load',
+   readView(JSON.stringify({ ...ROW_VIEW, as: 'tabs' })).as === 'tabs');
+ok('and panes comes back as panes',
+   readView(JSON.stringify({ ...ROW_VIEW, as: 'panes' })).as === 'panes');
+// A stored value is input, not memory — it can be hand-edited or left behind
+// by a build that spelled it differently.
+ok('a layout this build has never heard of is the default',
+   readView(JSON.stringify({ as: 'carousel' })).as === 'panes');
+ok('and so is one that is not a string', readView('{"as":3}').as === 'panes');
+ok('nothing stored at all is the default', readView(null).as === 'panes');
+ok('a stored layout does not disturb the rest of the view', (() => {
+  const v = readView(JSON.stringify({ ...ROW_VIEW, as: 'tabs' }));
+  return v.titleAs === ROW_VIEW.titleAs && v.density === ROW_VIEW.density
+      && v.meta.state === ROW_VIEW.meta.state;
+})());
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
