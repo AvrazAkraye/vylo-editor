@@ -124,7 +124,23 @@ const SIDE_MAX = 560;
 /** What counts as a zoom key. See the handler for why there are five. */
 const ZOOM_KEYS = new Set(['+', '=', '-', '_', '0']);
 
-type Space = 'agent' | 'code' | 'chat' | 'terminal';
+/**
+ * Where you are working: the folder, a conversation, or the shell.
+ *
+ * There was a fourth, Agent, and it went because it was not a place. It
+ * opened the Dashboard module in the rail over the same folder Code shows —
+ * and when that module was switched off, which is its default, it opened
+ * whatever module happened to be first, which is to say it did nothing. The
+ * Dashboard is a section of the sidebar and the rail is how you get to it.
+ *
+ * It also cost more than it gave. "Agent" named this space *and* the mode in
+ * the composer, and the two are unrelated: one is which panels are on screen,
+ * the other is whether the next message may write to your disk. Somebody in
+ * the Agent space, in Chat mode, was told by the model to "switch to Code
+ * mode" — correct, and unfollowable, because the control saying Agent was not
+ * the control that needed changing.
+ */
+type Space = 'code' | 'chat' | 'terminal';
 import { OutlinePanel } from './OutlinePanel';
 import { KEY as TERMS_KEY, bytes as termBytesOf } from './scrollback';
 import { PromptsPanel } from './PromptsPanel';
@@ -973,7 +989,9 @@ export function App() {
 
   const [space, setSpace] = useState<Space>(() => {
     const v = localStorage.getItem('vylo.space.v1');
-    return v === 'agent' || v === 'chat' || v === 'terminal' ? v : 'code';
+    // A window closed in the Agent space opens in Code, which is where that
+    // space already put you — the same folder, with one more panel open.
+    return v === 'chat' || v === 'terminal' ? v : 'code';
   });
   /**
    * The space, for handlers registered once.
@@ -2690,15 +2708,11 @@ export function App() {
       setRailOpen(false);
       return;
     }
+    // Code. Leaving the sandbox is part of arriving: the mode went to `chat`
+    // on the way in and nothing else puts it back.
     if (mode === 'chat') setMode(lastCodeMode.current);
-    if (next === 'code') {
-      setRail('files'); setRailOpen(true);
-      return;
-    }
-    // Agent: the dashboard, if it is switched on; the rail's first module if not.
-    const want: ModuleId = enabledModules(modules).some((m) => m.id === 'dashboard') ? 'dashboard' : enabledModules(modules)[0].id;
-    setActive('chat');
-    setRail(want); setRailOpen(true);
+    setRail('files');
+    setRailOpen(true);
   }
 
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
@@ -4559,15 +4573,13 @@ export function App() {
             the whole window, not about the next message — that toggle stays in
             the composer. */}
         <span className="seg space" role="group" aria-label={t('Way of working')}>
-          {(['agent', 'code', 'chat', 'terminal'] as Space[]).map((sp) => (
+          {(['code', 'chat', 'terminal'] as Space[]).map((sp) => (
             <button key={sp} className={space === sp ? 'on' : ''} aria-pressed={space === sp}
                     onClick={() => goTo(sp)}
-                    title={t(sp === 'agent' ? 'Teammates on routines'
-                      : sp === 'code' ? 'Terminals and files over this folder'
+                    title={t(sp === 'code' ? 'Terminals and files over this folder'
                       : sp === 'chat' ? 'A conversation not tied to a project'
                       : 'A shell, filling the window')}>
-              {t(sp === 'agent' ? 'Agent' : sp === 'code' ? 'Code'
-                : sp === 'chat' ? 'Chat' : 'Terminal')}
+              {t(sp === 'code' ? 'Code' : sp === 'chat' ? 'Chat' : 'Terminal')}
             </button>
           ))}
         </span>
@@ -5716,7 +5728,18 @@ export function App() {
                 next message will cost and what it can do. */}
             <span className="seg cmp-mode" role="group" aria-label={t('Mode')}>
               {mode === 'chat' ? (
-                <button className="on" aria-pressed disabled title={t('A conversation not tied to a project')}>{t('Chat')}</button>
+                /* A way out, not a label.
+                   This was disabled, and that is how somebody asked the model
+                   to create a file, was told "switch to Code mode", and had
+                   nothing on screen that would do it — the one control saying
+                   Chat could not be pressed, and the one saying Agent was in
+                   the title bar meaning something else entirely. Pressing it
+                   now is the answer the model gave. */
+                <button className="on" aria-pressed
+                        onClick={() => goTo('code')}
+                        title={t('Sandboxed — press to work on this folder')}>
+                  {t('Chat')}
+                </button>
               ) : (['ask', 'agent'] as Mode[]).map((m) => (
                 <button key={m} className={mode === m ? 'on' : ''} onClick={() => setMode(m)}
                         aria-pressed={mode === m}
