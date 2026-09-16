@@ -68,7 +68,14 @@ ok('with nothing visible it is empty rather than undefined', focused([], 'a') ==
 // cannot answer "show this *there*", and with four panes that is the question:
 // the slots are a layout somebody arranged, and changing one must not
 // rearrange the others.
+// Dragging a row out of the session list onto a pane: the pane becomes that
+// session, and the one it was showing goes off screen. The row count does not
+// change, because the slots are the layout.
 ok('a session not on screen takes the slot', swap(['a', 'b', 'c'], 1, 'd').join() === 'a,d,c');
+ok('and the one it replaced is no longer drawn',
+   swap(['a', 'b', 'c'], 1, 'd').includes('b') === false);
+ok('the number of panes is unchanged', swap(['a', 'b', 'c'], 1, 'd').length === 3);
+ok('a single pane can be replaced the same way', swap(['a'], 0, 'e').join() === 'e');
 ok('and the rest do not move', swap(['a', 'b', 'c', 'd'], 0, 'e').join() === 'e,b,c,d');
 // Two panes on one shell would both be live, each echoing the other's
 // keystrokes. They trade places instead.

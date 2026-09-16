@@ -1098,7 +1098,31 @@ export function TerminalPanel({
               // or renamed — one copy, so the row cannot change shape under
               // somebody halfway through typing a name.
               const mark = (
-                <span className={`tsl-mark ${state}`}>
+                /**
+                 * The icon is a handle.
+                 *
+                 * Dragging a row *sends this session to a pane*; dragging the
+                 * rest of the row reorders the list, which it has always done
+                 * and which is pointer-based on purpose — `useReorder`'s
+                 * header sets out why `draggable` cannot show what is
+                 * happening. The two gestures cannot share a surface, so they
+                 * get different ones, and `data-nodrag` is the mechanism the
+                 * row already had for "this part is not for reordering".
+                 *
+                 * `-webkit-user-drag` in the stylesheet: this sits inside a
+                 * button, and a button is not a drag source by default.
+                 */
+                <span className={`tsl-mark ${state}`} draggable data-nodrag
+                      title={t('Drag onto a pane to show it there')}
+                      onDragStart={(e) => {
+                        e.dataTransfer.setData(DRAG_PANE, tab.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                        // The same state a pane's own header sets, so the pane
+                        // already showing this session dims wherever it is and
+                        // the targets outline the same way.
+                        setLifting(tab.id);
+                      }}
+                      onDragEnd={() => { setLifting(null); setDropOn(null); }}>
                   <Icon name="terminal" size={14} />
                   {/* The badge carries the state, so the second line is free
                       to say something the badge cannot. */}

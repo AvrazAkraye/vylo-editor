@@ -1941,6 +1941,12 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   width:28px; height:28px; border-radius:50%;
   background:var(--brand-wash); color:var(--brand);
 }
+/* The icon is the handle for sending this session to a pane — see the comment
+   on `mark` in TerminalPanel. `-webkit-user-drag` because it sits inside a
+   button, and a button is not a drag source by default, so without this the
+   gesture does nothing on WebKit and the feature exists only on paper. */
+.tsl-mark[draggable="true"]{ -webkit-user-drag:element; cursor:grab; }
+.tsl-mark[draggable="true"]:active{ cursor:grabbing; }
 .tsl-mark.busy{ color:var(--warn); background:var(--warn-wash); }
 .tsl-mark.failed{ color:var(--err); background:var(--err-wash); }
 .tsl-dot{
