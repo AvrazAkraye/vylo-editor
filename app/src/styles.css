@@ -1346,11 +1346,23 @@ body.resizing-v .cmp-grip i{ background:var(--brand); }
 }
 /* Four pixels of grab area straddling the border it sits on. `.hdiv` below is
    the same handle on the other axis and is written to the same numbers. */
+/* Ten pixels to hit, four to see.
+   It was four either way, and four pixels is a target people miss — somebody
+   who has never found this edge concludes the sidebar is a fixed width. The
+   strip is wide enough to catch a pointer that is roughly right; the line it
+   draws when you are on it stays thin, on a pseudo-element, so nothing about
+   the window looks heavier. Negative margins keep its footprint at zero, so
+   widening the target moved no other pixel. */
 .divider{
-  flex:none; width:var(--sp-2); cursor:col-resize; background:transparent;
-  margin-inline:calc(var(--sp-1) * -1); z-index:5;
+  flex:none; position:relative; inline-size:10px; cursor:col-resize;
+  background:transparent; margin-inline:-5px; z-index:5;
 }
-.divider:hover{ background:var(--brand); opacity:.55; }
+.divider::after{
+  content:''; position:absolute; inset-block:0; inset-inline-start:3px;
+  inline-size:var(--sp-2); background:transparent;
+}
+.divider:hover::after, .divider:focus-visible::after{ background:var(--brand); opacity:.55; }
+.divider:focus-visible{ outline:none; }
 body.resizing{ cursor:col-resize; user-select:none; }
 
 .work{ flex:1; display:flex; flex-direction:column; min-width:0; min-height:0; }

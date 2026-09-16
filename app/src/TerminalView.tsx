@@ -163,6 +163,23 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
     });
     const f = new FitAddon();
     t.loadAddon(f);
+
+    /**
+     * Whether the view is stuck to the end of the output.
+     *
+     * A terminal has two states and only one of them is "at the bottom": you
+     * are either watching what is happening, or you have scrolled up to read
+     * something and every line that arrives must not yank you away from it.
+     * Everything that scrolls on its own asks this first.
+     *
+     * It is recomputed from where the viewport actually ended up rather than
+     * set by each caller, so it does not matter whether a scroll came from the
+     * wheel, a keystroke, a resize or a write — the question is only ever
+     * "are we at the end now", and after any of them the answer is correct.
+     */
+    const pinned = { at: true };
+    const atEnd = () => t.buffer.active.viewportY >= t.buffer.active.baseY;
+    t.onScroll(() => { pinned.at = atEnd(); });
     /**
      * The suggestion list gets first refusal on a keypress.
      *
@@ -203,7 +220,26 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       // The reader thread can have a frame in flight when the pane goes away,
       // and writing to a disposed terminal throws.
       if (disposed) return;
-      if (m.kind === 'data') { t.write(m.data); cb.current.onData?.(m.data); }
+      if (m.kind === 'data') {
+        /**
+         * Follow the output, unless the reader has gone somewhere else.
+         *
+         * xterm scrolls on a write only while the viewport is exactly at the
+         * end, and it stops being exactly at the end for reasons that have
+         * nothing to do with the reader — the suggestion strip taking two rows
+         * as a command is typed, and giving them back when it is sent, is a
+         * resize on either side of every command. Land one row off and the
+         * command sits on the last line with its output below the fold, which
+         * is the whole of the reported behaviour: you press Enter and the
+         * answer does not appear.
+         *
+         * In the write callback rather than after it: `write` is buffered and
+         * parsed asynchronously, so scrolling on the line after it scrolls to
+         * where the output was about to be, not to where it is.
+         */
+        t.write(m.data, () => { if (pinned.at) t.scrollToBottom(); });
+        cb.current.onData?.(m.data);
+      }
       else if (!closed) { closed = true; cb.current.onExit(m.code); }
     };
 
@@ -267,8 +303,7 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
        * a terminal that jumped to the end there would be the same bug pointing
        * the other way.
        */
-      const buf = t.buffer.active;
-      const following = buf.viewportY >= buf.baseY;
+      const following = pinned.at;
       try { f.fit(); } catch { return; }
       if (following) t.scrollToBottom();
       if (ptyId !== null) {
@@ -310,6 +345,9 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
         // arrives here is one: a completion taken with Tab, a dropped file's
         // path, a command sent from the approval dialog. Text appearing at a
         // prompt somewhere above the fold is the same as text not appearing.
+        // Putting something at the prompt is also a decision to watch it, so
+        // the pin goes back on even if the reader had scrolled away.
+        pinned.at = true;
         t.scrollToBottom();
       },
       text: (lines) => {

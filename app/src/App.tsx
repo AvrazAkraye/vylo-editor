@@ -98,6 +98,29 @@ import { TodoPanel } from './TodoPanel';
 import { Working } from './Working';
 
 /** The three ways of working. See `space` in App. */
+/**
+ * How much wheel makes one step of zoom.
+ *
+ * About one notch of a mouse wheel, which is the unit people expect a notch to
+ * move. A trackpad pinch sends much smaller deltas and so takes several events
+ * per step, which is what makes a pinch feel continuous rather than jumpy.
+ */
+const WHEEL_RUNG = 40;
+
+/**
+ * How wide each sidebar starts, and what double-clicking its edge goes back
+ * to. Named rather than written twice: the first run and the reset have to
+ * agree, or "put it back" puts it somewhere it has never been.
+ */
+const SIDEBAR_W = 248;
+const RIGHT_W = 300;
+
+/** How far an arrow key moves a divider. A visible step, not a nudge. */
+const DIVIDER_STEP = 16;
+/** The range either sidebar may be dragged to. */
+const SIDE_MIN = 180;
+const SIDE_MAX = 560;
+
 /** What counts as a zoom key. See the handler for why there are five. */
 const ZOOM_KEYS = new Set(['+', '=', '-', '_', '0']);
 
@@ -549,7 +572,7 @@ export function App() {
     onMove: (from, to) => setTabs((p) => move(p, from, to)),
   });
   const [active, setActive] = useState<string>('chat');    // 'chat' | a path
-  const [sidebarW, setSidebarW] = useState(() => Number(localStorage.getItem('vylo.sbw')) || 248);
+  const [sidebarW, setSidebarW] = useState(() => Number(localStorage.getItem('vylo.sbw')) || SIDEBAR_W);
   const [theme, setTheme] = useState<Theme>(() => storedTheme());
   const [full, setFull] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
@@ -581,7 +604,7 @@ export function App() {
    */
   const [rightRail, setRightRail] = useState<ModuleId | null>(() => (localStorage.getItem('vylo.rrail') as ModuleId) || null);
   const [rightOpen, setRightOpen] = useState(() => localStorage.getItem('vylo.rropen') !== '0');
-  const [rightW, setRightW] = useState(() => Number(localStorage.getItem('vylo.rrw')) || 300);
+  const [rightW, setRightW] = useState(() => Number(localStorage.getItem('vylo.rrw')) || RIGHT_W);
   const resizingR = useRef(false);
   /** A rail icon's menu: dock on the other side, or turn the module off. */
   const [railMenu, setRailMenu] = useState<{ id: ModuleId; at: MenuPoint } | null>(null);
@@ -1048,6 +1071,41 @@ export function App() {
     // macOS's window-button hover zone stays the same size the OS draws it.
     document.documentElement.style.setProperty('--zoom', String(zoom));
   }, [zoom]);
+
+  /**
+   * Ctrl and the wheel, which is also a trackpad pinch.
+   *
+   * A pinch on a Mac trackpad arrives as a wheel event with `ctrlKey` set —
+   * the browsers' long-standing convention — so one handler covers both
+   * gestures without asking the OS anything, and ⌘ is deliberately not
+   * included because ⌘-wheel means nothing anywhere.
+   *
+   * Stepped on an accumulated delta rather than per event. A mouse notch is
+   * about 100 and a pinch arrives in ones and twos: a rung per event would
+   * make the wheel feel right and the pinch run the whole ladder in a
+   * heartbeat, and a rung per notch-sized threshold makes both move at the
+   * speed of the hand.
+   *
+   * Capturing and stopping it as well as preventing the default: underneath
+   * this are a terminal and an editor that both scroll on a wheel, and zooming
+   * while the page slides away is two gestures for one movement.
+   */
+  useEffect(() => {
+    let acc = 0;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      acc += e.deltaY;
+      while (Math.abs(acc) >= WHEEL_RUNG) {
+        const inwards = acc < 0;
+        acc -= inwards ? -WHEEL_RUNG : WHEEL_RUNG;
+        setZoom((z) => (inwards ? larger(z) : smaller(z)));
+      }
+    };
+    window.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => window.removeEventListener('wheel', onWheel, { capture: true });
+  }, []);
   const sizingTerm = useRef(false);
   const work = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -4760,11 +4818,27 @@ export function App() {
         </aside>
         )}
 
+        {/* Draggable, double-clickable and focusable. The drag is how almost
+            everybody will resize this; the other two are for the person who
+            cannot hold a pointer steady on a ten-pixel strip, and for the one
+            who has dragged it somewhere silly and wants out. */}
         {railOpen && leftIds.length > 0 && (
           <div className="divider" onMouseDown={() => {
             resizing.current = true;
             document.body.classList.add('resizing');
-          }} role="separator" aria-orientation="vertical" />
+          }} role="separator" aria-orientation="vertical"
+              tabIndex={0}
+              aria-label={t('Resize the sidebar')}
+              title={t('Drag to resize — double-click for the usual width')}
+              onDoubleClick={() => setSidebarW(SIDEBAR_W)}
+              onKeyDown={(e) => {
+                // Physical, like the drag: this edge moves left and right on
+                // the screen, and it does so in every language.
+                const by = e.key === 'ArrowLeft' ? -DIVIDER_STEP : e.key === 'ArrowRight' ? DIVIDER_STEP : 0;
+                if (!by) return;
+                e.preventDefault();
+                setSidebarW((w) => Math.min(SIDE_MAX, Math.max(SIDE_MIN, w + by)));
+              }} />
         )}
 
         <div className="work" ref={work}>
@@ -5099,7 +5173,19 @@ export function App() {
             <div className="divider rdiv" onMouseDown={() => {
               resizingR.current = true;
               document.body.classList.add('resizing');
-            }} role="separator" aria-orientation="vertical" />
+            }} role="separator" aria-orientation="vertical"
+                tabIndex={0}
+                aria-label={t('Resize the sidebar')}
+                title={t('Drag to resize — double-click for the usual width')}
+                onDoubleClick={() => setRightW(RIGHT_W)}
+                onKeyDown={(e) => {
+                  // The mirror image: this sidebar is on the other edge, so
+                  // the arrow that widens it is the opposite one.
+                  const by = e.key === 'ArrowRight' ? -DIVIDER_STEP : e.key === 'ArrowLeft' ? DIVIDER_STEP : 0;
+                  if (!by) return;
+                  e.preventDefault();
+                  setRightW((w) => Math.min(SIDE_MAX, Math.max(SIDE_MIN, w + by)));
+                }} />
             <aside className="sidebar right" style={{ width: rightW }}>
               {sideFor(rightShown, 'other')}
             </aside>
