@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.62.0.
+version 0.63.0.
 
 ---
 
@@ -452,6 +452,36 @@ agent, and there is deliberately no reverse. The only model-authored string that
 can ever reach a terminal is one you already approved in the dialog and then
 chose to run there.
 
+### The terminal reads your shell history
+
+Since 0.63.0 the completion list is seeded from your shell's own history file —
+`$HISTFILE` if you have exported one, then `~/.zsh_history`, `~/.bash_history`,
+`~/.local/share/fish/fish_history`, first one with anything in it. It is what
+makes the list able to finish `claude --dang` into a line you have run fifty
+times, rather than only lines you have typed into that pane since it opened.
+
+Three things about it:
+
+- **It only reads.** That file belongs to the shell, which rewrites it on exit,
+  and an app editing it would be an app corrupting your history to save you
+  four keystrokes. `shell_history` in `pty.rs` opens it read-only and there is
+  no writer anywhere in this application.
+- **Nothing leaves the machine.** The lines go into a list on screen, in the
+  window of the person whose history it is. No request in the table above
+  carries them, and the model is never given them — `shell_history`,
+  `shell_commands` and `complete_path` are absent from the tool schema exactly
+  as the `pty_*` commands are.
+- **Lines that look like they carry a credential are dropped** — `PASSWORD=`,
+  `TOKEN=`, `Authorization:`, `mysql -pHunter2`, `curl -u user:pass` and
+  similar. Read `looks_secret` before trusting that sentence: it is pattern
+  matching over arbitrary command lines and it will miss things. What it cannot
+  do is make anything worse, because a line it misses is offered exactly as
+  your own Up arrow would offer it. It is there because a suggestion appears
+  *unprompted*, four keystrokes in, and Up does not.
+
+If you would rather it read nothing, the file it reads is yours: point
+`HISTFILE` at `/dev/null` for the app's shell, or clear the history file.
+
 The screenshot button starts a process without asking, and earns that by having
 nothing to approve: every flag is a compile-time constant and the mode is a
 two-variant enum rather than a string, so there is no argument for anything to
@@ -575,7 +605,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.62.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.63.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -600,6 +630,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.62.0. Every statement above was read out of the code. If
+*Last checked against 0.63.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

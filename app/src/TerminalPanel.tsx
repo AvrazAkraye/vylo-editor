@@ -157,6 +157,25 @@ export function TerminalPanel({
   const [view, setView] = useState<RowView>(() => readView(localStorage.getItem(ROW_VIEW_KEY)));
   const [tuning, setTuning] = useState(false);
   const [pickAt, setPickAt] = useState(0);
+
+  /**
+   * What this person has already run, from their shell's own history file.
+   *
+   * Read once, because it is a file on disk that only the shell appends to and
+   * re-reading it per keystroke would be a syscall for a list that has not
+   * changed. Without it the completer knows only what has been typed into this
+   * pane since it opened, which makes the useful suggestion always one session
+   * too late: `claude --dang` cannot be finished into the line you have run
+   * fifty times if the only history is the one you started two minutes ago.
+   *
+   * Failure is silence. No history file, an unreadable one, an older build of
+   * the Rust side without the command — all of them mean the list falls back
+   * to this session's own lines, which is where it was before.
+   */
+  const [shellPast, setShellPast] = useState<string[]>([]);
+  useEffect(() => {
+    void invoke<string[]>('shell_history').then(setShellPast).catch(() => {});
+  }, []);
   /** Every program on PATH. Read once — PATH does not change while we run. */
   const programs = useRef<string[] | null>(null);
 
@@ -643,7 +662,10 @@ export function TerminalPanel({
       const done = (words: string[]) => {
         if (off) return;
         setMatches(suggest(input.line, {
-          history: history[focus] ?? [],
+          // The shell's own history first, this session's after it: `suggest`
+          // reads from the end, so what was typed here beats what was typed
+          // yesterday when both would finish the line.
+          history: [...shellPast, ...(history[focus] ?? [])],
           commands: kindOf(input.line) === 'command' ? words : [],
           paths: kindOf(input.line) === 'command' ? [] : words,
         }));
@@ -667,7 +689,7 @@ export function TerminalPanel({
       }
     }, 90);
     return () => { off = true; window.clearTimeout(id); };
-  }, [input, focus, root, cwds, history]);
+  }, [input, focus, root, cwds, history, shellPast]);
 
   /**
    * Take the chosen completion.

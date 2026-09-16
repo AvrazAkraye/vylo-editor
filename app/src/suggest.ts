@@ -240,9 +240,19 @@ export function preview(line: string, choice: Suggestion): string {
  * before, so `claude` most likely means that again, and the twenty other
  * binaries on `PATH` beginning with the same letters do not.
  *
- * Only the first word gets history, and only against the whole line: offering
- * a past command while somebody is halfway through typing a *path* would
- * replace the argument they are writing with a command they ran yesterday.
+ * History is matched against the **whole line, wherever the caret is in it**,
+ * and this used to be limited to the first word. The reasoning for that limit
+ * was that offering a past command mid-argument would replace the argument
+ * being written — but it cannot, because a candidate has to *start with*
+ * everything typed. Accepting one only ever adds characters; every character
+ * already on the line survives it. The limit was guarding against a looser
+ * match than this has ever made, and its cost was the case it is most wanted
+ * for: `claude --dang` could never find the line it is three keystrokes into.
+ *
+ * What the limit did buy is that a path is no longer always first. Type
+ * `cat READ` with `cat README.md && npm test` behind you and the whole line
+ * leads, with `README.md` under it — so the list is ordered by likelihood and
+ * the arrow keys are how you disagree.
  */
 export function suggest(
   line: string,
@@ -257,7 +267,7 @@ export function suggest(
   if (!typed) return [];
   const out: Suggestion[] = [];
 
-  if (kindOf(line) === 'command' && typed) {
+  if (typed) {
     // Most recent first, and never the line already typed.
     const past = [...(sources.history ?? [])].reverse()
       .filter((h) => h !== typed && h.startsWith(typed));

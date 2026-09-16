@@ -173,13 +173,38 @@ ok('history is capped, keeping the newest', (() => {
     return suggest('git', { history: h }).map((x) => x.text).join() === 'git b,git a';
   })());
 }
-// Offering a past command while somebody types a path would replace the
-// argument they are writing with a command they ran yesterday.
-ok('history is not offered mid-argument', (() => {
-  const s2 = suggest('cat READ', { history: ['cat README.md'], paths: ['README.md'] });
+// ── history, mid-line ────────────────────────────────────────────────────
+//
+// This used to stop at the first word, on the grounds that offering a past
+// command mid-argument would replace the argument being written. It cannot: a
+// candidate has to start with everything typed, so taking one only ever adds
+// characters. The limit was guarding against a looser match than this makes,
+// and it cost the case the feature is most wanted for.
+ok('a past line is offered from the middle of it', (() => {
+  const s2 = suggest('claude --dang', {
+    history: ['claude --dangerously-skip-permissions'], paths: [],
+  });
+  return s2[0]?.kind === 'history' && s2[0].text === 'claude --dangerously-skip-permissions';
+})(), suggest('claude --dang', { history: ['claude --dangerously-skip-permissions'] }));
+ok('however deep into the line the caret is', (() => {
+  const h = ['docker compose up --build --detach'];
+  return suggest('docker compose up --bu', { history: h })[0]?.text === h[0];
+})());
+ok('and every character already typed survives taking it', (() => {
+  const line = 'cat READ';
+  const s2 = suggest(line, { history: ['cat README.md && npm test'], paths: ['README.md'] });
+  return s2[0].kind === 'history' && s2[0].text.startsWith(line);
+})());
+ok('a past line that diverges from what is typed is not offered', (() => {
+  const s2 = suggest('cat X', { history: ['cat README.md'], paths: [] });
   return s2.every((x) => x.kind !== 'history');
 })());
-ok('but paths still are', (() => {
+// The list is ordered by likelihood; the arrow keys are how you disagree.
+ok('the path is still there, under the line that leads', (() => {
+  const s2 = suggest('cat READ', { history: ['cat README.md && npm test'], paths: ['README.md'] });
+  return s2.some((x) => x.kind === 'path' && x.text === 'README.md');
+})(), suggest('cat READ', { history: ['cat README.md && npm test'], paths: ['README.md'] }));
+ok('and with no history it leads on its own', (() => {
   const s2 = suggest('cat READ', { history: [], paths: ['README.md'] });
   return s2[0].kind === 'path' && s2[0].text === 'README.md';
 })());

@@ -545,8 +545,275 @@ pub fn pty_close(state: tauri::State<'_, Terminals>, id: u32) -> Result<(), Stri
     Ok(())
 }
 
+/// Lines that look like they carry a credential typed inline.
+///
+/// A coarse filter and described as one: it is pattern matching over other
+/// people's command lines, so it will miss things. What it cannot do is make
+/// anything worse — a line it misses is offered exactly as the shell's own
+/// Up arrow would offer it, and a line it catches is one fewer password on
+/// screen for somebody who only typed four letters. That asymmetry is the
+/// whole argument for having it.
+fn looks_secret(line: &str) -> bool {
+    let low = line.to_lowercase();
+    const MARKERS: [&str; 12] = [
+        "password=", "passwd=", "secret=", "token=", "api_key=", "apikey=",
+        "access_key", "authorization:", "bearer ", "private_key", "--password",
+        "sk-",
+    ];
+    if MARKERS.iter().any(|m| low.contains(m)) {
+        return true;
+    }
+    // `mysql -pHunter2`: the password is attached, because that is the only
+    // way that flag takes one. A bare `-p` is a flag — `ls -p`, `docker run -p
+    // 8080:80` — and is left alone.
+    let words: Vec<&str> = low.split_whitespace().collect();
+    if words.iter().any(|w| w.starts_with("-p") && w.len() > 2 && !w.starts_with("-p-")) {
+        return true;
+    }
+    // `curl -u alice:s3cret`, attached or not. A following word with a colon
+    // in it is a user:password pair unless it is plainly a URL.
+    words.windows(2).any(|pair| {
+        let (flag, next) = (pair[0], pair[1]);
+        (flag == "-u" || flag == "--user") && next.contains(':') && !next.contains("//")
+    }) || words.iter().any(|w| w.starts_with("-u") && w.len() > 2 && w.contains(':'))
+}
+
+/// One history file's lines, whatever format it is in.
+fn parse_history(name: &str, text: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if name.contains("fish") {
+        // `- cmd: git status`, one entry per record, `when:` lines ignored.
+        for line in text.lines() {
+            if let Some(rest) = line.strip_prefix("- cmd: ") {
+                out.push(rest.to_string());
+            }
+        }
+        return out;
+    }
+    // zsh and bash. zsh's extended format prefixes `: <started>:<elapsed>;`,
+    // and both continue a line that ends in a backslash — a multi-line command
+    // is one command, and half of one is not worth offering back.
+    let mut pending = String::new();
+    for raw in text.lines() {
+        // A bash file with HISTTIMEFORMAT set carries `#1699999999` lines.
+        if pending.is_empty() && raw.starts_with('#') {
+            continue;
+        }
+        let mut line = raw;
+        if pending.is_empty() {
+            if let Some(rest) = line.strip_prefix(": ") {
+                if let Some(at) = rest.find(';') {
+                    line = &rest[at + 1..];
+                }
+            }
+        }
+        if let Some(head) = line.strip_suffix('\\') {
+            pending.push_str(head);
+            pending.push('\n');
+            continue;
+        }
+        if pending.is_empty() {
+            out.push(line.to_string());
+        } else {
+            pending.push_str(line);
+            out.push(std::mem::take(&mut pending));
+        }
+    }
+    if !pending.is_empty() {
+        out.push(pending);
+    }
+    out
+}
+
+/// Where this person's shell keeps its history.
+fn history_files() -> Vec<std::path::PathBuf> {
+    let mut out: Vec<std::path::PathBuf> = Vec::new();
+    // `HISTFILE` is a shell variable rather than an exported one, so it is
+    // usually absent here — but when somebody has exported it, they have said
+    // exactly where to look and that beats guessing.
+    if let Some(f) = std::env::var_os("HISTFILE") {
+        out.push(std::path::PathBuf::from(f));
+    }
+    let home = match dirs_home() {
+        Some(h) => h,
+        None => return out,
+    };
+    if let Some(z) = std::env::var_os("ZDOTDIR") {
+        out.push(std::path::PathBuf::from(z).join(".zsh_history"));
+    }
+    out.push(home.join(".zsh_history"));
+    out.push(home.join(".bash_history"));
+    out.push(home.join(".local/share/fish/fish_history"));
+    out
+}
+
+/// Lines this person has already run, from their shell's own history file.
+///
+/// ## Why read it at all
+///
+/// The completion list is only as good as what it knows you have run, and
+/// until this it knew only what you had typed into *this* pane since it
+/// opened. So a terminal opened a minute ago could not finish
+/// `claude --dang` into the line you have run fifty times, which is precisely
+/// the line worth finishing — the useful suggestion was always one session too
+/// late.
+///
+/// ## What this does and does not do
+///
+/// It **reads**. `~/.zsh_history` belongs to the shell, which rewrites it on
+/// exit, and an app editing it would be an app corrupting somebody's history
+/// to save them four keystrokes. Nothing here writes, and nothing here leaves
+/// the machine: the lines go into a list on screen, in the window of the
+/// person whose history it is.
+///
+/// Lines that look like they carry a credential are dropped — see
+/// `looks_secret`, and note what it claims, which is not much.
+#[tauri::command]
+pub fn shell_history(limit: Option<usize>) -> Vec<String> {
+    let cap = limit.unwrap_or(500).clamp(1, 5000);
+    let mut lines: Vec<String> = Vec::new();
+    for file in history_files() {
+        let name = file.to_string_lossy().to_string();
+        // Bytes, then lossy: zsh metafies anything non-ASCII, so a history
+        // with one accented path in it is not valid UTF-8 and `read_to_string`
+        // would throw the whole file away over a character nobody typed.
+        let bytes = match std::fs::read(&file) {
+            Ok(b) => b,
+            Err(_) => continue,
+        };
+        lines.extend(parse_history(&name, &String::from_utf8_lossy(&bytes)));
+        // The first file that had anything in it is this person's shell.
+        if !lines.is_empty() {
+            break;
+        }
+    }
+
+    trim_history(&lines, cap)
+}
+
+/// The usable tail of a history file: newest last, each line once.
+///
+/// Walked backwards and reversed at the end rather than filtered forwards,
+/// and that is the whole point of the function: the cap has to keep the
+/// *newest* lines, and a forward pass that stops at the cap keeps the oldest —
+/// a history of what somebody was doing when they set the machine up.
+fn trim_history(lines: &[String], cap: usize) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    for line in lines.iter().rev() {
+        let one = line.trim();
+        // A thousand characters is a pasted file, not a command anybody wants
+        // offered back a letter at a time.
+        if one.is_empty() || one.len() > 1000 || looks_secret(one) {
+            continue;
+        }
+        if seen.insert(one.to_string()) {
+            out.push(one.to_string());
+        }
+        if out.len() >= cap {
+            break;
+        }
+    }
+    out.reverse();
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    /// The shell's own history, in the three formats it comes in.
+    ///
+    /// Parsed rather than read line for line, because zsh's extended format
+    /// puts a timestamp in front of every command and bash puts one on its own
+    /// line — offering `: 1699999999:0;git status` back to somebody would be
+    /// the completer suggesting a string no shell has ever accepted.
+    #[test]
+    fn shell_history_is_parsed_per_format() {
+        // zsh, extended, with a continued line and a plain one mixed in.
+        let zsh = ": 1699999990:0;git status\n\
+                   : 1699999991:0;claude --dangerously-skip-permissions\n\
+                   plain-line\n\
+                   : 1699999992:0;for f in *; do\\\n\
+                   echo $f; done\n";
+        let got = super::parse_history("/home/me/.zsh_history", zsh);
+        assert!(got.contains(&"git status".to_string()), "{got:?}");
+        assert!(
+            got.contains(&"claude --dangerously-skip-permissions".to_string()),
+            "the line this whole feature is for: {got:?}"
+        );
+        assert!(got.contains(&"plain-line".to_string()), "old-format lines too: {got:?}");
+        assert!(
+            got.iter().any(|x| x.contains("for f in *") && x.contains("echo $f")),
+            "a continued line is one command: {got:?}"
+        );
+        assert!(!got.iter().any(|x| x.starts_with(": 1699")), "no timestamps: {got:?}");
+
+        // bash, with HISTTIMEFORMAT set, which writes its own comment lines.
+        let bash = "#1699999990\nls -la\n#1699999991\nnpm test\n";
+        let got = super::parse_history("/home/me/.bash_history", bash);
+        assert_eq!(got, vec!["ls -la".to_string(), "npm test".to_string()], "{got:?}");
+
+        // fish keeps a record per command and a `when:` beside it.
+        let fish = "- cmd: git push\n  when: 1699999990\n- cmd: cargo test\n  when: 1699999991\n";
+        let got = super::parse_history("/home/me/.local/share/fish/fish_history", fish);
+        assert_eq!(got, vec!["git push".to_string(), "cargo test".to_string()], "{got:?}");
+    }
+
+    /// Newest last, each line once, and the cap keeps the newest.
+    #[test]
+    fn history_is_trimmed_newest_last() {
+        let lines: Vec<String> = ["old", "git status", "npm test", "git status", "  ", "cargo test"]
+            .iter().map(|x| x.to_string()).collect();
+        let got = super::trim_history(&lines, 100);
+        assert_eq!(
+            got,
+            vec!["old".to_string(), "npm test".to_string(),
+                 "git status".to_string(), "cargo test".to_string()],
+            "a repeat moves to where it was last run, and blanks are not history: {got:?}"
+        );
+
+        // The cap keeps the newest. A forward pass would have kept `a`.
+        let many: Vec<String> = (0..50).map(|i| format!("cmd{i}")).collect();
+        let got = super::trim_history(&many, 3);
+        assert_eq!(got, vec!["cmd47".to_string(), "cmd48".to_string(), "cmd49".to_string()], "{got:?}");
+
+        // And the filter applies before the cap, or three secrets would be a
+        // completion list with nothing in it.
+        let mixed: Vec<String> = ["ls", "export TOKEN=abc", "npm test", "PASSWORD=x id"]
+            .iter().map(|x| x.to_string()).collect();
+        let got = super::trim_history(&mixed, 100);
+        assert_eq!(got, vec!["ls".to_string(), "npm test".to_string()], "{got:?}");
+    }
+
+    /// What is dropped before anything reaches the screen.
+    ///
+    /// The filter claims very little — see `looks_secret` — but what it claims
+    /// it has to do, because these are the shapes that actually turn up in a
+    /// history file and each one is a password rendered under somebody's
+    /// cursor for four keystrokes of typing.
+    #[test]
+    fn credential_shaped_history_is_left_out() {
+        for line in [
+            "export API_KEY=sk-abcdef",
+            "PASSWORD=hunter2 ./deploy.sh",
+            "mysql -u root -pHunter2",
+            "curl -H 'Authorization: Bearer abc123' https://x",
+            "curl -u alice:s3cret https://x",
+            "aws --secret=abc123 s3 ls",
+        ] {
+            assert!(super::looks_secret(line), "should be dropped: {line}");
+        }
+        for line in [
+            "git commit -m 'fix the token parser'",
+            "npm test",
+            "claude --dangerously-skip-permissions",
+            "ls -p",
+            "docker run -p 8080:80 nginx",
+            "grep -u",
+        ] {
+            assert!(!super::looks_secret(line), "should be kept: {line}");
+        }
+    }
+
     /// Names only, from the directory the fragment points at. The cases that
     /// matter are the ones a shell gets right and a naive split does not.
     #[test]
