@@ -2179,6 +2179,11 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   white-space:pre; overflow:hidden; text-overflow:ellipsis; direction:ltr;
 }
 .tpaste em{ flex:none; font-style:normal; font-size:var(--fs-1); color:var(--warn); }
+/* A file is not a hazard, it is a thing — so it gets the brand rather than the
+   warning, and its number is what the eye lands on. */
+.tpaste.file > svg{ color:var(--brand); }
+.tpaste.file .tpaste-what b{ color:var(--brand); }
+
 /* The one case worth a colour: text ending in a return runs on arrival. */
 .tpaste.runs{ border-block-start-color:var(--warn); }
 .tpaste.runs > svg{ color:var(--warn); }

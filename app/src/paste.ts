@@ -154,3 +154,66 @@ export function pathForPrompt(abs: string, cwd: string): string {
   if (!full.startsWith(`${norm(here)}/`)) return abs;
   return abs.slice(here.length + 1);
 }
+
+/* ── an image on the clipboard ───────────────────────────────────────────
+   Copying a screenshot does not put a picture on the clipboard as far as a
+   web view is concerned. macOS writes the file somewhere temporary and puts
+   its *path* there as plain text, so pasting one into a terminal produced
+   sixty characters of `/var/folders/xy/8dln…/T/TemporaryItems/…` across two
+   lines, which is technically the right answer and unreadable.
+
+   It is still a real file and still worth having at a prompt — so it is held
+   and described like any other bulk paste, as `image #1` and a filename, and
+   the path goes in when somebody says so. */
+
+/** Extensions worth calling a picture rather than a file. */
+const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.heif', '.bmp', '.tiff', '.svg', '.avif'];
+
+/**
+ * Places an operating system puts a file it does not intend to keep.
+ *
+ * Worth saying on the chip, because the difference matters the moment the
+ * terminal is used for anything: a path under `TemporaryItems` is gone by the
+ * next login, and a command written against it works today and not tomorrow.
+ */
+const TEMPORARY = [
+  '/t/temporaryitems/', '/var/folders/', '/tmp/', '/private/var/folders/',
+  '\\temp\\', '\\appdata\\local\\temp\\',
+];
+
+export interface PastedFile {
+  path: string;
+  /** The last segment, which is what a person recognises it by. */
+  name: string;
+  image: boolean;
+  /** The operating system will delete it. */
+  temporary: boolean;
+}
+
+/**
+ * A pasted path, if that is what this is.
+ *
+ * Deliberately narrow. Anything with a line break in it is prose, and anything
+ * relative is a fragment of a sentence far more often than it is a file — the
+ * whole value here is being right, because a chip over an ordinary paste is a
+ * step somebody has to dismiss to do what they meant.
+ */
+export function pastedFile(text: string): PastedFile | null {
+  const one = text.trim();
+  if (!one || /[\r\n]/.test(one) || !isAbsolute(one)) return null;
+  const name = one.split(/[\\/]/).pop() ?? '';
+  // A path with no last segment is a directory separator, not a file.
+  if (!name) return null;
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot).toLowerCase() : '';
+  // An extension is what makes this a file rather than a folder somebody
+  // dragged the address of. Without one there is nothing to be confident about.
+  if (!ext) return null;
+  const low = one.toLowerCase().replace(/\\/g, '\\');
+  return {
+    path: one,
+    name,
+    image: IMAGE_EXT.includes(ext),
+    temporary: TEMPORARY.some((t) => low.includes(t)),
+  };
+}

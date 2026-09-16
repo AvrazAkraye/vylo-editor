@@ -6,7 +6,7 @@
 // they learn to dismiss without reading, which is worse than not having it.
 import {
   BULK_BYTES, BULK_LINES, DRAG_PATH, head, isAbsolute, isBulk, pathForPrompt, size,
-  summarise, under,
+  pastedFile, summarise, under,
 } from '../.test-build/paste.js';
 
 let pass = 0, fail = 0;
@@ -108,6 +108,45 @@ ok('a trailing slash on the shell\'s directory changes nothing',
    pathForPrompt('/Users/me/vylo/App.js', '/Users/me/vylo/') === 'App.js');
 ok('with no directory known, the path is left as it is',
    pathForPrompt('/Users/me/vylo/App.js', '') === '/Users/me/vylo/App.js');
+
+// ── an image on the clipboard ─────────────────────────────────────────────
+//
+// Copying a screenshot does not put a picture on the clipboard as far as a web
+// view is concerned: macOS writes the file somewhere temporary and puts its
+// path there as text. The reported case, verbatim:
+const SHOT = '/var/folders/xy/8dln245503q9ggr8xjj13y840000gn/T/TemporaryItems/'
+  + 'NSIRD_screencaptureui_VMsUO4/Screenshot 2026-09-16 at 8.59.24 PM.png';
+{
+  const f = pastedFile(SHOT);
+  ok('a pasted screenshot is recognised as a file', f !== null, f);
+  ok('and as a picture', f.image === true);
+  ok('the name is what a person recognises it by',
+     f.name === 'Screenshot 2026-09-16 at 8.59.24 PM.png', f.name);
+  // A command written against it works today and not tomorrow, and the chip
+  // is the only place that can say so.
+  ok('and it is known to be temporary', f.temporary === true);
+  ok('spaces in the name do not break it', f.path === SHOT);
+}
+ok('an ordinary file is a file but not a picture', (() => {
+  const f = pastedFile('/Users/me/vylo/README.md');
+  return f !== null && f.image === false && f.temporary === false;
+})());
+ok('a path in /tmp is temporary too', pastedFile('/tmp/x.png').temporary === true);
+ok('case does not decide the extension', pastedFile('/a/B.PNG').image === true);
+
+// Narrow on purpose: a chip over an ordinary paste is a step somebody has to
+// dismiss to do what they meant.
+ok('prose is not a path', pastedFile('the file is in /Users/me/vylo') === null);
+ok('anything with a line break is not a path', pastedFile('/a/b.png\nrm -rf /') === null);
+ok('a relative path is not enough to be sure', pastedFile('src/App.js') === null);
+ok('nor is a folder, which has no extension', pastedFile('/Users/me/vylo') === null);
+ok('nor a bare separator', pastedFile('/') === null);
+ok('an empty paste is nothing', pastedFile('   ') === null);
+ok('a windows path works the same', (() => {
+  const f = pastedFile('C:\\Users\\me\\Pictures\\shot.png');
+  return f !== null && f.image === true && f.name === 'shot.png';
+})(), pastedFile('C:\\Users\\me\\Pictures\\shot.png'));
+ok('a dotfile is not an extension', pastedFile('/Users/me/.zshrc') === null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -15,8 +15,8 @@ import {
 import { fill } from './i18n';
 import { fragment } from './suggest';
 import {
-  DRAG_PATH, head as pasteHead, isBulk, pathForPrompt, size as pasteSize,
-  summarise as pasteInfo, under,
+  DRAG_PATH, head as pasteHead, isBulk, pastedFile, pathForPrompt, size as pasteSize,
+  summarise as pasteInfo, under, type PastedFile,
 } from './paste';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import { PRESETS, apply as applyPreset, describe as describeLayout, type Preset } from './layouts';
@@ -377,7 +377,17 @@ export function TerminalPanel({
    * paste.ts. One at a time and per pane: a second paste while one is waiting
    * replaces it, which is what somebody who pasted the wrong thing does next.
    */
-  const [held, setHeld] = useState<{ id: string; text: string } | null>(null);
+  const [held, setHeld] = useState<{ id: string; text: string; file?: PastedFile; n?: number } | null>(null);
+
+  /**
+   * How many files have been pasted into this panel.
+   *
+   * Only so a chip can say *which* one — `image #1`, `image #2`. A path is
+   * sixty characters of `/var/folders/xy/8dln…` and tells nobody anything at
+   * a glance; a number and a filename do. It counts up for the life of the
+   * panel and is never read for anything else.
+   */
+  const pasted = useRef(0);
 
   /**
    * Which pane the pointer is over during a drag, or null.
@@ -1260,6 +1270,16 @@ export function TerminalPanel({
                  * command somebody copied is not a decision they have to make.
                  */
                 onPaste={(text) => {
+                  // A file first. macOS puts a screenshot's path on the
+                  // clipboard as text, and it is short enough and single
+                  // enough that the bulk rule below would wave it through as
+                  // sixty characters of `/var/folders/…` at the prompt.
+                  const file = pastedFile(text);
+                  if (file) {
+                    pasted.current += 1;
+                    setHeld({ id: tab.id, text, file, n: pasted.current });
+                    return true;
+                  }
                   if (!isBulk(text)) return false;
                   setHeld({ id: tab.id, text });
                   return true;
@@ -1271,7 +1291,15 @@ export function TerminalPanel({
                   // while the paste sat there unexplained.
                   if (held?.id === tab.id) {
                     if (e.key === 'Enter') {
-                      handles.current.get(tab.id)?.paste(held.text);
+                      // A file goes in as a quoted path; text goes in as a
+                      // paste, so the program on the other end gets whatever
+                      // bracketing it asked for.
+                      if (held.file) {
+                        handles.current.get(tab.id)?.type(
+                          `${quotePath(pathForPrompt(held.file.path, cwds[tab.id] || root))} `);
+                      } else {
+                        handles.current.get(tab.id)?.paste(held.text);
+                      }
                       setHeld(null);
                       return true;
                     }
@@ -1332,7 +1360,31 @@ export function TerminalPanel({
                   the button below is pressed — see paste.ts for why a bulk
                   paste is the one path into a prompt that was not already a
                   decision somebody made. */}
-              {held?.id === tab.id && (() => {
+              {held?.id === tab.id && held.file && (
+                /* `image #1`, not the path. The path is the answer and the
+                   chip is the question, and sixty characters of
+                   `/var/folders/xy/8dln…` asks nothing anybody can read. What
+                   goes to the shell when this is taken is still the real
+                   path, quoted — a placeholder would be a name no shell
+                   knows. */
+                <div className="tpaste file" role="status">
+                  <Icon name={held.file.image ? 'image' : 'file'} size={12} />
+                  <span className="tpaste-what">
+                    <b>{fill(t(held.file.image ? 'image #{n}' : 'file #{n}'), { n: held.n ?? 1 })}</b>
+                    <code>{held.file.name}</code>
+                  </span>
+                  {held.file.temporary && <em>{t('temporary — copy it somewhere to keep it')}</em>}
+                  <button className="tpaste-go" onClick={() => {
+                    handles.current.get(tab.id)?.type(
+                      `${quotePath(pathForPrompt(held.file!.path, cwds[tab.id] || root))} `);
+                    setHeld(null);
+                  }}>{t('Paste the path')}<kbd>⏎</kbd></button>
+                  <button className="tpaste-no" onClick={() => setHeld(null)}
+                          aria-label={t('Discard')}><Icon name="close" size={11} /></button>
+                </div>
+              )}
+
+              {held?.id === tab.id && !held.file && (() => {
                 const info = pasteInfo(held.text);
                 return (
                   <div className={`tpaste ${info.runs ? 'runs' : ''}`} role="status">
