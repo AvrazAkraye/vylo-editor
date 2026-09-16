@@ -181,6 +181,16 @@ const TEMPORARY = [
   '\\temp\\', '\\appdata\\local\\temp\\',
 ];
 
+/**
+ * How much of a path can go straight to the prompt.
+ *
+ * A terminal is about eighty columns. A path taking most of a line is one
+ * nobody can check at a glance, and checking it is the point of putting it
+ * there rather than running it — the reported case wrapped onto three lines
+ * and was unreadable on all of them.
+ */
+export const PATH_INLINE = 60;
+
 export interface PastedFile {
   path: string;
   /** The last segment, which is what a person recognises it by. */
@@ -198,22 +208,54 @@ export interface PastedFile {
  * whole value here is being right, because a chip over an ordinary paste is a
  * step somebody has to dismiss to do what they meant.
  */
+/** Whether the operating system will delete this by itself. */
+export function isTemporary(path: string): boolean {
+  const low = path.toLowerCase();
+  return TEMPORARY.some((t) => low.includes(t));
+}
+
+/**
+ * What a path is, without asking whether it is plausible.
+ *
+ * `pastedFile` below is the narrow one, because a paste has to be *guessed*
+ * at. A file that arrives by drag came from a file system and needs no
+ * guessing, so it comes here.
+ */
+export function describe(path: string): PastedFile {
+  const name = path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+  const dot = name.lastIndexOf('.');
+  const ext = dot > 0 ? name.slice(dot).toLowerCase() : '';
+  return { path, name, image: IMAGE_EXT.includes(ext), temporary: isTemporary(path) };
+}
+
+/**
+ * Whether a path is worth showing before it lands at the prompt.
+ *
+ * Two reasons, and both are about the text rather than about where it came
+ * from — a rule about the source would have to say why dragging a file out of
+ * the explorer is different from dragging the same file out of Finder, and it
+ * is not.
+ *
+ * Temporary, because a command written against a path the system is about to
+ * delete works today and not tomorrow, and this is the last moment anything
+ * can say so. Or long, because it will not fit on a line and a path nobody can
+ * read is one nobody can check.
+ *
+ * Everything else lands as it always did. A chip over `App.js` is a step
+ * somebody has to clear to do what the drag already said.
+ */
+export function worthHolding(path: string): boolean {
+  return isTemporary(path) || path.length > PATH_INLINE;
+}
+
 export function pastedFile(text: string): PastedFile | null {
   const one = text.trim();
   if (!one || /[\r\n]/.test(one) || !isAbsolute(one)) return null;
   const name = one.split(/[\\/]/).pop() ?? '';
   // A path with no last segment is a directory separator, not a file.
   if (!name) return null;
-  const dot = name.lastIndexOf('.');
-  const ext = dot > 0 ? name.slice(dot).toLowerCase() : '';
   // An extension is what makes this a file rather than a folder somebody
   // dragged the address of. Without one there is nothing to be confident about.
-  if (!ext) return null;
-  const low = one.toLowerCase().replace(/\\/g, '\\');
-  return {
-    path: one,
-    name,
-    image: IMAGE_EXT.includes(ext),
-    temporary: TEMPORARY.some((t) => low.includes(t)),
-  };
+  if (name.lastIndexOf('.') <= 0) return null;
+  return describe(one);
 }

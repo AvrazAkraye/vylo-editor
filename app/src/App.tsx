@@ -608,6 +608,8 @@ export function App() {
   const resizingR = useRef(false);
   /** A rail icon's menu: dock on the other side, or turn the module off. */
   const [railMenu, setRailMenu] = useState<{ id: ModuleId; at: MenuPoint } | null>(null);
+  /** Right-click in the file tree. */
+  const [fileMenu, setFileMenu] = useState<{ path: string; isDir: boolean; at: MenuPoint } | null>(null);
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem('vylo.railopen') !== '0');
   // The line a search result asked for, cleared once the file is showing so
   // reopening the same file later does not jump again.
@@ -4196,7 +4198,8 @@ export function App() {
                           onOpen={openFile} changed={new Set(changes.map((c) => c.path))}
                           onRename={(p) => void renameEntry(p)}
                           onDelete={(p, d) => void deleteEntry(p, d)}
-                          onNewIn={(d) => void newFile(d)} />
+                          onNewIn={(d) => void newFile(d)}
+                          onMenu={(path, isDir, at) => setFileMenu({ path, isDir, at })} />
               : (
                 <div className="sb-cta">
                   <p className="ft-empty">{t('Open a folder, or drop one here')}</p>
@@ -4654,6 +4657,40 @@ export function App() {
                     }} />
           </div>
         </div>
+      )}
+
+      {fileMenu && (
+        <ContextMenu
+          at={fileMenu.at}
+          items={[
+            /* Both, because the two answer different questions: the whole path
+               is what a command outside this window needs, and the short one is
+               what a person pastes into a message or a commit. */
+            { kind: 'action', id: 'copyPath', label: 'Copy the path' },
+            { kind: 'action', id: 'copyRel', label: 'Copy the path from the project' },
+            { kind: 'divider' },
+            ...(fileMenu.isDir
+              ? [{ kind: 'action', id: 'new', label: 'New file here' } as MenuItem]
+              : [{ kind: 'action', id: 'open', label: 'Open' } as MenuItem]),
+            { kind: 'action', id: 'rename', label: 'Rename' },
+            { kind: 'divider' },
+            { kind: 'action', id: 'delete', label: 'Delete', danger: true },
+          ]}
+          t={t}
+          label={`${t('Actions')} — ${nameOf(fileMenu.path)}`}
+          onPick={(id) => {
+            // The tree holds paths relative to the open folder — see the walk
+            // in `walk.rs`. The whole path is that, under the root.
+            const whole = `${root.replace(/[\\/]+$/, '')}/${fileMenu.path}`;
+            if (id === 'copyPath') void navigator.clipboard.writeText(whole).catch(() => {});
+            else if (id === 'copyRel') void navigator.clipboard.writeText(fileMenu.path).catch(() => {});
+            else if (id === 'open') void openFile(fileMenu.path);
+            else if (id === 'new') void newFile(fileMenu.path);
+            else if (id === 'rename') void renameEntry(fileMenu.path);
+            else if (id === 'delete') void deleteEntry(fileMenu.path, fileMenu.isDir);
+          }}
+          onClose={() => setFileMenu(null)}
+        />
       )}
 
       {railMenu && (

@@ -6,7 +6,7 @@
 // they learn to dismiss without reading, which is worse than not having it.
 import {
   BULK_BYTES, BULK_LINES, DRAG_PATH, head, isAbsolute, isBulk, pathForPrompt, size,
-  pastedFile, summarise, under,
+  PATH_INLINE, describe, isTemporary, pastedFile, summarise, under, worthHolding,
 } from '../.test-build/paste.js';
 
 let pass = 0, fail = 0;
@@ -147,6 +147,40 @@ ok('a windows path works the same', (() => {
   return f !== null && f.image === true && f.name === 'shot.png';
 })(), pastedFile('C:\\Users\\me\\Pictures\\shot.png'));
 ok('a dotfile is not an extension', pastedFile('/Users/me/.zshrc') === null);
+
+// ── what is worth looking at before it lands ──────────────────────────────
+//
+// A rule about the text, not about where it came from. A rule about the source
+// would have to say why dragging a file out of the explorer is different from
+// dragging the same file out of Finder, and it is not.
+
+ok('a screenshot off the desktop is held — it is temporary', worthHolding(SHOT));
+ok('and so is anything too long to read on a line',
+   worthHolding(`/${'x'.repeat(PATH_INLINE)}`) && !worthHolding(`/${'x'.repeat(PATH_INLINE - 2)}`));
+// A chip over `App.js` is a step somebody has to clear to do what the drag
+// already said.
+ok('a short permanent path lands in one gesture',
+   !worthHolding('/Users/me/vylo/App.js'));
+ok('a project file dragged from the explorer is not held', !worthHolding('src/App.js'));
+ok('temporariness is about the place, not the name',
+   isTemporary('/tmp/notes.txt') && !isTemporary('/Users/me/tmp-notes.txt'));
+ok('and the windows temp directory counts',
+   isTemporary('C:\\Users\\me\\AppData\\Local\\Temp\\x.png'));
+
+// `describe` answers for anything that came off a file system, where there is
+// nothing to guess about — unlike `pastedFile`, which has to be sure.
+{
+  const d = describe('/Users/me/Pictures/holiday.JPG');
+  ok('a dragged file is described without guessing', d.image === true && d.name === 'holiday.JPG');
+}
+ok('a folder is describable even with no extension', (() => {
+  const d = describe('/Users/me/vylo/src');
+  return d.name === 'src' && d.image === false;
+})());
+ok('a trailing slash does not make the name empty', describe('/Users/me/vylo/').name === 'vylo');
+// The narrow one still refuses what it cannot be sure of.
+ok('describe answers where pastedFile declines',
+   describe('/Users/me/vylo').name === 'vylo' && pastedFile('/Users/me/vylo') === null);
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

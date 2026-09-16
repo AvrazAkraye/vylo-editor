@@ -77,6 +77,15 @@ interface Props {
   /** New file inside a folder, so the path is prefilled with where you clicked. */
   onNewIn: (dir: string) => void;
   /**
+   * Right-click, with the point to open at.
+   *
+   * The row already carries three hover buttons and the reasoning for that is
+   * sound — but copying a path is the thing people want from a file tree most
+   * often after opening one, and a fourth icon in a 22px row is a fourth thing
+   * to miss. It goes in a menu, where people already look for it.
+   */
+  onMenu?: (path: string, isDir: boolean, at: { x: number; y: number }) => void;
+  /**
    * This component took no translator at all, so the explorer — the panel that
    * is open the whole time — was the one part of the interface still speaking
    * English inside a right-to-left one: three button labels, the staged-changes
@@ -85,7 +94,7 @@ interface Props {
   t: (s: string) => string;
 }
 
-export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelete, onNewIn, t }: Props) {
+export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelete, onNewIn, onMenu, t }: Props) {
   const tree = useMemo(() => build(entries), [entries]);
   // Top level starts open; everything deeper starts closed, so a big repo does
   // not unfold into thousands of rows on first sight.
@@ -153,6 +162,14 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
        * resolving it is the business of whatever catches it, because only the
        * catcher knows what it is relative *to*.
        */
+      const menu = onMenu
+        ? {
+            onContextMenu: (e: React.MouseEvent) => {
+              e.preventDefault();
+              onMenu(n.path, n.isDir, { x: e.clientX, y: e.clientY });
+            },
+          }
+        : {};
       const dragging = {
         draggable: true,
         onDragStart: (e: React.DragEvent) => {
@@ -164,7 +181,7 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
       if (n.isDir) {
         const open = expanded.has(n.path);
         return [
-          <div key={n.path} className="ft-row ft-dir" style={pad} {...dragging}>
+          <div key={n.path} className="ft-row ft-dir" style={pad} {...dragging} {...menu}>
             <button className="ft-hit" onClick={() => toggle(n.path)} title={n.path}>
               <span className={`ft-caret ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>
               <span className="ft-name">{n.name}</span>
@@ -177,7 +194,7 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
       return [
         <div key={n.path}
              className={`ft-row ${n.path === openPath ? 'on' : ''} ${changed.has(n.path) ? 'changed' : ''}`}
-             style={pad} {...dragging}>
+             style={pad} {...dragging} {...menu}>
           <button className="ft-hit" onClick={() => onOpen(n.path)} title={n.path}>
             <span className="ft-icon">{iconFor(n.name)}</span>
             <span className="ft-name">{n.name}</span>
