@@ -1449,9 +1449,21 @@ export function App() {
    * that gets reported as "it lost my message", and there is no site that
    * writes to this and means for it to stay hidden.
    */
+  const lastWrite = useRef({ prompt, shots });
   useEffect(() => {
-    if (!askOpen && (prompt.trim() || shots.length)) setAskOpen(true);
-  }, [prompt, shots, askOpen]);
+    // *Changed*, not *non-empty* — and the difference was a button that did
+    // nothing. Written as "there is something in the box, so open the box",
+    // with `askOpen` among the dependencies, this ran again the instant the
+    // box was hidden and put it straight back: anybody with a half-written
+    // message could not close it at all.
+    //
+    // A write is a write whatever it changes to, so the previous values are
+    // remembered rather than tested for emptiness, and `askOpen` is not a
+    // dependency: toggling it is not somebody writing into the box.
+    const written = prompt !== lastWrite.current.prompt || shots !== lastWrite.current.shots;
+    lastWrite.current = { prompt, shots };
+    if (written && (prompt.trim() || shots.length)) setAskOpen(true);
+  }, [prompt, shots]);
 
   useEffect(() => { applyTheme(theme); storeTheme(theme); }, [theme]);
 
