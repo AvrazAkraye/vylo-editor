@@ -9,6 +9,9 @@
 # The rule worth knowing about is the stale-platform sweep below.
 set -euo pipefail
 
+FORCE=0
+for a in "$@"; do [ "$a" = "--force" ] && FORCE=1; done
+set -- "${@/--force/}"
 PLATFORM="$1"; ARTIFACT="$2"; SIGFILE="$3"; VERSION="$4"; NOTES="${5:-}"
 # The server these publish to is deliberately not in this repository. It is
 # infrastructure: a public repository should not hand out its address or the
@@ -41,10 +44,32 @@ scp -q "$ARTIFACT" "$HOST:$REMOTE/files/$FILE"
 # Rather than let the two drift, any platform whose URL does not name the
 # version being published is dropped: no update for that platform is a great
 # deal better than the wrong update.
+# ...and the manifest only ever moves forward. Publishing an older version
+# rewrites that single version field, so a Windows build that finished after
+# the next macOS release had shipped rolled the whole channel back to 0.70.0 —
+# and, because the sweep below then dropped the 0.71.0 macOS entry, every Mac
+# was offered nothing at all. Both halves of that were working as designed;
+# what was missing was anyone asking whether the version was newer.
+#
+# `--force` is for the deliberate case: pulling a release that should not have
+# gone out. It is not a flag any publish script passes.
 ssh "$HOST" "python3 - <<PY
 import json
 p = '$REMOTE/latest.json'
 m = json.load(open(p))
+
+def rank(v):
+    try:
+        return tuple(int(x) for x in str(v).split('.'))
+    except ValueError:
+        return ()
+
+now = m.get('version', '')
+if rank('$VERSION') < rank(now) and '$FORCE' != '1':
+    raise SystemExit(
+        'the channel is serving ' + now + ' and this is $VERSION.\n'
+        'Publishing it would roll every platform back. If that is the '
+        'intention, pass --force.')
 m['version'] = '$VERSION'
 if '''$NOTES''':
     m['notes'] = '''$NOTES'''
