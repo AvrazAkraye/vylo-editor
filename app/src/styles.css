@@ -2033,6 +2033,8 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .sug-list{
   display:flex; align-items:center; gap:var(--sp-2);
   overflow-x:auto; scrollbar-width:none;
+  /* Programs and paths, likewise. */
+  direction:ltr;
 }
 .sug-list::-webkit-scrollbar{ display:none; }
 
@@ -2042,7 +2044,13 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    own inline completion dims its ghost. */
 .sug-ghost{
   font-family:var(--mono); font-size:var(--fs-2); line-height:1.4;
-  white-space:pre-wrap; overflow-wrap:anywhere;
+  /* One line, always, cut with an ellipsis rather than wrapped. A strip whose
+     height depends on how long the completion is resizes the terminal under
+     the prompt — a different number of rows on each keystroke, each one a
+     SIGWINCH and a redraw. The chips below carry the full text. */
+  white-space:pre; overflow:hidden; text-overflow:ellipsis;
+  /* A command line is written left to right in every language. */
+  direction:ltr;
 }
 .sug-ghost b{ font-weight:400; color:var(--ink); }
 .sug-ghost span{ color:var(--mute); opacity:.75; }

@@ -250,6 +250,11 @@ const EXEMPT = [
   { selector: ':root[dir="rtl"].mac .tl', prop: 'margin-right',
     why: 'the same clearance, wide enough for the control that lands there in a right-to-left header' },
 
+  { selector: '.sug-ghost', prop: 'direction',
+    why: 'a shell command line reads left to right in every language this ships in' },
+  { selector: '.sug-list', prop: 'direction',
+    why: 'the same: program names and paths are not prose and do not mirror' },
+
   // 2. The path-truncation trick. `direction:rtl` here puts the ellipsis at the
   //    head of a long path so the tail that identifies the file survives, and
   //    `text-align:left` holds the shortened text against the leading edge.

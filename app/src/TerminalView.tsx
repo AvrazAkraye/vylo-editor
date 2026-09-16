@@ -152,6 +152,11 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       lineHeight: 1.3,
       cursorBlink: true,
       scrollback: 8000,
+      // Typing takes you back to the prompt, wherever you had scrolled to.
+      // This is xterm's default and is set anyway, because it is the whole of
+      // one reported behaviour and a default that changed under us would take
+      // it away without anything failing.
+      scrollOnUserInput: true,
       // Alt should compose characters on a Mac keyboard, not send Esc.
       macOptionIsMeta: false,
       theme: palette(dark),
@@ -248,7 +253,24 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
     // panel's own height handle, so observe the element rather than the window.
     const ro = new ResizeObserver(() => {
       if (!el.clientWidth || !el.clientHeight) return;
+      /**
+       * Whether the view was following the output, asked *before* the fit.
+       *
+       * A pane that loses rows keeps the top of its viewport, so everything at
+       * the bottom — the prompt, and the line being typed on it — slides below
+       * the fold. That happens on the first keystroke of every command,
+       * because the suggestion strip appearing is what takes the rows away:
+       * you start typing and the thing you are typing goes out of sight.
+       *
+       * Only when it was at the bottom. Somebody who has scrolled up to read
+       * something and then resized the window meant to keep their place, and
+       * a terminal that jumped to the end there would be the same bug pointing
+       * the other way.
+       */
+      const buf = t.buffer.active;
+      const following = buf.viewportY >= buf.baseY;
       try { f.fit(); } catch { return; }
+      if (following) t.scrollToBottom();
       if (ptyId !== null) {
         void invoke('pty_resize', { id: ptyId, cols: t.cols, rows: t.rows }).catch(() => {});
       }
