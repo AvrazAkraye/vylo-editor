@@ -14,7 +14,10 @@ import {
 } from './scrollback';
 import { fill } from './i18n';
 import { fragment } from './suggest';
-import { head as pasteHead, isBulk, size as pasteSize, summarise as pasteInfo } from './paste';
+import {
+  DRAG_PATH, head as pasteHead, isBulk, pathForPrompt, size as pasteSize,
+  summarise as pasteInfo, under,
+} from './paste';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import { PRESETS, apply as applyPreset, describe as describeLayout, type Preset } from './layouts';
 import {
@@ -1121,7 +1124,41 @@ export function TerminalPanel({
                    else boxes.current.delete(tab.id);
                  }}
                  style={{ display: on ? 'flex' : 'none', flexGrow: width * onScreen.length }}
-                 onMouseDown={() => setActive(tab.id)}>
+                 onMouseDown={() => setActive(tab.id)}
+                 /**
+                  * A row dragged out of the explorer, which is a different
+                  * mechanism from a file dragged out of Finder: that one comes
+                  * through Tauri's window drag-drop with an absolute path,
+                  * this one is an ordinary HTML drag carrying the path as the
+                  * tree knows it. Both end in the same place.
+                  */
+                 onDragOver={(e) => {
+                   if (!e.dataTransfer.types.includes(DRAG_PATH)) return;
+                   // Without this the browser refuses the drop and the drag
+                   // springs back, which reads as "the terminal will not take
+                   // it" rather than as a missing line of code.
+                   e.preventDefault();
+                   e.dataTransfer.dropEffect = 'copy';
+                   setDropOn(tab.id);
+                 }}
+                 onDragLeave={(e) => {
+                   // Moving between a row's children fires this too, so only a
+                   // pointer that has actually left the pane counts.
+                   if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+                   setDropOn((c) => (c === tab.id ? null : c));
+                 }}
+                 onDrop={(e) => {
+                   const rel = e.dataTransfer.getData(DRAG_PATH);
+                   setDropOn(null);
+                   if (!rel) return;
+                   e.preventDefault();
+                   setActive(tab.id);
+                   // As a person would have typed it: relative when the file
+                   // is inside the shell's own directory, whole when it is not.
+                   const abs = under(root, rel);
+                   handles.current.get(tab.id)?.type(
+                     `${quotePath(pathForPrompt(abs, cwds[tab.id] || root))} `);
+                 }}>
               {/* Side by side, two panes are two anonymous dark rectangles
                   without a name on them. One pane needs no label: the row it
                   came from is already lit in the list beside it. */}

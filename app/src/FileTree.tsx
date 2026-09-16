@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Icon } from './Icon';
+import { DRAG_PATH } from './paste';
 import { fill } from './i18n';
 
 export interface Entry { path: string; is_dir: boolean; size: number }
@@ -140,10 +141,30 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
       // edge in the three right-to-left languages. On the space scale for the
       // same reason everything else is: 6px is --sp-3, 12px is --sp-6.
       const pad = { paddingInlineStart: `calc(var(--sp-3) + ${depth} * var(--sp-6))` };
+      /**
+       * Dragging a row out of the explorer.
+       *
+       * Two types on purpose. `text/plain` is what makes the drag mean
+       * something everywhere else — a message box, an editor — and the
+       * specific one is how the terminal can tell a path it should quote from
+       * a sentence somebody dragged out of a document.
+       *
+       * The path is as the tree knows it, relative to the open folder;
+       * resolving it is the business of whatever catches it, because only the
+       * catcher knows what it is relative *to*.
+       */
+      const dragging = {
+        draggable: true,
+        onDragStart: (e: React.DragEvent) => {
+          e.dataTransfer.setData(DRAG_PATH, n.path);
+          e.dataTransfer.setData('text/plain', n.path);
+          e.dataTransfer.effectAllowed = 'copy';
+        },
+      };
       if (n.isDir) {
         const open = expanded.has(n.path);
         return [
-          <div key={n.path} className="ft-row ft-dir" style={pad}>
+          <div key={n.path} className="ft-row ft-dir" style={pad} {...dragging}>
             <button className="ft-hit" onClick={() => toggle(n.path)} title={n.path}>
               <span className={`ft-caret ${open ? 'open' : ''}`}><Icon name="chevron" size={12} /></span>
               <span className="ft-name">{n.name}</span>
@@ -156,7 +177,7 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
       return [
         <div key={n.path}
              className={`ft-row ${n.path === openPath ? 'on' : ''} ${changed.has(n.path) ? 'changed' : ''}`}
-             style={pad}>
+             style={pad} {...dragging}>
           <button className="ft-hit" onClick={() => onOpen(n.path)} title={n.path}>
             <span className="ft-icon">{iconFor(n.name)}</span>
             <span className="ft-name">{n.name}</span>

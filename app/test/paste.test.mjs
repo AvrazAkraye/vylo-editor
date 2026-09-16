@@ -4,7 +4,10 @@
 // Everything here is about telling that case apart from the ordinary one, and
 // about not crying wolf — a confirmation people see for two-line pastes is one
 // they learn to dismiss without reading, which is worse than not having it.
-import { BULK_BYTES, BULK_LINES, head, isBulk, size, summarise } from '../.test-build/paste.js';
+import {
+  BULK_BYTES, BULK_LINES, DRAG_PATH, head, isAbsolute, isBulk, pathForPrompt, size,
+  summarise, under,
+} from '../.test-build/paste.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -63,6 +66,48 @@ ok('a long one is cut with an ellipsis', (() => {
 })(), head('x'.repeat(200), 20));
 ok('cutting never returns more than it was asked for',
    [1, 5, 40, 200].every((w) => head('y'.repeat(500), w).length <= w));
+
+// ── a file dragged onto a pane ────────────────────────────────────────────
+//
+// The explorer knows paths relative to the folder it is showing; a shell knows
+// wherever it happens to be. Between the two is this.
+
+ok('the drag type is its own, not just text', DRAG_PATH.startsWith('application/'));
+
+ok('a unix path is absolute', isAbsolute('/Users/me/App.js'));
+ok('a windows path is too', isAbsolute('C:\\Users\\me\\App.js'));
+ok('and a UNC share', isAbsolute('\\\\server\\share\\x'));
+ok('a tree path is not', !isAbsolute('src/App.js'));
+ok('nor is an empty one', !isAbsolute(''));
+
+ok('a tree path resolves against the open folder',
+   under('/Users/me/vylo', 'src/App.js') === '/Users/me/vylo/src/App.js');
+ok('a trailing slash on the folder does not double up',
+   under('/Users/me/vylo/', 'App.js') === '/Users/me/vylo/App.js');
+ok('an absolute path is left alone', under('/Users/me/vylo', '/tmp/x') === '/tmp/x');
+ok('and with no folder there is nothing to resolve against',
+   under('', 'App.js') === 'App.js');
+
+// What a person would have typed, which is the point.
+ok('a file in the shell\'s own directory is typed relative',
+   pathForPrompt('/Users/me/vylo/App.js', '/Users/me/vylo') === 'App.js');
+ok('and one further down keeps its middle',
+   pathForPrompt('/Users/me/vylo/src/App.js', '/Users/me/vylo') === 'src/App.js');
+// A relative path that climbs out is longer than the absolute one and harder
+// to check, and checking it is why the path is shown before it is run.
+ok('a file outside it is typed in full',
+   pathForPrompt('/tmp/x.txt', '/Users/me/vylo') === '/tmp/x.txt');
+ok('a sibling folder is not reached by climbing',
+   pathForPrompt('/Users/me/other/x', '/Users/me/vylo') === '/Users/me/other/x');
+// A near-miss that a plain startsWith would get wrong.
+ok('a folder whose name merely starts the same is outside',
+   pathForPrompt('/Users/me/vylo-old/x', '/Users/me/vylo') === '/Users/me/vylo-old/x');
+ok('the directory itself is `.`, which is a real argument',
+   pathForPrompt('/Users/me/vylo', '/Users/me/vylo') === '.');
+ok('a trailing slash on the shell\'s directory changes nothing',
+   pathForPrompt('/Users/me/vylo/App.js', '/Users/me/vylo/') === 'App.js');
+ok('with no directory known, the path is left as it is',
+   pathForPrompt('/Users/me/vylo/App.js', '') === '/Users/me/vylo/App.js');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -1,5 +1,12 @@
 /**
- * Pasting a lot of text into a shell.
+ * Text that arrives at a prompt without being typed.
+ *
+ * Two ways in, and they are the same idea: a paste, and a file dragged onto a
+ * pane. Everything that reaches a shell in this application is otherwise a
+ * keystroke somebody made, so both of these need a rule, and they are here
+ * together because the rule is one rule.
+ *
+ * ## Pasting a lot of text into a shell
  *
  * ## Why this is not just "send it"
  *
@@ -93,4 +100,57 @@ export function size(bytes: number): string {
 export function head(text: string, width = 60): string {
   const one = summarise(text).head;
   return one.length <= width ? one : `${one.slice(0, width - 1)}…`;
+}
+
+/* ── a file dragged onto a pane ──────────────────────────────────────────
+   The explorer's own rows, not the desktop's. A file dragged out of Finder
+   arrives through Tauri's window drag-drop with an absolute path; a file
+   dragged out of the panel two inches to the left is an ordinary HTML drag
+   carrying whatever this app puts on it, which is the path as the tree knows
+   it — relative to the open folder. */
+
+/**
+ * The drag type the explorer writes and the terminal reads.
+ *
+ * Its own type as well as `text/plain`: the plain text is what makes the drag
+ * work anywhere else — a message box, an editor — and the specific one is how
+ * the terminal can tell a path it should quote from a sentence somebody
+ * dragged out of a document.
+ */
+export const DRAG_PATH = 'application/x-vylo-path';
+
+/** Whether a path names a place rather than something inside a project. */
+export function isAbsolute(path: string): boolean {
+  return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
+}
+
+/** A tree path, resolved against the folder the tree is showing. */
+export function under(root: string, path: string): string {
+  if (!path || isAbsolute(path)) return path;
+  if (!root) return path;
+  return `${root.replace(/[\\/]+$/, '')}/${path}`;
+}
+
+/**
+ * A path as it should be typed at a prompt in a particular directory.
+ *
+ * Relative when the file is inside the shell's own directory, because that is
+ * what a person would have typed and what the rest of the line reads as. The
+ * whole path when it is not — a relative path that climbs out (`../../other`)
+ * is longer than the absolute one and harder to check, and checking it is the
+ * entire reason the path is shown before it is run.
+ */
+export function pathForPrompt(abs: string, cwd: string): string {
+  if (!cwd || !isAbsolute(abs)) return abs;
+  const here = cwd.replace(/[\\/]+$/, '');
+  const norm = (x: string) => x.replace(/\\/g, '/');
+  const full = norm(abs).replace(/\/+$/, '');
+  // The directory itself, dragged onto a shell already in it, is `.` — a real
+  // argument, and a good deal more useful than the empty string that slicing
+  // it against its own length would produce.
+  if (full === norm(here)) return '.';
+  // The slash is part of the test, not decoration: without it `/x/vylo-old`
+  // reads as inside `/x/vylo`, and the path would come out as `-old/…`.
+  if (!full.startsWith(`${norm(here)}/`)) return abs;
+  return abs.slice(here.length + 1);
 }
