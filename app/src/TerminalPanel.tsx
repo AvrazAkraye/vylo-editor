@@ -3,7 +3,6 @@ import { invoke } from '@tauri-apps/api/core';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
-import * as ask from './ask';
 import {
   ROW_VIEW_KEY, filter, readView, rowOf, shorten, stateOf, titleOf, writeView,
   type Facts, type RowView,
@@ -343,19 +342,35 @@ export function TerminalPanel({
   // is two rows of swatches nobody can tell apart.
 
   /**
-   * Rename a pane.
+   * The pane whose name is being typed, if any.
    *
-   * `window.prompt`, exactly as the chat list does it — the rail is a 236px
-   * column with no room for an inline field, and a modal that cannot be
-   * mistyped past is the right shape for something that replaces a label.
-   * Blank restores the default rather than leaving a nameless row.
+   * Renaming used to open a modal — the reasoning was that a 236px column has
+   * no room for a field. It has exactly the room the name already takes, which
+   * is the point: the field appears where the name is, holding the name, so
+   * what is being changed and what it will look like are the same pixels.
+   * A dialog for one short word is three keystrokes and a context switch for
+   * something people do while thinking about something else.
    */
-  async function rename(tab: Tab) {
-    const typed = await ask.text({ title: t('Rename this terminal'),
-                                  value: titleOf(tab, t('Terminal')).text });
-    if (typed === null) return;
+  const [renaming, setRenaming] = useState<string | null>(null);
+  /** Set by Escape so the blur that follows does not save what was typed. */
+  const cancelRename = useRef(false);
+
+  /** Start renaming, with the current name in the field to type over. */
+  function rename(tab: Tab) {
+    setRenaming(tab.id);
+  }
+
+  /**
+   * Take the typed name, or put the default back.
+   *
+   * Blank restores the default rather than leaving a nameless row — a row with
+   * no label is one nobody can refer to, and "clear it" is a reasonable thing
+   * to mean by deleting the text.
+   */
+  function named(id: string, typed: string) {
     const name = typed.trim();
-    setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, name: name || undefined } : x)));
+    setTabs((p) => p.map((x) => (x.id === id ? { ...x, name: name || undefined } : x)));
+    setRenaming(null);
   }
   // Ticks once a minute so the ages on the rows stay honest without a timer per
   // row. A terminal you opened an hour ago should not still say 1m.
@@ -729,9 +744,21 @@ export function TerminalPanel({
   return (
     <section className="panel" aria-label={t('Terminal')}>
       <div className="panel-bar">
-        <div className="panel-title">
+        {/* The pane you are in, not the panel you are looking at. With one
+            session "Terminal" is the whole truth; with six it is the one thing
+            the header could say that none of them needed said. Double-click
+            renames, which is where somebody whose eye is on the title will
+            try it. */}
+        <div className="panel-title"
+             onDoubleClick={() => { const me = tabs.find((x) => x.id === focus); if (me) rename(me); }}
+             title={t('Double-click to rename')}>
           <Icon name="terminal" size={13} />
-          {t('Terminal')}
+          {(() => {
+            const me = tabs.find((x) => x.id === focus);
+            if (!me) return t('Terminal');
+            const { text, mono } = titleOf(me, t('Terminal'));
+            return <span className={mono ? 'mono' : ''}>{text}</span>;
+          })()}
         </div>
         <div className="panel-acts">
           <button className="ghost" onClick={sendToChat} disabled={dead}
@@ -909,44 +936,84 @@ export function TerminalPanel({
               const state = stateOf(tab);
               const row = rowOf(tab, factsFor(tab.id), view,
                 { term: t('Terminal'), home, now: clock, t });
+              // The state badge, drawn the same whether the row is being read
+              // or renamed — one copy, so the row cannot change shape under
+              // somebody halfway through typing a name.
+              const mark = (
+                <span className={`tsl-mark ${state}`}>
+                  <Icon name="terminal" size={14} />
+                  {/* The badge carries the state, so the second line is free
+                      to say something the badge cannot. */}
+                  <i className="tsl-dot" aria-hidden="true">
+                    {state === 'ok' && <Icon name="check" size={9} />}
+                    {state === 'failed' && <Icon name="warning" size={9} />}
+                  </i>
+                </span>
+              );
+              const sub = (
+                /* The second line says whatever the view asks it to. Six
+                   shells all called "Terminal" tell you nothing; the last
+                   command, the folder or the branch do. */
+                <span className="tsl-sub">
+                  {row.subs.map((x) => (
+                    <span key={x.kind} className={`tsl-${x.kind}`}>
+                      {x.kind === 'branch' && <Icon name="branch" size={9} />}
+                      {x.text}
+                    </span>
+                  ))}
+                </span>
+              );
               return (
                 <div key={tab.id} className={`tsl-row ${tagClass(tab.tag)} ${drag.itemClass(i)} ${onScreen.includes(tab.id) ? 'on' : ''}`}
                      onContextMenu={(e) => {
                        e.preventDefault();
                        setRowMenu({ id: tab.id, at: { x: e.clientX, y: e.clientY } });
                      }}>
-                  {/* Clicking a row means "show me this one", as it always has.
-                      Showing it *as well* is the button below, so the ordinary
-                      click never has to be learnt twice. */}
-                  <button className="tsl-pick"
-                          onClick={() => { setActive(tab.id); setShown(only(tab.id)); }}
-                          onDoubleClick={() => rename(tab)}
-                          aria-current={tab.id === focus ? 'true' : undefined}>
-                    <span className={`tsl-mark ${state}`}>
-                      <Icon name="terminal" size={14} />
-                      {/* The badge carries the state, so the second line is free
-                          to say something the badge cannot. */}
-                      <i className="tsl-dot" aria-hidden="true">
-                        {state === 'ok' && <Icon name="check" size={9} />}
-                        {state === 'failed' && <Icon name="warning" size={9} />}
-                      </i>
-                    </span>
-                    <span className="tsl-text">
-                      <span className={`tsl-name ${row.mono ? 'mono' : ''}`}
-                            title={row.title}>{row.title}</span>
-                      {/* The second line says whatever the view asks it to.
-                          Six shells all called "Terminal" tell you nothing;
-                          the last command, the folder or the branch do. */}
-                      <span className="tsl-sub">
-                        {row.subs.map((x) => (
-                          <span key={x.kind} className={`tsl-${x.kind}`}>
-                            {x.kind === 'branch' && <Icon name="branch" size={9} />}
-                            {x.text}
-                          </span>
-                        ))}
+                  {renaming === tab.id ? (
+                    /* A field where the name is, holding the name, so what is
+                       being changed and what it will look like are the same
+                       pixels. Not inside the button below: an input in a
+                       button is invalid, and the button swallows the clicks
+                       that would put a caret in it. */
+                    <div className="tsl-pick editing">
+                      {mark}
+                      <span className="tsl-text">
+                        <input className="tsl-rename" data-nodrag autoFocus
+                               defaultValue={titleOf(tab, t('Terminal')).text}
+                               aria-label={t('Rename this terminal')}
+                               onFocus={(e) => e.currentTarget.select()}
+                               onBlur={(e) => {
+                                 // Escape has already said not to save. A
+                                 // removed node does not fire blur in any
+                                 // browser this ships on, but relying on that
+                                 // would make cancelling depend on it.
+                                 if (cancelRename.current) { cancelRename.current = false; return; }
+                                 named(tab.id, e.currentTarget.value);
+                               }}
+                               onKeyDown={(e) => {
+                                 e.stopPropagation();
+                                 if (e.key === 'Enter') { named(tab.id, e.currentTarget.value); return; }
+                                 if (e.key === 'Escape') { cancelRename.current = true; setRenaming(null); }
+                               }} />
+                        {sub}
                       </span>
-                    </span>
-                  </button>
+                    </div>
+                  ) : (
+                    /* Clicking a row means "show me this one", as it always
+                       has. Showing it *as well* is the button below, so the
+                       ordinary click never has to be learnt twice. */
+                    <button className="tsl-pick"
+                            onClick={() => { setActive(tab.id); setShown(only(tab.id)); }}
+                            onDoubleClick={() => rename(tab)}
+                            aria-current={tab.id === focus ? 'true' : undefined}>
+                      {mark}
+                      <span className="tsl-text">
+                        <span className={`tsl-name ${row.mono ? 'mono' : ''}`}
+                              title={row.title}>{row.title}</span>
+                        {sub}
+                      </span>
+                    </button>
+                  )}
                   {/* One button, not four. The row carried a split toggle, a
                       rename, a colour and a close, and four targets in a
                       28px-tall row is four things to miss. Everything but the

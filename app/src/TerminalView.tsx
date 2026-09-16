@@ -306,6 +306,11 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
         line.current = fold(line.current, data);
         keys.current.onTyped?.(line.current);
         t.focus();
+        // `scrollOnUserInput` only covers real key events, and nothing that
+        // arrives here is one: a completion taken with Tab, a dropped file's
+        // path, a command sent from the approval dialog. Text appearing at a
+        // prompt somewhere above the fold is the same as text not appearing.
+        t.scrollToBottom();
       },
       text: (lines) => {
         const sel = t.getSelection();
