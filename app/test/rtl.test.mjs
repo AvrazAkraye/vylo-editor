@@ -250,6 +250,8 @@ const EXEMPT = [
   { selector: ':root[dir="rtl"].mac .tl', prop: 'margin-right',
     why: 'the same clearance, wide enough for the control that lands there in a right-to-left header' },
 
+  { selector: '.tpaste-what code', prop: 'direction',
+    why: 'the first line of pasted text, shown as what it is rather than as prose' },
   { selector: '.sug-ghost', prop: 'direction',
     why: 'a shell command line reads left to right in every language this ships in' },
   { selector: '.sug-list', prop: 'direction',

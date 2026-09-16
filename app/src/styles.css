@@ -2075,7 +2075,57 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    own inline completion dims its ghost. */
 .sug-ghost{
   font-family:var(--mono); font-size:var(--fs-2); line-height:1.4;
-  /* One line, always, cut with an ellipsis rather than wrapped. A strip whose
+  /* ── a file over a pane ──────────────────────────────────────────────────
+   Dropping files on a terminal has worked since panes could be split; what it
+   never had was anything on screen saying so, and a file dragged over a
+   terminal that gives no sign is a file nobody lets go of. An outline on the
+   pane and a line under it, rather than a sheet across the middle: the text
+   underneath is what somebody is dragging the file *to*. */
+.tpane.dropping{ outline:2px dashed var(--brand); outline-offset:-2px; }
+.tdrop{
+  flex:none; display:flex; align-items:center; gap:var(--sp-2);
+  padding-block:var(--sp-2); padding-inline:var(--sp-4);
+  border-block-start:1px solid var(--brand);
+  background:var(--brand-wash); color:var(--brand);
+  font-size:var(--fs-2);
+}
+
+/* ── text pasted and not yet sent ────────────────────────────────────────
+   Sits where the completion strip sits, for the same reason: it is about the
+   line being built, and the line being built is at the bottom. One row tall
+   whatever is in it — the strip's height is rows taken from the terminal, and
+   a chip that wrapped would resize the pane it is describing. */
+.tpaste{
+  flex:none; display:flex; align-items:center; gap:var(--sp-3);
+  padding-block:var(--sp-2); padding-inline:var(--sp-4) var(--sp-3);
+  border-block-start:1px solid var(--rule); background:var(--panel-2);
+  font-size:var(--fs-2); color:var(--ink);
+}
+.tpaste > svg{ flex:none; color:var(--mute); }
+.tpaste-what{ flex:1; min-inline-size:0; display:flex; align-items:baseline; gap:var(--sp-3);
+  overflow:hidden; }
+.tpaste-what b{ flex:none; font-weight:600; font-variant-numeric:tabular-nums; }
+.tpaste-what code{
+  min-inline-size:0; font-family:var(--mono); font-size:var(--fs-1); color:var(--mute);
+  white-space:pre; overflow:hidden; text-overflow:ellipsis; direction:ltr;
+}
+.tpaste em{ flex:none; font-style:normal; font-size:var(--fs-1); color:var(--warn); }
+/* The one case worth a colour: text ending in a return runs on arrival. */
+.tpaste.runs{ border-block-start-color:var(--warn); }
+.tpaste.runs > svg{ color:var(--warn); }
+.tpaste-go{
+  flex:none; display:inline-flex; align-items:center; gap:var(--sp-2);
+  padding:2px var(--sp-3); border:1px solid var(--brand); border-radius:var(--r-1);
+  background:var(--brand); color:#fff; font:inherit; font-size:var(--fs-1); cursor:pointer;
+}
+.tpaste-go kbd{ font:inherit; opacity:.75; }
+.tpaste-no{
+  flex:none; display:inline-flex; padding:2px; border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.tpaste-no:hover{ color:var(--ink); background:var(--panel-3); }
+
+/* One line, always, cut with an ellipsis rather than wrapped. A strip whose
      height depends on how long the completion is resizes the terminal under
      the prompt — a different number of rows on each keystroke, each one a
      SIGWINCH and a redraw. The chips below carry the full text. */

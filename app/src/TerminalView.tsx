@@ -34,6 +34,15 @@ export interface TermHandle {
   /** Put keystrokes on the input line, as if typed. */
   type(data: string): void;
   /**
+   * Put held text on the line, as a paste rather than as typing.
+   *
+   * Through xterm's own `paste`, which is what knows whether the program on
+   * the other end has bracketed paste turned on and wraps the text when it
+   * does. Sending the characters raw instead would strip that protection from
+   * the one path that most needs it.
+   */
+  paste(text: string): void;
+  /**
    * The scrollback, as lines, for saving.
    *
    * Read from the buffer rather than from the bytes the shell sent — see
@@ -70,6 +79,11 @@ interface Props {
   onSent?: (line: string) => void;
   /** Files were dropped on this pane. */
   onDropPaths?: (paths: string[]) => void;
+  /**
+   * Text was pasted. Return true to take it — the paste is then cancelled and
+   * nothing reaches the shell until whatever took it says so.
+   */
+  onPaste?: (text: string) => boolean;
   /**
    * What this pane had in it last time, written before the shell starts.
    *
@@ -120,7 +134,7 @@ function palette(dark: boolean) {
       };
 }
 
-export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths, restore }: Props) {
+export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths, onPaste, restore }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
@@ -133,8 +147,8 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
    * the terminal is built once — reading them at call time is what keeps the
    * effect from tearing down a live shell to pick up a new closure.
    */
-  const keys = useRef({ onTyped, onSent, onKey, onDropPaths });
-  keys.current = { onTyped, onSent, onKey, onDropPaths };
+  const keys = useRef({ onTyped, onSent, onKey, onDropPaths, onPaste });
+  keys.current = { onTyped, onSent, onKey, onDropPaths, onPaste };
   // Props the long-lived pty callbacks need to read at call time rather than
   // capture at mount time.
   const cb = useRef({ onExit, onError, onData });
@@ -197,6 +211,26 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
     });
 
     t.open(el);
+
+    /**
+     * First refusal on a paste.
+     *
+     * Captured on the host element, which is above xterm's own hidden
+     * textarea, so the handler decides before xterm has seen it. Declining is
+     * the default and costs nothing: the event is left alone and the paste
+     * happens exactly as it always did.
+     *
+     * Only plain text. A paste carrying files is somebody pasting an image or
+     * a document, which has no meaning at a prompt until it is a path on disk
+     * — a different feature, and one that would need somewhere to write.
+     */
+    const onPasteEvent = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text/plain') ?? '';
+      if (!text || !keys.current.onPaste?.(text)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    el.addEventListener('paste', onPasteEvent, true);
 
     // Before the pty, so the shell's first prompt lands under this rather than
     // racing it. Dim, because a transcript is a record and not output.
@@ -336,6 +370,12 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
         return out;
       },
       fullScreen: () => t.buffer.active.type === 'alternate',
+      paste: (text) => {
+        t.focus();
+        pinned.at = true;
+        t.paste(text);
+        t.scrollToBottom();
+      },
       type: (data) => {
         if (ptyId !== null) void invoke('pty_write', { id: ptyId, data }).catch(() => {});
         line.current = fold(line.current, data);
@@ -369,6 +409,7 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       disposed = true;
       onReady(null);
       ro.disconnect();
+      el.removeEventListener('paste', onPasteEvent, true);
       typed.dispose();
       if (ptyId !== null) void invoke('pty_close', { id: ptyId }).catch(() => {});
       ptyId = null;

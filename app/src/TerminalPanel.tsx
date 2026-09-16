@@ -12,7 +12,9 @@ import { CONTEXT_LINES } from './command';
 import {
   KEY as TERMS_KEY, read as readSaved, tail, write as writeSaved, type Saved,
 } from './scrollback';
+import { fill } from './i18n';
 import { fragment } from './suggest';
+import { head as pasteHead, isBulk, size as pasteSize, summarise as pasteInfo } from './paste';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import { PRESETS, apply as applyPreset, describe as describeLayout, type Preset } from './layouts';
 import {
@@ -355,6 +357,24 @@ export function TerminalPanel({
   /** Set by Escape so the blur that follows does not save what was typed. */
   const cancelRename = useRef(false);
 
+  /**
+   * Text pasted into a pane and not yet sent to it.
+   *
+   * Held rather than delivered, because a paste ending in a newline runs — see
+   * paste.ts. One at a time and per pane: a second paste while one is waiting
+   * replaces it, which is what somebody who pasted the wrong thing does next.
+   */
+  const [held, setHeld] = useState<{ id: string; text: string } | null>(null);
+
+  /**
+   * Which pane the pointer is over during a drag, or null.
+   *
+   * The drop itself has worked since panes were split; what it never had was
+   * anything on screen saying so. A file dragged over a terminal that gives no
+   * sign is a file nobody lets go of.
+   */
+  const [dropOn, setDropOn] = useState<string | null>(null);
+
   /** Start renaming, with the current name in the field to type over. */
   function rename(tab: Tab) {
     setRenaming(tab.id);
@@ -535,10 +555,14 @@ export function TerminalPanel({
       const r = el.getBoundingClientRect();
       if (r.width <= 0 || r.height <= 0) continue;
       if (at.x < r.left || at.x > r.right || at.y < r.top || at.y > r.bottom) continue;
-      // `null` paths is the overlay asking whether this point is ours.
-      if (paths) dropPaths(id, paths);
+      // `null` paths is the overlay asking whether this point is ours, which
+      // is also the only moment anything knows a drag is in progress — so it
+      // is where the pane is lit. A drag that ends off the window arrives here
+      // as a point inside no pane, which clears it.
+      if (paths) { dropPaths(id, paths); setDropOn(null); } else setDropOn(id);
       return true;
     }
+    setDropOn(null);
     return false;
   }, []);
 
@@ -1090,7 +1114,7 @@ export function TerminalPanel({
                  onDoubleClick={() => setWeights((w) => evened(onScreen, w))}
                  title={t('Drag to resize, double-click to even them out')} />
 
-            <div className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''}`}
+            <div className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''} ${dropOn === tab.id ? 'dropping' : ''}`}
                  ref={(el) => {
                    // Only drawn panes are droppable; a hidden one has no box.
                    if (el && on) boxes.current.set(tab.id, el);
@@ -1124,7 +1148,32 @@ export function TerminalPanel({
                 // twice-wrong; it is not remembered at all.
                 onSent={(line) => setHistory((h) => ({ ...h, [tab.id]: remember(h[tab.id] ?? [], line) }))}
                 onDropPaths={(paths) => dropPaths(tab.id, paths)}
+                /**
+                 * Hold a bulk paste; let an ordinary one through.
+                 *
+                 * Returning false is the default and costs nothing — the event
+                 * is left alone and the paste happens exactly as it always
+                 * did. Only the blob case is taken, so the common paste of a
+                 * command somebody copied is not a decision they have to make.
+                 */
+                onPaste={(text) => {
+                  if (!isBulk(text)) return false;
+                  setHeld({ id: tab.id, text });
+                  return true;
+                }}
                 onKey={(e) => {
+                  // A held paste answers first: it is the one thing on screen
+                  // that is waiting for a decision, and Enter with text held
+                  // and no decision made would send the line underneath it
+                  // while the paste sat there unexplained.
+                  if (held?.id === tab.id) {
+                    if (e.key === 'Enter') {
+                      handles.current.get(tab.id)?.paste(held.text);
+                      setHeld(null);
+                      return true;
+                    }
+                    if (e.key === 'Escape') { setHeld(null); return true; }
+                  }
                   // Only while a list is showing, and only for this pane.
                   // A full-screen program owns every key while it is up.
                   // Taking Tab from Claude Code to offer a shell completion is
@@ -1166,6 +1215,39 @@ export function TerminalPanel({
                 onData={tab.command ? (chunk) => runs.current.get(tab.id)?.buffer.push(chunk) : undefined}
                 onError={onError}
               />
+
+              {/* A file is over this pane and letting go will put its path at
+                  the prompt. Said here rather than as an overlay across the
+                  terminal: the text underneath is what somebody is dragging
+                  the file *to*, and covering it up to announce the drop hides
+                  the reason for it. */}
+              {dropOn === tab.id && (
+                <div className="tdrop"><Icon name="attach" size={12} />{t('Drop to put the path at the prompt')}</div>
+              )}
+
+              {/* Text pasted and not yet sent. Nothing reaches the shell until
+                  the button below is pressed — see paste.ts for why a bulk
+                  paste is the one path into a prompt that was not already a
+                  decision somebody made. */}
+              {held?.id === tab.id && (() => {
+                const info = pasteInfo(held.text);
+                return (
+                  <div className={`tpaste ${info.runs ? 'runs' : ''}`} role="status">
+                    <Icon name={info.runs ? 'warning' : 'clipboard'} size={12} />
+                    <span className="tpaste-what">
+                      <b>{fill(t('{n} lines · {size}'), { n: info.lines, size: pasteSize(info.bytes) })}</b>
+                      <code>{pasteHead(held.text)}</code>
+                    </span>
+                    {info.runs && <em>{t('ends with a return, so it will run')}</em>}
+                    <button className="tpaste-go" onClick={() => {
+                      handles.current.get(tab.id)?.paste(held.text);
+                      setHeld(null);
+                    }}>{t('Paste')}<kbd>⏎</kbd></button>
+                    <button className="tpaste-no" onClick={() => setHeld(null)}
+                            aria-label={t('Discard')}><Icon name="close" size={11} /></button>
+                  </div>
+                );
+              })()}
 
               {/* What could finish the line.
                   Docked at the foot of the pane rather than floated at the
