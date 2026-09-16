@@ -59,6 +59,11 @@ import {
 } from './modules';
 import { SettingsPanel } from './SettingsPanel';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import {
+  KEY as ZOOM_KEY, NORMAL as ZOOM_NORMAL, canGrow, canShrink, larger, percent as zoomPercent,
+  read as readZoom, smaller, write as writeZoom,
+} from './zoom';
 import {
   applyMention, findMentions, folderListing, mentionQuery, treeResolver, TERMINAL,
 } from './mentions';
@@ -93,6 +98,9 @@ import { TodoPanel } from './TodoPanel';
 import { Working } from './Working';
 
 /** The three ways of working. See `space` in App. */
+/** What counts as a zoom key. See the handler for why there are five. */
+const ZOOM_KEYS = new Set(['+', '=', '-', '_', '0']);
+
 type Space = 'agent' | 'code' | 'chat' | 'terminal';
 import { OutlinePanel } from './OutlinePanel';
 import { KEY as TERMS_KEY, bytes as termBytesOf } from './scrollback';
@@ -1011,6 +1019,35 @@ export function App() {
   // Terminal mode: the panel takes the whole work area. Some work is all
   // terminal for a while, and a 260px drawer is the wrong shape for it.
   const [termFull, setTermFull] = useState(() => localStorage.getItem('vylo.termfull') === '1');
+
+  /**
+   * How large the window draws itself.
+   *
+   * The *webview's* zoom rather than a CSS transform, and that is a terminal
+   * decision: CSS zoom scales xterm's canvas as a bitmap, so every character
+   * in the terminal would go soft as soon as anybody made it bigger — which is
+   * the one thing somebody enlarging a terminal is trying to fix. Page zoom
+   * changes the device pixel ratio instead, so xterm re-renders at the new
+   * size and the text stays sharp.
+   *
+   * Applied on mount as well as on change: the webview does not remember it
+   * across launches, and a level that only survived until you closed the
+   * window would read as a setting that does not work.
+   */
+  const [zoom, setZoom] = useState(() => readZoom(localStorage.getItem(ZOOM_KEY)));
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
+  useEffect(() => {
+    try { localStorage.setItem(ZOOM_KEY, writeZoom(zoom)); } catch { /* private mode */ }
+    // Not fatal, and deliberately quiet. A webview too old for `setZoom`, or a
+    // capability that is not granted, means the window stays the size it is —
+    // which is a missing convenience, not something to interrupt anybody over.
+    void getCurrentWebview().setZoom(zoom).catch(() => {});
+    // For the one measurement on this window that is *not* in CSS pixels — see
+    // `.mac .tl` in styles.css, which divides by this so the clearance from
+    // macOS's window-button hover zone stays the same size the OS draws it.
+    document.documentElement.style.setProperty('--zoom', String(zoom));
+  }, [zoom]);
   const sizingTerm = useRef(false);
   const work = useRef<HTMLDivElement>(null);
   const composer = useRef<HTMLTextAreaElement>(null);
@@ -1359,6 +1396,26 @@ export function App() {
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'o') {
         e.preventDefault();
         keys.current.fileSym();
+      } else if ((IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey)
+                 && !e.altKey && ZOOM_KEYS.has(e.key)) {
+        /**
+         * Bigger, smaller, and back to normal.
+         *
+         * The platform's own modifier and only that one, which is not
+         * pedantry: Ctrl+- on macOS is already Back in this window, bound
+         * that way because VS Code binds it that way. Requiring ⌘ on a Mac
+         * and Ctrl everywhere else keeps both bindings and needs no
+         * exception.
+         *
+         * `+` and `=` are the same key with and without Shift, and `_` is
+         * `-` with it, so all of them count — asking somebody to notice
+         * whether they held Shift to reach a plus sign is asking them to
+         * think about a keyboard layout.
+         */
+        e.preventDefault();
+        if (e.key === '0') setZoom(ZOOM_NORMAL);
+        else if (e.key === '-' || e.key === '_') setZoom(smaller(zoomRef.current));
+        else setZoom(larger(zoomRef.current));
       } else if (IS_MAC && e.ctrlKey && !e.metaKey && (e.key === '-' || e.key === '_')) {
         // Back and forward, bound the way VS Code binds them on each platform
         // rather than one invention used on both. ⌥⌘← / ⌥⌘→ — the obvious
@@ -2292,6 +2349,12 @@ export function App() {
     { id: 'clips', label: t('Clipboard history'), keys: `${MOD}⇧V` },
     { id: 'newBranch', label: t('New branch'), keys: '' },
     { id: 'fullScreen', label: t(full ? 'Leave full screen' : 'Full screen'), keys: 'F11' },
+    // At the ends these clamp, which is invisible and harmless, so they are
+    // always listed. Reset is not: offering a way back to a size you are
+    // already at is a row that does nothing when pressed.
+    ...(canGrow(zoom) ? [{ id: 'zoomIn', label: t('Zoom in'), keys: `${MOD}+` }] : []),
+    ...(canShrink(zoom) ? [{ id: 'zoomOut', label: t('Zoom out'), keys: `${MOD}-` }] : []),
+    ...(zoom === ZOOM_NORMAL ? [] : [{ id: 'zoomReset', label: t('Reset zoom'), keys: `${MOD}0` }]),
     { id: 'themeDark', label: t('Dark'), keys: '' },
     { id: 'themeLight', label: t('Light'), keys: '' },
     { id: 'themeSystem', label: t('Match system'), keys: '' },
@@ -2312,6 +2375,9 @@ export function App() {
       case 'clips': keys.current.clips(); break;
       case 'newBranch': void newBranch(); break;
       case 'fullScreen': void toggleFullscreen().then(setFull); break;
+      case 'zoomIn': setZoom(larger(zoomRef.current)); break;
+      case 'zoomOut': setZoom(smaller(zoomRef.current)); break;
+      case 'zoomReset': setZoom(ZOOM_NORMAL); break;
       case 'themeDark': setTheme('dark'); break;
       case 'themeLight': setTheme('light'); break;
       case 'themeSystem': setTheme('system'); break;
@@ -5624,6 +5690,16 @@ export function App() {
           <button className="st-btn" onClick={() => setVersionsFor(openFilePath)}
                   title={t('Earlier versions of this file')}>
             <Icon name="restore" size={12} />{t('History')}
+          </button>
+        )}
+        {/* Only when it is not 100%. Somebody who zoomed by accident — the
+            chord is next to several others — otherwise has a window that looks
+            wrong with nothing on screen saying why, and clicking this is the
+            way back. */}
+        {zoom !== ZOOM_NORMAL && (
+          <button className="st-btn" onClick={() => setZoom(ZOOM_NORMAL)}
+                  title={t('Back to the normal size')}>
+            <Icon name="maximise" size={12} />{fill(t('{n}%'), { n: zoomPercent(zoom) })}
           </button>
         )}
         <button className="st-btn" onClick={() => openFind()}>

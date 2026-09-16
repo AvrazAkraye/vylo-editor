@@ -1636,8 +1636,15 @@ body.resizing{ cursor:col-resize; user-select:none; }
    right-to-left puts Settings there -- the first thing a person looks for in
    a new language -- so the gap is the full width of the zone. Found by
    somebody who could not open Settings in Arabic. */
-.mac .tl{ margin-right:24px; }
-:root[dir="rtl"].mac .tl{ margin-right:112px; }
+/* Divided by the page zoom, because the zone is not zoomed.
+   Everything else on this header is CSS pixels and scales with the window;
+   that hover zone is drawn by macOS in device pixels and does not. At 70% the
+   112px gap lands at 78 device pixels, which is inside the zone that ate the
+   clicks — the Arabic Settings bug, back, for anybody who made their window
+   smaller. `--zoom` is set on the root whenever the level changes (App.tsx);
+   the fallback keeps these honest if it is ever missing. */
+.mac .tl{ margin-right:calc(24px / var(--zoom, 1)); }
+:root[dir="rtl"].mac .tl{ margin-right:calc(112px / var(--zoom, 1)); }
 
 /* The account form, opened from Settings rather than only from the welcome
    screen. Wider than the palettes because it holds a form and its explanations,
