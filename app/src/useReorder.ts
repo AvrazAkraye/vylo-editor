@@ -81,6 +81,22 @@ export interface ReorderOptions {
   enabled?: boolean;
   /** `from` and `to` are indices in the list as it will be. See `move`. */
   onMove: (from: number, to: number) => void;
+  /**
+   * A row let go outside the list.
+   *
+   * Dropping outside has always been the cancel, and still is — this is asked
+   * first, and the cancel happens unless it answers true. That ordering is the
+   * whole contract: a caller that does not recognise the place the row landed
+   * says so, and the gesture ends the way it always did rather than half
+   * happening.
+   *
+   * It exists because a list of things that are *shown somewhere else* has a
+   * second natural gesture: carry a row out of the list and put it where it
+   * should appear. Reordering cannot express that, and a separate drag on the
+   * same rows would fight this one for the pointer — as an HTML5 `dragstart`
+   * on a handle inside a row did, which is what this replaces.
+   */
+  onDropOut?: (index: number, at: { x: number; y: number }) => boolean;
 }
 
 export interface Reorder {
@@ -121,7 +137,7 @@ const IDLE: Shown = { from: -1, to: -1, dragging: false };
 const rowsIn = (host: HTMLElement): HTMLElement[] =>
   Array.from(host.querySelectorAll<HTMLElement>(`.${ITEM}`));
 
-export function useReorder({ axis, enabled = true, onMove }: ReorderOptions): Reorder {
+export function useReorder({ axis, enabled = true, onMove, onDropOut }: ReorderOptions): Reorder {
   const host = useRef<HTMLElement | null>(null);
   const live = useRef<Live | null>(null);
   // Set when a drag actually happened, so the click it turns into is swallowed
@@ -133,6 +149,8 @@ export function useReorder({ axis, enabled = true, onMove }: ReorderOptions): Re
   // through a ref so nothing here has to depend on it.
   const move = useRef(onMove);
   move.current = onMove;
+  const out = useRef(onDropOut);
+  out.current = onDropOut;
 
   /** Put everything back, whatever the drag ended as. */
   function finish(pointer: number): void {
@@ -229,8 +247,14 @@ export function useReorder({ axis, enabled = true, onMove }: ReorderOptions): Re
     // The click this press would otherwise become is not a click any more.
     swallow.current = true;
     // A row that arrived or left mid-drag makes every index stale, and there is
-    // no honest way to guess what the person meant. `inside` is the cancel.
-    if (rows === l.rows && inside && to !== from) move.current(from, to);
+    // no honest way to guess what the person meant.
+    if (rows !== l.rows) return;
+    if (inside) {
+      if (to !== from) move.current(from, to);
+      return;
+    }
+    // Outside. Offered to the caller, and still the cancel if it declines.
+    out.current?.(from, { x: e.clientX, y: e.clientY });
   }
 
   function cancel(e: ReactPointerEvent): void {

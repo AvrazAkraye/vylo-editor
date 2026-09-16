@@ -1941,12 +1941,6 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   width:28px; height:28px; border-radius:50%;
   background:var(--brand-wash); color:var(--brand);
 }
-/* The icon is the handle for sending this session to a pane — see the comment
-   on `mark` in TerminalPanel. `-webkit-user-drag` because it sits inside a
-   button, and a button is not a drag source by default, so without this the
-   gesture does nothing on WebKit and the feature exists only on paper. */
-.tsl-mark[draggable="true"]{ -webkit-user-drag:element; cursor:grab; }
-.tsl-mark[draggable="true"]:active{ cursor:grabbing; }
 .tsl-mark.busy{ color:var(--warn); background:var(--warn-wash); }
 .tsl-mark.failed{ color:var(--err); background:var(--err-wash); }
 .tsl-dot{
@@ -2039,6 +2033,13 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 /* The flex growth written on each pane is meaningless in a grid, and a grid
    item needs its minimums zeroed for the same reason a flex one does. */
 .panel-body.grid > .tpane{ flex:initial; min-inline-size:0; min-block-size:0; }
+
+/* A row is being carried out of the session list, and these are the places it
+   can be put down. Said on every drawn pane rather than on the one under the
+   pointer: the gesture captures the pointer on the list, so the panes never
+   see it move, and "any of these" is the honest thing to show rather than a
+   highlight that would have to guess. */
+.tpane.can-take{ outline:1px dashed var(--rule-2, var(--rule)); outline-offset:-3px; }
 
 /* A pane being dragged onto, and the one being dragged. */
 .tpane.taking{ outline:2px solid var(--brand); outline-offset:-2px; }

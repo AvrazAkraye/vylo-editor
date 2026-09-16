@@ -467,6 +467,9 @@ export function TerminalPanel({
   // one that existed when the callback was made.
   const tabsRef = useRef<Tab[]>([]);
   tabsRef.current = tabs;
+  // Also read by `onDropOut`, which `useReorder` is handed once and keeps in a
+  // ref of its own — so the `onScreen` it closes over is the first one there
+  // ever was.
   const shownRef = useRef<string[]>([]);
   const activeRef = useRef('');
   const cwdRef = useRef<Record<string, string>>({});
@@ -683,7 +686,38 @@ export function TerminalPanel({
     axis: 'y',
     enabled: !query.trim(),
     onMove: (from, to) => setTabs((p) => move(p, from, to)),
+    /**
+     * Carried out of the list and let go on a pane: that pane becomes this
+     * session.
+     *
+     * The same gesture that reorders, ending somewhere else — rather than a
+     * second drag on the same rows, which is what the first attempt at this
+     * was and why it did not work. An HTML5 `dragstart` on a handle inside
+     * the row had to be given a surface the reorder did not use, so it got
+     * the icon; the icon is 24 pixels and nobody drags a row by its icon.
+     *
+     * Unfiltered only, which `enabled` already guarantees: with a search in
+     * the box the rows on screen are not the list, and `from` would index the
+     * wrong session.
+     */
+    onDropOut: (from, at) => {
+      const id = tabs[from]?.id;
+      if (!id) return false;
+      for (const [paneId, el] of boxes.current) {
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        if (at.x < r.left || at.x > r.right || at.y < r.top || at.y > r.bottom) continue;
+        const slot = shownRef.current.indexOf(paneId);
+        if (slot < 0) return false;
+        setShown(swapPane(shownRef.current, slot, id));
+        setActive(id);
+        return true;
+      }
+      return false;
+    },
   });
+
+
 
   const rows = filter(tabs, query, t('Terminal'));
   // Pruned on every render rather than in an effect: a session can close from
@@ -1098,31 +1132,11 @@ export function TerminalPanel({
               // or renamed — one copy, so the row cannot change shape under
               // somebody halfway through typing a name.
               const mark = (
-                /**
-                 * The icon is a handle.
-                 *
-                 * Dragging a row *sends this session to a pane*; dragging the
-                 * rest of the row reorders the list, which it has always done
-                 * and which is pointer-based on purpose — `useReorder`'s
-                 * header sets out why `draggable` cannot show what is
-                 * happening. The two gestures cannot share a surface, so they
-                 * get different ones, and `data-nodrag` is the mechanism the
-                 * row already had for "this part is not for reordering".
-                 *
-                 * `-webkit-user-drag` in the stylesheet: this sits inside a
-                 * button, and a button is not a drag source by default.
-                 */
-                <span className={`tsl-mark ${state}`} draggable data-nodrag
-                      title={t('Drag onto a pane to show it there')}
-                      onDragStart={(e) => {
-                        e.dataTransfer.setData(DRAG_PANE, tab.id);
-                        e.dataTransfer.effectAllowed = 'move';
-                        // The same state a pane's own header sets, so the pane
-                        // already showing this session dims wherever it is and
-                        // the targets outline the same way.
-                        setLifting(tab.id);
-                      }}
-                      onDragEnd={() => { setLifting(null); setDropOn(null); }}>
+                /* The icon was briefly a drag handle of its own, for sending
+                   this session to a pane. The row does that now — see
+                   `onDropOut` — and two gestures on one row is how they end up
+                   fighting for the pointer. */
+                <span className={`tsl-mark ${state}`}>
                   <Icon name="terminal" size={14} />
                   {/* The badge carries the state, so the second line is free
                       to say something the badge cannot. */}
@@ -1275,7 +1289,7 @@ export function TerminalPanel({
                  onDoubleClick={() => setWeights((w) => evened(onScreen, w))}
                  title={t('Drag to resize, double-click to even them out')} />
 
-            <div className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''} ${dropOn === tab.id ? (lifting ? 'taking' : 'dropping') : ''} ${lifting === tab.id ? 'lifting' : ''}`}
+            <div className={`tpane ${tagClass(tab.tag)} ${on && tab.id === focus ? 'on' : ''} ${dropOn === tab.id ? (lifting ? 'taking' : 'dropping') : ''} ${lifting === tab.id ? 'lifting' : ''} ${drag.dragging && on ? 'can-take' : ''}`}
                  ref={(el) => {
                    // Only drawn panes are droppable; a hidden one has no box.
                    if (el && on) boxes.current.set(tab.id, el);
