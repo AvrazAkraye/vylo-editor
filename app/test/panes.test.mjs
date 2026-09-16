@@ -2,7 +2,7 @@
 //
 // Small rules, and each one exists because the obvious version has a way of
 // leaving somebody looking at a blank panel or at a pane that moved.
-import { MAX_PANES, toggle, only, prune, focused } from '../.test-build/panes.js';
+import { MAX_PANES, toggle, only, prune, focused, swap } from '../.test-build/panes.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -30,15 +30,17 @@ ok('panes follow the session list', toggle(['c'], 'a', ORDER).join() === 'a,c');
 ok('however they were added', toggle(toggle(['e'], 'b', ORDER), 'a', ORDER).join() === 'a,b,e');
 
 // ── the cap ───────────────────────────────────────────────────────────────
-ok('three is the cap', MAX_PANES === 3);
+ok('four is the cap', MAX_PANES === 4);
+ok('and a fourth pane is allowed, which is what the cap being four means',
+   toggle(['a', 'b', 'c'], 'd', ORDER).join() === 'a,b,c,d');
 {
-  const four = toggle(['a', 'b', 'c'], 'd', ORDER);
-  ok('a fourth does not simply appear', four.length === 3, four);
+  const five = toggle(['a', 'b', 'c', 'd'], 'e', ORDER);
+  ok('a fifth does not simply appear', five.length === MAX_PANES, five);
   // Dropping the newest would make the button look broken; dropping the oldest
   // makes it do what it says.
-  ok('and the one just asked for is the one that shows', four.includes('d'), four);
-  ok('the oldest is the one that goes', !four.includes('a'), four);
-  ok('and the rest keep list order', four.join() === 'b,c,d', four);
+  ok('and the one just asked for is the one that shows', five.includes('e'), five);
+  ok('the oldest is the one that goes', !five.includes('a'), five);
+  ok('and the rest keep list order', five.join() === 'b,c,d,e', five);
 }
 
 // ── clicking a row ────────────────────────────────────────────────────────
@@ -59,6 +61,33 @@ ok('an empty set with sessions still falls back', prune([], ORDER).join() === 'a
 ok('the bar acts on the pane asked for when it is visible', focused(['a', 'b'], 'b') === 'b');
 ok('and falls back to the first visible one when it is not', focused(['a', 'b'], 'z') === 'a');
 ok('with nothing visible it is empty rather than undefined', focused([], 'a') === '');
+
+// ── choosing what is in a pane ────────────────────────────────────────────
+//
+// The list beside the panes answers "show this as well" and "hide this". It
+// cannot answer "show this *there*", and with four panes that is the question:
+// the slots are a layout somebody arranged, and changing one must not
+// rearrange the others.
+ok('a session not on screen takes the slot', swap(['a', 'b', 'c'], 1, 'd').join() === 'a,d,c');
+ok('and the rest do not move', swap(['a', 'b', 'c', 'd'], 0, 'e').join() === 'e,b,c,d');
+// Two panes on one shell would both be live, each echoing the other's
+// keystrokes. They trade places instead.
+ok('a session already drawn trades places with the one in the slot',
+   swap(['a', 'b', 'c'], 0, 'c').join() === 'c,b,a');
+ok('so the same set is still on screen', (() => {
+  const before = ['a', 'b', 'c'];
+  const after = swap(before, 2, 'a');
+  return [...after].sort().join() === [...before].sort().join();
+})());
+ok('picking what is already there changes nothing', swap(['a', 'b'], 1, 'b').join() === 'a,b');
+ok('a slot that does not exist changes nothing',
+   swap(['a', 'b'], 5, 'c').join() === 'a,b' && swap(['a', 'b'], -1, 'c').join() === 'a,b');
+ok('and neither does no session', swap(['a', 'b'], 0, '').join() === 'a,b');
+ok('swapping does not mutate what it was given', (() => {
+  const before = ['a', 'b'];
+  swap(before, 0, 'c');
+  return before.join() === 'a,b';
+})());
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

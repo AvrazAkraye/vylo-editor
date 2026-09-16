@@ -7,7 +7,7 @@ import {
   ROW_VIEW_KEY, filter, readView, rowOf, shorten, stateOf, titleOf, writeView,
   type Facts, type RowView,
 } from './terminals';
-import { MAX_PANES, focused, only, prune, toggle as togglePane } from './panes';
+import { MAX_PANES, focused, only, prune, swap as swapPane, toggle as togglePane } from './panes';
 import { CONTEXT_LINES } from './command';
 import {
   KEY as TERMS_KEY, read as readSaved, tail, write as writeSaved, type Saved,
@@ -1268,8 +1268,29 @@ export function TerminalPanel({
                   came from is already lit in the list beside it. */}
               {onScreen.length > 1 && (
                 <div className="tpane-head">
-                  <span className={`tpane-name ${title.mono ? 'mono' : ''}`}
-                        title={title.text}>{title.text}</span>
+                  {/* The name is a picker.
+                      The list beside the panes answers "show this as well" and
+                      "hide this"; it has no way to say "show this *here*",
+                      and with four slots that is the question — the row is an
+                      arrangement, and changing what is in one of them should
+                      not rearrange the rest. A session already drawn trades
+                      places with this one rather than appearing twice: two
+                      panes on one shell are both live, each echoing the
+                      other's keystrokes. */}
+                  <span className={`tpane-name ${title.mono ? 'mono' : ''}`} title={title.text}>
+                    {title.text}
+                    <Icon name="chevron" size={9} turn={90} />
+                    <select value={tab.id}
+                            aria-label={t('Which terminal shows here')}
+                            onChange={(e) => {
+                              setShown(swapPane(onScreen, at, e.target.value));
+                              setActive(e.target.value);
+                            }}>
+                      {tabs.map((x) => (
+                        <option key={x.id} value={x.id}>{titleOf(x, t('Terminal')).text}</option>
+                      ))}
+                    </select>
+                  </span>
                   <button className="tsl-x"
                           onClick={() => setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id)))}
                           title={t('Hide this pane')} aria-label={`${t('Hide this pane')} — ${title.text}`}>

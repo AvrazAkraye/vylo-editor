@@ -8,19 +8,21 @@
  * runner beside it" is a shape somebody wants ten times a day, and building it
  * by hand is four gestures every time. A preset is that shape as one button.
  *
- * ## The shapes, and why these four
+ * ## The shapes, and why these five
  *
  *   solo       one pane: the one you are in. Everything else out of the way.
  *   pair       two panes, even. Reading one thing against another.
  *   workbench  two panes, the one you are in wide. Working in one and
  *              glancing at the other — a server log, a test runner.
+ *   quad       four panes, even. The cap, in one press.
  *   tidy       whatever is on screen, evened out. Not a shape but a repair:
  *              after a few drags the row is 40/23/37 and nobody chose that.
  *              BridgeMind's phrase for it is "squares the layout back up".
  *
- * Nothing here for three panes. Three even is what showing a third already
- * gives you, and three is the cap (`MAX_PANES`), so a "triple" button would be
- * a second button for the thing the list already does.
+ * Nothing here for three. Three even is what showing a third already gives
+ * you, one click at a time; `quad` earns a button because four is four clicks
+ * from solo and because it is the shape somebody sets up deliberately, on a
+ * wide screen, and wants back in one press.
  *
  * ## The pane you are in is never the one that goes
  *
@@ -65,7 +67,7 @@ import { MAX_PANES } from './panes';
 import { evened, shares, type Weights } from './split';
 
 /** The shapes a row can be in. What `describe` recognises. */
-export type Shape = 'solo' | 'pair' | 'workbench';
+export type Shape = 'solo' | 'pair' | 'workbench' | 'quad';
 
 /** What a button does: a shape, or `tidy`, which is a repair rather than a shape. */
 export type Preset = Shape | 'tidy';
@@ -84,6 +86,7 @@ export const PRESETS: readonly PresetInfo[] = [
   { id: 'solo', label: 'Solo', about: 'One pane: the one you are in.' },
   { id: 'pair', label: 'Pair', about: 'Two panes, side by side and even.' },
   { id: 'workbench', label: 'Workbench', about: 'Two panes, with the one you are in wider.' },
+  { id: 'quad', label: 'Quad', about: 'Four panes, side by side and even. Wants a wide window.' },
   { id: 'tidy', label: 'Tidy', about: 'Keep the panes you have and square them back up.' },
 ];
 
@@ -182,6 +185,7 @@ export function apply(preset: Preset, from: Layout): Applied {
   // How many panes the shape is. `tidy` is however many there are — plus the
   // focused one, if it was somehow not among them — and never more than the cap.
   const size = preset === 'solo' ? 1
+    : preset === 'quad' ? MAX_PANES
     : preset === 'tidy' ? live.length + (live.includes(focus) ? 0 : 1)
     : 2;
   const want = Math.min(MAX_PANES, Math.max(1, size));

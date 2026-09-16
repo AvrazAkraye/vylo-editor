@@ -2713,6 +2713,24 @@ export function App() {
       requestAnimationFrame(() => focusSession.current?.(''));
       return;
     }
+    /**
+     * Code and Chat are places the terminal is not.
+     *
+     * Each of the three switches to a way of working rather than adding a
+     * panel to the last one, so arriving somewhere puts away what belongs to
+     * the others — Terminal hides the message box and the transcript, and
+     * these two close the shell. Without it the switch is a half-move: you
+     * press Chat for a conversation and get a conversation with a terminal
+     * across the bottom of it.
+     *
+     * The panel is not taken away, only put away. Ctrl-` and the button in
+     * the status bar bring it back, and doing so is then a thing somebody
+     * chose rather than a leftover from where they used to be. Last, because
+     * it beats the `restoreTerm` above — leaving Terminal for Code means
+     * Code, not the arrangement from before Terminal.
+     */
+    setShowTerm(false);
+
     if (next === 'chat') {
       if (mode !== 'chat') lastCodeMode.current = mode;
       setMode('chat');

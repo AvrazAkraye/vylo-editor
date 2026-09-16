@@ -2265,6 +2265,16 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   font-size:11px; color:var(--mute); min-height:26px;
 }
 .tpane-name{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* The name is the picker: the select sits on top of it, transparent, so the
+   hit area is the label people were already reading rather than a control
+   beside it. A pane header is 20 pixels tall and has no room for both. */
+.tpane-name{ position:relative; display:inline-flex; align-items:center; gap:4px; cursor:pointer; }
+.tpane-name > svg{ flex:none; opacity:.5; }
+.tpane-name:hover{ color:var(--ink); }
+.tpane-name select{
+  position:absolute; inset:0; inline-size:100%; block-size:100%;
+  opacity:0; cursor:pointer; font:inherit;
+}
 .tpane-name.mono{ font-family:var(--mono); font-size:10.5px; }
 /* Which pane the bar acts on. A tag colour wins, because somebody who coloured
    a terminal chose that colour to find it by. */

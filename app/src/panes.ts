@@ -6,14 +6,22 @@
  * showing two is not a question of keeping more alive; it is only a question of
  * which ones are drawn. This is that set.
  *
- * ## Why a cap of three
+ * ## Why a cap of four
  *
- * The panel is a horizontal band, so panes split its width. At the default
- * window a fourth pane is about 240 pixels wide, which is narrower than the
- * eighty columns most command output is written for — so the fourth pane does
- * not show you a fourth thing, it makes four things unreadable. The cap is a
- * legibility limit rather than a technical one, and it is here rather than in
- * the component so it can be argued with in one place.
+ * It was three, and the reason given was that the panel is a horizontal band,
+ * so panes split its width: at a 960-pixel window a fourth pane is about 240
+ * pixels, narrower than the eighty columns most command output is written for,
+ * so it would not show a fourth thing — it would make four things unreadable.
+ *
+ * That argument was about a window nobody has. The comment said the cap "can
+ * be argued with in one place", and the argument is that a 1900-pixel window,
+ * which is what a person running four shells is doing it on, gives each of
+ * four panes about 470 pixels — eighty columns with room to spare. The narrow
+ * case is still narrow, but it is now somebody choosing four panes on a small
+ * window rather than the app deciding for everybody with a large one.
+ *
+ * Four rather than more because the fourth is where the honest version of the
+ * old argument bites: a fifth is under 380 pixels even on a wide screen.
  *
  * ## The set is never empty
  *
@@ -23,7 +31,7 @@
  */
 
 /** Beyond this, panes are narrower than the output they are showing. */
-export const MAX_PANES = 3;
+export const MAX_PANES = 4;
 
 /**
  * Add a pane, or remove it if it is already showing.
@@ -73,4 +81,31 @@ export function prune(shown: readonly string[], order: readonly string[]): strin
  */
 export function focused(shown: readonly string[], want: string): string {
   return shown.includes(want) ? want : (shown[0] ?? '');
+}
+
+/**
+ * Put a session in a particular pane.
+ *
+ * The other way to choose what is on screen — the list beside the panes —
+ * answers "show this as well" and "hide this". It cannot answer "show this
+ * *there*", and with four panes that is the question: the slots are a layout
+ * somebody arranged, and swapping what is in one should not rearrange the
+ * others.
+ *
+ * So a session already on screen is **exchanged** with the one in the slot
+ * rather than added. Anything else would either duplicate it — two panes on
+ * one shell, both live, each echoing the other's keystrokes — or silently drop
+ * a pane, which is a layout changing shape because somebody picked from a
+ * menu.
+ */
+export function swap(shown: readonly string[], at: number, id: string): string[] {
+  if (at < 0 || at >= shown.length || !id) return [...shown];
+  const here = shown[at];
+  if (here === id) return [...shown];
+  const elsewhere = shown.indexOf(id);
+  const next = [...shown];
+  next[at] = id;
+  // Already drawn: the two trade places, so the same set is on screen.
+  if (elsewhere >= 0) next[elsewhere] = here;
+  return next;
 }

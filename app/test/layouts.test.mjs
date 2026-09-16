@@ -30,8 +30,8 @@ const FOUR = ['a', 'b', 'c', 'd'];
 const BENCH = { a: 1.3, b: 0.7 };
 
 // ── the buttons ───────────────────────────────────────────────────────────
-ok('four presets, shapes first and the repair last',
-   same(PRESETS.map((p) => p.id), ['solo', 'pair', 'workbench', 'tidy']), PRESETS.map((p) => p.id));
+ok('five presets, shapes first and the repair last',
+   same(PRESETS.map((p) => p.id), ['solo', 'pair', 'workbench', 'quad', 'tidy']), PRESETS.map((p) => p.id));
 ok('each has a one-word label, because it is a button',
    PRESETS.every((p) => /^[A-Z][a-z]+$/.test(p.label)), PRESETS.map((p) => p.label));
 ok('and a sentence about it', PRESETS.every((p) => p.about.length > 10 && p.about.endsWith('.')));
@@ -141,11 +141,12 @@ ok('tidy does not add panes', (() => {
 })());
 ok('tidy leaves hidden panes alone', apply('tidy', row('a', TWO, FOUR, { d: 5 })).weights.d === 5);
 ok('a focus that is not on screen is brought on', same(apply('tidy', row('d', TWO, FOUR)).shown, ['a', 'b', 'd']));
-ok('and when that would be four, the farthest goes', (() => {
-  const r = apply('tidy', row('d', THREE, FOUR));
-  // c is the one farthest after the focus once d joins; a and b stay.
-  return r.shown.length === MAX_PANES && same(r.shown, ['a', 'b', 'd']);
-})(), apply('tidy', row('d', THREE, FOUR)).shown);
+ok('and when that would be five, the farthest goes', (() => {
+  const five = ['a', 'b', 'c', 'd', 'e'];
+  const r = apply('tidy', row('e', FOUR, five));
+  // d is the one farthest after the focus once e joins; a, b and c stay.
+  return r.shown.length === MAX_PANES && same(r.shown, ['a', 'b', 'c', 'e']);
+})(), apply('tidy', row('e', FOUR, ['a', 'b', 'c', 'd', 'e'])).shown);
 
 // ── what no preset may do ─────────────────────────────────────────────────
 const EVERY = PRESETS.map((p) => p.id);
@@ -168,7 +169,30 @@ ok('the widths for a single pane are left as they were', (() => {
   const w = { a: 1.3, b: 0.7 };
   return EVERY.every((p) => apply(p, row('a', ONE, ONE, w)).weights.a === 1.3);
 })());
-ok('the cap is three', MAX_PANES === 3);
+ok('the cap is four', MAX_PANES === 4);
+
+// ── quad ──────────────────────────────────────────────────────────────────
+//
+// The cap in one press. It is a shape like any other, so everything the other
+// shapes promise has to hold for it too.
+ok('quad fills the row to the cap', (() => {
+  const r = apply('quad', row('a', ONE, FOUR));
+  return r.shown.length === MAX_PANES && same(r.shown, FOUR);
+})(), apply('quad', row('a', ONE, FOUR)).shown);
+ok('and evens them out', (() => {
+  const r = apply('quad', row('a', FOUR, FOUR, { a: 2, b: 0.5, c: 1, d: 0.5 }));
+  return FOUR.every((id) => r.weights[id] === 1);
+})());
+ok('the pane you are in stays, wherever it is in the list',
+   apply('quad', row('c', ['c'], FOUR)).shown.includes('c'));
+ok('with fewer sessions than the cap it takes what there is',
+   same(apply('quad', row('a', ONE, TWO)).shown, TWO));
+// `needsNew` is how the panel knows to open one, and quad asks for it the
+// same way pair does.
+ok('and asks for one more when there are none to take',
+   apply('quad', row('a', ONE, ONE)).needsNew === true);
+ok('a row already at the cap is not rearranged by quad',
+   same(apply('quad', row('b', FOUR, FOUR)).shown, FOUR));
 
 // ── a row that has gone stale ─────────────────────────────────────────────
 // A layout restored from disk can name sessions that have since closed.
