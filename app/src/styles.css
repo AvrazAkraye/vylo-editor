@@ -2295,6 +2295,9 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   border:0; background:transparent; cursor:pointer; padding:var(--sp-1) var(--sp-3); border-radius:var(--r-1);
 }
 .st-btn:hover{ background:var(--panel-3); color:var(--ink); }
+/* Lit while what it controls is on screen, so the row of buttons says what the
+   window is showing rather than only what it can do. */
+.st-btn.on{ color:var(--ink); }
 .ghost.icon.on{ color:var(--brand); border-color:var(--rule); background:var(--brand-wash); }
 .panel-load{ flex:1; display:grid; place-items:center; font-size:var(--fs-4); color:var(--mute); }
 /* Hidden, not unmounted: a shell keeps running while the panel is out of sight. */

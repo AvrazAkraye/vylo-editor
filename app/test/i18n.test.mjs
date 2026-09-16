@@ -78,7 +78,58 @@ ok('no catalogue entry has lost its UI', dead.length === 0, dead.join(' | '));
 // starts from the catalogue, so a string the UI passes to `t()` that no
 // catalogue has passes the whole suite while rendering in English inside an
 // RTL interface. Two of them had.
-const used = new Set([...code.matchAll(/\bt\(\s*'((?:[^'\\]|\\.)*)'\s*\)/g)].map((m) => m[1]));
+/**
+ * Every single-quoted literal handed to `t()`, however it is handed over.
+ *
+ * This used to be `t('…')` and nothing else, which missed the shape the
+ * codebase uses whenever a label depends on state:
+ *
+ *     t(open ? 'Hide the message box' : 'Show the message box')
+ *
+ * Both of those shipped in English in every language, and the test that exists
+ * to catch exactly that said nothing — the failure this file's own header
+ * warns about, where a pattern that has stopped matching is indistinguishable
+ * from a clean result.
+ *
+ * So the parens are walked rather than matched. Only single quotes count: a
+ * template literal is assembled at runtime and cannot be a key, and a double
+ * quote in this codebase is a JSX attribute.
+ */
+function handedToT(src) {
+  const out = new Set();
+  const calls = /\bt\(/g;
+  let m;
+  while ((m = calls.exec(src))) {
+    let i = m.index + m[0].length;
+    let depth = 1;
+    while (i < src.length && depth > 0) {
+      const c = src[i];
+      if (c === '(') { depth += 1; i += 1; continue; }
+      if (c === ')') { depth -= 1; i += 1; continue; }
+      if (c === "'" || c === '"' || c === '`') {
+        let j = i + 1;
+        let lit = '';
+        while (j < src.length && src[j] !== c) {
+          if (src[j] === '\\') { lit += src[j] + (src[j + 1] ?? ''); j += 2; continue; }
+          lit += src[j];
+          j += 1;
+        }
+        // A literal next to a comparison is the thing being *tested*, not the
+        // label — `t(sp === 'code' ? 'Code' : 'Chat')` hands over two strings
+        // and compares against a third. Only the labels are keys.
+        const before = src.slice(Math.max(0, i - 4), i).trimEnd();
+        const after = src.slice(j + 1, j + 5).trimStart();
+        const compared = /[=!]=$/.test(before) || /^[=!]==?/.test(after);
+        if (c === "'" && lit && !compared) out.add(lit);
+        i = j + 1;
+        continue;
+      }
+      i += 1;
+    }
+  }
+  return out;
+}
+const used = handedToT(code);
 const untranslated = [...used].filter((k) => !base.has(k));
 // A long entry puts its value on the next line, and that is the shape that
 // broke on Windows. Parse the file again with CRLF and assert the catalogue is
@@ -96,6 +147,27 @@ const untranslated = [...used].filter((k) => !base.has(k));
 
 ok('every string the UI hands to t() is in the catalogues',
    untranslated.length === 0, untranslated.join(' | '));
+
+// The scanner above is the thing most likely to be wrong, and it *was* wrong
+// for as long as the app had a label that depends on state — so it is checked
+// against the shapes that broke it, the way `orphans.mjs` and `rtl.mjs` are.
+// A pattern that has stopped matching returns nothing, and nothing looks
+// exactly like a clean result.
+ok('the scanner sees a plain call', handedToT("t('Settings')").has('Settings'));
+ok('and both labels of a ternary', (() => {
+  const seen = handedToT("t(open ? 'Hide the box' : 'Show the box')");
+  return seen.has('Hide the box') && seen.has('Show the box');
+})());
+ok('but not the value the ternary is testing', (() => {
+  const seen = handedToT("t(sp === 'code' ? 'Code' : 'Chat')");
+  return seen.has('Code') && seen.has('Chat') && !seen.has('code');
+})());
+ok('nor the other way round', !handedToT("t('x' === y ? 'A' : 'B')").has('x'));
+ok('a label inside a nested call is still found',
+   handedToT("fill(t('Open {name}'), { name })").has('Open {name}'));
+ok('a template literal is assembled at runtime and is not a key',
+   handedToT('t(`Open ${name}`)').size === 0);
+ok('and an empty string is not a key', handedToT("t(a ? 'A' : '')").has('') === false);
 
 // The parser above is the thing most likely to be wrong, so prove it saw a
 // realistic number of entries rather than silently matching nothing.

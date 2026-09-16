@@ -502,6 +502,22 @@ export function App() {
   /** When each kind of summons last went out, so six staged files are one banner. */
   const raised = useRef<Partial<Record<Moment['kind'], number>>>({});
   const [shots, setShots] = useState<Attached[]>([]);
+
+  /**
+   * Whether the message box is on screen.
+   *
+   * It is a third of the height of a short window and most of what somebody
+   * reading code wants that height for. Kept as a preference rather than a
+   * per-session thing, because somebody who works in the editor for an hour
+   * should not have to put it away every time they open the app.
+   *
+   * The Terminal space hides it regardless — that space is the shell filling
+   * the window — so this is the answer for the other three.
+   */
+  const [askOpen, setAskOpen] = useState(() => localStorage.getItem('vylo.ask') !== '0');
+  useEffect(() => {
+    try { localStorage.setItem('vylo.ask', askOpen ? '1' : '0'); } catch { /* private mode */ }
+  }, [askOpen]);
   /** What the saved terminal sessions take. Re-measured when Settings opens. */
   const [termBytes, setTermBytes] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -1406,6 +1422,19 @@ export function App() {
 
   // Applying on every change rather than only on click also covers the first
   // paint, so the window never flashes the wrong theme on launch.
+  /**
+   * Anything that puts something in the box opens the box.
+   *
+   * One rule rather than a call at every site that writes to it — Send to
+   * chat, a dropped file, the clipboard history, dictation, an apply from the
+   * transcript. Text typed into something nobody can see is the kind of bug
+   * that gets reported as "it lost my message", and there is no site that
+   * writes to this and means for it to stay hidden.
+   */
+  useEffect(() => {
+    if (!askOpen && (prompt.trim() || shots.length)) setAskOpen(true);
+  }, [prompt, shots, askOpen]);
+
   useEffect(() => { applyTheme(theme); storeTheme(theme); }, [theme]);
 
   // Following the OS means following it *afterwards* too. The ref keeps the
@@ -1447,6 +1476,11 @@ export function App() {
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'f') {
         e.preventDefault();
         openFind();
+      } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'j') {
+        // Where VS Code puts the same idea: the panel at the bottom, away and
+        // back. Through the ref, because this handler is installed once.
+        e.preventDefault();
+        setAskOpen((v) => !v);
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 's') {
         e.preventDefault();
         void saveActive();
@@ -2406,6 +2440,7 @@ export function App() {
     { id: 'goToFileSymbol', label: t('Go to symbol in file…'), keys: `${MOD}⇧O` },
     { id: 'searchProject', label: t('Search the project…'), keys: `${MOD}⇧F` },
     { id: 'terminal', label: t('Terminal'), keys: `${ALT}\`` },
+    { id: 'ask', label: t(askOpen ? 'Hide the message box' : 'Show the message box'), keys: `${MOD}J` },
     { id: 'clips', label: t('Clipboard history'), keys: `${MOD}⇧V` },
     { id: 'newBranch', label: t('New branch'), keys: '' },
     { id: 'fullScreen', label: t(full ? 'Leave full screen' : 'Full screen'), keys: 'F11' },
@@ -2432,6 +2467,7 @@ export function App() {
       case 'goToFileSymbol': keys.current.fileSym(); break;
       case 'searchProject': openFind(); break;
       case 'terminal': toggleTerm(); break;
+      case 'ask': setAskOpen((v) => !v); break;
       case 'clips': keys.current.clips(); break;
       case 'newBranch': void newBranch(); break;
       case 'fullScreen': void toggleFullscreen().then(setFull); break;
@@ -5521,7 +5557,7 @@ export function App() {
           asked, while a half-written message and the caret inside it survive
           going to the shell and coming back. */}
       {root && (
-      <div className={`composer ${space === 'terminal' ? 'gone' : ''}`}>
+      <div className={`composer ${space === 'terminal' || !askOpen ? 'gone' : ''}`}>
         <div className="cmp-card">
           {/* Up is taller. Double-click hands the height back to the text. */}
           <div className="cmp-grip" role="separator" aria-orientation="horizontal" tabIndex={0}
@@ -5862,6 +5898,16 @@ export function App() {
         <button className="st-btn" onClick={() => openFind()}>
           <Icon name="search" size={12} />{t('Search')}
         </button>
+        {/* Not in the Terminal space: that space is the shell filling the
+            window, so a control that promises the message box back would be
+            promising something the space does not do. */}
+        {space !== 'terminal' && (
+          <button className={`st-btn ${askOpen ? 'on' : ''}`} onClick={() => setAskOpen((v) => !v)}
+                  aria-pressed={askOpen}
+                  title={t(askOpen ? 'Hide the message box' : 'Show the message box')}>
+            <Icon name="chat" size={12} />{t('Ask')}
+          </button>
+        )}
         <button className="st-btn" onClick={toggleTerm}>
           <Icon name="terminal" size={12} />{t('Terminal')}
         </button>
