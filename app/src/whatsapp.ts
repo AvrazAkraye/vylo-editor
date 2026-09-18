@@ -265,3 +265,83 @@ export function chatsFrom(msgs: readonly Msg[], seen: Record<string, number> = {
 /** The messages of one conversation, oldest first. */
 export const inChat = (msgs: readonly Msg[], jid: string): Msg[] =>
   msgs.filter((m) => m.jid === jid);
+
+/* ── a conversation as rows ──────────────────────────────────────────────
+   A thread is not a list of messages, it is a list of *runs*: a day marker,
+   then a burst from one person, then a burst from the other. Drawing every
+   message as an identical block is what made the panel read as a log file —
+   ten "Your verification code is …" lines with nothing to say that they came
+   an hour apart, from the same sender, on two different days.
+
+   The split is arithmetic over the timestamps, so it is decided here rather
+   than in the component, and `test/whatsapp.test.mjs` can hold it. */
+
+/** A local calendar day, as a key that sorts and compares. */
+export function dayOf(at: number): string {
+  const d = new Date(at);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * Today, yesterday, or neither — as a token, not a sentence.
+ *
+ * The words are in the catalogue and the component looks them up; a function
+ * that returns "Yesterday" returns it in English for ever.
+ */
+export function relDay(at: number, now: number = Date.now()): 'today' | 'yesterday' | null {
+  const day = dayOf(at);
+  if (day === dayOf(now)) return 'today';
+  if (day === dayOf(now - 86400000)) return 'yesterday';
+  return null;
+}
+
+/**
+ * How long a silence has to be before the next message starts a new run.
+ *
+ * Five minutes: long enough that two lines typed in one breath stay together,
+ * short enough that a reply an hour later is visibly a reply.
+ */
+export const GROUP_GAP = 5 * 60 * 1000;
+
+export type Row =
+  | { kind: 'day'; at: number; key: string }
+  /**
+   * `head` is the first message of a run and `tail` the last. A run of one is
+   * both. The component hangs everything on these two: the sender's name goes
+   * on the head, the time and the corner go on the tail, and the messages
+   * between them are drawn tight so the run reads as one thing said.
+   */
+  | { kind: 'msg'; msg: Msg; head: boolean; tail: boolean };
+
+/** Whether two messages were said by the same person, in the same breath. */
+function sameRun(a: Msg, b: Msg): boolean {
+  if (a.fromMe !== b.fromMe) return false;
+  // In a group two people are both "not me", so the name has to be compared
+  // as well. Outside one there is only ever the other party, and `who` can
+  // change under you — WhatsApp sends the push name on some messages and not
+  // on others, and a run should not split because of that.
+  if (isGroup(a.jid) && a.who !== b.who) return false;
+  if (dayOf(a.at) !== dayOf(b.at)) return false;
+  return b.at - a.at <= GROUP_GAP;
+}
+
+/** A conversation, ready to draw. Messages must be oldest first. */
+export function threadRows(msgs: readonly Msg[]): Row[] {
+  const out: Row[] = [];
+  let day = '';
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    const d = dayOf(m.at);
+    if (d !== day) { out.push({ kind: 'day', at: m.at, key: d }); day = d; }
+    const prev = i > 0 ? msgs[i - 1] : null;
+    const next = i + 1 < msgs.length ? msgs[i + 1] : null;
+    out.push({
+      kind: 'msg',
+      msg: m,
+      head: !prev || !sameRun(prev, m),
+      tail: !next || !sameRun(m, next),
+    });
+  }
+  return out;
+}

@@ -296,9 +296,22 @@ export type RunChoice = 'no' | 'pipe' | 'terminal';
 export type AskToRun = (req: CommandRequest) => Promise<RunChoice>;
 export interface CommandResult { code: number | null; output: string; truncated: boolean }
 
+/**
+ * A tool this module does not implement.
+ *
+ * `extraTools` already lets a caller add schemas; without a matching seam the
+ * only way to add an implementation was to teach this file about it. That is
+ * how the agent loop ends up importing a chat client. Return null for a name
+ * you do not own and the built-in dispatch carries on underneath.
+ */
+export type ExtraRun = (
+  call: ToolCall, ask: AskToRun,
+) => Promise<{ content: string; isError: boolean } | null>;
+
 async function runTool(
   root: string, call: ToolCall, pending: Pending, ask: AskToRun,
   runInTerminal?: (command: string) => Promise<CommandResult>,
+  extraRun?: ExtraRun,
 ): Promise<{ content: string; isError: boolean }> {
   try {
     if (call.name === 'write_file') {
@@ -393,6 +406,15 @@ async function runTool(
       });
       return { content: JSON.stringify(hits), isError: false };
     }
+    // A tool the host added alongside its schema -- WhatsApp is the one that
+    // exists today. Before the MCP path and after the built-ins: it may not
+    // shadow `run_command`, and a host tool with an MCP server's name is the
+    // host's own collision to have caused.
+    if (extraRun) {
+      const out = await extraRun(call, ask);
+      if (out) return out;
+    }
+
     // An MCP tool: third-party code with side effects nothing about its name
     // reveals, so it goes through the same gate as run_command rather than
     // running because the model asked.
@@ -430,6 +452,8 @@ export interface RunOptions {
   askToRun: AskToRun;
   /** Runs an already-approved command in a visible terminal tab. */
   runInTerminal?: (command: string) => Promise<CommandResult>;
+  /** Implements the host's own tools -- the other half of `extraTools`. */
+  extraRun?: ExtraRun;
   /**
    * Facts about the OS, the shell `run_command` actually spawns, and this
    * project's manifests — built by `environment.ts` from disk and the host.
@@ -863,6 +887,7 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
       o.onToolStart?.(c.name, c.input);
       const r = await runTool(
         o.root, { id: c.id, name: c.name, input: c.input }, o.pending, o.askToRun, o.runInTerminal,
+        o.extraRun,
       );
       o.onEvent({ kind: 'result', text: `${c.name} → ${r.isError ? 'error: ' : ''}${r.content.slice(0, 160)}` });
       o.onToolEnd?.(c.name, !!r.isError);

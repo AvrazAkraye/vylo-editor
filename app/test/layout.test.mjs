@@ -128,5 +128,55 @@ ok('no single-line control grows without a row to grow along',
   ok('flex-basis alone is not growth', grows('flex-basis:1px;') === false);
 }
 
+// ── a rule that is never closed ───────────────────────────────────────────
+//
+// `.sug-ghost{` lost its closing brace when the WhatsApp block was spliced in
+// beside it, and CSS nesting is why nobody noticed: `.crumbs{` on the next
+// line is not a syntax error any more, it is a nested rule, so the breadcrumb
+// bar, the whole WhatsApp panel and the terminal tab strip -- 200 lines --
+// silently became `.sug-ghost .crumbs`, `.sug-ghost .wa-form` and so on. They
+// matched nothing. The panel rendered as raw HTML with native OS controls and
+// the build was green throughout.
+//
+// The file has no intentional nesting outside at-rules, so depth is the test:
+// a bare selector may only open a block at the top level.
+{
+  const orphans = [];
+  const stack = [];
+  let depth = 0, sel = '', line = 1;
+  for (let i = 0; i < bare.length; i++) {
+    const ch = bare[i];
+    if (ch === '\n') { line++; sel += ' '; continue; }
+    if (ch === '{') {
+      const name = sel.trim().replace(/\s+/g, ' ');
+      // An at-rule is allowed to hold rules; that is what it is for.
+      const nestable = stack.some((s) => s.startsWith('@'));
+      if (depth > 0 && !nestable) orphans.push(`${name.slice(0, 48)} (line ${line})`);
+      stack.push(name); depth++; sel = '';
+    } else if (ch === '}') {
+      stack.pop(); depth = Math.max(0, depth - 1); sel = '';
+    } else sel += ch;
+  }
+  ok('every rule in styles.css is closed', depth === 0, `${depth} block(s) left open`);
+  ok('and no rule is nested inside another', orphans.length === 0, orphans.slice(0, 4).join(' | '));
+
+  // The check itself works: the exact shape the bug had must come back.
+  const probe = (text) => {
+    const out = []; const st = []; let d = 0, s = '';
+    for (const ch of text) {
+      if (ch === '{') {
+        if (d > 0 && !st.some((x) => x.startsWith('@'))) out.push(s.trim());
+        st.push(s.trim()); d++; s = '';
+      } else if (ch === '}') { st.pop(); d--; s = ''; } else s += ch;
+    }
+    return out;
+  };
+  ok('an unclosed rule shows up as a nested one',
+     probe('.a{ color:red; .b{ color:blue; }').length === 1);
+  ok('a well-formed pair does not', probe('.a{ color:red; } .b{ color:blue; }').length === 0);
+  ok('and an at-rule is still allowed to hold rules',
+     probe('@media (x){ .a{ color:red; } }').length === 0);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

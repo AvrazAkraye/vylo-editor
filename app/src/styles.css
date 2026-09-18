@@ -1450,6 +1450,33 @@ body.resizing{ cursor:col-resize; user-select:none; }
   border:1px solid var(--rule); border-radius:var(--r-1); padding:var(--sp-1) var(--sp-3);
 }
 
+/* The button that *commits* in a sidebar panel -- Check and save, Send. It is
+   not `.ghost.bordered`: that shape offers something (Open a folder, Name an
+   agent) and stays quiet about it, while this one is the confirming action and
+   has to read as the loudest thing in the column.
+
+   The WhatsApp panel shipped calling this class and the class did not exist,
+   so both of its buttons rendered as native OS buttons in a window where
+   nothing else is one -- grey, system-sized, beside violet-filled twins one
+   panel over. Same fill and the same disabled treatment as `.approve` and
+   `.send`, because a filled button is the one shape this app should only have
+   one of; the metrics are this column's rather than the composer's. */
+.sb-cta-go{
+  display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2);
+  padding:var(--sp-3) var(--sp-5); border:0; border-radius:var(--r-2);
+  background:var(--fill); color:var(--on-fill);
+  font:inherit; font-size:var(--fs-4); font-weight:600;
+  white-space:nowrap; cursor:pointer;
+}
+/* A treatment, not an opacity -- see `.send:disabled` for the whole argument.
+   Check and save is disabled until all three fields are filled, so this is the
+   state the form is first seen in and it still has to name what it would do. */
+.sb-cta-go:disabled{
+  background:var(--panel-2); color:var(--mute); box-shadow:inset 0 0 0 1px var(--rule);
+  cursor:default;
+}
+
+
 /* A recent search. The term was typed into a monospace field, so it is shown in
    the face it was typed in; the row itself is `.ft-row`, because a list of
    clickable things in this column has one shape. */
@@ -2111,7 +2138,16 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    own inline completion dims its ghost. */
 .sug-ghost{
   font-family:var(--mono); font-size:var(--fs-2); line-height:1.4;
-  /* ── where the open file is ──────────────────────────────────────────────
+  /* One line, always, cut with an ellipsis rather than wrapped. A strip whose
+   height depends on how long the completion is resizes the terminal under
+   the prompt — a different number of rows on each keystroke, each one a
+   SIGWINCH and a redraw. The chips below carry the full text. */
+  white-space:pre; overflow:hidden; text-overflow:ellipsis;
+  /* A command line is written left to right in every language. */
+  direction:ltr;
+}
+
+/* ── where the open file is ──────────────────────────────────────────────
    Between the tabs and the text, because that is where the eye already is —
    the status bar has carried the whole path for a while, in the far corner,
    which is the one place nobody looks while reading code. One line, cut from
@@ -2143,75 +2179,289 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    likely to use this. */
 .wa{ display:flex; flex-direction:column; min-block-size:0; gap:var(--sp-3); }
 
-.wa-form{ display:grid; gap:var(--sp-3); padding:0 var(--sp-4) var(--sp-4); }
-.wa-form label{ display:grid; gap:4px; font-size:var(--fs-2); color:var(--mute); }
-.wa-form input{
-  inline-size:100%; padding:var(--sp-2) var(--sp-3);
-  border:1px solid var(--rule); border-radius:var(--r-2);
-  background:var(--panel-2); color:var(--ink); font:inherit; font-size:var(--fs-3);
-}
-.wa-form input:focus{ outline:none; border-color:var(--brand); }
-.wa-why{
-  margin:0 var(--sp-4); padding:var(--sp-2) var(--sp-3);
-  border-radius:var(--r-2); background:var(--err-wash, var(--panel-3));
-  color:var(--err); font-size:var(--fs-2);
-}
-.wa-note{
-  display:flex; gap:var(--sp-2); align-items:flex-start;
-  margin:var(--sp-2) 0 0; font-size:var(--fs-1); color:var(--mute);
-}
-.wa-note svg{ flex:none; margin-block-start:2px; }
+/* The connect form.
 
-.wa-list{ list-style:none; margin:0; padding:0 var(--sp-3); overflow-y:auto;
-  display:flex; flex-direction:column; gap:2px; }
+   `--sp-7` inline, not `--sp-4`: the heading above it is `.sb-sub`, which
+   starts at `--sp-7`, and this form started at a different x from the only
+   other thing on the screen. `.sb-cta` carries the same note for the same
+   reason one panel over.
+
+   The label wraps its input rather than pointing at it by id, so there is
+   nothing to keep in sync and the whole pair is one click target. It needs
+   `display:grid` to say so: a `<label>` is inline by default, and inline is
+   what put Server, its field, Instance, its field and API key on one line
+   running off the edge of a 248px column. */
+.wa-form{ display:grid; gap:var(--sp-5); padding:0 var(--sp-7) var(--sp-6); }
+.wa-form label{
+  display:grid; gap:var(--sp-2);
+  font-size:var(--fs-2); font-weight:500; color:var(--mute);
+}
+.wa-form input{
+  inline-size:100%; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink);
+  /* A server address, an instance name and a key are all strings you compare
+     character by character against something someone sent you, and `l1I` and
+     `0O` have to be told apart to do it. The same argument `.pal-name.pal-ran`
+     makes for a command that was typed. */
+  font:inherit; font-family:var(--mono); font-size:var(--fs-3);
+  /* Addresses and keys are written left to right in every language. */
+  direction:ltr; text-align:start;
+}
+.wa-form input::placeholder{ color:var(--mute); opacity:.65; }
+.wa-form input:hover{ border-color:var(--rule-2); }
+/* A border colour alone is a one-pixel change on a field that already has a
+   border -- the ring is what makes it obvious which of the three has the
+   caret. `.sc-key.rec` draws its recording state the same way. */
+.wa-form input:focus{
+  outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand);
+  background:var(--panel);
+}
+/* Full width: it is the only action on the form, and a button sized to its
+   label leaves a ragged edge under three fields that all reach the margin. */
+.wa-form .sb-cta-go{ inline-size:100%; margin-block-start:var(--sp-2); }
+/* The same sentence appears in both states: under the form while connecting,
+   and under the header once live. Only the second one needs the gutter -- in
+   the form the gutter is the form's own padding. */
+.wa-form .wa-why{ margin-inline:0; }
+
+/* Why the last attempt did not work, said where the attempt was made. Left
+   rule rather than a full border: the sentence is the thing to read, and a box
+   drawn all the way round a line of text in a 248px column is mostly box. */
+.wa-why{
+  margin:0 var(--sp-7); padding:var(--sp-3) var(--sp-4);
+  border-inline-start:2px solid var(--err);
+  /* Logical corners rather than `border-radius:0 r r 0`. The square end is the
+     end the rule is drawn on, and in Sorani that is the other side of the
+     panel -- the shorthand would leave the rule on a rounded edge and the
+     rounding on the flat one. */
+  border-start-start-radius:0; border-end-start-radius:0;
+  border-start-end-radius:var(--r-2); border-end-end-radius:var(--r-2);
+  background:var(--err-wash);
+  color:var(--err); font-size:var(--fs-2); line-height:1.5;
+}
+/* Said here rather than in a manual, so it is quiet: `--fs-1` and `--mute`,
+   sitting under the form the way a field's help text does, not a banner. */
+.wa-note{
+  display:flex; gap:var(--sp-3); align-items:flex-start;
+  margin:0; font-size:var(--fs-1); color:var(--mute); line-height:1.55;
+}
+.wa-note svg{ flex:none; margin-block-start:2px; opacity:.7; }
+
+/* ── the chat list ───────────────────────────────────────────────────── */
+.wa-list{
+  list-style:none; margin:0; padding:var(--sp-2) var(--sp-3); overflow-y:auto;
+  display:flex; flex-direction:column; gap:1px;
+}
 .wa-row{
-  inline-size:100%; display:flex; align-items:center; gap:var(--sp-3);
-  padding:var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-2);
+  inline-size:100%; display:flex; align-items:center; gap:var(--sp-4);
+  padding:var(--sp-3); border:0; border-radius:var(--r-2);
   background:transparent; color:inherit; cursor:pointer; text-align:start;
 }
 .wa-row:hover{ background:var(--panel-3); }
+
+/* The avatar. Initials rather than a photo: Evolution is not storing contacts,
+   so there is no picture to fetch and a grey silhouette on every row is six
+   identical shapes doing nothing. Two letters and a tint tell them apart. */
 .wa-mark{
   flex:none; display:inline-flex; align-items:center; justify-content:center;
-  inline-size:28px; block-size:28px; border-radius:var(--r-2);
+  inline-size:30px; block-size:30px; border-radius:50%;
   background:var(--brand-wash); color:var(--brand);
+  font-size:var(--fs-2); font-weight:700; letter-spacing:.02em;
+  /* No `direction` here: two letters are a bidi run of their own and come out
+     in the order they were written whichever way the panel is facing. */
+  user-select:none;
 }
-.wa-mark.group{ background:var(--panel-3); color:var(--mute); }
-.wa-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
-.wa-what b{ font-size:var(--fs-3); font-weight:500; color:var(--ink);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.wa-last{ font-size:var(--fs-1); color:var(--mute);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* Six tints, picked by hashing the jid so a contact keeps its colour. They are
+   the tag colours the rest of the app already uses -- a seventh palette for
+   one panel is how an interface stops looking like one interface. `--tag-red`
+   is not among them: red means a failure everywhere else in this window and a
+   contact is not one. */
+.wa-mark.wa-t0{ background:var(--brand-wash); color:var(--brand); }
+.wa-mark.wa-t1{ background:color-mix(in srgb, var(--tag-green) 16%, transparent); color:var(--tag-green); }
+.wa-mark.wa-t2{ background:color-mix(in srgb, var(--tag-amber) 16%, transparent); color:var(--tag-amber); }
+.wa-mark.wa-t3{ background:color-mix(in srgb, var(--tag-pink) 16%, transparent); color:var(--tag-pink); }
+.wa-mark.wa-t4{ background:color-mix(in srgb, var(--tag-teal) 16%, transparent); color:var(--tag-teal); }
+.wa-mark.wa-t5{ background:color-mix(in srgb, var(--tag-violet) 16%, transparent); color:var(--tag-violet); }
+/* A group is a place, not a person, so it keeps the square and the neutral. */
+.wa-mark.group{ border-radius:var(--r-2); background:var(--panel-3); color:var(--mute); }
+
+.wa-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:2px; }
+/* Name and clock, then preview and count: two rows that each end on the
+   trailing edge, which is what stops a chat list reading as a ragged column. */
+.wa-line{ display:flex; align-items:baseline; gap:var(--sp-3); min-inline-size:0; }
+.wa-what b{
+  flex:1; min-inline-size:0; font-size:var(--fs-3); font-weight:600; color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.wa-when{
+  flex:none; font-size:var(--fs-1); color:var(--mute);
+  font-variant-numeric:tabular-nums;
+}
+.wa-last{
+  flex:1; min-inline-size:0; font-size:var(--fs-1); color:var(--mute);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
 .wa-last em{ font-style:normal; opacity:.75; margin-inline-end:4px; }
 .wa-dot{
-  flex:none; min-inline-size:18px; padding:0 5px; border-radius:99px;
-  background:var(--brand); color:#fff; font-size:var(--fs-1); font-style:normal;
-  text-align:center; line-height:18px;
+  flex:none; min-inline-size:17px; padding:0 5px; border-radius:99px;
+  background:var(--brand); color:#fff; font-size:var(--fs-1); font-weight:600; font-style:normal;
+  text-align:center; line-height:17px; font-variant-numeric:tabular-nums;
 }
 
+/* ── the conversation header ─────────────────────────────────────────────
+   It replaced a `.sb-head-bar` that said the word "Conversation". Which
+   conversation was a question the panel could answer and was not answering --
+   the thread itself carries no name anywhere, so the only way to know who you
+   were about to write to was to remember which row you had pressed. */
+.wa-head{
+  flex:none; display:flex; align-items:center; gap:var(--sp-3);
+  padding-block:var(--sp-4); padding-inline:var(--sp-3) var(--sp-4);
+  border-block-end:1px solid var(--rule); background:var(--panel-2);
+}
+/* Back points the way you came, and which way that is depends on the language.
+   `.navb` and `.br-nav` mirror their arrows the same way -- a chevron is a
+   direction, and a direction is one of the things `dir` is for. */
+:root[dir="rtl"] .wa-back svg{ transform:scaleX(-1); }
+.wa-head .wa-mark{ inline-size:26px; block-size:26px; font-size:var(--fs-1); }
+.wa-who{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:0; }
+.wa-who b{
+  font-size:var(--fs-3); font-weight:600; color:var(--ink);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.wa-who span{
+  font-size:var(--fs-1); color:var(--mute);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  /* A number reads left to right under a name that may not. */
+  direction:ltr; text-align:start;
+}
+
+/* ── the thread ──────────────────────────────────────────────────────────
+   `margin-inline-start:auto` rather than `margin-left`: mine sits on the
+   trailing edge, which is the right edge in English and the left in Kurdish. */
 .wa-thread{
   flex:1; min-block-size:0; overflow-y:auto;
-  display:flex; flex-direction:column; gap:var(--sp-2);
-  padding:0 var(--sp-4);
+  display:flex; flex-direction:column; gap:2px;
+  padding:var(--sp-4) var(--sp-4) var(--sp-5);
+  /* A column flex container stretches its children across, so every incoming
+     bubble was drawn at its 85% cap whatever was in it -- `Ok` came out the
+     same width as a paragraph. `flex-start` lets a bubble hug its text; the
+     auto inline margin on `.mine` still wins over this, which is how one side
+     stays on the trailing edge. */
+  align-items:flex-start;
 }
-/* `margin-inline-start:auto` rather than `margin-left`: mine sits on the
-   trailing edge, which is the right edge in English and the left in Kurdish. */
-.wa-bubble{
-  max-inline-size:85%; padding:var(--sp-2) var(--sp-3);
-  border-radius:var(--r-3); background:var(--panel-3); color:var(--ink);
-  font-size:var(--fs-3); overflow-wrap:anywhere; white-space:pre-wrap;
-}
-.wa-bubble.mine{ margin-inline-start:auto; background:var(--brand); color:#fff; }
-.wa-bubble em{ font-style:normal; opacity:.7; }
 
-.wa-send{ flex:none; display:grid; gap:var(--sp-2); padding:var(--sp-3) var(--sp-4);
-  border-block-start:1px solid var(--rule); }
-.wa-send textarea{
-  inline-size:100%; resize:none; padding:var(--sp-2) var(--sp-3);
-  border:1px solid var(--rule); border-radius:var(--r-2);
-  background:var(--panel-2); color:var(--ink); font:inherit; font-size:var(--fs-3);
+/* The day a burst of talk happened on. Centred, quiet, and the only thing in
+   the thread that is not a message -- without it a conversation is a wall of
+   identical lines with no way to tell an hour from a fortnight. */
+.wa-day{
+  align-self:center; display:flex; align-items:center;
+  margin-block:var(--sp-4) var(--sp-3);
 }
-.wa-send textarea:focus{ outline:none; border-color:var(--brand); }
-.wa-acts{ display:flex; gap:var(--sp-2); justify-content:flex-end; }
+.wa-day span{
+  padding:2px var(--sp-4); border-radius:99px;
+  background:var(--panel-3); color:var(--mute);
+  font-size:var(--fs-1); font-weight:600; letter-spacing:.03em;
+}
+
+.wa-bubble{
+  position:relative; max-inline-size:88%;
+  padding:var(--sp-3) var(--sp-4);
+  border-radius:var(--r-3);
+  background:var(--panel-3); color:var(--ink);
+  font-size:var(--fs-3); line-height:1.45;
+  overflow-wrap:anywhere; white-space:pre-wrap;
+}
+.wa-bubble.mine{ margin-inline-start:auto; background:var(--fill); color:var(--on-fill); }
+
+/* A run of messages from one person is drawn as one shape: full rounding at
+   the ends, a flattened corner in the middle, and two pixels between. The
+   alternative is what this panel shipped as -- ten identical blocks with
+   nothing saying that six of them arrived in the same minute. The flattened
+   corner is the *inline* one, so it is on the side the run hangs from in
+   either direction. */
+.wa-bubble:not(.head){ border-start-start-radius:var(--r-1); }
+.wa-bubble:not(.tail){ border-end-start-radius:var(--r-1); }
+.wa-bubble.mine:not(.head){ border-start-start-radius:var(--r-3); border-start-end-radius:var(--r-1); }
+.wa-bubble.mine:not(.tail){ border-end-start-radius:var(--r-3); border-end-end-radius:var(--r-1); }
+/* The gap between two people talking, as against between two things one of
+   them said. */
+.wa-bubble.head{ margin-block-start:var(--sp-3); }
+.wa-day + .wa-bubble.head{ margin-block-start:0; }
+
+/* Who spoke, in a group, once per run. */
+.wa-from{
+  display:block; margin-block-end:2px;
+  font-size:var(--fs-1); font-weight:700; color:var(--brand);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.wa-text{ display:block; }
+/* An attachment this app cannot render. The icon is doing the work the square
+   brackets used to do, and it does it without being read. */
+.wa-kind{
+  display:inline-flex; align-items:center; gap:var(--sp-2);
+  font-style:normal; opacity:.75;
+}
+/* The clock, on the last bubble of a run. `float` rather than a flex row
+   because the time has to sit *in* the last line of text when there is room
+   for it and drop below when there is not -- which is what a float does and
+   what no amount of flex will. */
+.wa-clock{
+  float:inline-end; margin-inline-start:var(--sp-4); margin-block-start:4px;
+  font-size:var(--fs-1); line-height:1; color:var(--mute);
+  font-variant-numeric:tabular-nums;
+}
+.wa-bubble.mine .wa-clock{ color:var(--on-fill); opacity:.7; }
+
+/* ── the composer ────────────────────────────────────────────────────────
+   One box with the button inside it, rather than a textarea with two buttons
+   on a row underneath. The old shape spent a third of a 248px column on
+   chrome and put `Send to chat` -- which does not send anything to anybody --
+   directly above `Send`, which does. */
+.wa-send{
+  flex:none; display:flex; flex-direction:column; gap:var(--sp-2);
+  padding:var(--sp-3) var(--sp-4) var(--sp-4);
+  border-block-start:1px solid var(--rule); background:var(--panel-2);
+}
+.wa-box{
+  display:flex; align-items:flex-end; gap:var(--sp-2);
+  padding-block:var(--sp-2); padding-inline:var(--sp-3) var(--sp-2);
+  border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel);
+}
+.wa-box:focus-within{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+.wa-send textarea{
+  flex:1; min-inline-size:0; resize:none; border:0; background:transparent;
+  padding:var(--sp-2) 0; color:var(--ink); font:inherit; font-size:var(--fs-3); line-height:1.45;
+  /* Grows with what is typed, to a cap -- `rows={1}` is the floor and this is
+     the ceiling, after which it scrolls rather than eating the thread. */
+  field-sizing:content; max-block-size:96px;
+}
+.wa-send textarea::placeholder{ color:var(--mute); opacity:.65; }
+/* The ring is on the box, so the control inside it must not draw a second one. */
+.wa-send textarea:focus, .wa-send textarea:focus-visible{ outline:none; }
+.wa-go{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  inline-size:26px; block-size:26px; border:0; border-radius:50%;
+  background:var(--fill); color:var(--on-fill); cursor:pointer;
+}
+.wa-go:not(:disabled):hover{ filter:brightness(1.06); }
+.wa-go:not(:disabled):active{ transform:translateY(1px); }
+.wa-go:focus-visible{ outline-color:var(--ink); }
+/* Not an opacity -- the same argument `.send:disabled` makes. An empty
+   composer is this button's resting state. */
+.wa-go:disabled{ background:var(--panel-3); color:var(--mute); cursor:default; }
+/* The arrow points the way the language runs. */
+:root[dir="rtl"] .wa-go svg{ transform:scaleX(-1); }
+
+/* Handing the conversation to the agent. A quiet full-width line under the
+   composer: it is a thing you do occasionally and never by accident. */
+.wa-hand{
+  display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2);
+  inline-size:100%; padding:var(--sp-2); border:0; border-radius:var(--r-2);
+  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-1); cursor:pointer;
+}
+.wa-hand:hover{ background:var(--panel-3); color:var(--ink); }
+.wa-hand svg{ opacity:.8; }
 
 /* ── sessions as a strip ─────────────────────────────────────────────────
    The other half of `View as`. Scrolls sideways rather than wrapping: a strip
@@ -2313,15 +2563,6 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   background:transparent; color:var(--mute); cursor:pointer;
 }
 .tpaste-no:hover{ color:var(--ink); background:var(--panel-3); }
-
-/* One line, always, cut with an ellipsis rather than wrapped. A strip whose
-     height depends on how long the completion is resizes the terminal under
-     the prompt — a different number of rows on each keystroke, each one a
-     SIGWINCH and a redraw. The chips below carry the full text. */
-  white-space:pre; overflow:hidden; text-overflow:ellipsis;
-  /* A command line is written left to right in every language. */
-  direction:ltr;
-}
 .sug-ghost b{ font-weight:400; color:var(--ink); }
 .sug-ghost span{ color:var(--mute); opacity:.75; }
 .sug-row{
@@ -2771,11 +3012,13 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
  * what `.wc-open:hover` already does; of the three filled buttons in the app,
  * one had a hover and two did not.
  */
-.approve:not(:disabled):hover, .send:not(:disabled):hover{ filter:brightness(1.06); }
+.approve:not(:disabled):hover, .send:not(:disabled):hover,
+.sb-cta-go:not(:disabled):hover{ filter:brightness(1.06); }
 
 .approve:not(:disabled):active, .send:not(:disabled):active,
 .wc-open:active, .st-btn:active, .ghost:active, .cmp-btn:not(:disabled):active,
-.rail-btn:active, .sb-act:active, .set-btn:not(:disabled):active{
+.rail-btn:active, .sb-act:active, .set-btn:not(:disabled):active,
+.sb-cta-go:not(:disabled):active{
   transform:translateY(1px);
 }
 
@@ -2808,7 +3051,8 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 }
 
 /* A ring the same colour as the fill it sits on is not a ring. */
-.send:focus-visible, .approve:focus-visible, .wc-open:focus-visible{
+.send:focus-visible, .approve:focus-visible, .wc-open:focus-visible,
+.sb-cta-go:focus-visible{
   outline-color:var(--ink);
 }
 

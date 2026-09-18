@@ -159,6 +159,9 @@ import { watch as watchDoc } from './docs';
 import { SkillsPanel } from './SkillsPanel';
 import { UsagePanel } from './UsagePanel';
 import { WhatsAppPanel } from './WhatsAppPanel';
+import { KEY as WA_KEY, read as readWa } from './whatsapp';
+import { callerFor } from './whatsappwire';
+import { runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
 import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
@@ -827,6 +830,15 @@ export function App() {
   /** Tools from servers that are actually running, namespaced for the model. */
   const [mcpTools, setMcpTools] = useState<Record<string, McpTool[]>>({});
   const [mcpError, setMcpError] = useState<string | null>(null);
+  /**
+   * The WhatsApp connection, if the panel has one.
+   *
+   * Read from storage rather than lifted out of `WhatsAppPanel`: the panel owns
+   * it, and a turn can start while that panel has never been mounted. Read at
+   * the start of each turn, so connecting mid-session gives the agent the tools
+   * without a restart, and disconnecting takes them away again.
+   */
+  const whatsAppConn = useCallback(() => readWa(localStorage.getItem(WA_KEY)), []);
   /**
    * Set when a close was intercepted. Holds what would be lost, so the dialog
    * can name it rather than asking about "unsaved changes" in the abstract.
@@ -4018,8 +4030,24 @@ export function App() {
               : t('Trimmed older tool output to stay inside the context window.'),
           });
         },
-        extraTools: Object.entries(mcpTools)
-          .flatMap(([server, tools]) => tools.map((t) => toSchema(server, t))),
+        extraTools: [
+          ...Object.entries(mcpTools)
+            .flatMap(([server, tools]) => tools.map((t) => toSchema(server, t))),
+          // Only when a connection exists -- see `whatsAppToolsFor`. A tool the
+          // model is offered and cannot use costs a round trip and an apology.
+          ...whatsAppToolsFor(whatsAppConn()),
+        ],
+        // The other half of the line above. `whatsapp_send` suspends the turn
+        // on `askToRun` exactly as `run_command` does, and no auto-approve
+        // level reaches it: `auto.ts` is about commands, and this never becomes
+        // one. A message cannot be unsent, so it is always a person who sends
+        // it.
+        extraRun: (callToRun, ask) => {
+          const conn = whatsAppConn();
+          return runWhatsAppTool(callToRun.name, callToRun.input, {
+            conn, call: callerFor(conn), ask,
+          });
+        },
         runInTerminal: (command) => {
           if (!termRun.current) throw new Error(t('Open the terminal first.'));
           setShowTerm(true);

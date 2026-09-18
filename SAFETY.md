@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.80.0.
+version 0.81.0.
 
 ---
 
@@ -66,6 +66,10 @@ every level, and **there is no setting that turns this off**
 - anything that runs as somebody else, or runs something downloaded —
   `sudo`, `curl … | sh`
 - anything that affects the whole machine — `shutdown`, `systemctl`, `killall`
+- anything that says something to another person — a WhatsApp message the
+  agent proposed (`whatsapp_send`). It is the one entry here that is not a
+  shell command, and it is here for the same reason as the rest: no
+  checkpoint holds it, and the person who reads it is not in the room
 
 The list matches on text, so it will sometimes stop a command that was
 harmless. That is the direction to be wrong in, and the cost of being wrong is
@@ -182,20 +186,32 @@ The frontend makes eight kinds of outbound request. Seven go to the gateway:
 `{gateway}` defaults to `https://capi.vylo-tech.com` and can be changed in
 Settings (`app/src/App.tsx`).
 
-**The eighth is WhatsApp, and it goes where you send it.** The module in
-`app/src/WhatsAppPanel.tsx` talks to an Evolution API instance whose address
-and key you enter together, and to nothing else. It calls
+**The eighth is WhatsApp, and it goes where you send it.** Every request is
+built in one place, `app/src/whatsappwire.ts`, from an Evolution API instance
+whose address and key you enter together in `app/src/WhatsAppPanel.tsx` — and
+goes nowhere else. One file is the whole network surface of the feature, which
+is what lets the rule below be checked by reading rather than by trusting. It calls
 `/instance/connectionState` to check what you entered,
 `/chat/findMessages` on a timer while the panel is open, and
 `/message/sendText` when you press Send, each under the instance name.
 The rule is the one `app/src/providers.ts` states — the key is sent only to the
 address it was entered beside, and every request is built from that address.
 
-Messages are fetched to this machine and drawn there. **None of them reaches
-the model** unless you press *Send to chat*, which puts the conversation in the
-message box for you to read before you send it. And a reply you type is sent
-without an approval dialog, for the reason the terminal has none: you wrote it,
-and asking you to approve your own sentence is theatre.
+Messages are fetched to this machine and drawn there. **The agent can read
+them, and only through tools you switched on by connecting an instance.**
+`whatsapp_chats` and `whatsapp_read` in `app/src/whatsapptool.ts` are offered
+to the model only once a connection exists, and they change nothing and leave
+nothing behind, so they run like reading a file does. *Send to chat* still does
+what it always did, for when you want to hand over one conversation rather than
+let it look.
+
+**A reply you type is sent without a dialog. One the agent wrote is not.** You
+are the author of your own sentence, and asking you to approve it is theatre,
+for the reason the terminal has no approval step. `whatsapp_send` is the
+opposite case: the words are the model's and they arrive under your name. It is
+in the always-ask list above, it is asked at every auto-approve level and in
+every routine, and the dialog shows the recipient and the exact text before
+anything leaves this machine.
 
 **The allow-list is what makes that a fact rather than an intention.** The
 content security policy in `app/src-tauri/tauri.conf.json` is:
@@ -620,7 +636,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.80.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.81.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -645,6 +661,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.80.0. Every statement above was read out of the code. If
+*Last checked against 0.81.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

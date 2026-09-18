@@ -27,8 +27,8 @@
  * ## The refuse-list is not a setting
  *
  * Some commands are not undoable and no checkpoint helps: they delete outside
- * the project, rewrite history somebody else has, reach the network, or run as
- * another user. Those always ask, at every level, and there is no option to
+ * the project, rewrite history somebody else has, reach the network, run as
+ * another user, or say something to a person who is not in the room. Those always ask, at every level, and there is no option to
  * turn that off. A mode that can be talked into `rm -rf /` is not a mode, it is
  * a bug with a switch.
  *
@@ -91,6 +91,20 @@ export const RULES: readonly Rule[] = [
   { test: /\bgit\s+checkout\s+--\s/, why: 'it discards work that is not committed' },
   { test: /\bgit\s+(rebase|filter-branch|filter-repo)\b/, why: 'it rewrites history' },
   { test: /\b(npm|pnpm|yarn)\s+publish\b/, why: 'it publishes a package' },
+
+  // A message to another human being, which is the one thing on this list that
+  // is not shell-shaped. It is here rather than left to the levels because
+  // `decide` is the only thing standing between auto-approve and a send, and
+  // because `askToRun` consults the refuse-list before it consults "Always
+  // allow this" — so one entry closes both doors at once. Without it, level
+  // `all` posted WhatsApp silently: every other rule matches on `rm`, `git` or
+  // `sudo`, and `WhatsApp to Rebaz` matches none of them.
+  //
+  // The string is the first line `whatsapptool.ts` writes for the dialog.
+  // `test/whatsapptool.test.mjs` asserts the two still agree, because a rule
+  // that matches a sentence another file builds is a rule that can be silently
+  // unhooked by editing that sentence.
+  { test: /^whatsapp to /, why: 'it sends a message to another person' },
 
   // Running as somebody else, or as something you have not read.
   { test: /\b(sudo|doas|su)\b/, why: 'it runs as another user' },

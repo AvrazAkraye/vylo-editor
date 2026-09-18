@@ -256,6 +256,10 @@ const EXEMPT = [
     why: 'a shell command line reads left to right in every language this ships in' },
   { selector: '.sug-list', prop: 'direction',
     why: 'the same: program names and paths are not prose and do not mirror' },
+  { selector: '.wa-form input', prop: 'direction',
+    why: 'a server address, an instance name and an API key are written left to right in every language this ships in' },
+  { selector: '.wa-who span', prop: 'direction',
+    why: 'the phone number under a contact name: a number is not prose and does not mirror' },
 
   // 2. The path-truncation trick. `direction:rtl` here puts the ellipsis at the
   //    head of a long path so the tail that identifies the file survives, and
