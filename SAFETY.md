@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.81.0.
+version 0.82.0.
 
 ---
 
@@ -192,8 +192,10 @@ whose address and key you enter together in `app/src/WhatsAppPanel.tsx` — and
 goes nowhere else. One file is the whole network surface of the feature, which
 is what lets the rule below be checked by reading rather than by trusting. It calls
 `/instance/connectionState` to check what you entered,
-`/chat/findMessages` on a timer while the panel is open, and
-`/message/sendText` when you press Send, each under the instance name.
+`/chat/findMessages` on a timer while the panel is open,
+`/chat/getBase64FromMediaMessage` when a photo, voice note or file is opened or
+handed over, and `/message/sendText` when a message is sent, each under the
+instance name.
 The rule is the one `app/src/providers.ts` states — the key is sent only to the
 address it was entered beside, and every request is built from that address.
 
@@ -636,7 +638,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.81.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.82.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -661,6 +663,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.81.0. Every statement above was read out of the code. If
+*Last checked against 0.82.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

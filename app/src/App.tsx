@@ -2959,6 +2959,21 @@ export function App() {
     composer.current?.focus();
   }
 
+  /**
+   * The same gesture, with files attached.
+   *
+   * WhatsApp is the caller: a conversation arrives as the fenced block
+   * `fromTerminal` would have made, and the photos, stickers, PDFs and video
+   * stills in it arrive in the attachment tray beside it. The tray and not the
+   * request, deliberately — everything else that attaches a file lands there
+   * first, the person sees what is about to be sent, and one of them can be
+   * taken back out before it goes.
+   */
+  function fromWhatsApp(text: string, attached?: Attached[]) {
+    fromTerminal(text);
+    if (attached && attached.length) setShots((p) => [...p, ...attached]);
+  }
+
   function openClips() {
     // Re-read rather than trusting state: entries expire by age, and the
     // expiry has to happen when the list is looked at, not only when it grows.
@@ -4350,7 +4365,7 @@ export function App() {
                     onSettings={() => { setSettingsAt('account'); setShowSettings(true); }} />
             )}
             {shown === 'whatsapp' && (
-              <WhatsAppPanel t={t} onSendToChat={fromTerminal} />
+              <WhatsAppPanel t={t} onSendToChat={fromWhatsApp} />
             )}
             {shown === 'plugins' && (
               <PluginsPanel root={root} t={t}

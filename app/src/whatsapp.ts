@@ -106,6 +106,17 @@ export type Kind = 'text' | 'image' | 'video' | 'audio' | 'document' | 'sticker'
 
 export interface Msg {
   id: string;
+  /**
+   * The id WhatsApp itself gave the message, out of `key.id`.
+   *
+   * Kept apart from `id` because they are two different identifiers and only
+   * one of them works: `id` is Evolution's own row id, which is what comes back
+   * on most records and what `normalise` prefers for a React key, while
+   * `/chat/getBase64FromMediaMessage` is asking which *message on WhatsApp* to
+   * fetch and accepts nothing else. Folding them together downloads nothing and
+   * reports the media missing.
+   */
+  keyId: string;
   /** The conversation: a person's JID, or a group's. */
   jid: string;
   fromMe: boolean;
@@ -184,6 +195,7 @@ export function normalise(raw: unknown): Msg | null {
 
   return {
     id: trim(r.id) || trim(key.id),
+    keyId: trim(key.id),
     jid,
     fromMe: key.fromMe === true,
     at,

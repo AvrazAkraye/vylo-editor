@@ -1,0 +1,268 @@
+/**
+ * WhatsApp attachments, and the honest limit on what "read it" can mean.
+ *
+ * Evolution keeps the bytes of a photo or a voice note on its own side and
+ * hands them over on request, so fetching one is a call like any other. What
+ * happens next is not uniform, and pretending it is would be the whole bug:
+ *
+ *   - **a photo, a sticker** become an `image` content block and the model
+ *     genuinely looks at them
+ *   - **a PDF** becomes a `document` block, likewise
+ *   - **a text file** is folded into the prompt with a header
+ *   - **a video** cannot be sent to the API at all. A still is taken from it
+ *     instead — a real frame, labelled as one frame of a video, never as "the
+ *     video"
+ *   - **a voice note** cannot be read by anything in this app. There is no
+ *     transcription here: `dictate.ts` is the browser's speech engine listening
+ *     to a microphone, which cannot be pointed at a file, and the gateway
+ *     forwards `/v1/messages` and nothing else. So a voice note is downloaded,
+ *     played in the panel by the person, and handed to the model as a *line
+ *     saying it exists and was not heard*
+ *
+ * That last one is the reason this module exists as its own file rather than a
+ * function in the panel. "Every attachment can be read" is the thing to aim at
+ * and it is not true of audio, and the failure mode of glossing over it is
+ * specific and bad: the model is handed a message it cannot perceive, is not
+ * told so, and answers about it anyway. `noteFor` writes the sentence that
+ * stops that, and `readable` is the single place that decides which case a MIME
+ * type falls into, so the panel cannot drift from the tool.
+ */
+
+import type { Attached } from './attachments';
+import type { Kind, Msg } from './whatsapp';
+
+/** What can actually be done with a downloaded attachment. */
+export type Use =
+  /** A real `image` block. The model sees it. */
+  | 'image'
+  /** A `document` block — a PDF, sent whole. */
+  | 'doc'
+  /** Folded into the prompt as text. */
+  | 'text'
+  /** One frame can be taken and sent as an image. */
+  | 'frame'
+  /** Nothing can be sent. It is named, and said to be unread. */
+  | 'opaque';
+
+/**
+ * The four the Claude API accepts as an image, and only those.
+ *
+ * A `.heic` off an iPhone and an `image/svg+xml` are both `image/*` and
+ * neither is accepted, so the test is a list rather than a prefix. Sending one
+ * anyway fails the whole request, which would lose the message it was attached
+ * to as well.
+ */
+const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp']);
+
+/** Extensions that carry words, for a `documentMessage` that is not a PDF. */
+const TEXT_MIME = /^text\/|^application\/(json|xml|x-yaml|yaml|javascript|typescript|csv)$/i;
+
+/**
+ * What a MIME type is good for.
+ *
+ * `kind` is the fallback, because Evolution does not always send a mimetype
+ * and "it was a `stickerMessage`" is better than nothing when it doesn't.
+ */
+export function readable(mime: string, kind?: Kind): Use {
+  const m = (mime || '').split(';')[0].trim().toLowerCase();
+  if (IMAGE_MIME.has(m)) return 'image';
+  if (m === 'application/pdf') return 'doc';
+  if (TEXT_MIME.test(m)) return 'text';
+  if (m.startsWith('video/')) return 'frame';
+  if (m.startsWith('audio/')) return 'opaque';
+  // No mimetype. A sticker is always webp and an image is always one of the
+  // four; the rest are only guessable by what WhatsApp called the envelope.
+  if (!m) {
+    if (kind === 'image' || kind === 'sticker') return 'image';
+    if (kind === 'video') return 'frame';
+    if (kind === 'audio') return 'opaque';
+  }
+  return 'opaque';
+}
+
+/** Whether the panel can play it for the person, whatever the model can do. */
+export const playable = (mime: string): boolean =>
+  /^(audio|video)\//i.test(mime || '');
+
+/** Whether a message has bytes behind it worth fetching at all. */
+export const hasMedia = (m: Msg): boolean =>
+  m.kind === 'image' || m.kind === 'video' || m.kind === 'audio'
+  || m.kind === 'document' || m.kind === 'sticker';
+
+/* ── asking Evolution for the bytes ──────────────────────────────────────── */
+
+/** The path, given an instance. */
+export const mediaPath = (instance: string): string =>
+  `/chat/getBase64FromMediaMessage/${encodeURIComponent(instance)}`;
+
+/**
+ * The body.
+ *
+ * The whole key rather than the id alone: Evolution has wanted both shapes
+ * across versions, and a key with every field on it satisfies either. `keyId`
+ * and not `id` — see the note on `Msg.keyId` for why that distinction is the
+ * difference between bytes and a 404.
+ */
+export const mediaBodyFor = (m: Msg): unknown => ({
+  message: { key: { id: m.keyId || m.id, remoteJid: m.jid, fromMe: m.fromMe } },
+  convertToMp4: false,
+});
+
+export interface Media {
+  base64: string;
+  mime: string;
+  name: string;
+  bytes: number;
+}
+
+const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+
+/**
+ * The bytes out of whatever shape came back.
+ *
+ * Written defensively for the same reason `messagesFrom` is: this is a server
+ * somebody else runs, at a version we do not choose, and the field has been
+ * called `base64`, `data` and `buffer` in ones we have seen. Returning null for
+ * an unrecognised body is how the panel says "could not fetch that" instead of
+ * rendering an image element with the string "undefined" in its src.
+ */
+export function mediaFrom(body: unknown, fallbackName = 'file'): Media | null {
+  if (!body || typeof body !== 'object') return null;
+  const b = body as Record<string, unknown>;
+  const inner = (b.media && typeof b.media === 'object' ? b.media : b) as Record<string, unknown>;
+
+  let data = str(inner.base64) || str(inner.data) || str(inner.buffer) || str(b.base64);
+  if (!data) return null;
+  // Some builds answer with a full data: URL. Keep the payload; the mimetype
+  // in it is worth reading too, since those builds tend to omit the field.
+  let mime = str(inner.mimetype) || str(inner.mediaType) || str(inner.mimeType) || str(b.mimetype);
+  const asUrl = /^data:([^;,]+)[^,]*,(.*)$/s.exec(data);
+  if (asUrl) {
+    if (!mime) [, mime] = asUrl;
+    [, , data] = asUrl;
+  }
+  data = data.replace(/\s+/g, '');
+  if (!data) return null;
+
+  const name = str(inner.fileName) || str(inner.filename) || str(b.fileName) || fallbackName;
+  // base64 is 4 characters per 3 bytes, less the padding.
+  const pad = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
+  return { base64: data, mime: mime.trim(), name, bytes: Math.max(0, (data.length * 3) / 4 - pad) };
+}
+
+/* ── turning it into something the composer holds ────────────────────────── */
+
+let seq = 0;
+const nextId = (): string => `wa_${Date.now()}_${seq++}`;
+
+/** A sensible filename when WhatsApp sent none, so the tray is not six "file"s. */
+export function nameFor(m: Msg, media: Media): string {
+  if (media.name && media.name !== 'file') return media.name;
+  const ext = (media.mime.split('/')[1] || 'bin').split('+')[0];
+  const stamp = m.at ? new Date(m.at).toISOString().slice(0, 16).replace(/[:T]/g, '-') : 'wa';
+  return `whatsapp-${m.kind}-${stamp}.${ext}`;
+}
+
+/**
+ * The attachment, or null when there is nothing the model could do with it.
+ *
+ * Null is not a failure and the caller must not report it as one — it is the
+ * audio case, and `noteFor` is what gets said instead.
+ */
+export function toAttached(m: Msg, media: Media, decoded?: string): Attached | null {
+  const use = readable(media.mime, m.kind);
+  const name = nameFor(m, media);
+  if (use === 'image') {
+    // `image/jpg` is not a media type the API knows, though half the world
+    // writes it. It is the same bytes.
+    const mediaType = media.mime === 'image/jpg' || !media.mime ? 'image/jpeg' : media.mime;
+    return { kind: 'image', id: nextId(), name, mediaType, data: media.base64, bytes: media.bytes };
+  }
+  if (use === 'doc') {
+    return { kind: 'doc', id: nextId(), name, data: media.base64, bytes: media.bytes };
+  }
+  if (use === 'text') {
+    // Decoding base64 needs `atob`, which is the DOM's. The caller passes the
+    // decoded string so this file stays arithmetic and testable.
+    if (decoded === undefined) return null;
+    return {
+      kind: 'text', id: nextId(), name, text: decoded,
+      bytes: media.bytes, truncated: false,
+    };
+  }
+  // 'frame' is handled by the caller, which has a <video> to draw from, and
+  // 'opaque' has no representation at all.
+  return null;
+}
+
+/**
+ * What to say about an attachment in the text handed to the model.
+ *
+ * Every attachment gets a line, including the ones that came through whole —
+ * the model is given a photo with no filename and no sender, and a transcript
+ * that skips straight from one message to the next leaves it guessing which
+ * image belongs where.
+ *
+ * The audio line is the load-bearing one. It says the file was not heard, in
+ * the transcript, next to the message it belongs to, so a model summarising the
+ * conversation cannot quietly invent what was in it.
+ */
+export function noteFor(m: Msg, media: Media | null, use: Use): string {
+  const what = kindWord(m.kind);
+  if (!media) return `[${what}: could not be downloaded]`;
+  const name = nameFor(m, media);
+  const kb = media.bytes < 1024 ? `${Math.round(media.bytes)} B` : `${Math.round(media.bytes / 1024)} KB`;
+  if (use === 'image') return `[${what}: ${name}, attached below]`;
+  if (use === 'doc') return `[document: ${name}, attached below]`;
+  if (use === 'text') return `[file: ${name}, contents attached below]`;
+  if (use === 'frame') return `[video: ${name}, ${kb} — one frame of it is attached below; the video itself was not sent and its sound was not heard]`;
+  return `[${what}: ${name}, ${kb} — NOT read. Nothing in this app can transcribe audio or open this format, so its contents are unknown. Do not guess at them.]`;
+}
+
+function kindWord(k: Kind): string {
+  if (k === 'image') return 'photo';
+  if (k === 'video') return 'video';
+  if (k === 'audio') return 'voice note';
+  if (k === 'document') return 'document';
+  if (k === 'sticker') return 'sticker';
+  return 'attachment';
+}
+
+/* ── the transcript that goes with them ──────────────────────────────────── */
+
+export interface Line {
+  msg: Msg;
+  /** The note for its attachment, when it has one. */
+  note?: string;
+}
+
+/**
+ * The selected messages, as text for the composer.
+ *
+ * Named and dated at the top, because a conversation arriving in a chat with no
+ * header is a wall of quotes the model has to guess the provenance of. Times on
+ * every line: "they replied an hour later" is often the whole content of a
+ * conversation.
+ */
+export function handoverOf(lines: readonly Line[], who: string): string {
+  if (lines.length === 0) return '';
+  const day = (at: number) => (at
+    ? new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
+    : '');
+  const clock = (at: number) => (at
+    ? new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+    : '');
+
+  const first = lines[0].msg.at;
+  const last = lines[lines.length - 1].msg.at;
+  const when = day(first) && day(first) !== day(last) ? `${day(first)} – ${day(last)}` : day(first);
+  const head = `WhatsApp · ${who}${when ? ` · ${when}` : ''}`;
+
+  const body = lines.map(({ msg, note }) => {
+    const from = msg.fromMe ? 'me' : (msg.who || who);
+    const at = clock(msg.at);
+    const said = [msg.text.trim(), note].filter(Boolean).join(' ');
+    return `[${at}] ${from}: ${said || '(no text)'}`;
+  });
+  return [head, ...body].join('\n');
+}

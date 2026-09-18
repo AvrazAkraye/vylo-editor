@@ -2453,6 +2453,96 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 /* The arrow points the way the language runs. */
 :root[dir="rtl"] .wa-go svg{ transform:scaleX(-1); }
 
+/* ── attachments in a bubble ─────────────────────────────────────────────
+   The panel used to print `[image]` where a photo was: a caption for a thing
+   that is not there. These draw the thing. */
+
+/* Corner-matched to the bubble and full width of it, so a photo reads as the
+   message rather than as something pasted into one. */
+.wa-img{
+  display:block; inline-size:100%; min-inline-size:120px; max-block-size:260px;
+  object-fit:cover; border-radius:var(--r-2);
+  background:var(--panel-2); cursor:zoom-in;
+}
+.wa-bubble.mine .wa-img{ background:color-mix(in srgb, var(--on-fill) 12%, transparent); }
+/* A floor as well as a ceiling. The bubble hugs its content -- that is what
+   stops `Ok` being drawn a paragraph wide -- so a player with nothing but a
+   percentage width collapses to the intrinsic width of its own controls, which
+   is a circle. `min-inline-size` is what makes a media bubble a media bubble. */
+.wa-vid{
+  display:block; inline-size:100%; min-inline-size:190px; max-block-size:260px;
+  border-radius:var(--r-2); background:#000;
+}
+/* The browser's own transport, at the width it has. A voice note is the one
+   thing in this panel that has to work on the first press, and a hand-drawn
+   scrubber in a 248px column would be worse at it. */
+.wa-aud{ display:block; inline-size:100%; min-inline-size:190px; block-size:32px; }
+/* Safari draws the audio element on its own light chrome whatever the page is
+   doing, so it gets a surround rather than being left to float on the fill. */
+.wa-bubble.mine .wa-aud{
+  border-radius:99px; background:color-mix(in srgb, var(--on-fill) 14%, transparent);
+}
+
+/* A file that is neither picture nor sound: name, size, and a click that saves
+   it. `download` on an object URL is the whole implementation. */
+.wa-doc{
+  display:flex; align-items:center; gap:var(--sp-3);
+  padding:var(--sp-3); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink); text-decoration:none;
+}
+.wa-bubble.mine .wa-doc{
+  background:color-mix(in srgb, var(--on-fill) 14%, transparent); color:var(--on-fill);
+}
+.wa-doc:hover{ text-decoration:underline; }
+.wa-doc > svg{ flex:none; opacity:.8; }
+.wa-doc span{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wa-doc em{ flex:none; font-style:normal; font-size:var(--fs-1); opacity:.7; }
+
+/* Not fetched yet, or fetched and refused. One control for both, because "get
+   it" and "try again" are the same act to the person pressing it. */
+.wa-get{
+  display:inline-flex; align-items:center; gap:var(--sp-2);
+  padding:var(--sp-2) var(--sp-3); border:1px dashed var(--rule-2); border-radius:var(--r-2);
+  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-2); cursor:pointer;
+}
+.wa-get:hover{ border-color:var(--brand); color:var(--brand); }
+.wa-bubble.mine .wa-get{ border-color:color-mix(in srgb, var(--on-fill) 40%, transparent); color:var(--on-fill); }
+.wa-load{
+  display:inline-flex; align-items:center; gap:var(--sp-2);
+  font-size:var(--fs-2); color:var(--mute); opacity:.8;
+}
+.wa-bubble.mine .wa-load{ color:var(--on-fill); }
+/* A bubble holding a picture is the picture; one holding a picture and a
+   caption needs the two apart. */
+.wa-img + .wa-text, .wa-vid + .wa-text, .wa-aud + .wa-text, .wa-doc + .wa-text,
+.wa-get + .wa-text, .wa-load + .wa-text{ margin-block-start:var(--sp-3); }
+
+/* ── picking messages ────────────────────────────────────────────────────
+   One by one, or the lot. With nothing ticked the button still sends the whole
+   conversation, which is what it did before this mode existed — so the feature
+   adds a choice without taking the old behaviour away. */
+.wa-head.picking{ background:var(--brand-wash); border-block-end-color:var(--brand); }
+.wa-head.picking .wa-who b{ color:var(--brand); }
+.wa-pick-go{ flex:none; padding-block:var(--sp-2); font-size:var(--fs-2); }
+
+/* Room for the tick, on the leading edge of every bubble, so the column of
+   them lines up whichever side the message is on. */
+.wa-thread.picking .wa-bubble{ padding-inline-start:26px; cursor:pointer; }
+.wa-tick{
+  position:absolute; inset-inline-start:var(--sp-3); inset-block-start:var(--sp-3);
+  display:inline-flex; align-items:center; justify-content:center;
+  inline-size:14px; block-size:14px; border-radius:50%;
+  border:1.5px solid var(--rule-2); background:var(--panel);
+  color:var(--on-fill);
+}
+.wa-bubble.mine .wa-tick{ border-color:color-mix(in srgb, var(--on-fill) 55%, transparent); background:transparent; }
+.wa-bubble.on .wa-tick{ background:var(--brand); border-color:var(--brand); }
+.wa-bubble.mine.on .wa-tick{ background:var(--on-fill); border-color:var(--on-fill); color:var(--fill); }
+/* Selected is a state of the message, so it is drawn on the message -- a ring
+   rather than a wash, which would fight the fill on one side of the thread. */
+.wa-bubble.on{ box-shadow:0 0 0 2px var(--brand); }
+.wa-thread.picking .wa-bubble:hover:not(.on){ box-shadow:0 0 0 2px var(--rule-2); }
+
 /* Handing the conversation to the agent. A quiet full-width line under the
    composer: it is a thing you do occasionally and never by accident. */
 .wa-hand{
