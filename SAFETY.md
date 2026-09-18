@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.79.0.
+version 0.80.0.
 
 ---
 
@@ -167,8 +167,7 @@ which refuses non-https addresses, normalises them, and routes every request —
 and by the tests on it. The app still makes no request anywhere except the
 gateway and the providers in your list.
 
-The frontend makes seven kinds of outbound request, and they all go to the
-gateway:
+The frontend makes eight kinds of outbound request. Seven go to the gateway:
 
 | Where | Request | When |
 |---|---|---|
@@ -182,6 +181,21 @@ gateway:
 
 `{gateway}` defaults to `https://capi.vylo-tech.com` and can be changed in
 Settings (`app/src/App.tsx`).
+
+**The eighth is WhatsApp, and it goes where you send it.** The module in
+`app/src/WhatsAppPanel.tsx` talks to an Evolution API instance whose address
+and key you enter together, and to nothing else. It calls
+`/instance/connectionState` to check what you entered,
+`/chat/findMessages` on a timer while the panel is open, and
+`/message/sendText` when you press Send, each under the instance name.
+The rule is the one `app/src/providers.ts` states — the key is sent only to the
+address it was entered beside, and every request is built from that address.
+
+Messages are fetched to this machine and drawn there. **None of them reaches
+the model** unless you press *Send to chat*, which puts the conversation in the
+message box for you to read before you send it. And a reply you type is sent
+without an approval dialog, for the reason the terminal has none: you wrote it,
+and asking you to approve your own sentence is theatre.
 
 **The allow-list is what makes that a fact rather than an intention.** The
 content security policy in `app/src-tauri/tauri.conf.json` is:
@@ -200,8 +214,9 @@ frame-src   http://localhost:* http://127.0.0.1:*
 
 The window can reach https hosts generally — the price of letting you name your
 own providers, since a policy cannot be edited at runtime. Which hosts are
-*actually* contacted is decided by `app/src/providers.ts`: the gateway, plus
-each provider you added, each with only its own key. `chat.vylo-tech.com`
+*actually* contacted is decided by `app/src/providers.ts`: the gateway, each
+provider you added, and the WhatsApp instance if you connected one — each with
+only its own key. `chat.vylo-tech.com`
 appears as text in three error messages (two in `app/src/errors.ts`, one in
 `app/src/gateway.ts`), but nothing in the app fetches it.
 
@@ -454,7 +469,7 @@ chose to run there.
 
 ### The terminal reads your shell history
 
-Since 0.79.0 the completion list is seeded from your shell's own history file —
+Since 0.80.0 the completion list is seeded from your shell's own history file —
 `$HISTFILE` if you have exported one, then `~/.zsh_history`, `~/.bash_history`,
 `~/.local/share/fish/fish_history`, first one with anything in it. It is what
 makes the list able to finish `claude --dang` into a line you have run fifty
@@ -605,7 +620,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.79.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.80.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -630,6 +645,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.79.0. Every statement above was read out of the code. If
+*Last checked against 0.80.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

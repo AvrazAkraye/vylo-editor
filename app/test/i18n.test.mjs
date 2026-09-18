@@ -92,6 +92,12 @@ ok('no catalogue entry has lost its UI', dead.length === 0, dead.join(' | '));
  * warns about, where a pattern that has stopped matching is indistinguishable
  * from a clean result.
  *
+ * It reads raw source, so a comment that quotes a call — writing out what one
+ * looks like, in prose — is scanned like code and asks for a key nobody uses.
+ * That is a false positive, and it is the safe direction to be wrong in: it
+ * fails loudly with the string in the message, where the failure it replaced
+ * was a label shipping in English with nothing said at all.
+ *
  * So the parens are walked rather than matched. Only single quotes count: a
  * template literal is assembled at runtime and cannot be a key, and a double
  * quote in this codebase is a JSX attribute.

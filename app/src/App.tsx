@@ -158,6 +158,7 @@ import { modeFor, parse as parseAgents, systemPromptFor, type Agent } from './ag
 import { watch as watchDoc } from './docs';
 import { SkillsPanel } from './SkillsPanel';
 import { UsagePanel } from './UsagePanel';
+import { WhatsAppPanel } from './WhatsAppPanel';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
 import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
@@ -4319,6 +4320,9 @@ export function App() {
                     chats={chats} offers={offers} ctx={ctx}
                     onOpen={(id) => { const c = chatsIn(root).find((x) => x.id === id); if (c) openChat(c); }}
                     onSettings={() => { setSettingsAt('account'); setShowSettings(true); }} />
+            )}
+            {shown === 'whatsapp' && (
+              <WhatsAppPanel t={t} onSendToChat={fromTerminal} />
             )}
             {shown === 'plugins' && (
               <PluginsPanel root={root} t={t}
