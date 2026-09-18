@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.82.0.
+version 0.83.0.
 
 ---
 
@@ -188,8 +188,9 @@ Settings (`app/src/App.tsx`).
 
 **The eighth is WhatsApp, and it goes where you send it.** Every request is
 built in one place, `app/src/whatsappwire.ts`, from an Evolution API instance
-whose address and key you enter together in `app/src/WhatsAppPanel.tsx` — and
-goes nowhere else. One file is the whole network surface of the feature, which
+whose address and key you enter together in `app/src/WhatsAppPanel.tsx`. No
+request to your messages goes anywhere else (transcription is the one exception
+and has its own paragraph below). One file is the whole network surface of the feature, which
 is what lets the rule below be checked by reading rather than by trusting. It calls
 `/instance/connectionState` to check what you entered,
 `/chat/findMessages` on a timer while the panel is open,
@@ -206,6 +207,25 @@ to the model only once a connection exists, and they change nothing and leave
 nothing behind, so they run like reading a file does. *Send to chat* still does
 what it always did, for when you want to hand over one conversation rather than
 let it look.
+
+**A voice note can be transcribed, and only where you sent it.** Nothing in
+this app can hear audio: the API takes none, and `dictate.ts` is the browser's
+speech engine listening to a microphone, which cannot be pointed at a file. So
+the words can only come from a service you added yourself — any OpenAI-shaped
+provider in Settings exposes `/v1/audio/transcriptions` beside the endpoint
+this app already uses, and `app/src/whatsappvoice.ts` posts to that one, with
+that provider's key, under the same rule as everything else: **a key is only
+ever sent to the URL it was entered beside.**
+
+This is the one place a WhatsApp message leaves your machine for somewhere
+other than your own instance, so it is worth being exact about when. It is
+never automatic. It does not happen on a timer, when the panel opens, when you
+scroll past a voice note, or as part of *Send to chat* — it happens when you
+press Transcribe on one particular message, and the button names the provider
+it is about to send that recording to. With no such provider configured there
+is no button, because a control that cannot work teaches you nothing when it
+fails. An untranscribed voice note still travels to the model as a line saying
+it was not heard.
 
 **A reply you type is sent without a dialog. One the agent wrote is not.** You
 are the author of your own sentence, and asking you to approve it is theatre,
@@ -638,7 +658,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.82.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.83.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -663,6 +683,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.82.0. Every statement above was read out of the code. If
+*Last checked against 0.83.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

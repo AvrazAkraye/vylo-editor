@@ -5,10 +5,9 @@
 //
 // The request was "every attachment should be able to read it". For photos,
 // stickers, PDFs and text files that is straightforwardly true. For a voice
-// note it is not true and cannot be made true in this app: there is no
-// transcription anywhere in it — `dictate.ts` is the browser's speech engine
-// listening to a microphone and cannot be pointed at a file, and the gateway
-// forwards `/v1/messages` and nothing else.
+// note it is true only once somebody has pressed Transcribe — the API takes no
+// audio, and the words have to come from a provider the person added
+// themselves (`whatsappvoice.ts`). Before that press there are no words.
 //
 // So the failure this file is built around is not a crash. It is a voice note
 // being handed to a model that cannot hear it, without being told, and the
@@ -188,6 +187,54 @@ const TXT = one({ conversation: 'hello' });
     { msg: one({ conversation: 'b' }, { at: day + 86400 * 2 }) },
   ], 'Rebaz');
   ok('a selection spanning days says so', across.split('\n')[0].includes('–'), across.split('\n')[0]);
+}
+
+// ── a photo sent as a file ────────────────────────────────────────────────
+//
+// This was a live bug, visible in the panel: a JPEG arrived as a `.wa-doc`
+// row with a hex filename on it instead of as the picture. WhatsApp's "send as
+// document", and many forwards, produce a `documentMessage` whose mimetype is
+// `application/octet-stream` or missing entirely.
+//
+// The drawing was the smaller half. The handover told the model the file could
+// NOT be read — a readable photo announced as unreadable, which is the same
+// class of lie as an unheard voice note passed off as heard, pointing the
+// other way.
+{
+  const asDoc = (name, mime) => [mime, 'document', name];
+  ok('a jpeg sent as a file is a photo', readable(...asDoc('IMG-20260918-WA0001.jpeg', '')) === 'image');
+  ok('even with octet-stream on it',
+     readable(...asDoc('3A0B66D4AADC14926802.jpeg', 'application/octet-stream')) === 'image');
+  ok('binary/octet-stream too',
+     readable(...asDoc('a.png', 'binary/octet-stream')) === 'image');
+  ok('a PDF sent the same way is a document', readable(...asDoc('invoice.pdf', '')) === 'doc');
+  ok('an mp4 offers a frame', readable(...asDoc('clip.mp4', '')) === 'frame');
+  ok('an opus file is still opaque', readable(...asDoc('ptt.opus', '')) === 'opaque');
+  ok('a csv is text', readable(...asDoc('rows.csv', '')) === 'text');
+  ok('and something unguessable stays opaque', readable(...asDoc('archive.zip', '')) === 'opaque');
+  ok('a document with no name and no type is opaque', readable('', 'document', '') === 'opaque');
+
+  // A real mimetype still wins: it is the thing the server actually asserted,
+  // and a `.docx` whose name ends in something familiar must not sneak past it.
+  ok('a real mimetype outranks the name',
+     readable('application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'document', 'notes.txt') === 'opaque');
+  ok('and a HEIC named .heic is still refused', readable('image/heic', 'document', 'x.heic') === 'opaque');
+
+  // The media type on the wire has to be one the API knows, whatever the
+  // server said -- a request carrying anything else fails whole.
+  const media = (mime, name) => ({ base64: 'AAAA', mime, name, bytes: 3 });
+  const doc = one({ documentMessage: { caption: '' } });
+  ok('an untyped .png goes over as image/png',
+     toAttached(doc, media('', 'shot.png')).mediaType === 'image/png');
+  ok('an untyped .jpeg goes over as image/jpeg',
+     toAttached(doc, media('application/octet-stream', 'a.jpeg')).mediaType === 'image/jpeg');
+  ok('a .webp keeps its own type', toAttached(doc, media('', 's.webp')).mediaType === 'image/webp');
+  ok('and image/jpg is still corrected', toAttached(doc, media('image/jpg', 'a.jpg')).mediaType === 'image/jpeg');
+
+  // And the note must now say it IS attached, not that it was not read.
+  const note = noteFor(doc, media('application/octet-stream', 'a.jpeg'), 'image');
+  ok('the handover calls it attached', /attached below/.test(note), note);
+  ok('and no longer says it was not read', !/NOT read/.test(note), note);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

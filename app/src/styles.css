@@ -2543,6 +2543,64 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .wa-bubble.on{ box-shadow:0 0 0 2px var(--brand); }
 .wa-thread.picking .wa-bubble:hover:not(.on){ box-shadow:0 0 0 2px var(--rule-2); }
 
+/* ── the words of a voice note ───────────────────────────────────────────
+   The only route this app has to them, and it leaves the machine, so the
+   button names where it is going and nothing presses it but a person. */
+.wa-say{
+  display:inline-flex; align-items:center; gap:var(--sp-2);
+  margin-block-start:var(--sp-2); padding:2px var(--sp-3);
+  border:1px solid var(--rule-2); border-radius:99px;
+  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-1); cursor:pointer;
+}
+.wa-say:hover:not(:disabled){ border-color:var(--brand); color:var(--brand); }
+.wa-say:disabled{ opacity:.6; cursor:default; }
+.wa-bubble.mine .wa-say{
+  border-color:color-mix(in srgb, var(--on-fill) 40%, transparent); color:var(--on-fill);
+}
+/* Set apart from the message rather than in it: these words were guessed at by
+   a machine, and they should not read as something somebody typed. */
+.wa-said{
+  display:block; margin-block-start:var(--sp-2); padding-inline-start:var(--sp-3);
+  border-inline-start:2px solid var(--rule-2);
+  font-size:var(--fs-2); font-style:italic; line-height:1.5; color:var(--mute);
+}
+.wa-bubble.mine .wa-said{
+  border-inline-start-color:color-mix(in srgb, var(--on-fill) 40%, transparent);
+  color:var(--on-fill); opacity:.85;
+}
+
+/* ── the whole window ────────────────────────────────────────────────────
+   A 248px column can show the list or a conversation. Given the window it
+   shows both, which is the shape every desktop chat client already has and the
+   only reason full screen is worth a control. Escape leaves. */
+.wa-full{
+  position:fixed; inset:0; z-index:60;
+  display:flex; background:var(--bg);
+}
+.wa-full-side{
+  flex:none; inline-size:300px; min-inline-size:0;
+  display:flex; flex-direction:column;
+  border-inline-end:1px solid var(--rule); background:var(--panel);
+}
+.wa-full-side > .wa{ flex:1; min-block-size:0; }
+.wa-full-main{ flex:1; min-inline-size:0; display:flex; flex-direction:column; }
+.wa-full-main > .wa{ flex:1; min-block-size:0; }
+/* A thread the width of a desktop window would run text to 1400px, which is
+   unreadable. The column is centred and capped, and the bubbles keep their
+   proportion of it rather than of the window. */
+.wa-full-main .wa-thread{
+  inline-size:min(760px, 100%); margin-inline:auto;
+  padding-inline:var(--sp-6);
+}
+.wa-full-main .wa-bubble{ max-inline-size:72%; }
+.wa-full-main .wa-send{
+  inline-size:min(760px, 100%); margin-inline:auto; border-block-start:0;
+  background:transparent; padding-block-end:var(--sp-6);
+}
+/* The header spans the pane; only what is inside it is held to the column. */
+.wa-full-main .wa-head{ padding-inline:var(--sp-6); }
+.wa-full-main .wa-img, .wa-full-main .wa-vid{ max-block-size:420px; }
+
 /* Handing the conversation to the agent. A quiet full-width line under the
    composer: it is a thing you do occasionally and never by accident. */
 .wa-hand{

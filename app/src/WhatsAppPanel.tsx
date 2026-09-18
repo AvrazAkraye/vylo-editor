@@ -12,6 +12,10 @@ import {
   playable, readable, toAttached, type Line, type Media,
 } from './whatsappmedia';
 import type { Attached } from './attachments';
+import { KEY as PROVIDERS_KEY, read as readProviders } from './providers';
+import {
+  endpointOf, formFor, modelFor, textFrom, transcriberIn, transcriptNote, uploadHeaders,
+} from './whatsappvoice';
 
 /**
  * WhatsApp, in the sidebar.
@@ -268,6 +272,34 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     urls.current.clear();
   }, []);
 
+  /**
+   * Voice notes that have been turned into words, and the ones being turned.
+   *
+   * Kept beside the media cache rather than in it: a transcript is not part of
+   * the message, it is something this app asked a third party for, and the two
+   * are stored apart so nothing can mistake one for the other.
+   */
+  const [said, setSaid] = useState<Record<string, string>>({});
+  const [saying, setSaying] = useState('');
+
+  /**
+   * Who could transcribe, if asked. Re-read rather than held, since a provider
+   * can be added in Settings while this panel is open.
+   */
+  const voice = useMemo(() => {
+    void fetched;
+    try { return transcriberIn(readProviders(localStorage.getItem(PROVIDERS_KEY))); } catch { return null; }
+  }, [fetched]);
+
+  /** The whole window, rather than a 248px column. */
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    if (!full) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setFull(false); } };
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [full]);
+
   /** Selecting messages to hand over. Empty set and off is the resting state. */
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -422,6 +454,42 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     }
   }
 
+  /**
+   * Send one voice note to the provider the person configured, and keep what
+   * comes back.
+   *
+   * Nothing calls this on its own. It is reached from a button on one message,
+   * whose label names where the audio is going — the consent is the press, and
+   * a voice note that leaves this machine does so because somebody decided it
+   * should, one at a time.
+   */
+  async function transcribe(m: Msg) {
+    if (!voice || saying) return;
+    const media = await grab(m);
+    if (!media) return;
+    setSaying(m.id);
+    try {
+      const r = await fetch(endpointOf(voice), {
+        method: 'POST',
+        headers: uploadHeaders(voice),
+        body: formFor(blobOf(media.base64, media.mime), nameFor(m, media), modelFor(voice)),
+      });
+      if (!r.ok) {
+        setWhy(fill(t('The server answered {n}.'), { n: r.status }));
+        return;
+      }
+      const words = textFrom(await r.json());
+      // An empty transcript is an answer: silence, or speech the model could
+      // not make out. Recording it as a blank would leave the button looking
+      // unpressed and invite a second upload of the same audio.
+      setSaid((p) => ({ ...p, [m.id]: words || t('Nothing could be made out.') }));
+    } catch (e) {
+      setWhy(e instanceof Error ? e.message : t('Could not reach that server.'));
+    } finally {
+      setSaying('');
+    }
+  }
+
   function toggle(id: string) {
     setPicked((p) => {
       const next = new Set(p);
@@ -454,7 +522,16 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
         if (!hasMedia(m)) { lines.push({ msg: m }); continue; }
         const media = await grab(m);
         if (!media) { lines.push({ msg: m, note: noteFor(m, null, 'opaque') }); continue; }
-        const use = readable(media.mime, m.kind);
+        const use = readable(media.mime, m.kind, nameFor(m, media));
+
+        // A voice note somebody already transcribed goes over as its words,
+        // attributed. Only one that was transcribed: nothing is uploaded to a
+        // third party because a handover happened, so an untranscribed note
+        // still travels as the line saying it was not heard.
+        if (use === 'opaque' && said[m.id]) {
+          lines.push({ msg: m, note: transcriptNote(said[m.id], voice?.name || t('a provider')) });
+          continue;
+        }
 
         if (use === 'frame') {
           // A video becomes a still, or it becomes a sentence saying it could
@@ -519,19 +596,37 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
       );
     }
 
-    const use = readable(held.mime, m.kind);
+    const use = readable(held.mime, m.kind, nameFor(m, held));
     const url = urlOf(m.id, held);
     if (use === 'image') {
       return <img className="wa-img" src={url} alt={nameFor(m, held)} loading="lazy" />;
     }
     if (playable(held.mime)) {
-      // The app cannot hear a voice note and neither can the model — but the
-      // person can, and until now there was no way for them to. `controls` is
-      // the browser's, deliberately: a hand-drawn scrubber in a 248px column
-      // would be worse at the one job it has.
-      return held.mime.startsWith('video/')
-        ? <video className="wa-vid" src={url} controls preload="metadata" />
-        : <audio className="wa-aud" src={url} controls preload="metadata" />;
+      if (held.mime.startsWith('video/')) {
+        return <video className="wa-vid" src={url} controls preload="metadata" />;
+      }
+      // The person can hear it; `controls` is the browser's, deliberately — a
+      // hand-drawn scrubber in a 248px column would be worse at the one job it
+      // has. Under it, the only route this app has to the words.
+      return (
+        <>
+          <audio className="wa-aud" src={url} controls preload="metadata" />
+          {said[m.id]
+            ? <span className="wa-said">{said[m.id]}</span>
+            : voice && (
+              /* Named, so the press is informed: this is a voice note leaving
+                 the machine for a service the person added, and the button is
+                 the whole of the consent. No provider, no button — a control
+                 that cannot work teaches nothing when it fails. */
+              <button className="wa-say" disabled={saying === m.id}
+                      title={fill(t('Send this audio to {name} to be transcribed'), { name: voice.name })}
+                      onClick={() => void transcribe(m)}>
+                <Icon name={saying === m.id ? 'clock' : 'sparkle'} size={11} />
+                {saying === m.id ? t('Transcribing…') : t('Transcribe')}
+              </button>
+            )}
+        </>
+      );
     }
     return (
       <a className="wa-doc" href={url} download={nameFor(m, held)}>
@@ -582,12 +677,21 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     );
   }
 
-  /* ── the chat list ───────────────────────────────────────────────────── */
-  if (!open) {
-    return (
+  /* ── the pieces, so one panel can be a column or a window ────────────
+     Fullscreen is not a second implementation of anything. It is these two
+     views placed side by side instead of shown one at a time, which is the
+     only reason it earns its place: 248px can hold the list or a
+     conversation, and a window holds both, the way every desktop chat
+     client people already use does. */
+  const listView = () => (
       <div className="wa">
         <div className="sb-head-bar">
           <span className="sb-sub">{t('Chats')}</span>
+          <button className="sb-act" onClick={() => setFull((v) => !v)}
+                  title={full ? t('Leave full screen') : t('Full screen')}
+                  aria-label={full ? t('Leave full screen') : t('Full screen')}>
+            <Icon name={full ? 'restore' : 'maximise'} size={13} />
+          </button>
           <button className="sb-act" onClick={() => { setState('setup'); setForm(conn); }}
                   title={t('Change the connection')} aria-label={t('Change the connection')}>
             <Icon name="settings" size={13} />
@@ -627,14 +731,12 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
           </ul>
         )}
       </div>
-    );
-  }
+  );
 
-  /* ── one conversation ────────────────────────────────────────────────── */
   const name = here?.name || phoneOf(open) || open;
   const group = isGroup(open);
 
-  return (
+  const convoView = () => (
     <div className="wa">
       {/* Who you are talking to, not the word "Conversation". The header is the
           one place the panel can answer "am I about to write to the right
@@ -665,10 +767,14 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
            one place the panel can answer "am I about to write to the right
            person", and it has to answer it without being asked. */
         <div className="wa-head">
-          <button className="sb-act wa-back" onClick={() => setOpen('')} title={t('All chats')}
-                  aria-label={t('All chats')}>
-            <Icon name="chevron" size={13} turn={180} />
-          </button>
+          {/* In a window the list is already on screen, so a Back button would
+              point at something the eye is already on. */}
+          {!full && (
+            <button className="sb-act wa-back" onClick={() => setOpen('')} title={t('All chats')}
+                    aria-label={t('All chats')}>
+              <Icon name="chevron" size={13} turn={180} />
+            </button>
+          )}
           <span className={`wa-mark ${tintOf(open)} ${group ? 'group' : ''}`}>
             {group ? <Icon name="memory" size={13} /> : initialsOf(name)}
           </span>
@@ -679,6 +785,11 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
           <button className="sb-act" onClick={() => setPicking(true)}
                   title={t('Pick messages')} aria-label={t('Pick messages')}>
             <Icon name="check" size={13} />
+          </button>
+          <button className="sb-act" onClick={() => setFull((v) => !v)}
+                  title={full ? t('Leave full screen') : t('Full screen')}
+                  aria-label={full ? t('Leave full screen') : t('Full screen')}>
+            <Icon name={full ? 'restore' : 'maximise'} size={13} />
           </button>
           <button className="sb-act" onClick={() => { setState('setup'); setForm(conn); }}
                   title={t('Change the connection')} aria-label={t('Change the connection')}>
@@ -774,6 +885,21 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
           {handing ? t('Collecting…') : t('Send to chat')}
         </button>
       </div>
+    </div>
+  );
+
+  /* A column: one view at a time, as it has always been. */
+  if (!full) return open ? convoView() : listView();
+
+  /* The window: the list stays put and a conversation opens beside it. */
+  return (
+    <div className="wa-full">
+      <aside className="wa-full-side">{listView()}</aside>
+      <section className="wa-full-main">
+        {open ? convoView() : (
+          <p className="ft-empty">{t('Pick a conversation on the left.')}</p>
+        )}
+      </section>
     </div>
   );
 }

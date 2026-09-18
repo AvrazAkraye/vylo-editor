@@ -12,20 +12,22 @@
  *   - **a video** cannot be sent to the API at all. A still is taken from it
  *     instead — a real frame, labelled as one frame of a video, never as "the
  *     video"
- *   - **a voice note** cannot be read by anything in this app. There is no
- *     transcription here: `dictate.ts` is the browser's speech engine listening
- *     to a microphone, which cannot be pointed at a file, and the gateway
- *     forwards `/v1/messages` and nothing else. So a voice note is downloaded,
- *     played in the panel by the person, and handed to the model as a *line
- *     saying it exists and was not heard*
+ *   - **a voice note** cannot be turned into an `image` or a `document` block
+ *     by anything here, and the API takes no audio. It is downloaded, played
+ *     in the panel by the person, and handed to the model as a *line saying it
+ *     exists and was not heard* — unless somebody pressed Transcribe on it, in
+ *     which case `whatsappvoice.ts` has words and the panel passes those
+ *     instead, attributed to whatever transcribed them
  *
  * That last one is the reason this module exists as its own file rather than a
  * function in the panel. "Every attachment can be read" is the thing to aim at
- * and it is not true of audio, and the failure mode of glossing over it is
- * specific and bad: the model is handed a message it cannot perceive, is not
- * told so, and answers about it anyway. `noteFor` writes the sentence that
- * stops that, and `readable` is the single place that decides which case a MIME
- * type falls into, so the panel cannot drift from the tool.
+ * and it is not free: audio needs a service the person has added themselves,
+ * and until they press the button there are no words. The failure mode of
+ * glossing over that is specific and bad — the model is handed a message it
+ * cannot perceive, is not told so, and answers about it anyway. `noteFor`
+ * writes the sentence that stops it, and `readable` is the single place that
+ * decides which case an attachment falls into, so the panel cannot drift from
+ * the tool.
  */
 
 import type { Attached } from './attachments';
@@ -57,26 +59,52 @@ const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/gif',
 /** Extensions that carry words, for a `documentMessage` that is not a PDF. */
 const TEXT_MIME = /^text\/|^application\/(json|xml|x-yaml|yaml|javascript|typescript|csv)$/i;
 
+/** What a filename says it is, when nothing better is on offer. */
+const BY_EXT: Array<[RegExp, Use]> = [
+  [/\.(png|jpe?g|gif|webp)$/i, 'image'],
+  [/\.pdf$/i, 'doc'],
+  [/\.(txt|md|markdown|csv|tsv|json|ya?ml|xml|log|ini|conf|html?|css|js|ts|tsx|jsx|py|rs|go|java|sh)$/i, 'text'],
+  [/\.(mp4|mov|m4v|webm|3gp|avi|mkv)$/i, 'frame'],
+  [/\.(ogg|oga|opus|mp3|m4a|aac|wav|amr)$/i, 'opaque'],
+];
+
 /**
- * What a MIME type is good for.
+ * What an attachment is good for.
  *
- * `kind` is the fallback, because Evolution does not always send a mimetype
- * and "it was a `stickerMessage`" is better than nothing when it doesn't.
+ * Three sources, in the order they can be trusted: the mimetype, then the
+ * filename, then the envelope WhatsApp put it in.
+ *
+ * The filename is not a nicety. Sending a photo from WhatsApp as a *file* —
+ * which is what "send as document" does, and what a forward often becomes —
+ * arrives as a `documentMessage` with `application/octet-stream` or no
+ * mimetype at all. Judged on those two alone a perfectly ordinary JPEG is
+ * opaque, so the panel drew it as a grey row with a filename on it and, far
+ * worse, the handover told the model it could not be read. A readable photo
+ * being announced as unreadable is the same class of lie as an unread voice
+ * note being passed off as read; it just points the other way.
+ *
+ * `application/octet-stream` is treated as absent rather than as a type,
+ * because that is what it means: the server declined to say.
  */
-export function readable(mime: string, kind?: Kind): Use {
+export function readable(mime: string, kind?: Kind, name = ''): Use {
   const m = (mime || '').split(';')[0].trim().toLowerCase();
-  if (IMAGE_MIME.has(m)) return 'image';
-  if (m === 'application/pdf') return 'doc';
-  if (TEXT_MIME.test(m)) return 'text';
-  if (m.startsWith('video/')) return 'frame';
-  if (m.startsWith('audio/')) return 'opaque';
-  // No mimetype. A sticker is always webp and an image is always one of the
-  // four; the rest are only guessable by what WhatsApp called the envelope.
-  if (!m) {
-    if (kind === 'image' || kind === 'sticker') return 'image';
-    if (kind === 'video') return 'frame';
-    if (kind === 'audio') return 'opaque';
+  const vague = !m || m === 'application/octet-stream' || m === 'binary/octet-stream';
+  if (!vague) {
+    if (IMAGE_MIME.has(m)) return 'image';
+    if (m === 'application/pdf') return 'doc';
+    if (TEXT_MIME.test(m)) return 'text';
+    if (m.startsWith('video/')) return 'frame';
+    if (m.startsWith('audio/')) return 'opaque';
+    // A named type this app cannot use -- a .docx, a .heic. The filename adds
+    // nothing, since it will agree with the mimetype that already lost.
+    return 'opaque';
   }
+  for (const [ext, use] of BY_EXT) if (ext.test(name)) return use;
+  // Nothing but the envelope. A sticker is always webp and an image is always
+  // one of the four; a document with no type and no extension is anybody's guess.
+  if (kind === 'image' || kind === 'sticker') return 'image';
+  if (kind === 'video') return 'frame';
+  if (kind === 'audio') return 'opaque';
   return 'opaque';
 }
 
@@ -170,12 +198,14 @@ export function nameFor(m: Msg, media: Media): string {
  * audio case, and `noteFor` is what gets said instead.
  */
 export function toAttached(m: Msg, media: Media, decoded?: string): Attached | null {
-  const use = readable(media.mime, m.kind);
   const name = nameFor(m, media);
+  const use = readable(media.mime, m.kind, name);
   if (use === 'image') {
     // `image/jpg` is not a media type the API knows, though half the world
     // writes it. It is the same bytes.
-    const mediaType = media.mime === 'image/jpg' || !media.mime ? 'image/jpeg' : media.mime;
+    const mediaType = IMAGE_MIME.has(media.mime) && media.mime !== 'image/jpg'
+      ? media.mime
+      : mimeByName(name);
     return { kind: 'image', id: nextId(), name, mediaType, data: media.base64, bytes: media.bytes };
   }
   if (use === 'doc') {
@@ -207,6 +237,22 @@ export function toAttached(m: Msg, media: Media, decoded?: string): Attached | n
  * the transcript, next to the message it belongs to, so a model summarising the
  * conversation cannot quietly invent what was in it.
  */
+/**
+ * The media type to put on the wire for an image, from its name.
+ *
+ * Reached whenever the server's own mimetype was absent, vague or `image/jpg`
+ * — which is not a type the API knows, though half the world writes it. The
+ * bytes are the same either way; what matters is that the header names one of
+ * the four the API accepts, because a request carrying anything else fails
+ * whole and takes the message it was attached to with it.
+ */
+function mimeByName(name: string): string {
+  if (/\.png$/i.test(name)) return 'image/png';
+  if (/\.gif$/i.test(name)) return 'image/gif';
+  if (/\.webp$/i.test(name)) return 'image/webp';
+  return 'image/jpeg';
+}
+
 export function noteFor(m: Msg, media: Media | null, use: Use): string {
   const what = kindWord(m.kind);
   if (!media) return `[${what}: could not be downloaded]`;
