@@ -88,16 +88,40 @@ export const ready = (c: Conn): boolean =>
 
 export const isGroup = (jid: string): boolean => jid.endsWith('@g.us');
 
+/**
+ * Whether this address is an ordinary phone number.
+ *
+ * `@g.us` is a group and was always handled. The one that was not is `@lid` —
+ * WhatsApp's privacy-mode identity, which is a long run of digits that is *not*
+ * a phone number and never was. Everything here treated "not a group" as "a
+ * person with a number", so a `@lid` was drawn in the conversation header as
+ * `+121298634178579`: a plus sign, fifteen digits, and a number nobody can
+ * ring. Inventing a phone number for somebody is worse than showing nothing,
+ * and the same string was going into the tool's approval dialog as the
+ * recipient of a message.
+ *
+ * `@broadcast` and `@newsletter` are not numbers either, so the test names what
+ * a number *is* rather than what it is not.
+ */
+export const isPhone = (jid: string): boolean =>
+  /@(s\.whatsapp\.net|c\.us)$/i.test(String(jid || ''));
+
 /** A phone number as WhatsApp addresses it. Digits only; `+` and spacing go. */
 export function jidOf(phone: string): string {
   const digits = String(phone || '').replace(/[^\d]/g, '');
   return digits ? `${digits}@s.whatsapp.net` : '';
 }
 
-/** The number out of an address, or '' for a group, which has none. */
+/**
+ * The number out of an address, or '' when the address is not a number.
+ *
+ * Empty for a group, and empty for a `@lid` or a broadcast — see `isPhone`.
+ * Callers that need *something* to address or to name a conversation by fall
+ * back to the jid itself, which is at least true.
+ */
 export function phoneOf(jid: string): string {
   const at = String(jid || '').indexOf('@');
-  if (at < 0 || isGroup(jid)) return '';
+  if (at < 0 || !isPhone(jid)) return '';
   // A JID can carry a device suffix — `9647…:12@s.whatsapp.net`.
   return jid.slice(0, at).split(':')[0].replace(/[^\d]/g, '');
 }

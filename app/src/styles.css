@@ -2543,6 +2543,62 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .wa-bubble.on{ box-shadow:0 0 0 2px var(--brand); }
 .wa-thread.picking .wa-bubble:hover:not(.on){ box-shadow:0 0 0 2px var(--rule-2); }
 
+/* A picture, and the control that fetches it again. The button sits on the
+   corner of the image rather than under it: a caption under every photo in a
+   thread is a column of chrome, and this is a thing wanted once in a hundred
+   times, when something has already gone wrong. */
+.wa-shot{ position:relative; display:block; }
+.wa-img{ cursor:zoom-in; }
+.wa-again{
+  position:absolute; inset-block-start:var(--sp-2); inset-inline-end:var(--sp-2);
+  display:inline-flex; align-items:center; justify-content:center;
+  inline-size:22px; block-size:22px; border:0; border-radius:50%;
+  background:transparent; color:var(--mute); cursor:pointer; opacity:0;
+}
+.wa-again.on-shot{ background:color-mix(in srgb, #000 55%, transparent); color:#fff; }
+.wa-shot:hover .wa-again, .wa-file:hover .wa-again, .wa-again:focus-visible{ opacity:1; }
+.wa-again:hover{ color:var(--brand); }
+.wa-again.on-shot:hover{ background:var(--fill); color:var(--on-fill); }
+
+/* A file row, and what is said when something that should have been a picture
+   would not open as one. */
+.wa-file{ position:relative; display:block; }
+.wa-file .wa-again{ inset-block-start:50%; margin-block-start:-11px; }
+.wa-broke{
+  display:block; margin-block-start:var(--sp-2);
+  font-size:var(--fs-1); color:var(--warn); line-height:1.4;
+}
+.wa-bubble.mine .wa-broke{ color:var(--on-fill); opacity:.85; }
+
+/* ── a picture at the size it was sent ───────────────────────────────────
+   230px in a sidebar is enough to know a photo is there and not enough to read
+   a receipt or a screenshot of an error, which is most of what people send. */
+.wa-lens{
+  position:fixed; inset:0; z-index:70;
+  display:flex; align-items:center; justify-content:center;
+  padding:var(--sp-8); background:color-mix(in srgb, #000 78%, transparent);
+  cursor:zoom-out;
+}
+.wa-lens img{
+  max-inline-size:100%; max-block-size:calc(100% - 52px);
+  object-fit:contain; border-radius:var(--r-2); cursor:default;
+  box-shadow:var(--shadow);
+}
+.wa-lens-bar{
+  position:absolute; inset-block-end:var(--sp-6); inset-inline:var(--sp-8);
+  display:flex; align-items:center; gap:var(--sp-3); justify-content:center;
+  font-size:var(--fs-2); color:#fff; cursor:default;
+}
+.wa-lens-bar span{
+  min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  opacity:.8;
+}
+.wa-lens-bar .ghost{
+  flex:none; color:#fff; border-color:color-mix(in srgb, #fff 30%, transparent);
+  text-decoration:none;
+}
+.wa-lens-bar .ghost:hover{ border-color:#fff; color:#fff; }
+
 /* ── the words of a voice note ───────────────────────────────────────────
    The only route this app has to them, and it leaves the machine, so the
    button names where it is going and nothing presses it but a person. */

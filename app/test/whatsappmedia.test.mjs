@@ -15,10 +15,10 @@
 // a confident sentence in it that nobody ever said. `noteFor` writes the line
 // that prevents that, and these assertions are what keep the line there.
 import {
-  handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor, noteFor,
-  playable, readable, toAttached,
+  displayMime, handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor,
+  noteFor, playable, readable, toAttached,
 } from '../.test-build/whatsappmedia.js';
-import { messagesFrom } from '../.test-build/whatsapp.js';
+import { isPhone, messagesFrom, phoneOf } from '../.test-build/whatsapp.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -235,6 +235,59 @@ const TXT = one({ conversation: 'hello' });
   const note = noteFor(doc, media('application/octet-stream', 'a.jpeg'), 'image');
   ok('the handover calls it attached', /attached below/.test(note), note);
   ok('and no longer says it was not read', !/NOT read/.test(note), note);
+}
+
+// ── the type an element will accept ───────────────────────────────────────
+//
+// A blob URL carries its type through to the `<img>`, and an element handed a
+// type that is not a media type may refuse it. That refusal is what drew a
+// photo in the panel as its own filename in a box: the picture failed, and
+// `alt` is the filename.
+{
+  const md = (mime, name) => ({ base64: 'AAAA', mime, name, bytes: 3 });
+  ok('octet-stream on a .jpeg becomes image/jpeg',
+     displayMime(md('application/octet-stream', 'a.jpeg'), 'document') === 'image/jpeg');
+  ok('and nothing at all on a .png becomes image/png',
+     displayMime(md('', 'shot.png'), 'document') === 'image/png');
+  ok('a .webp keeps its own', displayMime(md('', 's.webp'), 'document') === 'image/webp');
+  ok('a video gets a video type', displayMime(md('', 'clip.mp4'), 'document') === 'video/mp4');
+  ok('and a webm gets its own', displayMime(md('', 'clip.webm'), 'document') === 'video/webm');
+  ok('a PDF gets application/pdf', displayMime(md('application/octet-stream', 'x.pdf'), 'document') === 'application/pdf');
+  // A server that did say something keeps saying it.
+  ok('a real type is left alone', displayMime(md('image/png', 'x.bin'), 'document') === 'image/png');
+  ok('except image/jpg, which no decoder is asked to know',
+     displayMime(md('image/jpg', 'x.jpg'), 'image') === 'image/jpeg');
+  ok('audio keeps its own type', displayMime(md('audio/ogg', 'p.ogg'), 'audio') === 'audio/ogg');
+  // The panel asks `playable` about the resolved type, so a video sent as a
+  // file has to come back playable or it would be drawn as a row to download.
+  ok('a video sent as a file is playable once resolved',
+     playable(displayMime(md('application/octet-stream', 'clip.mp4'), 'document')));
+  ok('and a PDF is still not', !playable(displayMime(md('', 'x.pdf'), 'document')));
+}
+
+// ── a number that is not a number ─────────────────────────────────────────
+//
+// `@lid` is WhatsApp's privacy identity: a long run of digits that is not a
+// phone number. Everything treated "not a group" as "a person with a number",
+// so the conversation header drew `+121298634178579` — a plus sign and fifteen
+// digits nobody can ring — and the same string went into the tool's approval
+// dialog as the recipient of a message.
+{
+  ok('an ordinary address is a number', isPhone('9647501112233@s.whatsapp.net'));
+  ok('the legacy form too', isPhone('9647501112233@c.us'));
+  ok('a group is not', !isPhone('120363000000000000@g.us'));
+  ok('a lid is not', !isPhone('121298634178579@lid'));
+  ok('a broadcast is not', !isPhone('status@broadcast'));
+  ok('a newsletter is not', !isPhone('12345@newsletter'));
+
+  ok('phoneOf gives the number for a real address',
+     phoneOf('9647501112233@s.whatsapp.net') === '9647501112233');
+  ok('and a device suffix is still stripped',
+     phoneOf('9647501112233:12@s.whatsapp.net') === '9647501112233');
+  // The whole point: empty, so callers fall back to the jid and nothing
+  // presents these digits as something you could dial.
+  ok('but nothing for a lid', phoneOf('121298634178579@lid') === '');
+  ok('and nothing for a group', phoneOf('120363000000000000@g.us') === '');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

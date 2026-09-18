@@ -8,8 +8,8 @@ import {
 } from './whatsapp';
 import { WireError, apiCall } from './whatsappwire';
 import {
-  handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor, noteFor,
-  playable, readable, toAttached, type Line, type Media,
+  displayMime, handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor,
+  noteFor, playable, readable, toAttached, type Line, type Media,
 } from './whatsappmedia';
 import type { Attached } from './attachments';
 import { KEY as PROVIDERS_KEY, read as readProviders } from './providers';
@@ -404,14 +404,60 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     }
   }, [conn, bump]);
 
-  /** A URL for an element to point at, made once per message. */
-  const urlOf = useCallback((id: string, media: Media): string => {
+  /**
+   * A URL for an element to point at, made once per message.
+   *
+   * `displayMime` and not `media.mime`: the server often says
+   * `application/octet-stream`, a blob URL carries its type through to the
+   * element, and an element handed a type that is not a media type may refuse
+   * it. That refusal is what drew a photo as its own filename in a box.
+   */
+  const urlOf = useCallback((id: string, media: Media, kind?: Msg['kind']): string => {
     const had = urls.current.get(id);
     if (had) return had;
-    const made = URL.createObjectURL(blobOf(media.base64, media.mime));
+    const made = URL.createObjectURL(blobOf(media.base64, displayMime(media, kind)));
     urls.current.set(id, made);
     return made;
   }, []);
+
+  /**
+   * Attachments whose bytes would not render as the thing they claimed to be.
+   *
+   * Set by the element's own `onError`, which is the only thing that actually
+   * knows. Whatever the reason — a type the decoder refused, bytes that are not
+   * an image at all, a server that sent a thumbnail key instead of a file — the
+   * answer is the same and it is not a broken picture with its filename showing
+   * through: fall back to the row that lets the file be saved, and offer to
+   * fetch it again.
+   */
+  const [broken, setBroken] = useState<Set<string>>(new Set());
+  const breaks = useCallback((id: string) => {
+    setBroken((p) => (p.has(id) ? p : new Set(p).add(id)));
+  }, []);
+
+  /**
+   * Fetch it again, from nothing.
+   *
+   * A reload has to forget everything it knew or it is a no-op: the cached
+   * bytes, the object URL the element is still holding, and the note that this
+   * one would not render.
+   */
+  const reload = useCallback((m: Msg) => {
+    const url = urls.current.get(m.id);
+    if (url) { URL.revokeObjectURL(url); urls.current.delete(m.id); }
+    store.current.delete(m.id);
+    setBroken((p) => { if (!p.has(m.id)) return p; const n = new Set(p); n.delete(m.id); return n; });
+    void grab(m);
+  }, [grab]);
+
+  /** The picture being looked at, full size. */
+  const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
+  useEffect(() => {
+    if (!preview) return;
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setPreview(null); } };
+    window.addEventListener('keydown', esc);
+    return () => window.removeEventListener('keydown', esc);
+  }, [preview]);
 
   /**
    * Photos and stickers come down on their own; everything else waits to be asked.
@@ -587,30 +633,83 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     }
     if (!held || held === 'failed') {
       // Not yet asked for, or asked and refused. Both offer the same control,
-      // because "try again" and "fetch" are the same act to the person doing it.
+      // because "fetch it" and "try again" are the same act to the person
+      // pressing it.
       return (
-        <button className="wa-get" onClick={() => void grab(m)}>
-          <Icon name={kindIcon(m.kind)} size={12} />
+        <button className="wa-get" onClick={() => reload(m)}>
+          <Icon name={held === 'failed' ? 'swap' : kindIcon(m.kind)} size={12} />
           {held === 'failed' ? t('Could not load. Try again') : kindLabel(m.kind, t)}
         </button>
       );
     }
 
-    const use = readable(held.mime, m.kind, nameFor(m, held));
-    const url = urlOf(m.id, held);
+    const name = nameFor(m, held);
+    const use = readable(held.mime, m.kind, name);
+    const url = urlOf(m.id, held, m.kind);
+    const size = held.bytes < 1024
+      ? `${Math.round(held.bytes)} B`
+      : `${Math.round(held.bytes / 1024)} KB`;
+
+    /* A file to save, and the shape anything unrenderable falls back to. */
+    const asFile = (why?: string) => (
+      <span className="wa-file">
+        <a className="wa-doc" href={url} download={name}>
+          <Icon name={kindIcon(m.kind)} size={13} />
+          <span>{name}</span>
+          <em>{size}</em>
+        </a>
+        {why && <span className="wa-broke">{why}</span>}
+        <button className="wa-again" onClick={() => reload(m)} title={t('Load it again')}
+                aria-label={t('Load it again')}>
+          <Icon name="swap" size={11} />
+        </button>
+      </span>
+    );
+
     if (use === 'image') {
-      return <img className="wa-img" src={url} alt={nameFor(m, held)} loading="lazy" />;
+      // The element is the only thing that knows whether these bytes decode.
+      // When they do not, this must not become a broken picture with its own
+      // filename showing through it -- which is exactly what it was doing.
+      if (broken.has(m.id)) return asFile(t('This would not open as a picture.'));
+      return (
+        <span className="wa-shot">
+          <img className="wa-img" src={url} alt={name} loading="lazy"
+               onError={() => breaks(m.id)}
+               onClick={() => setPreview({ url, name })} />
+          <button className="wa-again on-shot" onClick={() => reload(m)}
+                  title={t('Load it again')} aria-label={t('Load it again')}>
+            <Icon name="swap" size={11} />
+          </button>
+        </span>
+      );
     }
-    if (playable(held.mime)) {
-      if (held.mime.startsWith('video/')) {
-        return <video className="wa-vid" src={url} controls preload="metadata" />;
+
+    if (playable(displayMime(held, m.kind))) {
+      if (use === 'frame') {
+        if (broken.has(m.id)) return asFile(t('This would not open as a video.'));
+        return (
+          <span className="wa-shot">
+            <video className="wa-vid" src={url} controls preload="metadata"
+                   onError={() => breaks(m.id)} />
+            <button className="wa-again on-shot" onClick={() => reload(m)}
+                    title={t('Load it again')} aria-label={t('Load it again')}>
+              <Icon name="swap" size={11} />
+            </button>
+          </span>
+        );
       }
       // The person can hear it; `controls` is the browser's, deliberately — a
       // hand-drawn scrubber in a 248px column would be worse at the one job it
       // has. Under it, the only route this app has to the words.
       return (
         <>
-          <audio className="wa-aud" src={url} controls preload="metadata" />
+          <audio className="wa-aud" src={url} controls preload="metadata"
+                 onError={() => breaks(m.id)} />
+          {broken.has(m.id) && (
+            <button className="wa-get" onClick={() => reload(m)}>
+              <Icon name="swap" size={12} />{t('Could not load. Try again')}
+            </button>
+          )}
           {said[m.id]
             ? <span className="wa-said">{said[m.id]}</span>
             : voice && (
@@ -628,13 +727,8 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
         </>
       );
     }
-    return (
-      <a className="wa-doc" href={url} download={nameFor(m, held)}>
-        <Icon name={kindIcon(m.kind)} size={13} />
-        <span>{nameFor(m, held)}</span>
-        <em>{held.bytes < 1024 ? `${Math.round(held.bytes)} B` : `${Math.round(held.bytes / 1024)} KB`}</em>
-      </a>
-    );
+
+    return asFile();
   }
 
   /** Today, yesterday, or the date — the separator between two days of talk. */
@@ -780,7 +874,16 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
           </span>
           <span className="wa-who">
             <b>{name}</b>
-            <span>{group ? t('Group chat') : phoneOf(open) ? `+${phoneOf(open)}` : ''}</span>
+            {/* A `+` in front of whatever digits are in the address was drawing
+                a `@lid` — WhatsApp's privacy identity — as a fifteen-digit
+                phone number that does not exist. `phoneOf` is empty unless the
+                address really is a number, and a line that would say nothing
+                true is left out rather than filled. */}
+            {group
+              ? <span>{t('Group chat')}</span>
+              : phoneOf(open)
+                ? <span>+{phoneOf(open)}</span>
+                : name !== open && <span>{t('On WhatsApp')}</span>}
           </span>
           <button className="sb-act" onClick={() => setPicking(true)}
                   title={t('Pick messages')} aria-label={t('Pick messages')}>
@@ -791,10 +894,11 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
                   aria-label={full ? t('Leave full screen') : t('Full screen')}>
             <Icon name={full ? 'restore' : 'maximise'} size={13} />
           </button>
-          <button className="sb-act" onClick={() => { setState('setup'); setForm(conn); }}
-                  title={t('Change the connection')} aria-label={t('Change the connection')}>
-            <Icon name="settings" size={13} />
-          </button>
+          {/* Change the connection lives on the chat list and only there.
+              Back, an avatar, a name and three icon buttons do not fit in a
+              248px column: the name was ellipsising to `Avr…` to make room
+              for a control that belongs to the account rather than to this
+              conversation. */}
         </div>
       )}
 
@@ -888,8 +992,39 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     </div>
   );
 
+  /**
+   * A picture, at the size it was sent.
+   *
+   * A 248px column shows a photo 230px wide, which is enough to know it is
+   * there and not enough to read a receipt or a screenshot of an error — which
+   * is most of what people actually send. Clicking opens it over everything at
+   * full size, and Escape or a click anywhere closes it.
+   */
+  const shot = preview && (
+    <div className="wa-lens" onClick={() => setPreview(null)}
+         role="dialog" aria-label={preview.name}>
+      <img src={preview.url} alt={preview.name} onClick={(e) => e.stopPropagation()} />
+      <div className="wa-lens-bar" onClick={(e) => e.stopPropagation()}>
+        <span>{preview.name}</span>
+        <a className="ghost" href={preview.url} download={preview.name}>
+          <Icon name="attach" size={12} />{t('Save')}
+        </a>
+        <button className="ghost" onClick={() => setPreview(null)}>
+          <Icon name="close" size={12} />{t('Close')}
+        </button>
+      </div>
+    </div>
+  );
+
   /* A column: one view at a time, as it has always been. */
-  if (!full) return open ? convoView() : listView();
+  if (!full) {
+    return (
+      <>
+        {open ? convoView() : listView()}
+        {shot}
+      </>
+    );
+  }
 
   /* The window: the list stays put and a conversation opens beside it. */
   return (
@@ -900,6 +1035,7 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
           <p className="ft-empty">{t('Pick a conversation on the left.')}</p>
         )}
       </section>
+      {shot}
     </div>
   );
 }

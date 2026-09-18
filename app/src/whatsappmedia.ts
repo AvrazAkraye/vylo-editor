@@ -178,6 +178,37 @@ export function mediaFrom(body: unknown, fallbackName = 'file'): Media | null {
   return { base64: data, mime: mime.trim(), name, bytes: Math.max(0, (data.length * 3) / 4 - pad) };
 }
 
+/**
+ * The media type to hand a Blob that an `<img>`, `<audio>` or `<video>` will
+ * point at.
+ *
+ * Not the server's own, when the server's own is `application/octet-stream` or
+ * absent. A blob URL carries its type to the element, and an element given a
+ * type that is not a media type is entitled to refuse it — WebKit is stricter
+ * here than Chromium, and this app runs in WebKit on macOS. The image then
+ * falls back to its `alt`, which is how a photo came to be drawn in the panel
+ * as its own filename in a box.
+ *
+ * `readable` already worked out what the thing actually is, from the filename
+ * when the mimetype declined to say. This turns that back into a type the
+ * element will accept.
+ */
+export function displayMime(media: Media, kind?: Kind): string {
+  const use = readable(media.mime, kind, media.name);
+  const vague = !media.mime || /octet-stream/i.test(media.mime);
+  if (!vague) return media.mime === 'image/jpg' ? 'image/jpeg' : media.mime;
+  if (use === 'image') {
+    if (/\.png$/i.test(media.name)) return 'image/png';
+    if (/\.gif$/i.test(media.name)) return 'image/gif';
+    if (/\.webp$/i.test(media.name)) return 'image/webp';
+    return 'image/jpeg';
+  }
+  if (use === 'doc') return 'application/pdf';
+  if (use === 'text') return 'text/plain';
+  if (use === 'frame') return /\.webm$/i.test(media.name) ? 'video/webm' : 'video/mp4';
+  return media.mime || 'application/octet-stream';
+}
+
 /* ── turning it into something the composer holds ────────────────────────── */
 
 let seq = 0;
