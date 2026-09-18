@@ -829,6 +829,8 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
 
   const name = here?.name || phoneOf(open) || open;
   const group = isGroup(open);
+  /** What is worth saying under the name, or '' when nothing is. */
+  const sub = group ? t('Group chat') : phoneOf(open) ? `+${phoneOf(open)}` : '';
 
   const convoView = () => (
     <div className="wa">
@@ -872,18 +874,17 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
           <span className={`wa-mark ${tintOf(open)} ${group ? 'group' : ''}`}>
             {group ? <Icon name="memory" size={13} /> : initialsOf(name)}
           </span>
-          <span className="wa-who">
+          {/* A second line only when there is a second line to write.
+              `+` in front of whatever digits were in the address had been
+              drawing a `@lid` — WhatsApp's privacy identity — as a fifteen
+              digit phone number that does not exist. Replacing it with "On
+              WhatsApp" fixed the falsehood and left the filler: a subtitle
+              under every name, in a header, saying the thing the panel is
+              called. Nothing true to say means no line, and the name centres
+              itself against the avatar instead. */}
+          <span className={`wa-who${sub ? '' : ' alone'}`}>
             <b>{name}</b>
-            {/* A `+` in front of whatever digits are in the address was drawing
-                a `@lid` — WhatsApp's privacy identity — as a fifteen-digit
-                phone number that does not exist. `phoneOf` is empty unless the
-                address really is a number, and a line that would say nothing
-                true is left out rather than filled. */}
-            {group
-              ? <span>{t('Group chat')}</span>
-              : phoneOf(open)
-                ? <span>+{phoneOf(open)}</span>
-                : name !== open && <span>{t('On WhatsApp')}</span>}
+            {sub && <span>{sub}</span>}
           </span>
           <button className="sb-act" onClick={() => setPicking(true)}
                   title={t('Pick messages')} aria-label={t('Pick messages')}>

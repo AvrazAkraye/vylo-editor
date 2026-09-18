@@ -2316,25 +2316,40 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    were about to write to was to remember which row you had pressed. */
 .wa-head{
   flex:none; display:flex; align-items:center; gap:var(--sp-3);
-  padding-block:var(--sp-4); padding-inline:var(--sp-3) var(--sp-4);
+  padding-block:var(--sp-3); padding-inline:var(--sp-2) var(--sp-3);
   border-block-end:1px solid var(--rule); background:var(--panel-2);
 }
 /* Back points the way you came, and which way that is depends on the language.
    `.navb` and `.br-nav` mirror their arrows the same way -- a chevron is a
    direction, and a direction is one of the things `dir` is for. */
 :root[dir="rtl"] .wa-back svg{ transform:scaleX(-1); }
-.wa-head .wa-mark{ inline-size:26px; block-size:26px; font-size:var(--fs-1); }
-.wa-who{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:0; }
+.wa-head .wa-mark{ inline-size:28px; block-size:28px; font-size:var(--fs-1); }
+/* The two lines set tight to each other, and the pair centred against the
+   avatar rather than each line sitting wherever the box left it. */
+.wa-who{
+  flex:1; min-inline-size:0;
+  display:flex; flex-direction:column; justify-content:center; gap:1px;
+}
 .wa-who b{
-  font-size:var(--fs-3); font-weight:600; color:var(--ink);
+  font-size:var(--fs-3); font-weight:600; line-height:1.25; color:var(--ink);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
+/* With nothing worth writing underneath, the name is the whole block: it sits
+   on the avatar's centre line instead of riding above an empty row, and takes
+   the size a single-line title should have. */
+.wa-who.alone b{ font-size:var(--fs-4); }
 .wa-who span{
-  font-size:var(--fs-1); color:var(--mute);
+  font-size:var(--fs-1); line-height:1.3; color:var(--mute);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  font-variant-numeric:tabular-nums;
   /* A number reads left to right under a name that may not. */
   direction:ltr; text-align:start;
 }
+/* The actions read as one group on the trailing edge rather than as two
+   buttons that happened to end up next to each other. */
+.wa-head > .sb-act + .sb-act{ margin-inline-start:-2px; }
+.wa-head .wa-back{ opacity:.7; }
+.wa-head .wa-back:hover{ opacity:1; }
 
 /* ── the thread ──────────────────────────────────────────────────────────
    `margin-inline-start:auto` rather than `margin-left`: mine sits on the
