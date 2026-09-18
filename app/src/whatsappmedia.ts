@@ -108,6 +108,29 @@ export function readable(mime: string, kind?: Kind, name = ''): Use {
   return 'opaque';
 }
 
+/**
+ * What an attachment is, with the bytes given the last word.
+ *
+ * `readable` takes a mimetype because it is also asked about things that have
+ * not been downloaded. This is the form to use once the payload is in hand:
+ * the file's own first bytes, then the server's claim, then the filename.
+ *
+ * `'unknown'` is distinct from `'opaque'` and the difference matters. Opaque
+ * means "this is audio and nothing here can read audio" — a known thing with a
+ * known limit. Unknown means the payload matches no format at all, which is not
+ * a limit, it is a fault, and the person should be told that rather than shown
+ * a picture that will not draw.
+ */
+export function useOf(media: Media, kind?: Kind): Use | 'unknown' {
+  if (media.sniffed) return readable(media.sniffed, kind, media.name);
+  const claimed = readable(media.mime, kind, media.name);
+  // Nothing in the bytes, and the claim was that it is something renderable.
+  // The claim loses: an `<img>` was going to refuse these bytes anyway, and a
+  // broken picture explains nothing.
+  if (claimed === 'image' || claimed === 'frame') return 'unknown';
+  return claimed;
+}
+
 /** Whether the panel can play it for the person, whatever the model can do. */
 export const playable = (mime: string): boolean =>
   /^(audio|video)\//i.test(mime || '');
@@ -141,6 +164,83 @@ export interface Media {
   mime: string;
   name: string;
   bytes: number;
+  /**
+   * What the first bytes say the file is, or '' when they say nothing known.
+   *
+   * The authority, above the server's own `mime` and above the filename. Both
+   * of those are claims; this is the file. An empty string is itself a finding
+   * and the panel says so out loud — a payload of the right *size* whose first
+   * bytes match no format is not a picture that failed to draw, it is not a
+   * picture.
+   */
+  sniffed: string;
+}
+
+/* ── what the bytes actually are ─────────────────────────────────────────
+   Every format worth carrying announces itself in its first few bytes, and
+   those bytes are the only thing in this exchange that cannot be wrong. The
+   server's mimetype is a claim, the filename is a claim, and both were
+   believed in turn while a photo refused to draw.
+
+   Decoded by hand rather than through `atob`, so this module stays arithmetic:
+   the test suite runs it with no DOM, and a decoder that throws inside a render
+   would take the panel with it. */
+
+const B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+/** The first `n` bytes of a base64 payload. Tolerates base64url and padding. */
+export function leadBytes(base64: string, n = 16): number[] {
+  const out: number[] = [];
+  let bits = 0;
+  let acc = 0;
+  for (let i = 0; i < base64.length && out.length < n; i++) {
+    const ch = base64[i];
+    // base64url spells two characters differently; the bytes are the same.
+    const v = B64.indexOf(ch === '-' ? '+' : ch === '_' ? '/' : ch);
+    if (v < 0) continue;
+    acc = (acc << 6) | v;
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      out.push((acc >> bits) & 0xff);
+    }
+  }
+  return out;
+}
+
+const starts = (b: number[], sig: number[], at = 0): boolean =>
+  sig.every((byte, i) => b[at + i] === byte);
+
+/**
+ * The media type the bytes themselves declare, or '' for nothing recognised.
+ *
+ * '' is not a failure to look — it is the answer that the payload is not any
+ * media this app knows, which is exactly the thing worth telling somebody when
+ * a photo will not open.
+ */
+export function sniff(base64: string): string {
+  const b = leadBytes(base64, 16);
+  if (b.length < 4) return '';
+  if (starts(b, [0xff, 0xd8, 0xff])) return 'image/jpeg';
+  if (starts(b, [0x89, 0x50, 0x4e, 0x47])) return 'image/png';
+  if (starts(b, [0x47, 0x49, 0x46, 0x38])) return 'image/gif';
+  // RIFF....WEBP
+  if (starts(b, [0x52, 0x49, 0x46, 0x46]) && starts(b, [0x57, 0x45, 0x42, 0x50], 8)) return 'image/webp';
+  if (starts(b, [0x52, 0x49, 0x46, 0x46]) && starts(b, [0x57, 0x41, 0x56, 0x45], 8)) return 'audio/wav';
+  if (starts(b, [0x25, 0x50, 0x44, 0x46])) return 'application/pdf';
+  if (starts(b, [0x4f, 0x67, 0x67, 0x53])) return 'audio/ogg';
+  if (starts(b, [0x1a, 0x45, 0xdf, 0xa3])) return 'video/webm';
+  if (starts(b, [0x49, 0x44, 0x33])) return 'audio/mpeg';
+  if (b[0] === 0xff && (b[1] & 0xe0) === 0xe0) return 'audio/mpeg';
+  if (starts(b, [0x50, 0x4b, 0x03, 0x04])) return 'application/zip';
+  // ....ftyp — an ISO container. The brand says whether it is sound or picture.
+  if (starts(b, [0x66, 0x74, 0x79, 0x70], 4)) {
+    const brand = String.fromCharCode(b[8], b[9], b[10], b[11]);
+    if (/^(M4A|M4B)/.test(brand)) return 'audio/mp4';
+    if (/^qt/.test(brand)) return 'video/quicktime';
+    return 'video/mp4';
+  }
+  return '';
 }
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
@@ -175,7 +275,13 @@ export function mediaFrom(body: unknown, fallbackName = 'file'): Media | null {
   const name = str(inner.fileName) || str(inner.filename) || str(b.fileName) || fallbackName;
   // base64 is 4 characters per 3 bytes, less the padding.
   const pad = data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0;
-  return { base64: data, mime: mime.trim(), name, bytes: Math.max(0, (data.length * 3) / 4 - pad) };
+  return {
+    base64: data,
+    mime: mime.trim(),
+    name,
+    bytes: Math.max(0, (data.length * 3) / 4 - pad),
+    sniffed: sniff(data),
+  };
 }
 
 /**
@@ -194,6 +300,10 @@ export function mediaFrom(body: unknown, fallbackName = 'file'): Media | null {
  * element will accept.
  */
 export function displayMime(media: Media, kind?: Kind): string {
+  // The bytes outrank everything. They are the only claim in this exchange
+  // that cannot be wrong, and believing the other two in turn is what left a
+  // photo drawing as its own filename.
+  if (media.sniffed) return media.sniffed;
   const use = readable(media.mime, kind, media.name);
   const vague = !media.mime || /octet-stream/i.test(media.mime);
   if (!vague) return media.mime === 'image/jpg' ? 'image/jpeg' : media.mime;

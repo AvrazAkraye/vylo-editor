@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.86.0.
+version 0.87.0.
 
 ---
 
@@ -244,7 +244,8 @@ content security policy in `app/src-tauri/tauri.conf.json` is:
 ```
 default-src 'self';
 style-src   'self' 'unsafe-inline';
-img-src     'self' data:;
+img-src     'self' data: blob:;
+media-src   'self' blob:;
 connect-src 'self' ipc: http://ipc.localhost
             https: http://localhost:* http://127.0.0.1:*;
 frame-src   http://localhost:* http://127.0.0.1:*
@@ -252,6 +253,14 @@ frame-src   http://localhost:* http://127.0.0.1:*
             https://localhost:* https://127.0.0.1:*
             https://[::1]:* https://*.localhost:*
 ```
+
+`blob:` is on `img-src` and `media-src` so the window can show bytes it already
+holds — a WhatsApp photo, a voice note — and it is worth being clear that this
+grants no reach: a blob URL is an object the page made out of data already in
+its own memory, and nothing new can be fetched through one. Their absence was a
+bug rather than a policy. Every photo and every voice note was being blocked
+after a successful download, which the panel could only report as a file that
+would not open.
 
 The window can reach https hosts generally — the price of letting you name your
 own providers, since a policy cannot be edited at runtime. Which hosts are
@@ -661,7 +670,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.86.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.87.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -686,6 +695,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.86.0. Every statement above was read out of the code. If
+*Last checked against 0.87.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

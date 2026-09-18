@@ -17,7 +17,7 @@
 import {
   displayMime, handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor,
   noteFor, playable, readable, sendAs, sendAudioPath, sendBody, sendMediaPath,
-  sendMime, toAttached,
+  sendMime, sniff, toAttached, useOf,
 } from '../.test-build/whatsappmedia.js';
 import { isPhone, messagesFrom, phoneOf } from '../.test-build/whatsapp.js';
 
@@ -338,6 +338,58 @@ const TXT = one({ conversation: 'hello' });
      sendMediaPath('x') !== sendAudioPath('x'));
   ok('and both carry the instance',
      sendMediaPath('my inst').includes('my%20inst') && sendAudioPath('my inst').includes('my%20inst'));
+}
+
+// ── what the bytes say ────────────────────────────────────────────────────
+//
+// The server's mimetype is a claim and the filename is a claim; both were
+// believed in turn while a photo refused to draw. The first bytes are the one
+// thing in the exchange that cannot be wrong.
+//
+// The payloads below are the real leading bytes of each format, and the JPEG
+// and Ogg ones are the actual first characters returned by the instance this
+// was debugged against.
+{
+  ok('a JPEG announces itself', sniff('/9j/4AAQSkZJRgABAQAAAQABAAD/2wCE') === 'image/jpeg');
+  ok('a PNG does', sniff('iVBORw0KGgoAAAANSUhEUg') === 'image/png');
+  ok('a GIF does', sniff('R0lGODlhAQABAIAAAP') === 'image/gif');
+  ok('an Ogg does', sniff('T2dnUwACAAAAAAAAAABkAAAAAAAAAHk7c4IBE09wdXNIZWFk') === 'audio/ogg');
+  ok('a PDF does', sniff('JVBERi0xLjQKJeLjz9M') === 'application/pdf');
+  ok('a zip does', sniff('UEsDBBQAAAAIA') === 'application/zip');
+  // RIFF....WEBP — the brand is at offset 8, so a prefix test alone is wrong.
+  ok('a WebP is told from a WAV',
+     sniff('UklGRiQAAABXRUJQVlA4') === 'image/webp'
+     && sniff('UklGRiQAAABXQVZFZm10') === 'audio/wav');
+  // ....ftyp — the brand decides whether it is sound or picture.
+  ok('an MP4 is a video', sniff('AAAAIGZ0eXBpc29t') === 'video/mp4');
+  ok('an M4A is audio', sniff('AAAAIGZ0eXBNNEEg') === 'audio/mp4');
+
+  ok('nothing recognised is empty, not a guess', sniff('aGVsbG8gd29ybGQgdGhpcyBpcyBub3Q=') === '');
+  ok('an empty payload is empty', sniff('') === '');
+  ok('and a short one does not throw', sniff('AA') === '');
+  // base64url spells two characters differently and the bytes are the same.
+  ok('base64url decodes the same', sniff('_9j_4AAQSkZJRgABAQAAAQABAAD_2wCE') === 'image/jpeg');
+
+  const md = (mime, name, base64) => ({ base64, mime, name, bytes: 9, sniffed: sniff(base64) });
+  const JPEG = '/9j/4AAQSkZJRgABAQAAAQABAAD/2wCE';
+  const JUNK = 'aGVsbG8gd29ybGQgdGhpcyBpcyBub3Q=';
+
+  // The bytes outrank both claims, in both directions.
+  ok('bytes beat a wrong mimetype', useOf(md('application/pdf', 'a.pdf', JPEG)) === 'image');
+  ok('bytes beat a wrong filename', useOf(md('', 'notes.txt', JPEG)) === 'image');
+  ok('and a real JPEG is an image whatever it is called',
+     displayMime(md('application/octet-stream', 'x.bin', JPEG)) === 'image/jpeg');
+
+  // The finding that matters: a payload claiming to be a picture whose bytes
+  // are not one is `unknown`, which is a fault to report, not a limit to
+  // explain away as `opaque`.
+  ok('a claimed picture that is not one is unknown', useOf(md('image/jpeg', 'a.jpeg', JUNK)) === 'unknown');
+  ok('a claimed video that is not one is unknown', useOf(md('video/mp4', 'a.mp4', JUNK)) === 'unknown');
+  // Audio is opaque either way -- nothing here could read it regardless, so
+  // there is no fault to report, only the limit that was always there.
+  ok('unreadable audio stays opaque', useOf(md('audio/ogg', 'a.ogg', JUNK)) === 'opaque');
+  ok('and a genuine Ogg is opaque too',
+     useOf(md('audio/ogg', 'a.ogg', 'T2dnUwACAAAAAAAAAABk')) === 'opaque');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

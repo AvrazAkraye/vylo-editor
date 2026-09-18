@@ -9,8 +9,8 @@ import {
 import { WireError, apiCall } from './whatsappwire';
 import {
   displayMime, handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor,
-  noteFor, playable, readable, sendAs, sendAudioPath, sendBody, sendMediaPath,
-  sendMime, toAttached, type Line, type Media, type Outgoing,
+  noteFor, playable, sendAs, sendAudioPath, sendBody, sendMediaPath,
+  sendMime, toAttached, useOf, type Line, type Media, type Outgoing,
 } from './whatsappmedia';
 import type { Attached } from './attachments';
 import { open as pickFile } from '@tauri-apps/plugin-dialog';
@@ -642,7 +642,7 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
         if (!hasMedia(m)) { lines.push({ msg: m }); continue; }
         const media = await grab(m);
         if (!media) { lines.push({ msg: m, note: noteFor(m, null, 'opaque') }); continue; }
-        const use = readable(media.mime, m.kind, nameFor(m, media));
+        const use = useOf(media, m.kind);
 
         // A voice note somebody already transcribed goes over as its words,
         // attributed. Only one that was transcribed: nothing is uploaded to a
@@ -650,6 +650,11 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
         // still travels as the line saying it was not heard.
         if (use === 'opaque' && said[m.id]) {
           lines.push({ msg: m, note: transcriptNote(said[m.id], voice?.name || t('a provider')) });
+          continue;
+        }
+
+        if (use === 'unknown') {
+          lines.push({ msg: m, note: noteFor(m, media, 'opaque') });
           continue;
         }
 
@@ -718,7 +723,8 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     }
 
     const name = nameFor(m, held);
-    const use = readable(held.mime, m.kind, name);
+    // The bytes decide, not the server's mimetype and not the filename.
+    const use = useOf(held, m.kind);
     const url = urlOf(m.id, held, m.kind);
     const size = held.bytes < 1024
       ? `${Math.round(held.bytes)} B`
@@ -740,10 +746,19 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
       </span>
     );
 
+    // The payload matches no format this app knows. Said plainly, with what was
+    // actually received, because "would not open as a picture" invites another
+    // press of reload and the bytes will be the same every time. A photo whose
+    // first bytes are not a photo did not fail to draw -- it is not a photo,
+    // and that is the server's end of the exchange, not the drawing.
+    if (use === 'unknown') {
+      return asFile(fill(t('The server sent {n} that is not a picture, a video or a sound.'), { n: size }));
+    }
+
     if (use === 'image') {
-      // The element is the only thing that knows whether these bytes decode.
-      // When they do not, this must not become a broken picture with its own
-      // filename showing through it -- which is exactly what it was doing.
+      // Even with the right first bytes a file can be truncated or corrupt, and
+      // the element is the only thing that knows. When it refuses, this must
+      // not become a broken picture with its own filename showing through it.
       if (broken.has(m.id)) return asFile(t('This would not open as a picture.'));
       return (
         <span className="wa-shot">
