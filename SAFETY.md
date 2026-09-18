@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.87.0.
+version 0.88.0.
 
 ---
 
@@ -225,10 +225,16 @@ other than your own instance, so it is worth being exact about when. It is
 never automatic. It does not happen on a timer, when the panel opens, when you
 scroll past a voice note, or as part of *Send to chat* — it happens when you
 press Transcribe on one particular message, and the button names the provider
-it is about to send that recording to. With no such provider configured there
-is no button, because a control that cannot work teaches you nothing when it
-fails. An untranscribed voice note still travels to the model as a line saying
-it was not heard.
+it is about to send that recording to. With no such provider configured the
+button offers to take you to Settings instead, and uploads nothing: drawing
+nothing at all was defensible and unhelpful, since the voice note then reached
+the model as "not read" with no account of why. An untranscribed voice note
+still travels as a line saying it was not heard.
+
+Which language it is in is your choice and is sent with the audio when you make
+one, because a detector guesses badly on eight seconds from a phone. Kurdish is
+not offered: the model behind these services was not trained on Sorani or
+Badini, and a choice that quietly returns nonsense is worse than no choice.
 
 **A reply you type is sent without a dialog. One the agent wrote is not.** You
 are the author of your own sentence, and asking you to approve it is theatre,
@@ -670,7 +676,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.87.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.88.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -695,6 +701,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.87.0. Every statement above was read out of the code. If
+*Last checked against 0.88.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

@@ -4365,7 +4365,8 @@ export function App() {
                     onSettings={() => { setSettingsAt('account'); setShowSettings(true); }} />
             )}
             {shown === 'whatsapp' && (
-              <WhatsAppPanel t={t} onSendToChat={fromWhatsApp} />
+              <WhatsAppPanel t={t} onSendToChat={fromWhatsApp}
+                    onProviders={() => { setSettingsAt('account'); setShowSettings(true); }} />
             )}
             {shown === 'plugins' && (
               <PluginsPanel root={root} t={t}

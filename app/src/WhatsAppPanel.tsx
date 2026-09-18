@@ -17,7 +17,8 @@ import { open as pickFile } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { KEY as PROVIDERS_KEY, read as readProviders } from './providers';
 import {
-  endpointOf, formFor, modelFor, textFrom, transcriberIn, transcriptNote, uploadHeaders,
+  LANG_KEY, VOICE_LANGS, endpointOf, formFor, langOf, modelFor, textFrom,
+  transcriberIn, transcriptNote, uploadHeaders, type VoiceLang,
 } from './whatsappvoice';
 
 /**
@@ -77,6 +78,14 @@ function kindIcon(k: Msg['kind']): 'image' | 'camera' | 'mic' | 'file' | 'star' 
 
 interface Props {
   t: (s: string) => string;
+  /**
+   * Open Settings where model providers are added.
+   *
+   * The panel needs this because transcription depends on a provider it cannot
+   * add itself. Without it the only honest thing to draw was nothing, and a
+   * voice note that could not be read gave no account of why.
+   */
+  onProviders: () => void;
   /**
    * Hand a conversation to the agent, the way the terminal does — now with
    * whatever of it the model can actually look at.
@@ -215,7 +224,7 @@ function frameOf(url: string, mime: string): Promise<string | null> {
   });
 }
 
-export function WhatsAppPanel({ t, onSendToChat }: Props) {
+export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
   const [conn, setConn] = useState<Conn>(() => read(localStorage.getItem(KEY)));
   const [form, setForm] = useState<Conn>(conn);
   const [state, setState] = useState<State>(() => (ready(conn) ? 'live' : 'setup'));
@@ -293,6 +302,14 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     void fetched;
     try { return transcriberIn(readProviders(localStorage.getItem(PROVIDERS_KEY))); } catch { return null; }
   }, [fetched]);
+
+  /** Which language the recordings are in. Auto until somebody says otherwise. */
+  const [vlang, setVlang] = useState<VoiceLang>(() => {
+    try { return langOf(localStorage.getItem(LANG_KEY)); } catch { return 'auto'; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(LANG_KEY, vlang); } catch { /* private mode */ }
+  }, [vlang]);
 
   /** The whole window, rather than a 248px column. */
   const [full, setFull] = useState(false);
@@ -592,7 +609,7 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
       const r = await fetch(endpointOf(voice), {
         method: 'POST',
         headers: uploadHeaders(voice),
-        body: formFor(blobOf(media.base64, media.mime), nameFor(m, media), modelFor(voice)),
+        body: formFor(blobOf(media.base64, media.mime), nameFor(m, media), modelFor(voice), vlang),
       });
       if (!r.ok) {
         setWhy(fill(t('The server answered {n}.'), { n: r.status }));
@@ -799,20 +816,33 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
               <Icon name="swap" size={12} />{t('Could not load. Try again')}
             </button>
           )}
-          {said[m.id]
-            ? <span className="wa-said">{said[m.id]}</span>
-            : voice && (
-              /* Named, so the press is informed: this is a voice note leaving
-                 the machine for a service the person added, and the button is
-                 the whole of the consent. No provider, no button — a control
-                 that cannot work teaches nothing when it fails. */
-              <button className="wa-say" disabled={saying === m.id}
-                      title={fill(t('Send this audio to {name} to be transcribed'), { name: voice.name })}
-                      onClick={() => void transcribe(m)}>
-                <Icon name={saying === m.id ? 'clock' : 'sparkle'} size={11} />
-                {saying === m.id ? t('Transcribing…') : t('Transcribe')}
-              </button>
-            )}
+          {said[m.id] ? (
+            <span className="wa-said" dir="auto">{said[m.id]}</span>
+          ) : voice ? (
+            /* Named, so the press is informed: this is a voice note leaving the
+               machine for a service the person added, and the button is the
+               whole of the consent. */
+            <button className="wa-say" disabled={saying === m.id}
+                    title={fill(t('Send this audio to {name} to be transcribed'), { name: voice.name })}
+                    onClick={() => void transcribe(m)}>
+              <Icon name={saying === m.id ? 'clock' : 'sparkle'} size={11} />
+              {saying === m.id ? t('Transcribing…') : t('Transcribe')}
+            </button>
+          ) : (
+            /* No provider. This used to draw nothing at all, on the argument
+               that a control which cannot work teaches nothing when it fails —
+               which was half right and wholly unhelpful: the voice note then
+               went to the model as "not read" and the panel never said why, or
+               that there was anything to be done about it. Nothing here can
+               hear audio and the gateway answers a transcription request with a
+               404, so the one route runs through a provider the person adds.
+               Saying so, once, beside the thing it is about. */
+            <button className="wa-say" onClick={onProviders}
+                    title={t('Transcribing needs a provider that can do it. Add one in Settings.')}>
+              <Icon name="sparkle" size={11} />
+              {t('Set up transcription')}
+            </button>
+          )}
         </>
       );
     }
@@ -848,6 +878,23 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
                   onClick={() => void check(form)}>
             {state === 'checking' ? t('Checking…') : t('Check and save')}
           </button>
+          {/* Whisper guesses a language well on a clear minute and badly on
+              eight seconds from a phone in a noisy room, which is what a voice
+              note is. Saying which language turns the guess into a given.
+              Kurdish is not offered: the model was not trained on Sorani or
+              Badini, and a choice that quietly returns nonsense is worse than
+              no choice — those stay on Auto and read as the guess they are. */}
+          <label>{t('Voice notes are in')}
+            <select value={vlang} onChange={(e) => setVlang(langOf(e.target.value))}>
+              {VOICE_LANGS.map((code) => (
+                <option key={code} value={code}>
+                  {code === 'auto' ? t('Whichever language they are in')
+                    : code === 'ar' ? t('Arabic')
+                      : t('English')}
+                </option>
+              ))}
+            </select>
+          </label>
           {why && <p className="wa-why">{why}</p>}
           {/* Said here rather than in a manual: the key can send messages as
               that number, so where it goes is worth one sentence. */}
@@ -895,13 +942,13 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
                   </span>
                   <span className="wa-what">
                     <span className="wa-line">
-                      <b>{c.name}</b>
+                      <b dir="auto">{c.name}</b>
                       {/* The clock is part of the row, not a detail behind a
                           hover: "when" is half of what a chat list is for. */}
                       <time className="wa-when">{clockOf(c.at)}</time>
                     </span>
                     <span className="wa-line">
-                      <span className="wa-last">
+                      <span className="wa-last" dir="auto">
                         {c.lastFromMe && <em>{t('You:')}</em>}
                         {c.last || kindLabel(c.lastKind, t)}
                       </span>
@@ -972,12 +1019,15 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
               called. Nothing true to say means no line, and the name centres
               itself against the avatar instead. */}
           <span className={`wa-who${sub ? '' : ' alone'}`}>
-            <b>{name}</b>
+            <b dir="auto">{name}</b>
             {sub && <span>{sub}</span>}
           </span>
+          {/* A bare tick, sitting beside a contact's name in a chat app, reads
+              as a delivery receipt — the one thing in that position it is not.
+              A clipboard says collect, which is what picking messages is for. */}
           <button className="sb-act" onClick={() => setPicking(true)}
                   title={t('Pick messages')} aria-label={t('Pick messages')}>
-            <Icon name="check" size={13} />
+            <Icon name="clipboard" size={13} />
           </button>
           <button className="sb-act" onClick={() => setFull((v) => !v)}
                   title={full ? t('Leave full screen') : t('Full screen')}
@@ -1033,10 +1083,17 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
                 there is exactly one other person and repeating their name over
                 every burst is furniture. */}
             {group && !r.msg.fromMe && r.head && r.msg.who && (
-              <span className="wa-from">{r.msg.who}</span>
+              <span className="wa-from" dir="auto">{r.msg.who}</span>
             )}
             {body(r.msg)}
-            {r.msg.text && <span className="wa-text">{r.msg.text}</span>}
+            {/* `dir="auto"` per message, not per panel. A thread holds Arabic,
+                Kurdish and English at once — often in one conversation — and the
+                direction of a line is a property of what it says, which is
+                exactly the question `auto` answers from the first strong
+                character. Inheriting the interface's direction put Arabic
+                punctuation at the wrong end of English sentences and the other
+                way round. */}
+            {r.msg.text && <span className="wa-text" dir="auto">{r.msg.text}</span>}
             {/* A message with neither words nor anything to fetch still has to
                 occupy a line, or a run silently loses one of its members. */}
             {!r.msg.text && !hasMedia(r.msg) && (
@@ -1078,7 +1135,7 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
                   title={t('Attach a file')} aria-label={t('Attach a file')}>
             <Icon name="attach" size={13} />
           </button>
-          <textarea value={draft} rows={1} placeholder={t('Write a reply…')}
+          <textarea value={draft} rows={1} dir="auto" placeholder={t('Write a reply…')}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); }

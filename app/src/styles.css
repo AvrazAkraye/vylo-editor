@@ -2208,6 +2208,19 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   /* Addresses and keys are written left to right in every language. */
   direction:ltr; text-align:start;
 }
+/* The one control on this form that is a choice rather than a string. It takes
+   the fields' box so the column reads as one form, and keeps the platform's own
+   menu behaviour, which is the part nobody should reimplement. */
+.wa-form select{
+  inline-size:100%; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-3); cursor:pointer;
+}
+.wa-form select:hover{ border-color:var(--rule-2); }
+.wa-form select:focus{
+  outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand);
+}
 .wa-form input::placeholder{ color:var(--mute); opacity:.65; }
 .wa-form input:hover{ border-color:var(--rule-2); }
 /* A border colour alone is a one-pixel change on a field that already has a

@@ -71,14 +71,42 @@ export function transcriberIn(providers: readonly Provider[]): Provider | null {
   return providers.find((p) => p.wire === 'openai' && p.key && p.baseUrl) ?? null;
 }
 
+/**
+ * Which language the recording is in, when the person knows.
+ *
+ * Whisper detects a language on its own and is good at it on a clear minute of
+ * speech. It is much less good on the thing this panel is full of: eight
+ * seconds, a phone microphone, a noisy room. Naming the language turns a guess
+ * into a given, and for Arabic that is the difference between a transcript and
+ * a paragraph of something that looked like Persian.
+ *
+ * Kurdish is deliberately absent. Whisper's training set does not include
+ * Sorani or Badini, and offering a choice that quietly produces nonsense — or
+ * an error from the provider — is worse than not offering it. `auto` is what
+ * Kurdish gets, and whatever the model makes of it is visibly a guess.
+ */
+export const VOICE_LANGS = ['auto', 'ar', 'en'] as const;
+export type VoiceLang = (typeof VOICE_LANGS)[number];
+
+/** Where the choice is kept. Not in `Conn`: it is not part of the connection. */
+export const LANG_KEY = 'vylo.whatsapp.voice.v1';
+
+export const langOf = (raw: unknown): VoiceLang =>
+  (VOICE_LANGS as readonly string[]).includes(raw as string) ? (raw as VoiceLang) : 'auto';
+
 /** The multipart body. `File` and not `Blob`, so the server sees a filename. */
-export function formFor(audio: Blob, name: string, model: string): FormData {
+export function formFor(
+  audio: Blob, name: string, model: string, lang: VoiceLang = 'auto',
+): FormData {
   const form = new FormData();
   form.append('file', new File([audio], name, { type: audio.type || 'audio/ogg' }));
   form.append('model', model);
   // `json` and not `verbose_json`: the words are the whole point and the
   // segments would be thrown away.
   form.append('response_format', 'json');
+  // Omitted rather than sent as "auto", which is not a language code and which
+  // a strict server would refuse. Absent *is* how the API spells automatic.
+  if (lang !== 'auto') form.append('language', lang);
   return form;
 }
 
