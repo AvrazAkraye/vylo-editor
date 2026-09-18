@@ -16,7 +16,8 @@
 // that prevents that, and these assertions are what keep the line there.
 import {
   displayMime, handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor,
-  noteFor, playable, readable, toAttached,
+  noteFor, playable, readable, sendAs, sendAudioPath, sendBody, sendMediaPath,
+  sendMime, toAttached,
 } from '../.test-build/whatsappmedia.js';
 import { isPhone, messagesFrom, phoneOf } from '../.test-build/whatsapp.js';
 
@@ -288,6 +289,55 @@ const TXT = one({ conversation: 'hello' });
   // presents these digits as something you could dial.
   ok('but nothing for a lid', phoneOf('121298634178579@lid') === '');
   ok('and nothing for a group', phoneOf('120363000000000000@g.us') === '');
+}
+
+// ── sending one ──────────────────────────────────────────────────────────
+{
+  ok('a photo is sent as an image', sendAs('holiday.jpg') === 'image');
+  ok('a png too', sendAs('shot.PNG') === 'image');
+  ok('an mp4 is a video', sendAs('clip.mp4') === 'video');
+  ok('a mov is a video', sendAs('clip.mov') === 'video');
+  ok('an opus is audio', sendAs('note.opus') === 'audio');
+  // WhatsApp will carry anything as a file. Refusing would be this app
+  // deciding what people may send each other.
+  ok('a zip still goes, as a file', sendAs('logs.zip') === 'document');
+  ok('a PDF is a file', sendAs('invoice.pdf') === 'document');
+  ok('a spreadsheet is a file', sendAs('rows.xlsx') === 'document');
+  // A webm is a video everywhere except on the phones this arrives on, where
+  // it does not play in place. Better a file that opens than a video that does not.
+  ok('a webm travels as a file', sendAs('clip.webm') === 'document');
+  ok('the mimetype can decide when the name will not',
+     sendAs('IMG_0001', 'image/jpeg') === 'image');
+
+  ok('a type comes from the name', sendMime('a.jpg') === 'image/jpeg');
+  ok('and image/jpg is corrected', sendMime('a.jpg', 'image/jpg') === 'image/jpeg');
+  ok('a real mimetype is kept', sendMime('a.bin', 'video/mp4') === 'video/mp4');
+  ok('octet-stream defers to the name', sendMime('a.png', 'application/octet-stream') === 'image/png');
+  ok('and something unknown is octet-stream', sendMime('a.qqq') === 'application/octet-stream');
+
+  const img = { data: 'AAAA', name: 'a.jpg', mime: 'image/jpeg', as: 'image' };
+  const body = sendBody('9647501112233', img, 'look at this');
+  ok('the media body carries the file', body.media === 'AAAA' && body.fileName === 'a.jpg');
+  ok('and names its type for WhatsApp', body.mediatype === 'image' && body.mimetype === 'image/jpeg');
+  // The caption rides on the photo, which is how WhatsApp shows words under a
+  // picture rather than as a separate message a second later.
+  ok('the caption rides with it', body.caption === 'look at this');
+  ok('and is absent when there is none', sendBody('1', img).caption === undefined);
+
+  // A group or a @lid has no number; the jid addresses it.
+  ok('a jid addresses a group',
+     sendBody('120363000000000000@g.us', img).number === '120363000000000000@g.us');
+
+  // A voice note is not an audio file to WhatsApp: it has its own endpoint,
+  // and that endpoint has nowhere to put a caption.
+  const aud = { data: 'BBBB', name: 'n.ogg', mime: 'audio/ogg', as: 'audio' };
+  const abody = sendBody('1', aud, 'ignored');
+  ok('a voice note uses the audio field', abody.audio === 'BBBB');
+  ok('and carries no caption', abody.caption === undefined && abody.media === undefined);
+  ok('the two endpoints are different',
+     sendMediaPath('x') !== sendAudioPath('x'));
+  ok('and both carry the instance',
+     sendMediaPath('my inst').includes('my%20inst') && sendAudioPath('my inst').includes('my%20inst'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

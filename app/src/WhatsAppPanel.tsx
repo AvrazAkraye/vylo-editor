@@ -9,9 +9,12 @@ import {
 import { WireError, apiCall } from './whatsappwire';
 import {
   displayMime, handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor,
-  noteFor, playable, readable, toAttached, type Line, type Media,
+  noteFor, playable, readable, sendAs, sendAudioPath, sendBody, sendMediaPath,
+  sendMime, toAttached, type Line, type Media, type Outgoing,
 } from './whatsappmedia';
 import type { Attached } from './attachments';
+import { open as pickFile } from '@tauri-apps/plugin-dialog';
+import { invoke } from '@tauri-apps/api/core';
 import { KEY as PROVIDERS_KEY, read as readProviders } from './providers';
 import {
   endpointOf, formFor, modelFor, textFrom, transcriberIn, transcriptNote, uploadHeaders,
@@ -450,6 +453,49 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     void grab(m);
   }, [grab]);
 
+  /**
+   * Files chosen to go out with the next message.
+   *
+   * Held here rather than sent on pick, so a caption can be typed with the
+   * photo already visible and the wrong file can be taken back out — which is
+   * the difference between attaching and having sent.
+   */
+  const [outbox, setOutbox] = useState<Outgoing[]>([]);
+  const [failed, setFailed] = useState('');
+
+  /**
+   * Pick files to send.
+   *
+   * Not `pickAttachments` from `attachments.ts`: that one reads for the model,
+   * so it routes by extension into an image, a PDF or text and refuses the
+   * rest. A person can be sent a `.mov` or a `.zip` perfectly well, so this
+   * reads the bytes and lets `sendAs` decide what WhatsApp should call it.
+   */
+  async function attach() {
+    setFailed('');
+    try {
+      const picked = await pickFile({ multiple: true, directory: false });
+      const paths = Array.isArray(picked) ? picked : picked ? [picked] : [];
+      const got: Outgoing[] = [];
+      const bad: string[] = [];
+      for (const path of paths) {
+        try {
+          const r = await invoke<{ name: string; data: string; bytes: number }>(
+            'read_any_file', { path },
+          );
+          const mime = sendMime(r.name);
+          got.push({ data: r.data, name: r.name, mime, as: sendAs(r.name, mime) });
+        } catch (e) {
+          bad.push(e instanceof Error ? e.message : String(e));
+        }
+      }
+      if (got.length) setOutbox((p) => [...p, ...got]);
+      if (bad.length) setFailed(bad.join(' · '));
+    } catch (e) {
+      setFailed(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   /** The picture being looked at, full size. */
   const [preview, setPreview] = useState<{ url: string; name: string } | null>(null);
   useEffect(() => {
@@ -481,18 +527,46 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
     return () => { live = false; };
   }, [open, state, thread, grab]);
 
+  /**
+   * Send what is in the composer: the files, then whatever words are left over.
+   *
+   * The caption rides on the first file rather than going as its own message,
+   * because that is how WhatsApp shows a photo with words under it instead of
+   * a photo followed a second later by a line of text from the same person.
+   * A voice note is the exception — that endpoint has nowhere to put a caption
+   * and a recording has no text — so words sent with one go separately.
+   *
+   * Files go one at a time and in order. Evolution takes one per request, and
+   * firing them together would deliver them in whatever order the server
+   * finished, which is not the order they were chosen in.
+   */
   async function send() {
     const text = draft.trim();
-    if (!text || !open || sending) return;
+    if ((!text && outbox.length === 0) || !open || sending) return;
+    const number = phoneOf(open) || open;
     setSending(true);
+    setFailed('');
     try {
-      await call(conn, `/message/sendText/${encodeURIComponent(conn.instance)}`,
-        { number: phoneOf(open) || open, text });
+      let caption = text;
+      for (const out of outbox) {
+        const path = out.as === 'audio' ? sendAudioPath(conn.instance) : sendMediaPath(conn.instance);
+        // The caption is spent on the first file that can carry one.
+        const carried = out.as === 'audio' ? '' : caption;
+        await call(conn, path, sendBody(number, out, carried));
+        if (carried) caption = '';
+      }
+      // Anything the files could not carry -- no files at all, or only a voice
+      // note -- still has to be said.
+      if (caption) {
+        await call(conn, `/message/sendText/${encodeURIComponent(conn.instance)}`,
+          { number, text: caption });
+      }
       setDraft('');
+      setOutbox([]);
       // Straight back rather than waiting for the next tick, so the message
       // appears where it was typed.
-      const out = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, { limit: PAGE });
-      setMsgs(messagesFrom(out));
+      const back = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, { limit: PAGE });
+      setMsgs(messagesFrom(back));
     } catch (e) {
       setWhy(e instanceof WireError ? sayWhy(e) : t('That message did not send.'));
     } finally {
@@ -965,7 +1039,30 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
       </div>
 
       <div className="wa-send">
+        {/* What is about to go, before it goes. A photo shows itself: the whole
+            point of picking one is knowing you picked the right one. */}
+        {outbox.length > 0 && (
+          <ul className="wa-out">
+            {outbox.map((o, i) => (
+              <li key={`${o.name}-${i}`} className={`wa-out-item ${o.as}`}>
+                {o.as === 'image'
+                  ? <img src={`data:${o.mime};base64,${o.data}`} alt={o.name} />
+                  : <Icon name={o.as === 'video' ? 'camera' : o.as === 'audio' ? 'mic' : 'file'} size={13} />}
+                <span>{o.name}</span>
+                <button onClick={() => setOutbox((p) => p.filter((_, n) => n !== i))}
+                        title={t('Remove')} aria-label={t('Remove')}>
+                  <Icon name="close" size={11} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {failed && <p className="wa-why">{failed}</p>}
         <div className="wa-box">
+          <button className="wa-clip" onClick={() => void attach()} disabled={sending}
+                  title={t('Attach a file')} aria-label={t('Attach a file')}>
+            <Icon name="attach" size={13} />
+          </button>
           <textarea value={draft} rows={1} placeholder={t('Write a reply…')}
                     onChange={(e) => setDraft(e.target.value)}
                     onKeyDown={(e) => {
@@ -974,7 +1071,7 @@ export function WhatsAppPanel({ t, onSendToChat }: Props) {
           {/* In the box rather than under it: the button belongs to the words
               being typed, and a composer that grows must not push its own Send
               off the bottom of a 248px column. */}
-          <button className="wa-go" disabled={!draft.trim() || sending}
+          <button className="wa-go" disabled={(!draft.trim() && outbox.length === 0) || sending}
                   title={sending ? t('Sending…') : t('Send')}
                   aria-label={sending ? t('Sending…') : t('Send')}
                   onClick={() => void send()}>

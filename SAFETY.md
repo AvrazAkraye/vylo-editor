@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.85.0.
+version 0.86.0.
 
 ---
 
@@ -195,8 +195,11 @@ is what lets the rule below be checked by reading rather than by trusting. It ca
 `/instance/connectionState` to check what you entered,
 `/chat/findMessages` on a timer while the panel is open,
 `/chat/getBase64FromMediaMessage` when a photo, voice note or file is opened or
-handed over, and `/message/sendText` when a message is sent, each under the
-instance name.
+handed over, `/message/sendText` when a message is sent, and `/message/sendMedia`
+or `/message/sendWhatsAppAudio` when you attach a file to one — each under the
+instance name. A file you attach is read from disk by `read_any_file`, which is
+reached only from the file dialog you opened: the dialog is the approval, and
+nothing chooses a path on your behalf.
 The rule is the one `app/src/providers.ts` states — the key is sent only to the
 address it was entered beside, and every request is built from that address.
 
@@ -658,7 +661,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.85.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.86.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -683,6 +686,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.85.0. Every statement above was read out of the code. If
+*Last checked against 0.86.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

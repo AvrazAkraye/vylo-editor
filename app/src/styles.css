@@ -2440,9 +2440,50 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 }
 .wa-box{
   display:flex; align-items:flex-end; gap:var(--sp-2);
-  padding-block:var(--sp-2); padding-inline:var(--sp-3) var(--sp-2);
+  padding-block:var(--sp-2); padding-inline:var(--sp-2);
   border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel);
 }
+/* The paperclip is inside the box, on the leading edge, opposite Send. Both
+   belong to the message being written rather than to the panel. */
+.wa-clip{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  inline-size:26px; block-size:26px; border:0; border-radius:50%;
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.wa-clip:hover:not(:disabled){ background:var(--panel-3); color:var(--ink); }
+.wa-clip:disabled{ opacity:.5; cursor:default; }
+
+/* ── what is about to be sent ────────────────────────────────────────────
+   Above the box, not inside it: the composer grows with what is typed and a
+   row of thumbnails inside it would push the text out of its own field. A
+   photo shows itself, because the whole point of picking one is knowing you
+   picked the right one. */
+.wa-out{
+  list-style:none; margin:0 0 var(--sp-2); padding:0;
+  display:flex; flex-wrap:wrap; gap:var(--sp-2);
+}
+.wa-out-item{
+  display:inline-flex; align-items:center; gap:var(--sp-2);
+  max-inline-size:100%; padding-block:2px; padding-inline:var(--sp-2) 2px;
+  border:1px solid var(--rule); border-radius:99px;
+  background:var(--panel); font-size:var(--fs-1); color:var(--ink);
+}
+.wa-out-item.image{ padding-inline-start:2px; }
+.wa-out-item img{
+  flex:none; inline-size:22px; block-size:22px;
+  border-radius:50%; object-fit:cover;
+}
+.wa-out-item > svg{ flex:none; color:var(--mute); }
+.wa-out-item span{
+  min-inline-size:0; max-inline-size:14ch;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.wa-out-item button{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  inline-size:18px; block-size:18px; border:0; border-radius:50%;
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.wa-out-item button:hover{ background:var(--panel-3); color:var(--err); }
 .wa-box:focus-within{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
 .wa-send textarea{
   flex:1; min-inline-size:0; resize:none; border:0; background:transparent;

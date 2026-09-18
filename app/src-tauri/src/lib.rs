@@ -738,6 +738,52 @@ fn read_document(path: String) -> Result<Attachment, String> {
     })
 }
 
+/// Read any file the **user** chose, as base64, to send to somebody.
+///
+/// The other readers each refuse what they are not: `read_image` takes four
+/// image types and `read_document` checks for `%PDF-`. Both exist because what
+/// they read is going to a model, and a model's API accepts a short list — a
+/// file outside it fails the whole request after the upload rather than before
+/// it.
+///
+/// This one has a different destination. Sending a WhatsApp message is sending
+/// a file to a person, and a person can receive a `.mov`, a `.zip` or a voice
+/// memo perfectly well. So the only questions here are the ones that are still
+/// real: is it a file, and is it small enough. The type is left to the caller,
+/// which knows what it is about to be used for.
+///
+/// Like the other two this does NOT go through `resolve()`, and the asymmetry
+/// is the same one: containment exists because the *model* picks those paths.
+/// A path the user chose in a file dialog is the user's own reach, and the
+/// dialog is the approval.
+#[tauri::command]
+fn read_any_file(path: String) -> Result<Attachment, String> {
+    let p = Path::new(&path);
+    let md = fs::metadata(p).map_err(|e| format!("{path}: {e}"))?;
+    if md.is_dir() {
+        return Err(format!("{path}: is a directory"));
+    }
+    // Sixteen megabytes, which is WhatsApp's own ceiling for a photo, a video
+    // or an audio note. Refusing here means refusing before the read and the
+    // base64, rather than after a wait that ends in somebody else's error.
+    const MAX: u64 = 16 * 1024 * 1024;
+    if md.len() > MAX {
+        return Err(format!(
+            "{}: {:.1} MB is over the 16 MB limit",
+            p.file_name().unwrap_or_default().to_string_lossy(),
+            md.len() as f64 / 1_048_576.0
+        ));
+    }
+
+    let bytes = fs::read(p).map_err(|e| format!("{path}: {e}"))?;
+    Ok(Attachment {
+        media_type: String::new(),
+        data: BASE64.encode(&bytes),
+        name: p.file_name().unwrap_or_default().to_string_lossy().into_owned(),
+        bytes: bytes.len() as u64,
+    })
+}
+
 #[tauri::command]
 fn read_image(path: String) -> Result<Attachment, String> {
     let p = Path::new(&path);
@@ -1917,7 +1963,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            list_tree, read_file, search, path_kind, read_image, read_document,
+            list_tree, read_file, search, path_kind, read_image, read_document, read_any_file,
             read_text_attachment,
             apply_write, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             create_file, create_dir, rename_path, delete_path,

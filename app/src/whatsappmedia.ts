@@ -305,6 +305,98 @@ function kindWord(k: Kind): string {
   return 'attachment';
 }
 
+/* ── sending one ─────────────────────────────────────────────────────────
+   The other direction. Evolution takes a photo, a video or a file on one
+   endpoint and a voice note on another, because a voice note is not an audio
+   file to WhatsApp — it is a recording with a waveform, and sending one down
+   the media route arrives as an attachment nobody can play in place. */
+
+export const sendMediaPath = (instance: string): string =>
+  `/message/sendMedia/${encodeURIComponent(instance)}`;
+
+export const sendAudioPath = (instance: string): string =>
+  `/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`;
+
+/** What WhatsApp calls the thing being sent. */
+export type SendAs = 'image' | 'video' | 'audio' | 'document';
+
+/** Types WhatsApp will render in place rather than hand over as a file. */
+const SEND_IMAGE = /\.(png|jpe?g|gif|webp)$/i;
+const SEND_VIDEO = /\.(mp4|mov|m4v|3gp)$/i;
+const SEND_AUDIO = /\.(ogg|oga|opus|mp3|m4a|aac|wav|amr)$/i;
+
+/**
+ * How to send a file, by what it is.
+ *
+ * By extension and mimetype together, and `document` is the fallback rather
+ * than an error: WhatsApp will carry anything as a file, so a `.zip` or a
+ * `.xlsx` still goes — it simply arrives as something to download instead of
+ * something to look at. Refusing it would be this app deciding what people are
+ * allowed to send each other.
+ *
+ * A `.webm` is deliberately not video here. WhatsApp does not play it in place
+ * on most phones, so it travels as a file and arrives openable, rather than as
+ * a video that will not play.
+ */
+export function sendAs(name: string, mime = ''): SendAs {
+  const m = mime.split(';')[0].trim().toLowerCase();
+  if (SEND_IMAGE.test(name) || /^image\/(png|jpe?g|gif|webp)$/.test(m)) return 'image';
+  if (SEND_VIDEO.test(name) || /^video\/(mp4|quicktime|3gpp)$/.test(m)) return 'video';
+  if (SEND_AUDIO.test(name) || m.startsWith('audio/')) return 'audio';
+  return 'document';
+}
+
+/** A media type for the wire, from the filename when nothing else says. */
+export function sendMime(name: string, mime = ''): string {
+  const m = mime.split(';')[0].trim().toLowerCase();
+  if (m && m !== 'application/octet-stream') return m === 'image/jpg' ? 'image/jpeg' : m;
+  const ext = (name.split('.').pop() || '').toLowerCase();
+  const known: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+    mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', '3gp': 'video/3gpp',
+    ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', mp3: 'audio/mpeg',
+    m4a: 'audio/mp4', aac: 'audio/aac', wav: 'audio/wav', amr: 'audio/amr',
+    pdf: 'application/pdf', txt: 'text/plain', csv: 'text/csv', json: 'application/json',
+  };
+  return known[ext] || 'application/octet-stream';
+}
+
+export interface Outgoing {
+  /** The file, base64, with no `data:` prefix. */
+  data: string;
+  name: string;
+  mime: string;
+  as: SendAs;
+}
+
+/**
+ * The request body for one outgoing file.
+ *
+ * `number` is whatever addresses the conversation: the digits for an ordinary
+ * contact, and the jid itself for a group or a `@lid`, neither of which has a
+ * number to give. The caller resolves that, the same way `send` already does
+ * for text.
+ *
+ * The caption rides on the media rather than being sent as a second message,
+ * which is how WhatsApp shows a photo with words under it rather than a photo
+ * followed by a line of text from the same person a moment later.
+ */
+export function sendBody(number: string, out: Outgoing, caption = ''): unknown {
+  if (out.as === 'audio') {
+    // This endpoint takes no caption, and there is nowhere to put one: a voice
+    // note has no text. The caller sends the words separately when there are any.
+    return { number, audio: out.data };
+  }
+  return {
+    number,
+    mediatype: out.as,
+    mimetype: out.mime,
+    media: out.data,
+    fileName: out.name,
+    ...(caption ? { caption } : {}),
+  };
+}
+
 /* ── the transcript that goes with them ──────────────────────────────────── */
 
 export interface Line {
