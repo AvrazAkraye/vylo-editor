@@ -122,7 +122,7 @@ export function readable(mime: string, kind?: Kind, name = ''): Use {
  * a picture that will not draw.
  */
 export function useOf(media: Media, kind?: Kind): Use | 'unknown' {
-  if (media.sniffed) return readable(media.sniffed, kind, media.name);
+  if (media.sniffed) return readable(soundOrPicture(media.sniffed, kind), kind, media.name);
   const claimed = readable(media.mime, kind, media.name);
   // Nothing in the bytes, and the claim was that it is something renderable.
   // The claim loses: an `<img>` was going to refuse these bytes anyway, and a
@@ -156,7 +156,15 @@ export const mediaPath = (instance: string): string =>
  */
 export const mediaBodyFor = (m: Msg): unknown => ({
   message: { key: { id: m.keyId || m.id, remoteJid: m.jid, fromMe: m.fromMe } },
-  convertToMp4: false,
+  // A WhatsApp voice note is Ogg/Opus, and WebKit cannot decode Ogg — this app
+  // runs in WebKit on macOS, where `afinfo` reads the container and reports no
+  // data format at all. The element then draws a dead play button, which is
+  // what a voice note looked like here for three releases. Evolution will hand
+  // over the same recording as AAC in an mp4 container, which WebKit plays
+  // natively, so voice notes are asked for converted and everything else is
+  // asked for as it is: a photo has nothing to convert and a WhatsApp video is
+  // already H.264.
+  convertToMp4: m.kind === 'audio',
 });
 
 export interface Media {
@@ -299,11 +307,27 @@ export function mediaFrom(body: unknown, fallbackName = 'file'): Media | null {
  * when the mimetype declined to say. This turns that back into a type the
  * element will accept.
  */
+/**
+ * An ISO container holds sound or picture and its brand often will not say.
+ *
+ * Evolution's converted voice notes come back branded `isom` — the generic
+ * one — so the bytes can prove it is an MPEG-4 file and cannot prove whether
+ * there is video in it. The envelope can: WhatsApp already told us this was an
+ * `audioMessage`. Without this a voice note is drawn as a video element, a
+ * black rectangle with a play button, for a recording that has no picture.
+ *
+ * Only ever narrows `video/mp4` to `audio/mp4`, and only on an envelope that
+ * said audio. Nothing here promotes a sound to a picture.
+ */
+function soundOrPicture(sniffed: string, kind?: Kind): string {
+  return sniffed === 'video/mp4' && kind === 'audio' ? 'audio/mp4' : sniffed;
+}
+
 export function displayMime(media: Media, kind?: Kind): string {
   // The bytes outrank everything. They are the only claim in this exchange
   // that cannot be wrong, and believing the other two in turn is what left a
   // photo drawing as its own filename.
-  if (media.sniffed) return media.sniffed;
+  if (media.sniffed) return soundOrPicture(media.sniffed, kind);
   const use = readable(media.mime, kind, media.name);
   const vague = !media.mime || /octet-stream/i.test(media.mime);
   if (!vague) return media.mime === 'image/jpg' ? 'image/jpeg' : media.mime;
@@ -325,9 +349,46 @@ let seq = 0;
 const nextId = (): string => `wa_${Date.now()}_${seq++}`;
 
 /** A sensible filename when WhatsApp sent none, so the tray is not six "file"s. */
+/**
+ * What to call a file of this type, and what it is already allowed to be called.
+ *
+ * Two values because they answer different questions. `write` is the extension
+ * to give a file that needs one. `ok` is every extension that is *not wrong* —
+ * `.ogg` and `.oga` are both Ogg, `.jpg` and `.jpeg` are the same picture — and
+ * renaming a file whose extension was fine is meddling.
+ */
+const EXT_OF: Record<string, { write: string; ok: RegExp }> = {
+  'image/jpeg': { write: 'jpg', ok: /\.jpe?g$/i },
+  'image/png': { write: 'png', ok: /\.png$/i },
+  'image/gif': { write: 'gif', ok: /\.gif$/i },
+  'image/webp': { write: 'webp', ok: /\.webp$/i },
+  'audio/mp4': { write: 'm4a', ok: /\.(m4a|m4b|mp4|aac)$/i },
+  'audio/ogg': { write: 'oga', ok: /\.(ogg|oga|opus)$/i },
+  'audio/mpeg': { write: 'mp3', ok: /\.mp3$/i },
+  'audio/wav': { write: 'wav', ok: /\.wav$/i },
+  'video/mp4': { write: 'mp4', ok: /\.(mp4|m4v)$/i },
+  'video/webm': { write: 'webm', ok: /\.webm$/i },
+  'video/quicktime': { write: 'mov', ok: /\.(mov|qt)$/i },
+  'application/pdf': { write: 'pdf', ok: /\.pdf$/i },
+  'application/zip': { write: 'zip', ok: /\.zip$/i },
+};
+
 export function nameFor(m: Msg, media: Media): string {
-  if (media.name && media.name !== 'file') return media.name;
-  const ext = (media.mime.split('/')[1] || 'bin').split('+')[0];
+  const real = displayMime(media, m.kind);
+  const want = EXT_OF[real];
+  if (media.name && media.name !== 'file') {
+    // A converted voice note comes back as mp4 still called `.oga`, because
+    // Evolution names the file after the message and not after what it just
+    // transcoded. The name matters twice: a file saved from the panel has to
+    // open when it is double-clicked, and several transcription services pick
+    // their decoder from the extension rather than the bytes — so `.oga` on an
+    // mp4 is a request that fails for a reason nobody could guess.
+    if (want && !want.ok.test(media.name)) {
+      return `${media.name.replace(/\.[^./\\]*$/, '')}.${want.write}`;
+    }
+    return media.name;
+  }
+  const ext = want ? want.write : (media.mime.split('/')[1] || 'bin').split('+')[0];
   const stamp = m.at ? new Date(m.at).toISOString().slice(0, 16).replace(/[:T]/g, '-') : 'wa';
   return `whatsapp-${m.kind}-${stamp}.${ext}`;
 }

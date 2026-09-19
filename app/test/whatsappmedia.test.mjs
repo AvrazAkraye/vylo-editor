@@ -392,5 +392,58 @@ const TXT = one({ conversation: 'hello' });
      useOf(md('audio/ogg', 'a.ogg', 'T2dnUwACAAAAAAAAAABk')) === 'opaque');
 }
 
+// ── a voice note that will actually play ──────────────────────────────────
+//
+// WhatsApp records voice notes as Ogg/Opus and WebKit cannot decode Ogg — this
+// app runs in WebKit on macOS, where `afinfo` reads the container and reports
+// no data format at all. The element drew a dead play button, which is what a
+// voice note looked like here for three releases, and no amount of fixing the
+// download was going to change it.
+//
+// Evolution will transcode on request. The two payloads below are the leading
+// bytes of the same recording fetched both ways from a live instance.
+{
+  const OGG = 'T2dnUwACAAAAAAAAAABkAAAAAAAAAHk7c4IBE09wdXNIZWFkAQE4AYC7AAAAAABP';
+  const MP4 = 'AAAAIGZ0eXBpc29tAAACAGlzb21pc28yaXNvNm1wNDEAAAKpbW9vdgAAAGxtdmhk';
+  const voice = { id: 'x', keyId: 'WAKEY', jid: '1@s.whatsapp.net', fromMe: false,
+                  at: 1_700_000_000_000, text: '', kind: 'audio', who: '' };
+
+  ok('a voice note asks for the conversion', mediaBodyFor(voice).convertToMp4 === true);
+  // Nothing else does. A photo has nothing to convert and a WhatsApp video is
+  // already H.264; asking would cost a re-encode for no gain.
+  for (const kind of ['image', 'video', 'document', 'sticker']) {
+    ok(`a ${kind} does not`, mediaBodyFor({ ...voice, kind }).convertToMp4 === false);
+  }
+
+  ok('the unconverted bytes are Ogg', sniff(OGG) === 'audio/ogg');
+  // The converted file is branded `isom` — the generic ISO brand — so the
+  // bytes can prove it is MPEG-4 and cannot prove whether there is a picture
+  // in it. Left alone it is drawn as a video: a black rectangle with a play
+  // button, for a recording that has no picture.
+  ok('and the converted bytes look like mp4', sniff(MP4) === 'video/mp4');
+
+  const md = (base64, name) => ({ base64, mime: '', name, bytes: 40000, sniffed: sniff(base64) });
+  const conv = md(MP4, '3AA31B6BE9F9771D98AA.oga');
+
+  ok('the envelope settles it: this is sound', displayMime(conv, 'audio') === 'audio/mp4');
+  ok('and so the panel plays it rather than screening it', playable(displayMime(conv, 'audio')));
+  ok('it is audio, so still opaque to the model', useOf(conv, 'audio') === 'opaque');
+  // Only ever narrows, and only on an envelope that said audio.
+  ok('a real video is untouched', displayMime(md(MP4, 'clip.mp4'), 'video') === 'video/mp4');
+  ok('and nothing promotes a sound to a picture', displayMime(md(OGG, 'p.oga'), 'video') === 'audio/ogg');
+
+  // Evolution names the file after the message, not after what it transcoded,
+  // so the mp4 arrives called `.oga`. Several transcription services choose
+  // their decoder from the extension, and a saved file has to open when it is
+  // double-clicked.
+  ok('the name is corrected to match the bytes', nameFor(voice, conv) === '3AA31B6BE9F9771D98AA.m4a');
+  // But an extension that was never wrong is left alone -- .ogg and .oga are
+  // both Ogg, .jpg and .jpeg the same picture.
+  ok('a right-but-different extension is left alone',
+     nameFor(voice, md(OGG, 'ptt.ogg')) === 'ptt.ogg');
+  ok('and so is .jpeg',
+     nameFor({ ...voice, kind: 'image' }, md('/9j/4AAQSkZJRg', 'a.jpeg')) === 'a.jpeg');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
