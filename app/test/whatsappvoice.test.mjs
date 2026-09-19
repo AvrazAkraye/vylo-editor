@@ -21,8 +21,10 @@
 // stay true is that null means *no upload*, which is what these assertions
 // hold; what is drawn over it is a question of manners.
 import {
-  VOICE_LANGS, endpointOf, formFor, langOf, modelFor, textFrom, transcriberIn,
-  transcriptNote, uploadHeaders,
+  BLANK_VOICE, VOICE_LANGS, VOICE_URL, acceptsName, backendFor, endpointOf,
+  formFor, jobIdFrom, jobPath, jobState, langOf, modeOf, modelFor, readVoice,
+  textFrom, transcribePath, transcriberIn, transcriptNote, uploadHeaders,
+  voiceForm, voiceHeaders, voiceReady, writeVoice,
 } from '../.test-build/whatsappvoice.js';
 
 let pass = 0, fail = 0;
@@ -106,9 +108,11 @@ const p = (over = {}) => ({
      langOf(null) === 'auto' && langOf('') === 'auto' && langOf('klingon') === 'auto');
   ok('a stored choice survives', langOf('ar') === 'ar' && langOf('en') === 'en');
   ok('Arabic is offered', VOICE_LANGS.includes('ar'));
-  // Whisper was not trained on Sorani or Badini. A choice that quietly returns
-  // nonsense, or an error from the provider, is worse than no choice.
-  ok('Kurdish is deliberately not', !VOICE_LANGS.includes('ckb') && !VOICE_LANGS.includes('ku'));
+  // Both Kurdishes, which is the whole reason Vylo Voice is preferred: it has
+  // an engine for each, and the Whisper behind the OpenAI-shaped services has
+  // neither. A previous release said Kurdish could not be done, which was true
+  // of that backend and not of this one.
+  ok('and both Kurdishes', VOICE_LANGS.includes('ckb') && VOICE_LANGS.includes('kmr'));
 
   const read = (form) => {
     const out = {};
@@ -129,6 +133,112 @@ const p = (over = {}) => ({
   ok('the response format is the plain one', ar.response_format === 'json');
   // The filename matters: several servers pick the decoder from the extension.
   ok('the file keeps its name', ar.file === '(file:n.oga)');
+}
+
+// ── Vylo Voice ───────────────────────────────────────────────────────────
+//
+// The service queues a recording and transcribes it on a worker, so this is a
+// conversation with a server rather than one request. The shapes below are
+// read off its own source: `POST /api/transcribe` answers with a job id, and
+// `/api/jobs/{id}` carries `queued` -> `processing` -> `done` | `failed`.
+{
+  const v = { baseUrl: VOICE_URL, key: 'vsk_test', lang: 'ckb', mode: 'accurate' };
+
+  ok('the default is the service that speaks Kurdish', BLANK_VOICE.baseUrl === VOICE_URL);
+  ok('a key is what makes it usable', voiceReady(v) && !voiceReady({ ...v, key: '' }));
+  ok('and an address is too', !voiceReady({ ...v, baseUrl: '' }));
+
+  ok('a stored connection survives the round trip',
+     readVoice(writeVoice(v)).key === 'vsk_test' && readVoice(writeVoice(v)).lang === 'ckb');
+  ok('rubbish is the empty form, not a throw', readVoice('{oh no')?.baseUrl === VOICE_URL);
+  ok('a trailing slash is trimmed', readVoice('{"baseUrl":"https://x.dev/"}').baseUrl === 'https://x.dev');
+  ok('an unknown language falls back to auto', readVoice('{"lang":"klingon"}').lang === 'auto');
+  ok('and an unknown mode to fast', modeOf('thorough') === 'fast' && modeOf('accurate') === 'accurate');
+
+  ok('the paths are the service\'s own',
+     transcribePath(v) === `${VOICE_URL}/api/transcribe`
+     && jobPath(v, 'abc') === `${VOICE_URL}/api/jobs/abc`);
+  // Both credentials this service takes arrive the same way; the vsk_ prefix
+  // is what tells a durable key from a dashboard session.
+  ok('the key travels as a bearer token', voiceHeaders(v).authorization === 'Bearer vsk_test');
+  ok('and we set no content-type', !('content-type' in voiceHeaders(v)));
+
+  const read = (form) => {
+    const out = {};
+    for (const [k, val] of form.entries()) out[k] = typeof val === 'string' ? val : `(file:${val.name})`;
+    return out;
+  };
+  const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/mp4' });
+  const form = read(voiceForm(blob, 'note.m4a', v));
+  ok('the upload names the language', form.language === 'ckb');
+  ok('and the effort', form.mode === 'accurate');
+  // Unlike the OpenAI shape, `auto` is a real value here -- it is in the
+  // server's own language list -- so it is sent rather than omitted.
+  ok('auto is sent, because this server knows that word',
+     read(voiceForm(blob, 'n.m4a', { ...v, lang: 'auto' })).language === 'auto');
+  ok('the file keeps its name', form.file === '(file:note.m4a)');
+
+  // The server checks the filename and answers 422 for anything else, which is
+  // why the converted voice note's extension is corrected before it gets here.
+  ok('an m4a is accepted', acceptsName('3AA31B6BE9F9771D98AA.m4a'));
+  ok('so is an oga and an mp3', acceptsName('a.oga') && acceptsName('a.mp3'));
+  ok('a jpeg is not', !acceptsName('a.jpeg'));
+  ok('and a file with no extension is not', !acceptsName('recording'));
+
+  ok('a job id is read back', jobIdFrom({ id: 'abc123', status: 'queued' }) === 'abc123');
+  ok('and nothing sensible is empty', jobIdFrom(null) === '' && jobIdFrom({}) === '');
+
+  ok('queued is not done', jobState({ status: 'queued', progress: 0 }).done === false);
+  ok('processing is not done', jobState({ status: 'processing', progress: 0.4 }).done === false);
+  ok('and it carries progress', jobState({ status: 'processing', progress: 0.4 }).progress === 0.4);
+  const done = jobState({ status: 'done', transcript: '  سڵاو، چۆنی  ' });
+  ok('done carries the words, trimmed', done.done === true && done.text === 'سڵاو، چۆنی');
+  // A translation was asked for, so it is the thing to show.
+  ok('a translation wins when there is one',
+     jobState({ status: 'done', transcript: 'x', translation: 'hello' }).text === 'hello');
+  ok('silence is an answer, not a failure',
+     jobState({ status: 'done', transcript: '' }).done === true
+     && jobState({ status: 'done', transcript: '' }).text === '');
+  const bad = jobState({ status: 'failed', error: 'the worker died' });
+  ok('failed carries its reason', bad.done === true && bad.failed === 'the worker died');
+  ok('and always says something', 'failed' in jobState({ status: 'failed' }));
+  // A status this app has not heard of must read as "still running". Giving up
+  // early would report silence for a recording that was about to arrive.
+  ok('an unknown status keeps waiting', jobState({ status: 'reticulating' }).done === false);
+  ok('and so does nothing at all', jobState(null).done === false);
+}
+
+// ── which backend ────────────────────────────────────────────────────────
+{
+  const configured = { baseUrl: VOICE_URL, key: 'vsk_x', lang: 'auto', mode: 'fast' };
+  const openai = p();
+
+  // Vylo Voice first when it is set up: it is the only one of the two with
+  // Kurdish engines, and these conversations are in Kurdish.
+  ok('Vylo Voice wins when it has a key', backendFor(configured, [openai]).kind === 'vylo');
+  ok('a provider is the fallback', backendFor(BLANK_VOICE, [openai]).kind === 'openai');
+  ok('and nothing configured is null', backendFor(BLANK_VOICE, []) === null);
+  ok('a half-filled voice connection does not win',
+     backendFor({ ...configured, key: '' }, [openai]).kind === 'openai');
+  ok('the backend names itself for the dialog',
+     backendFor(configured, []).name === 'Vylo Voice' && backendFor(BLANK_VOICE, [openai]).name === 'OpenAI');
+}
+
+// ── Kurdish must not be sent to a Whisper that cannot read it ─────────────
+{
+  const read = (form) => {
+    const out = {};
+    for (const [k, val] of form.entries()) out[k] = typeof val === 'string' ? val : `(file:${val.name})`;
+    return out;
+  };
+  const blob = new Blob([new Uint8Array([1])], { type: 'audio/mp4' });
+  // Whisper was not trained on Sorani or Badini; `ckb` would be refused or
+  // answered with nonsense. Dropping to automatic at least makes the guess
+  // visible as a guess.
+  ok('Sorani is dropped on the OpenAI path',
+     !('language' in read(formFor(blob, 'a.m4a', 'whisper-1', 'ckb'))));
+  ok('Badini too', !('language' in read(formFor(blob, 'a.m4a', 'whisper-1', 'kmr'))));
+  ok('but Arabic is sent', read(formFor(blob, 'a.m4a', 'whisper-1', 'ar')).language === 'ar');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

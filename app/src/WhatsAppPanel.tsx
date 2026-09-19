@@ -15,10 +15,12 @@ import {
 import type { Attached } from './attachments';
 import { open as pickFile } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
-import { KEY as PROVIDERS_KEY, read as readProviders } from './providers';
+import { KEY as PROVIDERS_KEY, read as readProviders, type Provider } from './providers';
 import {
-  LANG_KEY, VOICE_LANGS, endpointOf, formFor, langOf, modelFor, textFrom,
-  transcriberIn, transcriptNote, uploadHeaders, type VoiceLang,
+  BLANK_VOICE, VOICE_KEY, VOICE_LANGS, acceptsName, backendFor, endpointOf,
+  formFor, jobIdFrom, jobPath, jobState, langOf, modeOf, modelFor, readVoice,
+  textFrom, transcribePath, transcriptNote, uploadHeaders, voiceForm,
+  voiceHeaders, writeVoice, type Voice,
 } from './whatsappvoice';
 
 /**
@@ -294,22 +296,22 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
   const [said, setSaid] = useState<Record<string, string>>({});
   const [saying, setSaying] = useState('');
 
+  /** The Vylo Voice connection, which is the one with Kurdish engines. */
+  const [vc, setVc] = useState<Voice>(() => readVoice(localStorage.getItem(VOICE_KEY)));
+  useEffect(() => {
+    try { localStorage.setItem(VOICE_KEY, writeVoice(vc)); } catch { /* private mode */ }
+  }, [vc]);
+
   /**
-   * Who could transcribe, if asked. Re-read rather than held, since a provider
+   * Who will transcribe, if anybody. Re-read rather than held, since a provider
    * can be added in Settings while this panel is open.
    */
   const voice = useMemo(() => {
     void fetched;
-    try { return transcriberIn(readProviders(localStorage.getItem(PROVIDERS_KEY))); } catch { return null; }
-  }, [fetched]);
-
-  /** Which language the recordings are in. Auto until somebody says otherwise. */
-  const [vlang, setVlang] = useState<VoiceLang>(() => {
-    try { return langOf(localStorage.getItem(LANG_KEY)); } catch { return 'auto'; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem(LANG_KEY, vlang); } catch { /* private mode */ }
-  }, [vlang]);
+    let providers: ReturnType<typeof readProviders> = [];
+    try { providers = readProviders(localStorage.getItem(PROVIDERS_KEY)); } catch { providers = []; }
+    return backendFor(vc, providers);
+  }, [fetched, vc]);
 
   /** The whole window, rather than a 248px column. */
   const [full, setFull] = useState(false);
@@ -604,27 +606,81 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
     if (!voice || saying) return;
     const media = await grab(m);
     if (!media) return;
+    const name = nameFor(m, media);
     setSaying(m.id);
+    setWhy('');
     try {
-      const r = await fetch(endpointOf(voice), {
-        method: 'POST',
-        headers: uploadHeaders(voice),
-        body: formFor(blobOf(media.base64, media.mime), nameFor(m, media), modelFor(voice), vlang),
-      });
-      if (!r.ok) {
-        setWhy(fill(t('The server answered {n}.'), { n: r.status }));
-        return;
-      }
-      const words = textFrom(await r.json());
-      // An empty transcript is an answer: silence, or speech the model could
-      // not make out. Recording it as a blank would leave the button looking
-      // unpressed and invite a second upload of the same audio.
+      const blob = blobOf(media.base64, displayMime(media, m.kind));
+      const words = voice.kind === 'vylo'
+        ? await viaVylo(voice.voice, blob, name)
+        : await viaProvider(voice.provider, blob, name);
+      if (words === null) return;
+      // An empty transcript is an answer: silence, or speech nothing could make
+      // out. Recorded as such, so the button does not look unpressed and invite
+      // a second upload of the same audio.
       setSaid((p) => ({ ...p, [m.id]: words || t('Nothing could be made out.') }));
     } catch (e) {
       setWhy(e instanceof Error ? e.message : t('Could not reach that server.'));
     } finally {
       setSaying('');
     }
+  }
+
+  /**
+   * Vylo Voice: upload, then wait for the job.
+   *
+   * The server queues a recording and transcribes it on a worker, so this is a
+   * conversation rather than one request. Polled on a slow tick — a few seconds
+   * of audio takes a few seconds, and hammering a queue does not make it move.
+   * Returns null when it gave up, having already said why.
+   */
+  async function viaVylo(v: Voice, blob: Blob, name: string): Promise<string | null> {
+    // The server checks the *filename* and answers 422 for anything not on its
+    // list. `nameFor` corrects a converted voice note's extension, and this is
+    // the check that would otherwise fail for a reason nobody could guess.
+    if (!acceptsName(name)) {
+      setWhy(fill(t('{name} is not a kind of audio that can be transcribed.'), { name }));
+      return null;
+    }
+    const up = await fetch(transcribePath(v), {
+      method: 'POST', headers: voiceHeaders(v), body: voiceForm(blob, name, v),
+    });
+    if (!up.ok) {
+      setWhy(up.status === 401 || up.status === 403
+        ? t('That key was refused.')
+        : fill(t('The server answered {n}.'), { n: up.status }));
+      return null;
+    }
+    const id = jobIdFrom(await up.json());
+    if (!id) { setWhy(t('Could not reach that server.')); return null; }
+
+    // Roughly a minute of patience. Long enough for `accurate` on a short
+    // recording, short enough that a wedged worker is not waited on all day.
+    for (let tries = 0; tries < 40; tries++) {
+      await new Promise((done) => { setTimeout(done, 1500); });
+      const r = await fetch(jobPath(v, id), { headers: voiceHeaders(v) });
+      if (!r.ok) { setWhy(fill(t('The server answered {n}.'), { n: r.status })); return null; }
+      const state = jobState(await r.json());
+      if (!state.done) continue;
+      if ('failed' in state) { setWhy(state.failed); return null; }
+      return state.text;
+    }
+    setWhy(t('That is taking longer than expected. It may still finish — try again shortly.'));
+    return null;
+  }
+
+  /** An OpenAI-shaped service: one round trip, no Kurdish. */
+  async function viaProvider(p: Provider, blob: Blob, name: string): Promise<string | null> {
+    const r = await fetch(endpointOf(p), {
+      method: 'POST',
+      headers: uploadHeaders(p),
+      body: formFor(blob, name, modelFor(p), vc.lang),
+    });
+    if (!r.ok) {
+      setWhy(fill(t('The server answered {n}.'), { n: r.status }));
+      return null;
+    }
+    return textFrom(await r.json());
   }
 
   function toggle(id: string) {
@@ -878,21 +934,43 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
                   onClick={() => void check(form)}>
             {state === 'checking' ? t('Checking…') : t('Check and save')}
           </button>
-          {/* Whisper guesses a language well on a clear minute and badly on
-              eight seconds from a phone in a noisy room, which is what a voice
-              note is. Saying which language turns the guess into a given.
-              Kurdish is not offered: the model was not trained on Sorani or
-              Badini, and a choice that quietly returns nonsense is worse than
-              no choice — those stay on Auto and read as the guess they are. */}
+          {/* ── reading voice notes ──────────────────────────────────────
+              Its own section, because it is a different service with its own
+              key, and because the panel is otherwise silent about why a voice
+              note comes back unread. `voice.vylo-tech.com` is the default
+              because it is the one with Kurdish engines — Badini and Sorani
+              each have their own — and these conversations are in Kurdish.
+              Leaving the key empty falls back to any OpenAI-shaped provider in
+              Settings, which can do Arabic and English and not Kurdish. */}
+          <p className="wa-sect">{t('Reading voice notes')}</p>
+          <label>{t('Voice service')}
+            <input value={vc.baseUrl} spellCheck={false}
+                   onChange={(e) => setVc({ ...vc, baseUrl: e.target.value.replace(/\/+$/, '') })}
+                   placeholder={BLANK_VOICE.baseUrl} /></label>
+          <label>{t('Voice key')}
+            <input value={vc.key} type="password" spellCheck={false}
+                   onChange={(e) => setVc({ ...vc, key: e.target.value })}
+                   placeholder="vsk_…" /></label>
+          {/* A detector guesses well on a clear minute and badly on eight
+              seconds from a phone in a noisy room, which is what a voice note
+              is. Naming the language turns the guess into a given. */}
           <label>{t('Voice notes are in')}
-            <select value={vlang} onChange={(e) => setVlang(langOf(e.target.value))}>
+            <select value={vc.lang} onChange={(e) => setVc({ ...vc, lang: langOf(e.target.value) })}>
               {VOICE_LANGS.map((code) => (
                 <option key={code} value={code}>
                   {code === 'auto' ? t('Whichever language they are in')
-                    : code === 'ar' ? t('Arabic')
-                      : t('English')}
+                    : code === 'kmr' ? t('Kurdish — Badini')
+                      : code === 'ckb' ? t('Kurdish — Sorani')
+                        : code === 'ar' ? t('Arabic')
+                          : t('English')}
                 </option>
               ))}
+            </select>
+          </label>
+          <label>{t('Effort')}
+            <select value={vc.mode} onChange={(e) => setVc({ ...vc, mode: modeOf(e.target.value) })}>
+              <option value="fast">{t('Fast — one pass')}</option>
+              <option value="accurate">{t('Accurate — several engines, best for Kurdish')}</option>
             </select>
           </label>
           {why && <p className="wa-why">{why}</p>}
