@@ -2698,6 +2698,14 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   border-inline-start:2px solid var(--rule-2);
   font-size:var(--fs-2); font-style:italic; line-height:1.5; color:var(--mute);
 }
+/* The translation, set under the transcript and named. Two guesses stacked,
+   each visibly its own. */
+.wa-said.tr{ border-inline-start-style:dashed; }
+.wa-said.tr em{
+  display:block; margin-block-end:1px; font-style:normal;
+  font-size:var(--fs-1); font-weight:600; letter-spacing:.04em;
+  text-transform:uppercase; opacity:.65;
+}
 .wa-bubble.mine .wa-said{
   border-inline-start-color:color-mix(in srgb, var(--on-fill) 40%, transparent);
   color:var(--on-fill); opacity:.85;

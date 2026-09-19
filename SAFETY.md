@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.90.0.
+version 0.91.0.
 
 ---
 
@@ -242,6 +242,13 @@ detector guesses badly on eight seconds from a phone. Kurdish is offered on
 Vylo Voice, which has engines for it; on the OpenAI-shaped path a Kurdish
 choice is dropped rather than sent, since that model would refuse it or answer
 with something that only looks like an answer.
+
+Vylo Voice can also translate what it heard, into English, Arabic or either
+Kurdish, in the same pass and on the same server — no second service and no
+further upload. Both come back and both are kept: the transcript is what was
+said and the translation is a second reading of it, so they are shown as two
+steps and handed to the model as two lines. Replacing one with the other would
+hide a guess inside a guess.
 
 **A reply you type is sent without a dialog. One the agent wrote is not.** You
 are the author of your own sentence, and asking you to approve it is theatre,
@@ -683,7 +690,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.90.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.91.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -708,6 +715,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.90.0. Every statement above was read out of the code. If
+*Last checked against 0.91.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

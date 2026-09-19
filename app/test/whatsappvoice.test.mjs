@@ -24,7 +24,7 @@ import {
   BLANK_VOICE, VOICE_LANGS, VOICE_URL, acceptsName, backendFor, endpointOf,
   formFor, jobIdFrom, jobPath, jobState, langOf, modeOf, modelFor, readVoice,
   textFrom, transcribePath, transcriberIn, transcriptNote, uploadHeaders,
-  voiceForm, voiceHeaders, voiceReady, writeVoice,
+  TARGETS, targetOf, voiceForm, voiceHeaders, voiceReady, writeVoice,
 } from '../.test-build/whatsappvoice.js';
 
 let pass = 0, fail = 0;
@@ -142,7 +142,7 @@ const p = (over = {}) => ({
 // read off its own source: `POST /api/transcribe` answers with a job id, and
 // `/api/jobs/{id}` carries `queued` -> `processing` -> `done` | `failed`.
 {
-  const v = { baseUrl: VOICE_URL, key: 'vsk_test', lang: 'ckb', mode: 'accurate' };
+  const v = { baseUrl: VOICE_URL, key: 'vsk_test', lang: 'ckb', mode: 'accurate', translate: '' };
 
   ok('the default is the service that speaks Kurdish', BLANK_VOICE.baseUrl === VOICE_URL);
   ok('a key is what makes it usable', voiceReady(v) && !voiceReady({ ...v, key: '' }));
@@ -193,9 +193,11 @@ const p = (over = {}) => ({
   ok('and it carries progress', jobState({ status: 'processing', progress: 0.4 }).progress === 0.4);
   const done = jobState({ status: 'done', transcript: '  سڵاو، چۆنی  ' });
   ok('done carries the words, trimmed', done.done === true && done.text === 'سڵاو، چۆنی');
-  // A translation was asked for, so it is the thing to show.
-  ok('a translation wins when there is one',
-     jobState({ status: 'done', transcript: 'x', translation: 'hello' }).text === 'hello');
+  // Both are kept and neither replaces the other -- an earlier draft returned
+  // the translation in place of the transcript, which threw away the one of
+  // the two that is closer to the recording.
+  ok('a transcript is not replaced by its translation',
+     jobState({ status: 'done', transcript: 'x', translation: 'hello' }).text === 'x');
   ok('silence is an answer, not a failure',
      jobState({ status: 'done', transcript: '' }).done === true
      && jobState({ status: 'done', transcript: '' }).text === '');
@@ -210,7 +212,7 @@ const p = (over = {}) => ({
 
 // ── which backend ────────────────────────────────────────────────────────
 {
-  const configured = { baseUrl: VOICE_URL, key: 'vsk_x', lang: 'auto', mode: 'fast' };
+  const configured = { baseUrl: VOICE_URL, key: 'vsk_x', lang: 'auto', mode: 'fast', translate: '' };
   const openai = p();
 
   // Vylo Voice first when it is set up: it is the only one of the two with
@@ -239,6 +241,60 @@ const p = (over = {}) => ({
      !('language' in read(formFor(blob, 'a.m4a', 'whisper-1', 'ckb'))));
   ok('Badini too', !('language' in read(formFor(blob, 'a.m4a', 'whisper-1', 'kmr'))));
   ok('but Arabic is sent', read(formFor(blob, 'a.m4a', 'whisper-1', 'ar')).language === 'ar');
+}
+
+// ── translating as well ──────────────────────────────────────────────────
+//
+// The same endpoint does it, in the same pass, into any of four languages —
+// including both Kurdishes, written in the Arabic-based script rather than
+// Latin, which is the script these conversations are in.
+{
+  const base = { baseUrl: VOICE_URL, key: 'vsk_t', lang: 'ckb', mode: 'fast' };
+  const read = (form) => {
+    const out = {};
+    for (const [k, val] of form.entries()) out[k] = typeof val === 'string' ? val : `(file:${val.name})`;
+    return out;
+  };
+  const blob = new Blob([new Uint8Array([1])], { type: 'audio/mp4' });
+
+  ok('four targets', TARGETS.length === 4);
+  ok('Arabic among them', TARGETS.includes('ar'));
+  ok('and both Kurdishes', TARGETS.includes('ckb') && TARGETS.includes('kmr'));
+  ok('nothing is the empty choice', targetOf('') === '' && targetOf(null) === '');
+  ok('and a language it cannot do is refused', targetOf('fr') === '' && targetOf('tr') === '');
+  ok('a real target survives', targetOf('ar') === 'ar');
+  ok('a stored one survives the round trip',
+     readVoice(writeVoice({ ...base, translate: 'ar' })).translate === 'ar');
+  ok('and a bad stored one becomes none',
+     readVoice('{"translate":"elvish"}').translate === '');
+
+  // The server refuses an unknown target rather than ignoring it, so '' must
+  // not be sent as if it were a language.
+  ok('no target, no field',
+     !('translate_to' in read(voiceForm(blob, 'a.m4a', { ...base, translate: '' }))));
+  ok('a target is sent', read(voiceForm(blob, 'a.m4a', { ...base, translate: 'ar' })).translate_to === 'ar');
+  // Transcribing Sorani and translating it to Arabic is one request, and the
+  // two fields are independent: the language is what was said, the target is
+  // what to turn it into.
+  const both = read(voiceForm(blob, 'a.m4a', { ...base, lang: 'ckb', translate: 'ar' }));
+  ok('the said language and the target are separate',
+     both.language === 'ckb' && both.translate_to === 'ar');
+
+  // Both come back, and both are kept. Showing only the translation throws
+  // away the one that is closer to the recording.
+  const done = jobState({ status: 'done', transcript: 'سڵاو', translation: 'hello' });
+  ok('the transcript is kept', done.text === 'سڵاو');
+  ok('and so is the translation', done.translation === 'hello');
+  ok('with no translation asked for it is empty',
+     jobState({ status: 'done', transcript: 'سڵاو' }).translation === '');
+
+  // The handover labels the translation as its own step rather than folding it
+  // in as though it were what the person said.
+  const note = transcriptNote('سڵاو', 'Vylo Voice', 'hello');
+  ok('the note carries what was said', note.includes('سڵاو'));
+  ok('and the translation, named as one', /\[translated\]: hello/.test(note), note);
+  ok('and says nothing about translating when there was none',
+     !transcriptNote('سڵاو', 'Vylo Voice').includes('translated'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

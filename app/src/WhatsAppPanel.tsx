@@ -20,7 +20,7 @@ import {
   BLANK_VOICE, VOICE_KEY, VOICE_LANGS, acceptsName, backendFor, endpointOf,
   formFor, jobIdFrom, jobPath, jobState, langOf, modeOf, modelFor, readVoice,
   textFrom, transcribePath, transcriptNote, uploadHeaders, voiceForm,
-  voiceHeaders, writeVoice, type Voice,
+  voiceHeaders, writeVoice, TARGETS, targetOf, type Voice,
 } from './whatsappvoice';
 
 /**
@@ -105,6 +105,9 @@ const EVERY_MS = 6000;
 const PAGE = 200;
 
 type State = 'setup' | 'checking' | 'live' | 'failed';
+
+/** What came back: the words, and a translation of them when one was asked for. */
+interface Said { text: string; translation: string }
 
 /**
  * The clock on a message, in the reader's own locale.
@@ -293,7 +296,7 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
    * the message, it is something this app asked a third party for, and the two
    * are stored apart so nothing can mistake one for the other.
    */
-  const [said, setSaid] = useState<Record<string, string>>({});
+  const [said, setSaid] = useState<Record<string, { text: string; translation: string }>>({});
   const [saying, setSaying] = useState('');
 
   /** The Vylo Voice connection, which is the one with Kurdish engines. */
@@ -618,7 +621,10 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
       // An empty transcript is an answer: silence, or speech nothing could make
       // out. Recorded as such, so the button does not look unpressed and invite
       // a second upload of the same audio.
-      setSaid((p) => ({ ...p, [m.id]: words || t('Nothing could be made out.') }));
+      setSaid((p) => ({
+        ...p,
+        [m.id]: { text: words.text || t('Nothing could be made out.'), translation: words.translation },
+      }));
     } catch (e) {
       setWhy(e instanceof Error ? e.message : t('Could not reach that server.'));
     } finally {
@@ -634,7 +640,7 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
    * of audio takes a few seconds, and hammering a queue does not make it move.
    * Returns null when it gave up, having already said why.
    */
-  async function viaVylo(v: Voice, blob: Blob, name: string): Promise<string | null> {
+  async function viaVylo(v: Voice, blob: Blob, name: string): Promise<Said | null> {
     // The server checks the *filename* and answers 422 for anything not on its
     // list. `nameFor` corrects a converted voice note's extension, and this is
     // the check that would otherwise fail for a reason nobody could guess.
@@ -663,14 +669,14 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
       const state = jobState(await r.json());
       if (!state.done) continue;
       if ('failed' in state) { setWhy(state.failed); return null; }
-      return state.text;
+      return { text: state.text, translation: state.translation };
     }
     setWhy(t('That is taking longer than expected. It may still finish — try again shortly.'));
     return null;
   }
 
   /** An OpenAI-shaped service: one round trip, no Kurdish. */
-  async function viaProvider(p: Provider, blob: Blob, name: string): Promise<string | null> {
+  async function viaProvider(p: Provider, blob: Blob, name: string): Promise<Said | null> {
     const r = await fetch(endpointOf(p), {
       method: 'POST',
       headers: uploadHeaders(p),
@@ -680,7 +686,10 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
       setWhy(fill(t('The server answered {n}.'), { n: r.status }));
       return null;
     }
-    return textFrom(await r.json());
+    // This path transcribes and does not translate: the endpoint has no target
+    // to give one, and inventing a second round trip to a chat model would be a
+    // different service doing a different job under the same button.
+    return { text: textFrom(await r.json()), translation: '' };
   }
 
   function toggle(id: string) {
@@ -722,7 +731,10 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
         // third party because a handover happened, so an untranscribed note
         // still travels as the line saying it was not heard.
         if (use === 'opaque' && said[m.id]) {
-          lines.push({ msg: m, note: transcriptNote(said[m.id], voice?.name || t('a provider')) });
+          lines.push({
+            msg: m,
+            note: transcriptNote(said[m.id].text, voice?.name || t('a provider'), said[m.id].translation),
+          });
           continue;
         }
 
@@ -873,7 +885,19 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
             </button>
           )}
           {said[m.id] ? (
-            <span className="wa-said" dir="auto">{said[m.id]}</span>
+            <>
+              <span className="wa-said" dir="auto">{said[m.id].text}</span>
+              {/* Its own line, and labelled. A translation is a second machine
+                  reading the first machine's output; folding it in as though it
+                  were what the person said would hide one guess inside another,
+                  and leave somebody who speaks the language nothing to check. */}
+              {said[m.id].translation && (
+                <span className="wa-said tr" dir="auto">
+                  <em>{t('Translated')}</em>
+                  {said[m.id].translation}
+                </span>
+              )}
+            </>
           ) : voice ? (
             /* Named, so the press is informed: this is a voice note leaving the
                machine for a service the person added, and the button is the
@@ -963,6 +987,20 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
                       : code === 'ckb' ? t('Kurdish — Sorani')
                         : code === 'ar' ? t('Arabic')
                           : t('English')}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>{t('Translate into')}
+            <select value={vc.translate}
+                    onChange={(e) => setVc({ ...vc, translate: targetOf(e.target.value) })}>
+              <option value="">{t('Do not translate')}</option>
+              {TARGETS.map((code) => (
+                <option key={code} value={code}>
+                  {code === 'en' ? t('English')
+                    : code === 'ar' ? t('Arabic')
+                      : code === 'ckb' ? t('Kurdish — Sorani')
+                        : t('Kurdish — Badini')}
                 </option>
               ))}
             </select>

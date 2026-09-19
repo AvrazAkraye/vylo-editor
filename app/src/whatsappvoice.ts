@@ -48,7 +48,23 @@ export interface Voice {
   lang: VoiceLang;
   /** `accurate` runs several engines and reconciles them. Kurdish gains most. */
   mode: Mode;
+  /** What to translate into as well, or '' to leave the words as they were said. */
+  translate: Target | '';
 }
+
+/**
+ * What the service will translate into.
+ *
+ * Its own list, from `translate.py`. Arabic and English are the obvious pair;
+ * both Kurdishes are there because the service was built for people who move
+ * between them, and it writes Kurdish in the Arabic-based script rather than
+ * Latin — which is the script these conversations are in.
+ */
+export const TARGETS = ['en', 'ar', 'ckb', 'kmr'] as const;
+export type Target = (typeof TARGETS)[number];
+
+export const targetOf = (raw: unknown): Target | '' =>
+  (TARGETS as readonly string[]).includes(raw as string) ? (raw as Target) : '';
 
 export type Mode = 'fast' | 'accurate';
 
@@ -68,7 +84,7 @@ export const langOf = (raw: unknown): VoiceLang =>
 
 export const modeOf = (raw: unknown): Mode => (raw === 'accurate' ? 'accurate' : 'fast');
 
-export const BLANK_VOICE: Voice = { baseUrl: VOICE_URL, key: '', lang: 'auto', mode: 'fast' };
+export const BLANK_VOICE: Voice = { baseUrl: VOICE_URL, key: '', lang: 'auto', mode: 'fast', translate: '' };
 
 const trim = (s: unknown): string => (typeof s === 'string' ? s.trim() : '');
 
@@ -83,6 +99,7 @@ export function readVoice(raw: string | null): Voice {
       key: trim(o.key),
       lang: langOf(o.lang),
       mode: modeOf(o.mode),
+      translate: targetOf(o.translate),
     };
   } catch {
     return { ...BLANK_VOICE };
@@ -120,13 +137,18 @@ export const VOICE_SUFFIXES = /\.(mp3|m4a|mp4|wav|ogg|oga|opus|webm|flac|aac|wma
 export const acceptsName = (name: string): boolean => VOICE_SUFFIXES.test(name);
 
 /** The upload. `File` and not `Blob`, so the server sees the filename it checks. */
-export function voiceForm(audio: Blob, name: string, v: Pick<Voice, 'lang' | 'mode'>): FormData {
+export function voiceForm(
+  audio: Blob, name: string, v: Pick<Voice, 'lang' | 'mode' | 'translate'>,
+): FormData {
   const form = new FormData();
   form.append('file', new File([audio], name, { type: audio.type || 'audio/mp4' }));
   // `auto` is a real value to this service, unlike the OpenAI one where the
   // field has to be omitted. It is in the server's own language list.
   form.append('language', v.lang);
   form.append('mode', v.mode);
+  // Omitted when there is nothing to translate into. The server refuses an
+  // unknown target rather than ignoring it, and '' is not one of its four.
+  if (v.translate) form.append('translate_to', v.translate);
   return form;
 }
 
@@ -139,7 +161,15 @@ export function jobIdFrom(body: unknown): string {
 
 export type JobState =
   | { done: false; progress: number }
-  | { done: true; text: string }
+  /**
+   * Both, when a translation was asked for.
+   *
+   * The transcript is what was said and the translation is a second machine's
+   * reading of it. Showing only the translation — which an earlier draft of
+   * this did — throws away the one of the two that is closer to the recording,
+   * and leaves somebody who speaks the language nothing to check against.
+   */
+  | { done: true; text: string; translation: string }
   | { done: true; failed: string };
 
 /**
@@ -158,10 +188,9 @@ export function jobState(body: unknown): JobState {
     return { done: true, failed: trim(b.error) || 'The recording could not be transcribed.' };
   }
   if (status === 'done') {
-    // `translation` when one was asked for, otherwise the transcript. Both can
-    // be empty on a recording with no speech in it, which is an answer.
-    const text = trim(b.translation) || trim(b.transcript);
-    return { done: true, text };
+    // Both can be empty on a recording with no speech in it, which is itself
+    // an answer and not a failure.
+    return { done: true, text: trim(b.transcript), translation: trim(b.translation) };
   }
   const p = Number(b.progress);
   return { done: false, progress: Number.isFinite(p) ? p : 0 };
@@ -274,5 +303,10 @@ export function backendFor(voice: Voice, providers: readonly Provider[]): Backen
  * transcript of a voice note is a guess, and a summary built on it should be
  * able to say where it came from.
  */
-export const transcriptNote = (text: string, by: string): string =>
-  `[voice note, transcribed by ${by}]: ${text}`;
+export const transcriptNote = (text: string, by: string, translation = ''): string => {
+  const said = `[voice note, transcribed by ${by}]: ${text}`;
+  // The translation is a second machine reading the first machine's output, so
+  // it is labelled as its own step rather than folded in as if it were what
+  // the person said.
+  return translation ? `${said}\n[translated]: ${translation}` : said;
+};
