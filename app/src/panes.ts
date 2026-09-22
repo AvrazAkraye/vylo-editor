@@ -23,6 +23,22 @@
  * Four rather than more because the fourth is where the honest version of the
  * old argument bites: a fifth is under 380 pixels even on a wide screen.
  *
+ * ## Why a grid gets six
+ *
+ * That whole argument is about a *row*. It divides the width and nothing else,
+ * and the panel has more height than it needs once there are four things in
+ * it. Three across and two down gives each pane a third of the width on the
+ * same 1900-pixel window — about 630 pixels, wider than a row of four manages
+ * — and spends the height that was going spare.
+ *
+ * So the cap is the arrangement's, not the panel's: four in a row, six in a
+ * grid. `toggle` takes it rather than reading `MAX_PANES`, because the editor
+ * shares this module for its file panes and has no grid to offer.
+ *
+ * Six rather than eight for the reason four was not five: a fourth column is
+ * back under 380 pixels, and two of the six are already a scroll away from the
+ * one being typed in.
+ *
  * ## The set is never empty
  *
  * Hiding the last visible pane leaves the panel blank with a list beside it,
@@ -30,8 +46,14 @@
  * — the way to have no terminal is to close the panel.
  */
 
-/** Beyond this, panes are narrower than the output they are showing. */
+/** Beyond this, panes side by side are narrower than the output they show. */
 export const MAX_PANES = 4;
+
+/**
+ * The same, for panes in a grid, where the width is divided by the columns
+ * rather than by the panes. Three across and two down.
+ */
+export const MAX_GRID = 6;
 
 /**
  * Add a pane, or remove it if it is already showing.
@@ -40,7 +62,7 @@ export const MAX_PANES = 4;
  * things were clicked: panes that jump position when you show a third are panes
  * you have to find again every time.
  */
-export function toggle(shown: readonly string[], id: string, order: readonly string[]): string[] {
+export function toggle(shown: readonly string[], id: string, order: readonly string[], cap = MAX_PANES): string[] {
   if (shown.includes(id)) {
     // Never to nothing. A blank panel beside a full list reads as a failure.
     if (shown.length === 1) return [...shown];
@@ -50,7 +72,7 @@ export function toggle(shown: readonly string[], id: string, order: readonly str
   // Oldest out when the cap is reached, so the one just asked for is always the
   // one that appears. Dropping the *newest* would make the button do nothing,
   // which is the worse of the two surprises.
-  const kept = next.length > MAX_PANES ? next.slice(next.length - MAX_PANES) : next;
+  const kept = next.length > cap ? next.slice(next.length - cap) : next;
   return order.filter((x) => kept.includes(x));
 }
 

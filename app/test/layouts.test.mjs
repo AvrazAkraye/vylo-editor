@@ -9,8 +9,8 @@
 // `shares` and `MAX_PANES` are the real ones, because this module is the seam
 // between `panes.ts` and `split.ts` and a weight only means what `split.ts`
 // says it means.
-import { COUNTS, PRESETS, TOLERANCE, WIDE, apply, describe, evenCount } from '../.test-build/layouts.js';
-import { MAX_PANES } from '../.test-build/panes.js';
+import { COUNTS, PRESETS, TOLERANCE, WIDE, apply, columns, describe, evenCount } from '../.test-build/layouts.js';
+import { MAX_GRID, MAX_PANES } from '../.test-build/panes.js';
 import { shares } from '../.test-build/split.js';
 
 let pass = 0, fail = 0;
@@ -26,6 +26,7 @@ const ONE = ['a'];
 const TWO = ['a', 'b'];
 const THREE = ['a', 'b', 'c'];
 const FOUR = ['a', 'b', 'c', 'd'];
+const SIX = ['a', 'b', 'c', 'd', 'e', 'f'];
 /** The widths a workbench leaves behind, for tests that start from one. */
 const BENCH = { a: 1.3, b: 0.7 };
 
@@ -142,12 +143,18 @@ ok('tidy does not add panes', (() => {
 })());
 ok('tidy leaves hidden panes alone', apply('tidy', row('a', TWO, FOUR, { d: 5 })).weights.d === 5);
 ok('a focus that is not on screen is brought on', same(apply('tidy', row('d', TWO, FOUR)).shown, ['a', 'b', 'd']));
-ok('and when that would be five, the farthest goes', (() => {
-  const five = ['a', 'b', 'c', 'd', 'e'];
-  const r = apply('tidy', row('e', FOUR, five));
-  // d is the one farthest after the focus once e joins; a, b and c stay.
-  return r.shown.length === MAX_PANES && same(r.shown, ['a', 'b', 'c', 'e']);
+// Five used to be over the cap and is not any more: a grid holds six, and
+// five panes that were all wanted stay wanted.
+ok('and when that makes five, all five stay', (() => {
+  const r = apply('tidy', row('e', FOUR, ['a', 'b', 'c', 'd', 'e']));
+  return same(r.shown, ['a', 'b', 'c', 'd', 'e']);
 })(), apply('tidy', row('e', FOUR, ['a', 'b', 'c', 'd', 'e'])).shown);
+ok('and when it would make seven, the farthest goes', (() => {
+  const seven = [...SIX, 'g'];
+  const r = apply('tidy', row('g', SIX, seven));
+  // f is the one farthest after the focus once g joins; a-e stay.
+  return r.shown.length === MAX_GRID && same(r.shown, ['a', 'b', 'c', 'd', 'e', 'g']);
+})(), apply('tidy', row('g', SIX, [...SIX, 'g'])).shown);
 
 // ── what no preset may do ─────────────────────────────────────────────────
 const EVERY = PRESETS.map((p) => p.id);
@@ -261,7 +268,8 @@ ok('every shape from every starting row round-trips', ['solo', 'pair', 'workbenc
 
 // ── asking for a number ───────────────────────────────────────────────────
 // The counts the ladder offers: one pane up to the cap, nothing outside it.
-ok('COUNTS is one up to the cap', same(COUNTS, Array.from({ length: MAX_PANES }, (_, i) => i + 1)), COUNTS);
+ok('COUNTS is one up to the grid cap', same(COUNTS, Array.from({ length: MAX_GRID }, (_, i) => i + 1)), COUNTS);
+ok('which is further than a row goes, because a grid holds more', MAX_GRID > MAX_PANES);
 
 ok('three from four sessions is three even panes', (() => {
   const r = apply(3, row('a', ONE, FOUR, { a: 9 }));
@@ -285,10 +293,20 @@ ok('four is what quad makes', (() => {
   const a = apply(4, row('a', ONE, FOUR)), b = apply('quad', row('a', ONE, FOUR));
   return same(a.shown, b.shown) && describe(a.shown, a.weights) === 'quad';
 })());
+// Quad fills the row and Grid fills the grid, and those are no longer the same
+// number: that is the whole of what a grid buys.
+ok('six is what grid makes', (() => {
+  const a = apply(6, row('a', ONE, SIX)), b = apply('grid', row('a', ONE, SIX));
+  return same(a.shown, b.shown) && a.shown.length === MAX_GRID;
+})());
+ok('quad is the row cap, grid the grid cap', (() => (
+  apply('quad', row('a', ONE, SIX)).shown.length === MAX_PANES
+  && apply('grid', row('a', ONE, SIX)).shown.length === MAX_GRID
+))());
 
 // A number that is not a count of panes is clamped rather than obeyed: the row
 // cannot hold five and cannot hold none.
-ok('above the cap is the cap', apply(99, row('a', ONE, FOUR)).shown.length === MAX_PANES);
+ok('above the cap is the cap', apply(99, row('a', ONE, SIX)).shown.length === MAX_GRID);
 ok('below one is one', same(apply(0, row('b', TWO, TWO)).shown, ['b']));
 ok('negative is one', same(apply(-3, row('b', TWO, TWO)).shown, ['b']));
 ok('a fraction is the nearest count', apply(2.6, row('a', ONE, FOUR)).shown.length === 3);
@@ -300,7 +318,7 @@ ok('a fraction is the nearest count', apply(2.6, row('a', ONE, FOUR)).shown.leng
 // button said four.
 ok('four with one session open needs three', apply(4, row('a', ONE, ONE)).needs === 3);
 ok('quad with one session open needs three too', apply('quad', row('a', ONE, ONE)).needs === 3);
-ok('grid with two open needs two', apply('grid', row('a', TWO, TWO)).needs === 2);
+ok('grid with two open needs four, because a grid is six', apply('grid', row('a', TWO, TWO)).needs === 4);
 ok('three with two sessions needs one', apply(3, row('a', TWO, TWO)).needs === 1);
 ok('pair with one session needs one', apply('pair', row('a', ONE, ONE)).needs === 1);
 ok('and shows what it can while it waits', same(apply(4, row('a', ONE, ONE)).shown, ['a']));
@@ -332,8 +350,25 @@ ok('hidden panes do not count', evenCount(TWO, { a: 1, b: 1, c: 99 }) === 2);
 
 // Every count the ladder offers, applied to a row that can hold it, lights the
 // button that was pressed.
-ok('every count round-trips', ROWS.filter((r) => r.order.length === MAX_PANES).every((r) =>
+ok('every count round-trips', [row('a', ONE, SIX), row('d', SIX, SIX), row('c', ['c', 'e'], SIX)].every((r) =>
   COUNTS.every((n) => { const a = apply(n, r); return evenCount(a.shown, a.weights) === n; })));
+
+// ── how many columns ──────────────────────────────────────────────────────
+// ceil(sqrt(n)): the squarest grid that leaves no hole a squarer one would
+// have filled. Six across three is the shape people build by hand.
+ok('one pane is one column', columns(1) === 1);
+ok('two are two', columns(2) === 2);
+ok('three are two, so two over one', columns(3) === 2);
+ok('four are two, so two over two', columns(4) === 2);
+ok('five are three, so three over two', columns(5) === 3);
+ok('six are three, so three over two and no hole', columns(6) === 3);
+ok('never fewer than one column', columns(0) === 1 && columns(-4) === 1);
+// The last row is never emptier than the first by more than a pane short of a
+// full row — which is what "no hole a squarer grid would have filled" means.
+ok('no count leaves more than one hole', COUNTS.every((n) => {
+  const c = columns(n), rows = Math.ceil(n / c);
+  return c * rows - n < c;
+}), COUNTS.map((n) => `${n}:${columns(n)}`).join(' '));
 // And a workbench is the one two-pane row no count claims, so pressing 2 and
 // pressing Workbench cannot both light.
 ok('workbench lights no count', (() => {

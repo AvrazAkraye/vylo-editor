@@ -14,11 +14,12 @@
  *   pair       two panes, even. Reading one thing against another.
  *   workbench  two panes, the one you are in wide. Working in one and
  *              glancing at the other — a server log, a test runner.
- *   quad       four panes, even, in a row. The cap, in one press.
- *   grid       the same four, two above two. The row's own argument against
- *              a fourth pane was about width, and a grid answers it: each
- *              pane is half the panel wide instead of a quarter, at the cost
- *              of height the panel has more of than it needs.
+ *   quad       four panes, even, in a row. The row full, in one press.
+ *   grid       six panes, three across and two down. The row's own argument
+ *              against a fifth pane was about width, and a grid answers it:
+ *              each pane is a *third* of the panel wide rather than a fifth,
+ *              at the cost of height the panel has more of than it needs. So
+ *              a grid holds more than a row rather than the same four.
  *   tidy       whatever is on screen, evened out. Not a shape but a repair:
  *              after a few drags the row is 40/23/37 and nobody chose that.
  *              BridgeMind's phrase for it is "squares the layout back up".
@@ -29,11 +30,16 @@
  *
  * ## Asking for a number
  *
- * So `apply` also takes a count. One to `MAX_PANES`, evenly wide — the shape
- * `solo`, `pair` and `quad` already are at 1, 2 and 4, and the one nothing
- * reached at 3. The named presets stay because two of them are not counts:
- * `workbench` is two panes unevenly, `grid` is four in two rows, and neither
- * is expressible as "how many".
+ * So `apply` also takes a count. One to `MAX_GRID`, evenly sized — the shape
+ * `solo`, `pair` and `quad` already are at 1, 2 and 4, and the ones nothing
+ * reached at 3, 5 and 6. The named presets stay because they say something a
+ * count does not: `workbench` is two panes *unevenly*, and `quad` and `grid`
+ * are the two arrangements, one filled.
+ *
+ * A count says how many and nothing about the arrangement, so it keeps the
+ * one the row is already in — which is what "it should work on the grid too"
+ * means. Four in a row and four in a grid are both four; only the panel knows
+ * which, and it is the panel that remembers.
  *
  * A count says how many panes are wanted, which is not the same as how many
  * exist. `needs` is the difference — the sessions still to open — and the
@@ -41,6 +47,13 @@
  * with one terminal open needs three, and a flag could only say "one more":
  * the panel opened a single terminal, re-applied, and settled on two panes
  * while the button said four.
+ *
+ * ## How many columns
+ *
+ * `columns` is the grid's shape, and it is `ceil(sqrt(n))`: two columns for
+ * three and four, three for five and six. It never leaves a hole in the last
+ * row that a squarer count would have filled, and three across for six is the
+ * shape people actually build by hand.
  *
  * ## The pane you are in is never the one that goes
  *
@@ -81,7 +94,7 @@
  * still the shape it was.
  */
 
-import { MAX_PANES } from './panes';
+import { MAX_GRID, MAX_PANES } from './panes';
 import { evened, shares, type Weights } from './split';
 
 /** The shapes a row can be in. What `describe` recognises. */
@@ -97,8 +110,20 @@ export type Preset = Shape | 'tidy';
  */
 export type Request = Preset | number;
 
-/** The counts a row can be asked for: one pane up to the cap. */
-export const COUNTS: readonly number[] = Array.from({ length: MAX_PANES }, (_, i) => i + 1);
+/** The counts that can be asked for: one pane up to the grid's cap. */
+export const COUNTS: readonly number[] = Array.from({ length: MAX_GRID }, (_, i) => i + 1);
+
+/**
+ * The columns a grid of `n` panes is drawn in, and so how the panel sets
+ * `--tcols`. See the header: `ceil(sqrt(n))`, which is 2, 2, 3, 3 for three
+ * through six and never leaves the last row emptier than it has to be.
+ *
+ * One and two are here for completeness. The panel does not draw a grid below
+ * three panes — two above one another is not what anybody means by one.
+ */
+export function columns(n: number): number {
+  return Math.max(1, Math.ceil(Math.sqrt(Math.max(1, Math.round(n)))));
+}
 
 /** A preset as the buttons show it. `label` and `about` are i18n keys. */
 export interface PresetInfo {
@@ -115,7 +140,7 @@ export const PRESETS: readonly PresetInfo[] = [
   { id: 'pair', label: 'Pair', about: 'Two panes, side by side and even.' },
   { id: 'workbench', label: 'Workbench', about: 'Two panes, with the one you are in wider.' },
   { id: 'quad', label: 'Quad', about: 'Four panes, side by side and even. Wants a wide window.' },
-  { id: 'grid', label: 'Grid', about: 'Four panes, two above two. Half the width each, and twice as tall.' },
+  { id: 'grid', label: 'Grid', about: 'Six panes, three across and two down. A third of the width each.' },
   { id: 'tidy', label: 'Tidy', about: 'Keep the panes you have and square them back up.' },
 ];
 
@@ -219,10 +244,11 @@ export function apply(preset: Request, from: Layout): Applied {
   // focused one, if it was somehow not among them — and never more than the cap.
   const size = typeof preset === 'number' ? Math.round(preset)
     : preset === 'solo' ? 1
-    : preset === 'quad' || preset === 'grid' ? MAX_PANES
+    : preset === 'quad' ? MAX_PANES
+    : preset === 'grid' ? MAX_GRID
     : preset === 'tidy' ? live.length + (live.includes(focus) ? 0 : 1)
     : 2;
-  const want = Math.min(MAX_PANES, Math.max(1, size));
+  const want = Math.min(MAX_GRID, Math.max(1, size));
 
   const needs = Math.max(0, want - order.length);
   const needsNew = needs > 0;
@@ -260,15 +286,17 @@ export function evenCount(shown: readonly string[], weights: Weights): number | 
  * Which shape the row is in, or `custom`.
  *
  * `tidy` is never the answer — it is an action, and a tidied pair is a pair.
- * Three panes are `custom` however even they are; see the header on why there
- * is no three-pane preset. A workbench is a workbench whichever side is wide,
- * because the buttons show the shape, and which pane got the width is not
- * something a highlight can say.
+ * Only the counts with a *name* are answered: one, two and four. Three, five
+ * and six are `custom` however even they are, because there is no named shape
+ * for them — the count ladder is what says those, and `evenCount` is what
+ * lights it. A workbench is a workbench whichever side is wide, because the
+ * buttons show the shape, and which pane got the width is not something a
+ * highlight can say.
  *
- * `grid` is never the answer either, for a different reason: it and `quad` are
- * the same four even widths, and which of the two you are looking at is not
- * in the widths. Four even panes are a `quad` here, and the panel remembers
- * whether it put them in two rows.
+ * `grid` is never the answer either, for a different reason. Four even panes
+ * are four even panes whether they are in a row or in two rows of two; the
+ * arrangement is not in the widths, and this only reads widths. The panel
+ * remembers the arrangement and decides between `quad` and `grid` itself.
  */
 export function describe(shown: readonly string[], weights: Weights): Shape | 'custom' {
   if (shown.length === 1) return 'solo';

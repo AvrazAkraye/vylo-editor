@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
@@ -7,7 +7,7 @@ import {
   ROW_VIEW_KEY, filter, readView, rowOf, shorten, stateOf, titleOf, writeView,
   type Facts, type RowView,
 } from './terminals';
-import { MAX_PANES, focused, only, prune, swap as swapPane, toggle as togglePane } from './panes';
+import { MAX_GRID, MAX_PANES, focused, only, prune, swap as swapPane, toggle as togglePane } from './panes';
 import { CONTEXT_LINES } from './command';
 import {
   KEY as TERMS_KEY, read as readSaved, tail, write as writeSaved, type Saved,
@@ -21,7 +21,7 @@ import {
 } from './paste';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
 import {
-  COUNTS, PRESETS, apply as applyPreset, describe as describeLayout,
+  COUNTS, PRESETS, apply as applyPreset, columns, describe as describeLayout,
   evenCount, type Request,
 } from './layouts';
 import {
@@ -511,7 +511,7 @@ export function TerminalPanel({
     setActive(next.id);
     // A plain new terminal takes the panel, as it always has. One asked for by
     // Split joins what is already there — that is the whole point of pressing it.
-    setShown((p) => (beside ? togglePane(p, next.id, [...tabs.map((x) => x.id), next.id]) : only(next.id)));
+    setShown((p) => (beside ? togglePane(p, next.id, [...tabs.map((x) => x.id), next.id], MAX_GRID) : only(next.id)));
   }
 
   /**
@@ -617,7 +617,7 @@ export function TerminalPanel({
   function split() {
     const other = tabs.find((x) => !onScreen.includes(x.id));
     if (!other) return add(true);
-    setShown(togglePane(onScreen, other.id, tabs.map((x) => x.id)));
+    setShown(togglePane(onScreen, other.id, tabs.map((x) => x.id), MAX_GRID));
   }
 
   function close(id: string) {
@@ -761,14 +761,42 @@ export function TerminalPanel({
   useEffect(() => {
     try { localStorage.setItem('vylo.tgrid', grid ? '1' : '0'); } catch { /* private mode */ }
   }, [grid]);
+  /**
+   * Whether the panes are actually drawn as a grid, which is not quite the
+   * stored flag.
+   *
+   * Two things override it. Below three panes there is no grid to draw — two
+   * above one another is not what anybody means by one, and a single pane in
+   * one is half a panel of empty space. Above four there is no row to draw:
+   * five side by side is under 380 pixels each even on a wide window, which is
+   * the whole reason the row stops at four. So the flag decides only in the
+   * range where both are possible, and the ends decide themselves.
+   */
+  const gridded = (grid || onScreen.length > MAX_PANES) && onScreen.length > 2;
 
+  /**
+   * What a request says about the arrangement, which for most of them is
+   * nothing.
+   *
+   * `quad` and `grid` are the two arrangements and each sets its own. `tidy`
+   * is a repair, not a shape, and evens out whatever is there without an
+   * opinion about rows. And a **count says how many, not how** — so it keeps
+   * the arrangement the panes are already in. Pressing 4 in a grid gives four
+   * panes two above two; pressing it in a row gives four across. That is what
+   * makes the ladder work *on* the grid rather than beside it.
+   *
+   * A count above the row's cap is the one exception, and barely one: five
+   * panes cannot be a row, so asking for five is asking for a grid whether or
+   * not it says so.
+   */
+  function arrange(request: Request) {
+    if (typeof request === 'number') { if (request > MAX_PANES) setGrid(true); return; }
+    if (request !== 'tidy') setGrid(request === 'grid');
+  }
   function snap(request: Request) {
     const r = applyPreset(request, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
     if (r.needs > 0) { wanted.current = request; add(true); return; }
-    // Every shape but `tidy` says how the panes are arranged, so every shape
-    // but `tidy` answers this. Tidy is a repair — it evens out what is there
-    // and has no opinion about rows. A count is a row.
-    if (request !== 'tidy') setGrid(request === 'grid');
+    arrange(request);
     setShown(r.shown);
     setWeights(r.weights);
   }
@@ -779,9 +807,9 @@ export function TerminalPanel({
     // Still short: open another and let the next render bring us back here.
     // Bounded by the cap, which `apply` already clamps the request to, so this
     // cannot ask forever.
-    if (r.needs > 0 && tabs.length < MAX_PANES) { add(true); return; }
+    if (r.needs > 0 && tabs.length < MAX_GRID) { add(true); return; }
     wanted.current = null;
-    if (request !== 'tidy') setGrid(request === 'grid');
+    arrange(request);
     setShown(r.shown);
     setWeights(r.weights);
     // The set is read at apply time; nothing here should re-run on its own.
@@ -928,14 +956,21 @@ export function TerminalPanel({
           <span className="seg lay count" role="group" aria-label={t('Terminals on screen')}>
             {COUNTS.map((n) => {
               // Lit by how many even panes are on screen, read from the row.
-              // Four even panes in two rows are a Grid, and Grid lights
-              // itself — so the 4 stays dark rather than both being on.
-              const on = evenCount(onScreen, weights) === n && !(n === MAX_PANES && grid);
+              // Nothing is suppressed here: this ladder answers "how many" and
+              // the buttons beside it answer "what shape", so four across
+              // lighting both the 4 and Quad is two true statements about one
+              // row rather than a conflict.
+              const on = evenCount(onScreen, weights) === n;
+              // Above the row's cap it can only be a grid; at or below it, it
+              // is whichever the panes are in now, because that is what this
+              // button will leave them in.
+              const asGrid = n > MAX_PANES || (gridded && n > 2);
               return (
                 <button key={n} className={on ? 'on' : ''} aria-pressed={on}
                         onClick={() => snap(n)}
                         title={n === 1 ? t('One pane: the one you are in.')
-                                       : fill(t('{n} panes, side by side and even.'), { n })}>
+                               : asGrid ? fill(t('{n} panes in a grid, evenly sized.'), { n })
+                               : fill(t('{n} panes, side by side and even.'), { n })}>
                   {n}
                 </button>
               );
@@ -943,11 +978,18 @@ export function TerminalPanel({
           </span>
           <span className="seg lay" role="group" aria-label={t('Layout')}>
             {PRESETS.map((p) => {
-              // Grid and Quad are the same widths; only the stored flag
-              // tells them apart, so it decides which of the two is lit.
+              // Quad and Grid are the two arrangements, each filled to its own
+              // cap: four across, six in a grid. Widths cannot tell a row of
+              // four from two rows of two, so the arrangement decides, and the
+              // count decides whether it is *full*. Four panes in a grid are
+              // neither button — the ladder's 4 is the honest answer, and it
+              // is lit.
               const shape = describeLayout(onScreen, weights);
-              const on = p.id !== 'tidy' && shape === (p.id === 'grid' ? 'quad' : p.id)
-                && (p.id === 'grid' || p.id === 'quad' ? grid === (p.id === 'grid') : true);
+              const many = evenCount(onScreen, weights);
+              const on = p.id === 'tidy' ? false
+                : p.id === 'quad' ? !gridded && many === MAX_PANES
+                : p.id === 'grid' ? gridded && many === MAX_GRID
+                : shape === p.id;
               return (
                 <button key={p.id} className={on ? 'on' : ''} aria-pressed={on}
                         onClick={() => snap(p.id)} title={t(p.about)}>
@@ -957,7 +999,7 @@ export function TerminalPanel({
             })}
           </span>
           <button className="ghost icon" onClick={split}
-                  disabled={onScreen.length >= MAX_PANES}
+                  disabled={onScreen.length >= MAX_GRID}
                   title={t('Show another terminal beside this one')}
                   aria-label={t('Show another terminal beside this one')}>
             <Icon name="split" size={14} />
@@ -999,7 +1041,7 @@ export function TerminalPanel({
         const on = onScreen.includes(tab.id);
         const items: MenuItem[] = [
           { kind: 'action', id: 'split', label: on ? 'Hide this pane' : 'Show this alongside',
-            disabled: !on && onScreen.length >= MAX_PANES },
+            disabled: !on && onScreen.length >= MAX_GRID },
           { kind: 'action', id: 'rename', label: 'Rename this terminal' },
           { kind: 'divider' },
           { kind: 'swatches' },
@@ -1016,7 +1058,7 @@ export function TerminalPanel({
             onTag={(tag: Tag) => setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, tag } : x)))}
             onClose={() => setRowMenu(null)}
             onPick={(id) => {
-              if (id === 'split') { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id))); }
+              if (id === 'split') { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id), MAX_GRID)); }
               else if (id === 'rename') rename(tab);
               else if (id === 'clear') handles.current.get(tab.id)?.clear();
               else if (id === 'close') close(tab.id);
@@ -1243,9 +1285,9 @@ export function TerminalPanel({
                       split lives in the menu now — which is also where people
                       look for it. */}
                   <button className={`tsl-x ${onScreen.includes(tab.id) ? 'lit' : ''}`} data-nodrag
-                          onClick={() => { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id))); }}
+                          onClick={() => { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id), MAX_GRID)); }}
                           aria-pressed={onScreen.includes(tab.id)}
-                          disabled={!onScreen.includes(tab.id) && onScreen.length >= MAX_PANES}
+                          disabled={!onScreen.includes(tab.id) && onScreen.length >= MAX_GRID}
                           title={onScreen.includes(tab.id) ? t('Hide this pane') : t('Show this alongside')}
                           aria-label={onScreen.includes(tab.id) ? t('Hide this pane') : t('Show this alongside')}>
                     <Icon name="split" size={12} />
@@ -1281,10 +1323,13 @@ export function TerminalPanel({
              }} />
       )}
 
-      {/* `grid` only bites with more than two panes: two above one another is
-          not what anybody means by a grid, and a single pane in one would be
-          half a panel of empty space. */}
-      <div ref={row} className={`panel-body ${onScreen.length > 1 ? 'split' : ''} ${grid && onScreen.length > 2 ? 'grid' : ''}`}>
+      {/* `gridded` is the flag with the two ends already decided; see it for
+          why. The column count is handed to CSS rather than written there,
+          because it depends on how many panes are drawn: two columns for
+          three and four, three for five and six. */}
+      <div ref={row}
+           className={`panel-body ${onScreen.length > 1 ? 'split' : ''} ${gridded ? 'grid' : ''}`}
+           style={gridded ? ({ '--tcols': columns(onScreen.length) } as CSSProperties) : undefined}>
         {tabs.map((tab) => {
           const on = onScreen.includes(tab.id);
           const title = titleOf(tab, t('Terminal'));
@@ -1418,7 +1463,7 @@ export function TerminalPanel({
                     </select>
                   </span>
                   <button className="tsl-x"
-                          onClick={() => setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id)))}
+                          onClick={() => setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id), MAX_GRID))}
                           title={t('Hide this pane')} aria-label={`${t('Hide this pane')} — ${title.text}`}>
                     <Icon name="close" size={11} />
                   </button>

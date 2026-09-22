@@ -1866,13 +1866,19 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   flex:none; display:flex; align-items:stretch; gap:var(--sp-4); padding-block:0; padding-inline:var(--sp-2) var(--sp-4);
   border-bottom:1px solid var(--rule); background:var(--panel-2);
 }
+/* `flex:0 1 auto` with the inline minimum zeroed, rather than `flex:none`:
+   the bar gained two more buttons when the count ladder went to six, and
+   something has to give first on a narrow window. It is this — the acts are
+   controls and this is a label, and a label that ellipsises still says most
+   of what it said. */
 .panel-title{
-  display:flex; align-items:center; gap:var(--sp-3); flex:none;
+  display:flex; align-items:center; gap:var(--sp-3); flex:0 1 auto; min-inline-size:0; overflow:hidden;
   padding-block:var(--sp-4); padding-inline:var(--sp-5) var(--sp-4);
   font-size:var(--fs-3); font-weight:600; color:var(--ink-2);
   letter-spacing:.02em;
 }
-.panel-title svg{ color:var(--brand); }
+.panel-title svg{ color:var(--brand); flex:none; }
+.panel-title > span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 /* ── terminal sessions, down the left ────────────────────────────────────
    A strip of tabs across the top worked for two panes and failed at five:
@@ -2064,6 +2070,10 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   .tsl-find, .tsl-text{ display:none; }
   .tsl-pick{ justify-content:center; padding:var(--sp-4) 0; }
   .tsl-x{ display:none; }
+  /* Five and six are a grid, and a grid wants a window. At 400 pixels of
+     panel they would be 130 each — so the ladder stops where the row does,
+     which is also where the bar runs out of room for twelve buttons. */
+  .seg.lay.count button:nth-child(n+5){ display:none; }
 }
 
 .panel-acts{ margin-inline-start:auto; display:flex; align-items:center; gap:var(--sp-2); flex:none; }
@@ -2078,16 +2088,22 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    quarter, paid for in height, which a terminal band has more of than it
    needs once there are four things in it.
 
-   `grid-auto-rows:1fr` rather than a fixed two rows, so three panes make two
-   rows and four make two rows, and neither leaves a hole.
+   `grid-auto-rows:1fr` rather than a fixed number of rows, so the rows follow
+   from the columns and none of 3, 4, 5, 6 leaves a hole the count could have
+   filled.
+
+   The columns come from the panel as `--tcols`, because they depend on how
+   many panes are drawn: two for three and four, three for five and six. The
+   fallback of 2 is for the one frame before it is set, and for anything that
+   renders this class without it.
 
    The drag handles between panes are hidden here rather than removed: they
    resize a row, and there is no single row to resize. `Quad` brings them
    back, which is the honest way to get them — pulling a grid's edges around
    is a different feature with a different model behind it. */
 .panel-body.grid{
-  display:grid; grid-template-columns:1fr 1fr; grid-auto-rows:1fr;
-  gap:1px; background:var(--rule);
+  display:grid; grid-template-columns:repeat(var(--tcols, 2), minmax(0, 1fr));
+  grid-auto-rows:1fr; gap:1px; background:var(--rule);
 }
 .panel-body.grid > .tdiv{ display:none !important; }
 /* The flex growth written on each pane is meaningless in a grid, and a grid

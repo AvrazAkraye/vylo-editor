@@ -2,7 +2,7 @@
 //
 // Small rules, and each one exists because the obvious version has a way of
 // leaving somebody looking at a blank panel or at a pane that moved.
-import { MAX_PANES, toggle, only, prune, focused, swap } from '../.test-build/panes.js';
+import { MAX_GRID, MAX_PANES, toggle, only, prune, focused, swap } from '../.test-build/panes.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -30,7 +30,24 @@ ok('panes follow the session list', toggle(['c'], 'a', ORDER).join() === 'a,c');
 ok('however they were added', toggle(toggle(['e'], 'b', ORDER), 'a', ORDER).join() === 'a,b,e');
 
 // ── the cap ───────────────────────────────────────────────────────────────
-ok('four is the cap', MAX_PANES === 4);
+// Two of them, because the cap belongs to the arrangement rather than to the
+// panel: a row divides the width by the panes, a grid divides it by the
+// columns. `toggle` takes the one that applies — the editor shares this module
+// for its file panes and has only ever had a row.
+ok('four is the cap for a row', MAX_PANES === 4);
+ok('and six for a grid', MAX_GRID === 6);
+ok('the row cap is what toggle assumes', toggle(['a', 'b', 'c', 'd'], 'e', ORDER).length === MAX_PANES);
+{
+  // ORDER is five, and a grid holds six, so this one brings its own list.
+  const WIDE = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+  const six = ['b', 'c', 'd', 'e', 'f'].reduce((p, id) => toggle(p, id, WIDE, MAX_GRID), ['a']);
+  ok('a grid is allowed all six', six.length === MAX_GRID, six);
+  ok('and still in list order', six.join() === 'a,b,c,d,e,f', six);
+  const seven = toggle(six, 'g', WIDE, MAX_GRID);
+  ok('a seventh does not simply appear', seven.length === MAX_GRID, seven);
+  ok('and the one just asked for is the one that shows', seven.includes('g'), seven);
+  ok('the oldest is still the one that goes', !seven.includes('a'), seven);
+}
 ok('and a fourth pane is allowed, which is what the cap being four means',
    toggle(['a', 'b', 'c'], 'd', ORDER).join() === 'a,b,c,d');
 {
