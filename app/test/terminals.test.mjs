@@ -3,7 +3,7 @@
 // The state is the part worth testing hardest: it decides whether a row shows a
 // tick or a warning, and reporting a crashed command as finished-cleanly is the
 // one mistake here that would matter.
-import { stateOf, titleOf, since, matches, filter, shorten, ROW_VIEW, ROW_VIEW_KEY, readView, writeView, rowOf } from '../.test-build/terminals.js';
+import { stateOf, titleOf, since, matches, filter, shorten, ROW_VIEW, ROW_VIEW_KEY, readView, writeView, rowOf, programOf, markOf } from '../.test-build/terminals.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -263,6 +263,65 @@ ok('a stored layout does not disturb the rest of the view', (() => {
   return v.titleAs === ROW_VIEW.titleAs && v.density === ROW_VIEW.density
       && v.meta.state === ROW_VIEW.meta.state;
 })());
+
+// ── what is running in there ──────────────────────────────────────────────
+// Fourteen rows all wearing a terminal glyph is fourteen rows that look the
+// same. The picture is what is *running*, which is read from the last command
+// the pane was given — the panel has no process table, only what was typed.
+ok('a bare program is itself', programOf('claude') === 'claude');
+ok('arguments are not the program', programOf('claude --resume') === 'claude');
+ok('and neither is its path', programOf('/opt/homebrew/bin/claude') === 'claude');
+ok('a Windows path either', programOf('C:\\tools\\claude.exe') === 'claude.exe');
+ok('case does not matter', programOf('CLAUDE') === 'claude');
+ok('nothing is nothing', programOf('') === '' && programOf('   ') === '');
+ok('and a non-string is not a crash',
+   [null, undefined, 42, {}].every((x) => programOf(x) === ''));
+
+// The last segment of a chain, because that is what is running by the time
+// anybody looks at the row.
+ok('a chain runs its last part', programOf('cd api && claude') === 'claude');
+ok('so does a semicolon', programOf('nvm use 20; claude') === 'claude');
+ok('and an or', programOf('claude || bash') === 'bash');
+ok('a pipe ends at the far end', programOf('cat log | claude') === 'claude');
+ok('and the first part is not the answer', programOf('claude && npm test') !== 'claude');
+
+// Environment assignments come before the program and are not it.
+ok('one assignment is stepped over', programOf('FOO=bar claude') === 'claude');
+ok('several are', programOf('A=1 B=2 C=3 claude') === 'claude');
+ok('but a bare word that merely contains = is not one', programOf('./x=y') === 'x=y');
+
+// Launchers take the real program as their first argument.
+ok('sudo is not a program', programOf('sudo claude') === 'claude');
+ok('nor is npx', programOf('npx claude') === 'claude');
+ok('nor env', programOf('env claude') === 'claude');
+ok('and two of them stack', programOf('sudo env claude') === 'claude');
+// Bounded, so `sudo sudo sudo …` cannot run away.
+ok('a pile of launchers still ends', typeof programOf('sudo '.repeat(50) + 'claude') === 'string');
+ok('a launcher on its own is itself', programOf('sudo') === '');
+
+ok('quotes come off', programOf('"claude"') === 'claude' && programOf("'claude'") === 'claude');
+
+// ── which mark the row draws ──────────────────────────────────────────────
+const said = (last) => markOf(shell(1), { last });
+ok('a pane that has run claude says so', said('claude') === 'claude');
+ok('with arguments too', said('claude --continue') === 'claude');
+ok('after a cd as well', said('cd ~/work && claude') === 'claude');
+ok('claude-code counts', said('claude-code') === 'claude');
+ok('a pane running something else is a terminal', said('npm test') === 'terminal');
+ok('and one that has run nothing is a terminal', said(undefined) === 'terminal' && said('') === 'terminal');
+// Something that merely mentions it is not it: `git commit -m 'claude'` is git.
+ok('a mention is not a program', said("git commit -m 'claude fixed it'") === 'terminal');
+ok('and neither is a path that contains the word', said('ls ~/claude') === 'terminal');
+// A command pane exists to run one thing and that thing is known exactly.
+ok('a command pane is read from its command',
+   markOf(shell(1, { command: 'claude -p "hello"' }), {}) === 'claude');
+ok('and the command wins over the history',
+   markOf(shell(1, { command: 'npm test' }), { last: 'claude' }) === 'terminal');
+// What it was running has exited.
+ok('a dead pane is a terminal whatever it ran',
+   markOf(shell(1, { dead: true, code: 0 }), { last: 'claude' }) === 'terminal');
+ok('even one that failed',
+   markOf(shell(1, { dead: true, code: 1 }), { last: 'claude' }) === 'terminal');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

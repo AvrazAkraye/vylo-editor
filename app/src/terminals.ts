@@ -250,6 +250,85 @@ export interface Facts {
   last?: string;
 }
 
+/**
+ * The mark a row draws: a terminal, or the thing running inside it.
+ *
+ * One extra value so far. It is a list rather than a boolean because the next
+ * one is a matter of adding a line, and a `claude?: boolean` on the row would
+ * have to become this anyway.
+ */
+export type Mark = 'terminal' | 'claude';
+
+/**
+ * The program a command line actually runs, lowercased and without its path.
+ *
+ * Three things get in the way of the first word being the answer:
+ *
+ *   `cd x && claude`     a chain. The **last** segment is what is running by
+ *                        the time anybody looks at the row — and for a pipe
+ *                        it is the far end, which is the same rule.
+ *   `FOO=bar claude`     environment assignments, which come before the
+ *                        program and are not it.
+ *   `npx claude`         a launcher. `sudo`, `time`, `env`, `npx` and friends
+ *                        all take the real program as their first argument.
+ *
+ * Quotes are stripped from the result but not parsed: this decides which
+ * picture to draw, and a shell grammar in here to get an icon right would be
+ * a shell grammar to maintain.
+ */
+export function programOf(line: string): string {
+  const src = typeof line === 'string' ? line : '';
+  // The last segment of a chain or a pipeline. `&&`, `||`, `;` and `|` all
+  // mean "and then", as far as "what is running now" is concerned.
+  const tail = src.split(/\|\||&&|[;|]/).pop() ?? '';
+  let words = tail.trim().split(/\s+/).filter(Boolean);
+  // Assignments first, then anything that launches something else. Bounded,
+  // because `sudo sudo sudo` should not be a loop.
+  for (let i = 0; i < 4 && words.length; i++) {
+    const head = words[0];
+    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(head) || WRAPPERS.has(head.toLowerCase())) {
+      words = words.slice(1);
+      continue;
+    }
+    break;
+  }
+  const first = (words[0] ?? '').replace(/^["']|["']$/g, '');
+  const base = first.split(/[\\/]/).pop() ?? '';
+  return base.toLowerCase();
+}
+
+/** Programs that run another program, and are never the answer themselves. */
+const WRAPPERS = new Set([
+  'sudo', 'doas', 'env', 'time', 'nohup', 'nice', 'command', 'exec',
+  'npx', 'bunx', 'pnpx', 'yarn', 'dlx',
+]);
+
+/** What `claude` is called when it is on the path. */
+const CLAUDE = new Set(['claude', 'claude-code']);
+
+/**
+ * What to draw beside a session.
+ *
+ * A pane that has just run `claude` is not a terminal any more in the only
+ * sense that matters to somebody scanning a list of fourteen of them — it is
+ * the Claude one. So the row says so.
+ *
+ * Read from the last command rather than from the process table, because
+ * there is no process table here: the panel knows what was typed into each
+ * pane and nothing else. That makes it honest but not live — the mark stays
+ * until something else is run, which is the same rule the row's own title has
+ * followed since it started showing the last command.
+ *
+ * A dead session is a terminal again whatever it was running, because what it
+ * was running has exited.
+ */
+export function markOf(s: Session, facts: Pick<Facts, 'last'>): Mark {
+  if (s.dead) return 'terminal';
+  // A command pane exists to run one thing and that thing is known exactly.
+  const line = (s.command ?? '').trim() || (facts.last ?? '');
+  return CLAUDE.has(programOf(line)) ? 'claude' : 'terminal';
+}
+
 export interface Row {
   title: string;
   /** True when the title is a string that ran, rather than a phrase. */

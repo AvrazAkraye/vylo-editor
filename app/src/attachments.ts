@@ -206,8 +206,13 @@ export interface DropHandlers {
  * puts every drop at roughly twice its real distance from the top-left — which
  * lands outside the window entirely on the bottom half of the screen.
  */
-export function toClientPoint(p: { x: number; y: number }): { x: number; y: number } {
+export function toClientPoint(p: { x: number; y: number } | null | undefined): { x: number; y: number } {
   const ratio = window.devicePixelRatio || 1;
+  // A drop with no position is not a drop at a point off the screen. The
+  // caller decides what to do with one; `NaN` would quietly compare false
+  // against every rectangle and look like "outside every pane", which is the
+  // wrong answer dressed as a real one.
+  if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return { x: -1, y: -1 };
   return { x: p.x / ratio, y: p.y / ratio };
 }
 
@@ -229,21 +234,36 @@ export async function listenForDrops(h: DropHandlers): Promise<() => void> {
 
     h.onHover(false);
     const paths = p.paths || [];
-    if (!paths.length) return;
 
     // Before anything else looks at them: a drop belongs to whatever is under
     // the pointer, if anything wants it.
+    //
+    // An EMPTY list is offered too, and that is not a formality. A drag that
+    // started inside the app — a file out of the tree, a pane being re-seated
+    // — still travels over the system pasteboard on macOS, so this handler
+    // takes it and the webview's own `drop` never fires. It arrives here
+    // carrying no paths, because no files were involved. Returning early on
+    // an empty list is what made those drops do nothing at all and leave the
+    // highlight switched on afterwards.
     if (h.claim?.(toClientPoint(p.position), paths)) return;
+    if (!paths.length) return;
 
-    // A dropped folder is a workspace, and that wins: dropping a project on the
-    // window should open it, not try to attach it.
-    for (const path of paths) {
-      const kind = await invoke<string>('path_kind', { path }).catch(() => 'missing');
-      if (kind === 'dir') { h.onFolder(path); return; }
+    try {
+      // A dropped folder is a workspace, and that wins: dropping a project on
+      // the window should open it, not try to attach it.
+      for (const path of paths) {
+        const kind = await invoke<string>('path_kind', { path }).catch(() => 'missing');
+        if (kind === 'dir') { h.onFolder(path); return; }
+      }
+
+      const { items, errors } = await collect(paths);
+      if (items.length) h.onAttach(items);
+      if (errors.length) h.onError(errors.join(' · '));
+    } catch (e) {
+      // This is an async listener: a throw here is an unhandled rejection and
+      // a drop that silently did nothing, which is the hardest kind of bug to
+      // report. Say it instead.
+      h.onError(e instanceof Error ? e.message : String(e));
     }
-
-    const { items, errors } = await collect(paths);
-    if (items.length) h.onAttach(items);
-    if (errors.length) h.onError(errors.join(' · '));
   });
 }

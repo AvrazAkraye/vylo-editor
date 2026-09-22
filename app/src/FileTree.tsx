@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Icon } from './Icon';
-import { DRAG_PATH } from './paste';
+import { DRAG_PATH, carry } from './paste';
 import { fill } from './i18n';
 
 export interface Entry { path: string; is_dir: boolean; size: number }
@@ -176,7 +176,22 @@ export function FileTree({ entries, openPath, onOpen, changed, onRename, onDelet
           e.dataTransfer.setData(DRAG_PATH, n.path);
           e.dataTransfer.setData('text/plain', n.path);
           e.dataTransfer.effectAllowed = 'copy';
+          // Said twice on purpose: on macOS this drag travels over the system
+          // pasteboard, Tauri takes the drop before the webview sees it, and
+          // `dataTransfer` never reaches the other end. See `carry`.
+          carry('path', n.path);
         },
+        /*
+         * Deliberately nothing on `dragend`.
+         *
+         * Clearing there is the obvious thing and it is a race: when Tauri
+         * takes the drop, the order of its event against `dragend` is not
+         * ours to decide, and clearing first would empty the register the
+         * drop is about to read. Leaving it costs one stale string, which the
+         * next drag overwrites and which nothing else ever reads — only a
+         * drop carrying no OS paths consults it, and that is an in-app drag,
+         * which has just set it.
+         */
       };
       if (n.isDir) {
         const open = expanded.has(n.path);

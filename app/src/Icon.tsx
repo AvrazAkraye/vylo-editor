@@ -65,6 +65,12 @@ const ICONS: Record<string, Stroke[]> = {
   grid: [{ d: 'M4.5 5.5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1zM12 4.5v15M4.5 12h15' }],
   wide: [{ d: 'M4.5 5.5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1zM15.2 4.5v15' }],
   even: [{ d: 'M5 5.5v13M12 5.5v13M19 5.5v13' }],
+  // What is running in a pane, when it is Claude. Drawn in this set's own
+  // hand — one grid, one stroke, round caps — rather than traced from the
+  // mark itself: this says "the thing in here is Claude", which is what a
+  // radiating burst says at 14 pixels, and tracing somebody's logo to say it
+  // would be borrowing more than the meaning.
+  claude: [{ d: 'M12 4.4v5.1M12 14.5v5.1M4.6 7.8l4.4 2.6M15 13.6l4.4 2.6M4.6 16.2l4.4-2.6M15 10.4l4.4-2.6' }],
   clock: [{ d: 'M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 7.8V12l2.8 2' }],
   link: [{ d: 'M10.2 13.8a3.4 3.4 0 0 0 4.9 0l2.6-2.6a3.45 3.45 0 0 0-4.9-4.9l-1.1 1.1M13.8 10.2a3.4 3.4 0 0 0-4.9 0l-2.6 2.6a3.45 3.45 0 1 0 4.9 4.9l1.1-1.1' }],
   bolt: [{ d: 'M13.4 3 5.8 13.4h5.1L10.6 21l7.6-10.4h-5.1z' }],

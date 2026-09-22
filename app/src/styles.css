@@ -88,6 +88,11 @@
   --on-fill-wash:rgb(255 255 255 / .14);
   --ok:#17694C;
   --warn:#96620F;
+  /* What is running in a pane, when it is Claude. Its own hue rather than
+     --brand, so the row is findable in a column of fourteen without any of
+     them being read — and darker here than in the dark themes, because this
+     one sits on a near-white panel. */
+  --claude:#B4491F;
   --err:#A8332A;
   /* Syntax. One palette for the editor and for code in replies -- two
      highlighters that disagreed about what a keyword is would read worse than
@@ -228,6 +233,7 @@
        5.07 on --err-wash and 4.73 on --ok-wash, the editor's current line. */
     --ok:#23A55A;
     --warn:#FFB800;
+    --claude:#E8836A;
     --err:#FF4040;
     /* Pressed. Dark surfaces lift rather than darken; the same filter in both
        themes would make one of them look broken. */
@@ -315,6 +321,7 @@
      5.07 on --err-wash and 4.73 on --ok-wash, the editor's current line. */
   --ok:#23A55A;
   --warn:#FFB800;
+  --claude:#E8836A;
   --err:#FF4040;
   /* Pressed. Dark surfaces lift rather than darken; the same filter in both
      themes would make one of them look broken. */
@@ -2092,6 +2099,14 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .tsl-mark.busy{ color:var(--warn); background:var(--warn-wash); }
 .tsl-mark.failed{ color:var(--err); background:var(--err-wash); }
+/* A pane with Claude in it. Its own tint, because the picture alone is a
+   1.5-pixel stroke at 14 and the point of the mark is being findable in a
+   column of fourteen rows without reading any of them. The state colours
+   still win: what a shell is *doing* outranks what it is running, and a
+   failed pane that stayed Claude-coloured would be a failure nobody saw. */
+.tsl-mark.claude{ color:var(--claude); background:color-mix(in srgb, var(--claude) 14%, transparent); }
+.tsl-mark.claude.busy{ color:var(--warn); background:var(--warn-wash); }
+.tsl-mark.claude.failed{ color:var(--err); background:var(--err-wash); }
 .tsl-dot{
   position:absolute; inset-inline-end:-2px; bottom:-2px;
   width:13px; height:13px; border-radius:50%;

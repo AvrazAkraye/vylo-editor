@@ -4,7 +4,7 @@ import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
 import {
-  ROW_VIEW_KEY, filter, readView, rowOf, shorten, stateOf, titleOf, writeView,
+  ROW_VIEW_KEY, filter, markOf, readView, rowOf, shorten, stateOf, titleOf, writeView,
   type Facts, type RowView,
 } from './terminals';
 import { MAX_GRID, MAX_PANES, focused, only, prune, swap as swapPane, toggle as togglePane } from './panes';
@@ -20,7 +20,7 @@ import {
 import { fill } from './i18n';
 import { fragment } from './suggest';
 import {
-  DRAG_PANE, DRAG_PATH, describe as describeFile, head as pasteHead, isBulk, pastedFile,
+  DRAG_PANE, DRAG_PATH, carry, describe as describeFile, head as pasteHead, isBulk, landed, pastedFile,
   pathForPrompt, size as pasteSize, summarise as pasteInfo, under, worthHolding,
   type PastedFile,
 } from './paste';
@@ -682,28 +682,59 @@ export function TerminalPanel({
     el.addEventListener('pointercancel', done);
   }
 
+  /** Which drawn pane a point is inside, or nothing. */
+  const paneAt = useCallback((at: { x: number; y: number }): string | null => {
+    for (const [id, el] of boxes.current) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      if (at.x < r.left || at.x > r.right || at.y < r.top || at.y > r.bottom) continue;
+      return id;
+    }
+    return null;
+  }, []);
+
   /**
    * Whether a drop at this point belongs to a terminal pane, and taking it.
    *
    * Registered once through a ref on the App side, so this reads the panes'
    * boxes at drop time rather than closing over the ones that existed when the
-   * listener was set up.
+   * listener was set up. Everything it *does* goes through `acts`, for the
+   * same reason: registered once means captured once, and a `cwds` from the
+   * first render resolves every dropped path against the wrong directory.
+   *
+   * Three things arrive here:
+   *
+   *   `null`      the overlay asking whether this point is ours. It is also
+   *               the only moment anything knows a drag is in progress, so it
+   *               is where the pane is lit.
+   *   some paths  files from outside the app.
+   *   no paths    a drag that started *inside* it. macOS routes those over the
+   *               same pasteboard, so Tauri takes the drop and the webview's
+   *               own `drop` never fires — see `carry` in paste.ts.
    */
   const claimDrop = useCallback((at: { x: number; y: number }, paths: string[] | null) => {
-    for (const [id, el] of boxes.current) {
-      const r = el.getBoundingClientRect();
-      if (r.width <= 0 || r.height <= 0) continue;
-      if (at.x < r.left || at.x > r.right || at.y < r.top || at.y > r.bottom) continue;
-      // `null` paths is the overlay asking whether this point is ours, which
-      // is also the only moment anything knows a drag is in progress — so it
-      // is where the pane is lit. A drag that ends off the window arrives here
-      // as a point inside no pane, which clears it.
-      if (paths) { dropPaths(id, paths); setDropOn(null); } else setDropOn(id);
-      return true;
-    }
+    const hit = paneAt(at);
+    if (paths === null) { setDropOn(hit); return hit !== null; }
+
+    // The strip has been promising this pane for as long as the pointer has
+    // been over it. If the point no longer resolves — a position the platform
+    // did not give us, a pane that moved while the drag was in the air — the
+    // promise is kept rather than dropped on the floor, because the person
+    // read it and let go.
+    const id = hit ?? dropOnRef.current;
+    // Whatever happens next, the highlight goes. It staying on after a drop
+    // that did nothing is half of how this bug was reported.
     setDropOn(null);
+    if (!id) { landed(); return false; }
+
+    if (paths.length) { acts.current.dropPaths(id, paths); return true; }
+
+    const held = landed();
+    if (!held) return false;
+    if (held.kind === 'path') { acts.current.dropInside(id, held.value); return true; }
+    if (held.kind === 'pane') { acts.current.swapPanes(id, held.value); return true; }
     return false;
-  }, []);
+  }, [paneAt]);
 
   useEffect(() => {
     exposeDrop?.(claimDrop);
@@ -1096,6 +1127,51 @@ export function TerminalPanel({
     typePaths(id, paths);
   }
 
+  /**
+   * One pane's path put at another's prompt, from a drag that began in the
+   * file tree.
+   *
+   * The same two lines the pane's own `onDrop` runs — which is the one that
+   * fires on a platform where the webview keeps its drop events. Both ends in
+   * the same place, which is the point.
+   */
+  function dropInside(id: string, rel: string) {
+    setActive(id);
+    const abs = under(root, rel);
+    handles.current.get(id)?.type(`${quotePath(pathForPrompt(abs, cwds[id] || root))} `);
+  }
+
+  /**
+   * A pane dropped on a pane changes places with it.
+   *
+   * Takes the pane being landed on by id and finds its seat here, because the
+   * two callers know different things: the JSX knows which row it drew, and a
+   * drop coming back from the OS knows only which pane the point was in.
+   */
+  function swapPanes(onto: string, moved: string) {
+    if (!moved || moved === onto) return;
+    const seat = onScreen.indexOf(onto);
+    if (seat < 0) return;
+    setLifting(null);
+    setShown(swapPane(onScreen, seat, moved));
+    setActive(moved);
+  }
+
+  /*
+   * What a landed drag does, read at the moment it lands.
+   *
+   * `claimDrop` is registered once, so anything it closes over is frozen at
+   * the first render — including `cwds`, which starts empty and would resolve
+   * every dropped path against the workspace instead of the shell's own
+   * directory. A ref reassigned every render is the fix, and it is the same
+   * one `live` above is already making.
+   */
+  const acts = useRef({ dropPaths, dropInside, swapPanes });
+  acts.current = { dropPaths, dropInside, swapPanes };
+  /** The pane the strip is promising, for a drop whose point does not resolve. */
+  const dropOnRef = useRef(dropOn);
+  dropOnRef.current = dropOn;
+
   // Assigned here rather than beside the ref because it carries `focus`, which
   // is only known once the visible set is. Effects run after the whole render,
   // so nothing reads it before this line.
@@ -1112,7 +1188,11 @@ export function TerminalPanel({
         <div className="panel-title"
              onDoubleClick={() => { const me = tabs.find((x) => x.id === focus); if (me) rename(me); }}
              title={t('Double-click to rename')}>
-          <Icon name="terminal" size={13} />
+          {/* The same answer as the row's, for the pane being looked at. */}
+          <Icon name={(() => {
+            const me = tabs.find((x) => x.id === focus);
+            return me ? markOf(me, factsFor(me.id)) : 'terminal';
+          })()} size={13} />
           {(() => {
             const me = tabs.find((x) => x.id === focus);
             if (!me) return t('Terminal');
@@ -1511,18 +1591,23 @@ export function TerminalPanel({
               const i = rows.findIndex((x) => x.id === tab.id);
               const nest = node.depth - 1;
               const state = stateOf(tab);
-              const row = rowOf(tab, factsFor(tab.id), view,
-                { term: t('Terminal'), home, now: clock, t });
+              const facts = factsFor(tab.id);
+              const row = rowOf(tab, facts, view, { term: t('Terminal'), home, now: clock, t });
+              const mark = markOf(tab, facts);
               // The state badge, drawn the same whether the row is being read
               // or renamed — one copy, so the row cannot change shape under
               // somebody halfway through typing a name.
-              const mark = (
+              const badge = (
                 /* The icon was briefly a drag handle of its own, for sending
                    this session to a pane. The row does that now — see
                    `onDropOut` — and two gestures on one row is how they end up
                    fighting for the pointer. */
-                <span className={`tsl-mark ${state}`}>
-                  <Icon name="terminal" size={14} />
+                /* The picture is what is *running*, not what the pane is:
+                   fourteen rows all wearing a terminal glyph is fourteen rows
+                   that look the same, and the one with Claude in it is the one
+                   being looked for. See `markOf`. */
+                <span className={`tsl-mark ${state}${mark === 'claude' ? ' claude' : ''}`}>
+                  <Icon name={mark} size={14} />
                   {/* The badge carries the state, so the second line is free
                       to say something the badge cannot. */}
                   <i className="tsl-dot" aria-hidden="true">
@@ -1558,7 +1643,7 @@ export function TerminalPanel({
                        button is invalid, and the button swallows the clicks
                        that would put a caret in it. */
                     <div className="tsl-pick editing">
-                      {mark}
+                      {badge}
                       <span className="tsl-text">
                         <input className="tsl-rename" data-nodrag autoFocus
                                defaultValue={titleOf(tab, t('Terminal')).text}
@@ -1588,7 +1673,7 @@ export function TerminalPanel({
                             onClick={() => { setActive(tab.id); setShown(only(tab.id)); }}
                             onDoubleClick={() => rename(tab)}
                             aria-current={tab.id === focus ? 'true' : undefined}>
-                      {mark}
+                      {badge}
                       <span className="tsl-text">
                         <span className={`tsl-name ${row.mono ? 'mono' : ''}`}
                               title={row.title}>{row.title}</span>
@@ -1718,28 +1803,37 @@ export function TerminalPanel({
                    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
                    setDropOn((c) => (c === tab.id ? null : c));
                  }}
+                 /* WebKit wants the drop allowed on entry as well as on
+                    every move over the target. Without it the first frame of
+                    the drag can refuse, and a drag that springs back reads as
+                    "the terminal will not take this". */
+                 onDragEnter={(e) => {
+                   if (!e.dataTransfer.types.includes(DRAG_PANE)
+                     && !e.dataTransfer.types.includes(DRAG_PATH)) return;
+                   e.preventDefault();
+                 }}
                  onDrop={(e) => {
+                   // This fires where the webview still gets its own drop
+                   // events. Where it does not — macOS, where Tauri takes
+                   // them first — the same work happens in `claimDrop`, and
+                   // `landed` here is what stops both doing it.
                    const moved = e.dataTransfer.getData(DRAG_PANE);
+                   setDropOn(null);
                    if (moved) {
                      e.preventDefault();
-                     setDropOn(null);
-                     setLifting(null);
+                     landed();
                      // The same exchange the name's picker makes — see
                      // `swap`: two panes on one shell would both be live.
-                     setShown(swapPane(onScreen, at, moved));
-                     setActive(moved);
+                     swapPanes(tab.id, moved);
                      return;
                    }
                    const rel = e.dataTransfer.getData(DRAG_PATH);
-                   setDropOn(null);
                    if (!rel) return;
                    e.preventDefault();
-                   setActive(tab.id);
+                   landed();
                    // As a person would have typed it: relative when the file
                    // is inside the shell's own directory, whole when it is not.
-                   const abs = under(root, rel);
-                   handles.current.get(tab.id)?.type(
-                     `${quotePath(pathForPrompt(abs, cwds[tab.id] || root))} `);
+                   dropInside(tab.id, rel);
                  }}>
               {/* Side by side, two panes are two anonymous dark rectangles
                   without a name on them. One pane needs no label: the row it
@@ -1762,6 +1856,8 @@ export function TerminalPanel({
                           // selectable text, and making the whole thing a drag
                           // source would mean nobody could select any of it.
                           e.dataTransfer.setData(DRAG_PANE, tab.id);
+                          // Said twice, for the reason `carry` gives.
+                          carry('pane', tab.id);
                           e.dataTransfer.effectAllowed = 'move';
                           setLifting(tab.id);
                         }}

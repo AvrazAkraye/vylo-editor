@@ -120,6 +120,53 @@ export function head(text: string, width = 60): string {
 export const DRAG_PATH = 'application/x-vylo-path';
 
 /**
+ * What is being dragged *inside* the app right now, and why that needs saying
+ * twice.
+ *
+ * A drag from the file tree to a terminal is an ordinary HTML5 drag and sets
+ * `dataTransfer`. That should be the whole story, and on macOS it is not:
+ * an in-app drag still travels over the system pasteboard, Tauri's window
+ * drag-drop handler is registered on the webview, and it takes the drop before
+ * the webview sees it. The `drop` event never fires. What arrives instead is
+ * Tauri's own event, carrying **no paths** — because no files were involved —
+ * and everything downstream reads that as "nothing was dropped".
+ *
+ * The symptom is precise and was reported as one: the pane lights up, the
+ * "drop to put the path at the prompt" strip appears, letting go does
+ * nothing, and the highlight stays on afterwards.
+ *
+ * So the thing being dragged is also written down here, where an event with
+ * no paths can still find it. `dataTransfer` stays as it is — when the webview
+ * *does* get its own `drop` (another platform, a future Tauri that does not
+ * intercept) that path runs first and calls `landed` itself, which empties the
+ * register and leaves Tauri's event with nothing to do.
+ */
+export interface Carried {
+  /** `path` is a file from the tree; `pane` is a terminal being re-seated. */
+  kind: 'path' | 'pane';
+  value: string;
+}
+
+let carried: Carried | null = null;
+
+/** A drag started inside the app. Called from `dragstart`. */
+export function carry(kind: Carried['kind'], value: string): void {
+  carried = value ? { kind, value } : null;
+}
+
+/** Take what is being carried, and stop carrying it. */
+export function landed(): Carried | null {
+  const was = carried;
+  carried = null;
+  return was;
+}
+
+/** What is being carried, without taking it. For a hover that wants to know. */
+export function carrying(): Carried | null {
+  return carried;
+}
+
+/**
  * The drag type a terminal pane puts on itself.
  *
  * Its own type, and no `text/plain` beside it: a pane is not a thing that

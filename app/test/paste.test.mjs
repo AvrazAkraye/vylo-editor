@@ -6,7 +6,8 @@
 // they learn to dismiss without reading, which is worse than not having it.
 import {
   BULK_BYTES, BULK_LINES, DRAG_PATH, head, isAbsolute, isBulk, pathForPrompt, size,
-  PATH_INLINE, describe, isTemporary, pastedFile, summarise, under, worthHolding,
+  PATH_INLINE, carry, carrying, describe, isTemporary, landed, pastedFile, summarise,
+  under, worthHolding,
 } from '../.test-build/paste.js';
 
 let pass = 0, fail = 0;
@@ -181,6 +182,45 @@ ok('a trailing slash does not make the name empty', describe('/Users/me/vylo/').
 // The narrow one still refuses what it cannot be sure of.
 ok('describe answers where pastedFile declines',
    describe('/Users/me/vylo').name === 'vylo' && pastedFile('/Users/me/vylo') === null);
+
+// ── the in-app drag register ──────────────────────────────────────────────
+//
+// Why this exists at all: a drag from the file tree to a terminal sets
+// `dataTransfer` and that should be the whole story. On macOS it is not — the
+// drag travels over the system pasteboard, Tauri's handler takes the drop
+// before the webview sees it, and the `drop` event never fires. What arrives
+// instead carries no paths, because no files were involved. The bug that was
+// reported is exactly that: the pane lights up, the strip appears, letting go
+// does nothing, and the highlight stays on.
+ok('nothing is being carried to begin with', (() => { landed(); return carrying() === null; })());
+ok('a path can be carried', (() => { carry('path', '/x/y.ts'); return carrying().kind === 'path'; })());
+ok('and read back whole', carrying().value === '/x/y.ts');
+// Peeking must not empty it: the hover asks repeatedly while the drop asks once.
+ok('peeking does not take it', carrying() !== null && carrying() !== null);
+ok('landing takes it', (() => {
+  const got = landed();
+  return got.kind === 'path' && got.value === '/x/y.ts';
+})());
+ok('and leaves nothing behind', carrying() === null);
+// Whoever handles the drop calls this, and the other path then finds nothing —
+// which is what stops both of them doing the same work on a platform where the
+// webview does get its own drop event.
+ok('landing twice is null the second time', landed() === null);
+
+ok('a pane can be carried too', (() => {
+  carry('pane', 't3');
+  const got = landed();
+  return got.kind === 'pane' && got.value === 't3';
+})());
+ok('a new drag replaces the last', (() => {
+  carry('path', '/one');
+  carry('pane', 't9');
+  const got = landed();
+  return got.kind === 'pane' && got.value === 't9';
+})());
+// A drag that carries nothing is not a drag: `''` would otherwise land as a
+// path the terminal would try to type.
+ok('an empty value carries nothing', (() => { carry('path', ''); return carrying() === null; })());
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

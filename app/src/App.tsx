@@ -2199,7 +2199,14 @@ export function App() {
       // The window's "drop to attach" overlay stays out of the way of anything
       // that will claim the drop for itself — offering to attach a file over a
       // terminal that is about to type its path is two answers to one gesture.
-      onHover: (on, at) => setDragging(on && !(at && termDrop.current?.(at, null))),
+      onHover: (on, at) => {
+        // A drag that leaves the window has to put the pane's highlight out as
+        // well as this one. Said as "is this point ours" with a point that is
+        // nowhere, because that is the question the panel already answers, and
+        // its answer for nowhere is to light nothing.
+        if (!on) termDrop.current?.({ x: -1, y: -1 }, null);
+        setDragging(on && !(at && termDrop.current?.(at, null)));
+      },
       claim: (at, paths) => !!termDrop.current?.(at, paths),
       onError: (m) => push({ kind: 'error', text: m }),
     }).then((un) => { stop = un; });
