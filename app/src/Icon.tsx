@@ -58,6 +58,13 @@ const ICONS: Record<string, Stroke[]> = {
   list: [{ d: 'M9 6.5h10M9 12h10M9 17.5h10M5 6.5h.01M5 12h.01M5 17.5h.01' }],
   archive: [{ d: 'M4.5 8.5h15v10a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1zM3.5 5.5a1 1 0 0 1 1-1h15a1 1 0 0 1 1 1v3h-17zM10 12.5h4' }],
   board: [{ d: 'M4.5 5.5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1zM9.8 4.5v15M14.6 4.5v15' }],
+  // The three the terminal bar draws for its layout. A pane is a box, so all
+  // three are the same box with different lines in it: crossed for a grid,
+  // off-centre for a workbench, and — for the repair — no box at all, because
+  // tidy is about the gaps rather than about a shape.
+  grid: [{ d: 'M4.5 5.5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1zM12 4.5v15M4.5 12h15' }],
+  wide: [{ d: 'M4.5 5.5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1zM15.2 4.5v15' }],
+  even: [{ d: 'M5 5.5v13M12 5.5v13M19 5.5v13' }],
   clock: [{ d: 'M12 4.5a7.5 7.5 0 1 0 0 15 7.5 7.5 0 0 0 0-15zM12 7.8V12l2.8 2' }],
   link: [{ d: 'M10.2 13.8a3.4 3.4 0 0 0 4.9 0l2.6-2.6a3.45 3.45 0 0 0-4.9-4.9l-1.1 1.1M13.8 10.2a3.4 3.4 0 0 0-4.9 0l-2.6 2.6a3.45 3.45 0 1 0 4.9 4.9l1.1-1.1' }],
   bolt: [{ d: 'M13.4 3 5.8 13.4h5.1L10.6 21l7.6-10.4h-5.1z' }],

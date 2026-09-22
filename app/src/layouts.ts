@@ -134,13 +134,26 @@ export interface PresetInfo {
   about: string;
 }
 
-/** The four, in the order the buttons show them: the shapes first, the repair last. */
+/**
+ * The presets the bar draws as buttons — which is no longer all of them.
+ *
+ * It was six: Solo, Pair, Workbench, Quad, Grid, Tidy. Then the count ladder
+ * arrived beside them, and four of the six became the same thing said twice.
+ * `solo` is 1. `pair` is 2. `quad` is 4. `grid` is 6. Nineteen controls sat in
+ * that bar and thirteen of them were about the layout, for what is really two
+ * questions: how many panes, and how they are arranged.
+ *
+ * So the ladder answers "how many" and keeps the four counts, the arrangement
+ * became one toggle, and what is left here is the two presets that are neither:
+ *
+ *   workbench  two panes, *unevenly*. A width, which no count can ask for.
+ *   tidy       whatever is there, evened out. A repair, not a shape.
+ *
+ * `Preset` still has all six, because `apply` still understands all six and
+ * `describe` still answers them — they stopped being buttons, not concepts.
+ */
 export const PRESETS: readonly PresetInfo[] = [
-  { id: 'solo', label: 'Solo', about: 'One pane: the one you are in.' },
-  { id: 'pair', label: 'Pair', about: 'Two panes, side by side and even.' },
   { id: 'workbench', label: 'Workbench', about: 'Two panes, with the one you are in wider.' },
-  { id: 'quad', label: 'Quad', about: 'Four panes, side by side and even. Wants a wide window.' },
-  { id: 'grid', label: 'Grid', about: 'Six panes, three across and two down. A third of the width each.' },
   { id: 'tidy', label: 'Tidy', about: 'Keep the panes you have and square them back up.' },
 ];
 

@@ -31,9 +31,20 @@ const SIX = ['a', 'b', 'c', 'd', 'e', 'f'];
 const BENCH = { a: 1.3, b: 0.7 };
 
 // ── the buttons ───────────────────────────────────────────────────────────
-ok('six presets, shapes first and the repair last',
-   same(PRESETS.map((p) => p.id), ['solo', 'pair', 'workbench', 'quad', 'grid', 'tidy']),
-   PRESETS.map((p) => p.id));
+// `apply` understands six presets; the bar draws two of them. The other four
+// are counts — solo is 1, pair is 2, quad is 4, grid is 6 — and drawing them
+// beside the ladder was the same question asked twice. What is left is what no
+// count can ask for: a width, and a repair.
+const ALL = ['solo', 'pair', 'workbench', 'quad', 'grid', 'tidy'];
+ok('two presets are drawn, and neither is a count',
+   same(PRESETS.map((p) => p.id), ['workbench', 'tidy']), PRESETS.map((p) => p.id));
+ok('but apply still understands all six', ALL.every((p) => {
+  const r = apply(p, row('a', TWO, FOUR));
+  return r.shown.length >= 1 && typeof r.needs === 'number';
+}));
+ok('and describe still answers the four that stopped being buttons',
+   describe(['a'], {}) === 'solo' && describe(TWO, {}) === 'pair'
+   && describe(FOUR, {}) === 'quad');
 ok('each has a one-word label, because it is a button',
    PRESETS.every((p) => /^[A-Z][a-z]+$/.test(p.label)), PRESETS.map((p) => p.label));
 ok('and a sentence about it', PRESETS.every((p) => p.about.length > 10 && p.about.endsWith('.')));
@@ -157,7 +168,7 @@ ok('and when it would make seven, the farthest goes', (() => {
 })(), apply('tidy', row('g', SIX, [...SIX, 'g'])).shown);
 
 // ── what no preset may do ─────────────────────────────────────────────────
-const EVERY = PRESETS.map((p) => p.id);
+const EVERY = ALL;
 const ROWS = [
   row('a', ONE, ONE), row('b', TWO, TWO), row('c', THREE, THREE), row('d', ['d'], FOUR),
   row('a', THREE, FOUR), row('b', ['b', 'd'], FOUR), row('d', THREE, FOUR),
@@ -326,7 +337,7 @@ ok('a row that already has enough needs none', apply(3, row('a', ONE, FOUR)).nee
 ok('solo never needs one', apply('solo', row('a', ONE, ONE)).needs === 0);
 ok('tidy never needs one', apply('tidy', row('a', THREE, THREE)).needs === 0);
 ok('needsNew is needs > 0, always', ROWS.every((r) =>
-  [...COUNTS, ...PRESETS.map((p) => p.id)].every((q) => { const a = apply(q, r); return a.needsNew === (a.needs > 0); })));
+  [...COUNTS, ...ALL].every((q) => { const a = apply(q, r); return a.needsNew === (a.needs > 0); })));
 
 // ── which count is lit ────────────────────────────────────────────────────
 // `describe` has to say custom for three even panes, because three even panes

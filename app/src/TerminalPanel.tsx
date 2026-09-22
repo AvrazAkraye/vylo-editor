@@ -614,12 +614,6 @@ export function TerminalPanel({
     return () => exposeDrop?.(null);
   }, [exposeDrop, claimDrop]);
 
-  function split() {
-    const other = tabs.find((x) => !onScreen.includes(x.id));
-    if (!other) return add(true);
-    setShown(togglePane(onScreen, other.id, tabs.map((x) => x.id), MAX_GRID));
-  }
-
   function close(id: string) {
     handles.current.delete(id);
     // Closing a pane mid-command still has to answer the agent, or the loop
@@ -773,6 +767,32 @@ export function TerminalPanel({
    * range where both are possible, and the ends decide themselves.
    */
   const gridded = (grid || onScreen.length > MAX_PANES) && onScreen.length > 2;
+  /**
+   * What the row *is*, read from the row rather than remembered from the last
+   * click — a layout somebody has since dragged away from should stop claiming
+   * to be what was pressed. `shape` is the named one if there is one, `evenly`
+   * is how many even panes there are if they are even.
+   */
+  const shape = describeLayout(onScreen, weights);
+  const evenly = evenCount(onScreen, weights);
+
+  /**
+   * Row ⇄ grid, keeping the panes.
+   *
+   * Not `snap('grid')`: that fills the grid, and this is a toggle. The two
+   * clamps are the ends of `gridded` said the other way round — a row holds
+   * four, so coming back from a grid of five or six drops the extras; a grid
+   * wants three, because two above one another is not one.
+   */
+  function toggleGrid() {
+    if (gridded) {
+      setGrid(false);
+      if (onScreen.length > MAX_PANES) snap(MAX_PANES);
+      return;
+    }
+    setGrid(true);
+    if (onScreen.length < 3) snap(3);
+  }
 
   /**
    * What a request says about the arrangement, which for most of them is
@@ -932,9 +952,10 @@ export function TerminalPanel({
           })()}
         </div>
         <div className="panel-acts">
-          <button className="ghost" onClick={sendToChat} disabled={dead}
-                  title={t('Copy the selection, or the last of the output, into the message box')}>
-            {t('Send to chat')}
+          <button className="ghost icon" onClick={sendToChat} disabled={dead}
+                  title={t('Copy the selection, or the last of the output, into the message box')}
+                  aria-label={t('Send to chat')}>
+            <Icon name="chat" size={14} />
           </button>
           <button className="ghost" onClick={() => handles.current.get(focus)?.clear()} disabled={dead}>
             {t('Clear')}
@@ -953,20 +974,18 @@ export function TerminalPanel({
               <Icon name="sparkle" size={13} />{t('Ask')}
             </button>
           )}
-          <span className="seg lay count" role="group" aria-label={t('Terminals on screen')}>
+          {/* One control where there were three. The digits say how many, the
+              icons say how — and the four presets that used to sit here (Solo,
+              Pair, Quad, Grid) were those digits a second time. See `PRESETS`
+              in layouts.ts for what left and why. */}
+          <span className="seg lay" role="group" aria-label={t('Layout')}>
             {COUNTS.map((n) => {
-              // Lit by how many even panes are on screen, read from the row.
-              // Nothing is suppressed here: this ladder answers "how many" and
-              // the buttons beside it answer "what shape", so four across
-              // lighting both the 4 and Quad is two true statements about one
-              // row rather than a conflict.
-              const on = evenCount(onScreen, weights) === n;
               // Above the row's cap it can only be a grid; at or below it, it
               // is whichever the panes are in now, because that is what this
               // button will leave them in.
               const asGrid = n > MAX_PANES || (gridded && n > 2);
               return (
-                <button key={n} className={on ? 'on' : ''} aria-pressed={on}
+                <button key={n} className={evenly === n ? 'on' : ''} aria-pressed={evenly === n}
                         onClick={() => snap(n)}
                         title={n === 1 ? t('One pane: the one you are in.')
                                : asGrid ? fill(t('{n} panes in a grid, evenly sized.'), { n })
@@ -975,35 +994,21 @@ export function TerminalPanel({
                 </button>
               );
             })}
+            <span className="seg-cut" aria-hidden="true" />
+            <button className={`icon ${gridded ? 'on' : ''}`} aria-pressed={gridded}
+                    onClick={toggleGrid}
+                    title={t(gridded ? 'Back to a single row of panes' : 'Arrange the panes in a grid')}
+                    aria-label={t(gridded ? 'Back to a single row of panes' : 'Arrange the panes in a grid')}>
+              <Icon name="grid" size={13} />
+            </button>
+            {PRESETS.map((p) => (
+              <button key={p.id} className={`icon ${shape === p.id ? 'on' : ''}`}
+                      aria-pressed={shape === p.id}
+                      onClick={() => snap(p.id)} title={t(p.about)} aria-label={t(p.label)}>
+                <Icon name={p.id === 'workbench' ? 'wide' : 'even'} size={13} />
+              </button>
+            ))}
           </span>
-          <span className="seg lay" role="group" aria-label={t('Layout')}>
-            {PRESETS.map((p) => {
-              // Quad and Grid are the two arrangements, each filled to its own
-              // cap: four across, six in a grid. Widths cannot tell a row of
-              // four from two rows of two, so the arrangement decides, and the
-              // count decides whether it is *full*. Four panes in a grid are
-              // neither button — the ladder's 4 is the honest answer, and it
-              // is lit.
-              const shape = describeLayout(onScreen, weights);
-              const many = evenCount(onScreen, weights);
-              const on = p.id === 'tidy' ? false
-                : p.id === 'quad' ? !gridded && many === MAX_PANES
-                : p.id === 'grid' ? gridded && many === MAX_GRID
-                : shape === p.id;
-              return (
-                <button key={p.id} className={on ? 'on' : ''} aria-pressed={on}
-                        onClick={() => snap(p.id)} title={t(p.about)}>
-                  {t(p.label)}
-                </button>
-              );
-            })}
-          </span>
-          <button className="ghost icon" onClick={split}
-                  disabled={onScreen.length >= MAX_GRID}
-                  title={t('Show another terminal beside this one')}
-                  aria-label={t('Show another terminal beside this one')}>
-            <Icon name="split" size={14} />
-          </button>
           <button className="ghost icon" onClick={onToggleFull} aria-pressed={full}
                   title={t(full ? 'Restore the panel' : 'Fill the window')}
                   aria-label={t(full ? 'Restore the panel' : 'Fill the window')}><Icon name={full ? 'restore' : 'maximise'} size={14} /></button>

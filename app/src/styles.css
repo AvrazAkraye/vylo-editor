@@ -2071,9 +2071,10 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   .tsl-pick{ justify-content:center; padding:var(--sp-4) 0; }
   .tsl-x{ display:none; }
   /* Five and six are a grid, and a grid wants a window. At 400 pixels of
-     panel they would be 130 each — so the ladder stops where the row does,
-     which is also where the bar runs out of room for twelve buttons. */
-  .seg.lay.count button:nth-child(n+5){ display:none; }
+     panel they would be 130 each — so the ladder stops where the row does.
+     By index rather than by a class: the digits are the first six children of
+     the segment, and the arrangement icons after them stay. */
+  .seg.lay button:nth-child(5), .seg.lay button:nth-child(6){ display:none; }
 }
 
 .panel-acts{ margin-inline-start:auto; display:flex; align-items:center; gap:var(--sp-2); flex:none; }
@@ -4296,16 +4297,33 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    what-column that ellipsises, a trailing act cluster, a hover wash. The
    dashboard's facts are the one place a number is allowed to be big. */
 .seg.space button{ padding:3px var(--sp-5); font-weight:500; }
+/* One segment, two halves: the digits say how many panes, the icons say how
+   they are arranged, and the hairline is the join. It replaced three separate
+   controls — a ladder, six word-buttons and a loose split icon — that between
+   them asked those same two questions four times over. */
 .seg.lay button{ padding:1px var(--sp-3); font-size:var(--fs-2); }
-/* The count ladder is single digits, so `1` would sit narrower than `4` and
-   the row would breathe unevenly as the selection moved. A min-width sized to
-   the widest digit plus tabular figures holds every cell on the same grid, and
-   the ladder keeps the flex direction it is given: ascending left-to-right in
+/* The digits. Single characters, so `1` would sit narrower than `4` and the
+   row would breathe unevenly as the selection moved. A min-width sized to the
+   widest digit plus tabular figures holds every cell on the same grid, and the
+   ladder keeps the flex direction it is given: ascending left-to-right in
    English, ascending right-to-left in Arabic and Sorani, which is the reading
    order in both. */
-.seg.lay.count button{
+.seg.lay button:not(.icon){
   min-width:20px; padding-inline:var(--sp-2); text-align:center;
   font-variant-numeric:tabular-nums;
+}
+/* The arrangements. `.ghost.icon` is the bar's icon button and these are not
+   that — they are segment cells that happen to hold a glyph, so they take the
+   segment's padding and only the centring from it. */
+.seg.lay button.icon{
+  display:inline-flex; align-items:center; justify-content:center;
+  padding-block:1px; padding-inline:var(--sp-2); line-height:1;
+}
+/* Logical, not `width`: in Arabic and Sorani this sits on the other side of
+   the digits and still has to be one pixel of rule. */
+.seg-cut{
+  inline-size:1px; align-self:stretch; flex:none;
+  margin-inline:var(--sp-1); background:var(--rule);
 }
 
 .rt, .db, .pg{ flex:1; min-height:0; display:flex; flex-direction:column; overflow-y:auto; }
