@@ -23,10 +23,24 @@
  *              after a few drags the row is 40/23/37 and nobody chose that.
  *              BridgeMind's phrase for it is "squares the layout back up".
  *
- * Nothing here for three. Three even is what showing a third already gives
- * you, one click at a time; `quad` earns a button because four is four clicks
- * from solo and because it is the shape somebody sets up deliberately, on a
- * wide screen, and wants back in one press.
+ * Nothing here for three, and that was the gap. "Three even is what showing a
+ * third already gives you, one click at a time" is true and was not the point:
+ * somebody who wants three wants to say three, not to count clicks and stop.
+ *
+ * ## Asking for a number
+ *
+ * So `apply` also takes a count. One to `MAX_PANES`, evenly wide — the shape
+ * `solo`, `pair` and `quad` already are at 1, 2 and 4, and the one nothing
+ * reached at 3. The named presets stay because two of them are not counts:
+ * `workbench` is two panes unevenly, `grid` is four in two rows, and neither
+ * is expressible as "how many".
+ *
+ * A count says how many panes are wanted, which is not the same as how many
+ * exist. `needs` is the difference — the sessions still to open — and the
+ * caller opens them. It is a number rather than a flag because asking for four
+ * with one terminal open needs three, and a flag could only say "one more":
+ * the panel opened a single terminal, re-applied, and settled on two panes
+ * while the button said four.
  *
  * ## The pane you are in is never the one that goes
  *
@@ -75,6 +89,16 @@ export type Shape = 'solo' | 'pair' | 'workbench' | 'quad' | 'grid';
 
 /** What a button does: a shape, or `tidy`, which is a repair rather than a shape. */
 export type Preset = Shape | 'tidy';
+
+/**
+ * What `apply` accepts: a named preset, or a number of panes.
+ *
+ * A number is always evenly wide. Unevenness is a shape and has a name.
+ */
+export type Request = Preset | number;
+
+/** The counts a row can be asked for: one pane up to the cap. */
+export const COUNTS: readonly number[] = Array.from({ length: MAX_PANES }, (_, i) => i + 1);
 
 /** A preset as the buttons show it. `label` and `about` are i18n keys. */
 export interface PresetInfo {
@@ -133,10 +157,14 @@ export interface Applied {
    */
   weights: Weights;
   /**
-   * The shape needed more sessions than there are. The caller opens a
-   * terminal and applies the preset again; `shown` meanwhile is what *can* be
-   * shown, so the row is never left blank while it waits.
+   * How many sessions still have to be opened for the request to be met.
+   *
+   * Zero when the row can be built from what exists. The caller opens this
+   * many and applies again; `shown` meanwhile is what *can* be shown, so the
+   * row is never left blank while it waits.
    */
+  needs: number;
+  /** `needs > 0`, kept because that is the question most callers ask. */
   needsNew: boolean;
 }
 
@@ -182,21 +210,23 @@ function widened(shown: readonly string[], focus: string, weights: Weights): Wei
  * on screen — so a stale layout restored from disk gets a sensible row rather
  * than a blank one. Nothing passed in is changed.
  */
-export function apply(preset: Preset, from: Layout): Applied {
+export function apply(preset: Request, from: Layout): Applied {
   const { order } = from;
   const live = order.filter((id) => from.shown.includes(id));
   const focus = order.includes(from.focus) ? from.focus : (live[0] ?? order[0] ?? '');
 
   // How many panes the shape is. `tidy` is however many there are — plus the
   // focused one, if it was somehow not among them — and never more than the cap.
-  const size = preset === 'solo' ? 1
+  const size = typeof preset === 'number' ? Math.round(preset)
+    : preset === 'solo' ? 1
     : preset === 'quad' || preset === 'grid' ? MAX_PANES
     : preset === 'tidy' ? live.length + (live.includes(focus) ? 0 : 1)
     : 2;
   const want = Math.min(MAX_PANES, Math.max(1, size));
 
-  const needsNew = order.length < want;
-  if (!order.length) return { shown: [], weights: from.weights, needsNew };
+  const needs = Math.max(0, want - order.length);
+  const needsNew = needs > 0;
+  if (!order.length) return { shown: [], weights: from.weights, needs, needsNew };
 
   const shown = fill(focus, live, order, Math.min(want, order.length));
   // One pane has no width to arrange, so nothing is written until there are
@@ -204,7 +234,26 @@ export function apply(preset: Preset, from: Layout): Applied {
   const weights = shown.length < 2 || preset === 'solo' ? from.weights
     : preset === 'workbench' ? widened(shown, focus, from.weights)
     : evened(shown, from.weights);
-  return { shown, weights, needsNew };
+  return { shown, weights, needs, needsNew };
+}
+
+/**
+ * How many panes the row is, if they are evenly wide — otherwise nothing.
+ *
+ * What lights the count buttons. Deliberately separate from `describe`: that
+ * one answers "which named shape is this" and has to say `custom` for three
+ * even panes, because three even panes have no name. This one answers "how
+ * many", which three does have an answer to.
+ *
+ * A single pane is even by definition; there is nothing beside it to be
+ * uneven with.
+ */
+export function evenCount(shown: readonly string[], weights: Weights): number | null {
+  if (!shown.length) return null;
+  if (shown.length === 1) return 1;
+  const parts = shares(shown, weights);
+  const near = (x: number) => Math.abs(x - 1 / shown.length) <= TOLERANCE + 1e-9;
+  return parts.every(near) ? shown.length : null;
 }
 
 /**

@@ -4281,6 +4281,16 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    dashboard's facts are the one place a number is allowed to be big. */
 .seg.space button{ padding:3px var(--sp-5); font-weight:500; }
 .seg.lay button{ padding:1px var(--sp-3); font-size:var(--fs-2); }
+/* The count ladder is single digits, so `1` would sit narrower than `4` and
+   the row would breathe unevenly as the selection moved. A min-width sized to
+   the widest digit plus tabular figures holds every cell on the same grid, and
+   the ladder keeps the flex direction it is given: ascending left-to-right in
+   English, ascending right-to-left in Arabic and Sorani, which is the reading
+   order in both. */
+.seg.lay.count button{
+  min-width:20px; padding-inline:var(--sp-2); text-align:center;
+  font-variant-numeric:tabular-nums;
+}
 
 .rt, .db, .pg{ flex:1; min-height:0; display:flex; flex-direction:column; overflow-y:auto; }
 .rt-sub{ display:flex; align-items:center; justify-content:space-between; }

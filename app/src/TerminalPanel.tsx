@@ -20,7 +20,10 @@ import {
   type PastedFile,
 } from './paste';
 import { MIN as MIN_SHARE, after as afterDrag, evened, shares, type Weights } from './split';
-import { PRESETS, apply as applyPreset, describe as describeLayout, type Preset } from './layouts';
+import {
+  COUNTS, PRESETS, apply as applyPreset, describe as describeLayout,
+  evenCount, type Request,
+} from './layouts';
 import {
   NOTHING as NO_INPUT, keystrokes, kindOf, preview, quotePath, remember, suggest,
   typedPart, wantsDir, worth, type Suggestion, type Typed,
@@ -732,14 +735,18 @@ export function TerminalPanel({
   const dead = tabs.find((x) => x.id === focus)?.dead;
 
   /**
-   * Snap the panes to a preset — BridgeMind's Solo / Pair / Workbench / Tidy.
+   * Snap the panes to a preset, or to a number of them.
    *
-   * `pair` and `workbench` with only one terminal open ask for a second; the
-   * new tab lands in `tabs` on the next render, so the preset is held in a ref
-   * and applied then. Applying it now would lay out a session that does not
-   * exist yet.
+   * A shape that wants more terminals than are open asks for them. The new tab
+   * lands in `tabs` on the next render, so the request is held in a ref and
+   * applied then — applying it now would lay out a session that does not exist
+   * yet.
+   *
+   * The ref is held until the request is actually met, not just until one tab
+   * arrives. Four panes from a single terminal needs three, and stopping after
+   * the first left the row at two while the button said four.
    */
-  const wanted = useRef<Preset | null>(null);
+  const wanted = useRef<Request | null>(null);
   /**
    * Whether the panes are two above two rather than four across.
    *
@@ -755,22 +762,26 @@ export function TerminalPanel({
     try { localStorage.setItem('vylo.tgrid', grid ? '1' : '0'); } catch { /* private mode */ }
   }, [grid]);
 
-  function snap(preset: Preset) {
-    const r = applyPreset(preset, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
-    if (r.needsNew) { wanted.current = preset; add(true); return; }
+  function snap(request: Request) {
+    const r = applyPreset(request, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
+    if (r.needs > 0) { wanted.current = request; add(true); return; }
     // Every shape but `tidy` says how the panes are arranged, so every shape
     // but `tidy` answers this. Tidy is a repair — it evens out what is there
-    // and has no opinion about rows.
-    if (preset !== 'tidy') setGrid(preset === 'grid');
+    // and has no opinion about rows. A count is a row.
+    if (request !== 'tidy') setGrid(request === 'grid');
     setShown(r.shown);
     setWeights(r.weights);
   }
   useEffect(() => {
-    if (!wanted.current || tabs.length < 2) return;
-    const preset = wanted.current;
+    const request = wanted.current;
+    if (request === null) return;
+    const r = applyPreset(request, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
+    // Still short: open another and let the next render bring us back here.
+    // Bounded by the cap, which `apply` already clamps the request to, so this
+    // cannot ask forever.
+    if (r.needs > 0 && tabs.length < MAX_PANES) { add(true); return; }
     wanted.current = null;
-    if (preset !== 'tidy') setGrid(preset === 'grid');
-    const r = applyPreset(preset, { focus, shown: onScreen, order: tabs.map((x) => x.id), weights });
+    if (request !== 'tidy') setGrid(request === 'grid');
     setShown(r.shown);
     setWeights(r.weights);
     // The set is read at apply time; nothing here should re-run on its own.
@@ -914,6 +925,22 @@ export function TerminalPanel({
               <Icon name="sparkle" size={13} />{t('Ask')}
             </button>
           )}
+          <span className="seg lay count" role="group" aria-label={t('Terminals on screen')}>
+            {COUNTS.map((n) => {
+              // Lit by how many even panes are on screen, read from the row.
+              // Four even panes in two rows are a Grid, and Grid lights
+              // itself — so the 4 stays dark rather than both being on.
+              const on = evenCount(onScreen, weights) === n && !(n === MAX_PANES && grid);
+              return (
+                <button key={n} className={on ? 'on' : ''} aria-pressed={on}
+                        onClick={() => snap(n)}
+                        title={n === 1 ? t('One pane: the one you are in.')
+                                       : fill(t('{n} panes, side by side and even.'), { n })}>
+                  {n}
+                </button>
+              );
+            })}
+          </span>
           <span className="seg lay" role="group" aria-label={t('Layout')}>
             {PRESETS.map((p) => {
               // Grid and Quad are the same widths; only the stored flag

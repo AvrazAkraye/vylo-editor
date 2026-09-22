@@ -9,7 +9,7 @@
 // `shares` and `MAX_PANES` are the real ones, because this module is the seam
 // between `panes.ts` and `split.ts` and a weight only means what `split.ts`
 // says it means.
-import { PRESETS, TOLERANCE, WIDE, apply, describe } from '../.test-build/layouts.js';
+import { COUNTS, PRESETS, TOLERANCE, WIDE, apply, describe, evenCount } from '../.test-build/layouts.js';
 import { MAX_PANES } from '../.test-build/panes.js';
 import { shares } from '../.test-build/split.js';
 
@@ -258,6 +258,88 @@ ok('tidy on three reads as custom, because there is no three-pane shape',
    (() => { const r = apply('tidy', row('a', THREE, THREE, { a: 5 })); return describe(r.shown, r.weights) === 'custom'; })());
 ok('every shape from every starting row round-trips', ['solo', 'pair', 'workbench'].every((p) =>
   ROWS.filter((r) => r.order.length >= 2).every((r) => { const a = apply(p, r); return describe(a.shown, a.weights) === p; })));
+
+// ── asking for a number ───────────────────────────────────────────────────
+// The counts the ladder offers: one pane up to the cap, nothing outside it.
+ok('COUNTS is one up to the cap', same(COUNTS, Array.from({ length: MAX_PANES }, (_, i) => i + 1)), COUNTS);
+
+ok('three from four sessions is three even panes', (() => {
+  const r = apply(3, row('a', ONE, FOUR, { a: 9 }));
+  return r.shown.length === 3 && r.needs === 0 && same(shares(r.shown, r.weights).map((x) => near(x, 1 / 3)), [true, true, true]);
+})(), apply(3, row('a', ONE, FOUR, { a: 9 })));
+ok('three keeps the pane you are in', apply(3, row('d', ONE, FOUR)).shown.includes('d'));
+ok('three from three shown is a tidy', (() => {
+  const r = apply(3, row('b', THREE, THREE, { a: 5, b: 1, c: 1 }));
+  return same(r.shown, THREE) && shares(r.shown, r.weights).every((x) => near(x, 1 / 3));
+})());
+
+// One is solo, two is a pair, four is a quad — the counts the named presets
+// already covered have to agree with them, or two controls would disagree
+// about the same row.
+ok('one is what solo makes', same(apply(1, row('b', THREE, FOUR)).shown, apply('solo', row('b', THREE, FOUR)).shown));
+ok('two is what pair makes', (() => {
+  const a = apply(2, row('a', ONE, FOUR)), b = apply('pair', row('a', ONE, FOUR));
+  return same(a.shown, b.shown) && describe(a.shown, a.weights) === 'pair';
+})());
+ok('four is what quad makes', (() => {
+  const a = apply(4, row('a', ONE, FOUR)), b = apply('quad', row('a', ONE, FOUR));
+  return same(a.shown, b.shown) && describe(a.shown, a.weights) === 'quad';
+})());
+
+// A number that is not a count of panes is clamped rather than obeyed: the row
+// cannot hold five and cannot hold none.
+ok('above the cap is the cap', apply(99, row('a', ONE, FOUR)).shown.length === MAX_PANES);
+ok('below one is one', same(apply(0, row('b', TWO, TWO)).shown, ['b']));
+ok('negative is one', same(apply(-3, row('b', TWO, TWO)).shown, ['b']));
+ok('a fraction is the nearest count', apply(2.6, row('a', ONE, FOUR)).shown.length === 3);
+
+// ── how many are still to open ────────────────────────────────────────────
+// This is the bug the flag had: asking for four with one terminal open needs
+// three, and `needsNew` alone could only ever say "one more" — the panel
+// opened a single terminal, re-applied, and settled on two panes while the
+// button said four.
+ok('four with one session open needs three', apply(4, row('a', ONE, ONE)).needs === 3);
+ok('quad with one session open needs three too', apply('quad', row('a', ONE, ONE)).needs === 3);
+ok('grid with two open needs two', apply('grid', row('a', TWO, TWO)).needs === 2);
+ok('three with two sessions needs one', apply(3, row('a', TWO, TWO)).needs === 1);
+ok('pair with one session needs one', apply('pair', row('a', ONE, ONE)).needs === 1);
+ok('and shows what it can while it waits', same(apply(4, row('a', ONE, ONE)).shown, ['a']));
+ok('a row that already has enough needs none', apply(3, row('a', ONE, FOUR)).needs === 0);
+ok('solo never needs one', apply('solo', row('a', ONE, ONE)).needs === 0);
+ok('tidy never needs one', apply('tidy', row('a', THREE, THREE)).needs === 0);
+ok('needsNew is needs > 0, always', ROWS.every((r) =>
+  [...COUNTS, ...PRESETS.map((p) => p.id)].every((q) => { const a = apply(q, r); return a.needsNew === (a.needs > 0); })));
+
+// ── which count is lit ────────────────────────────────────────────────────
+// `describe` has to say custom for three even panes, because three even panes
+// are not a named shape. `evenCount` is the other question, and three has an
+// answer to it.
+ok('three even panes count as three, where describe says custom', (() => (
+  evenCount(THREE, {}) === 3 && describe(THREE, {}) === 'custom'
+))());
+ok('a lone pane counts as one', evenCount(ONE, {}) === 1);
+ok('whatever its width', evenCount(ONE, { a: 9 }) === 1);
+ok('two even count as two', evenCount(TWO, {}) === 2);
+ok('four even count as four', evenCount(FOUR, {}) === 4);
+ok('a workbench counts as nothing, because it is not even', evenCount(TWO, BENCH) === null);
+ok('nor does an uneven three', evenCount(THREE, { a: 2, b: 1, c: 1 }) === null);
+ok('nothing on screen counts as nothing', evenCount([], {}) === null);
+// The same two per cent the shapes get: a divider nudged by a pixel is still
+// the count it was.
+ok('a pixel off even is still the count', evenCount(TWO, { a: 0.51, b: 0.49 }) === 2);
+ok('further off is not', evenCount(TWO, { a: 0.535, b: 0.465 }) === null);
+ok('hidden panes do not count', evenCount(TWO, { a: 1, b: 1, c: 99 }) === 2);
+
+// Every count the ladder offers, applied to a row that can hold it, lights the
+// button that was pressed.
+ok('every count round-trips', ROWS.filter((r) => r.order.length === MAX_PANES).every((r) =>
+  COUNTS.every((n) => { const a = apply(n, r); return evenCount(a.shown, a.weights) === n; })));
+// And a workbench is the one two-pane row no count claims, so pressing 2 and
+// pressing Workbench cannot both light.
+ok('workbench lights no count', (() => {
+  const r = apply('workbench', row('a', TWO, TWO));
+  return evenCount(r.shown, r.weights) === null;
+})());
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
