@@ -62,6 +62,15 @@ export interface SavedSession {
   tag?: string;
   /** Where the shell was. The new one starts here. */
   cwd?: string;
+  /**
+   * The group it is in, as a path — `api` or `api/tests`.
+   *
+   * Here rather than in a tree of its own, and that is the whole reason
+   * `groups.ts` models a group as a path: ids are minted fresh every launch,
+   * so anything keyed by id comes back pointing at nothing. A path is a
+   * property of the session, so it restores with it.
+   */
+  group?: string;
   /** What was written, oldest line first. */
   text: string;
 }
@@ -72,6 +81,15 @@ export interface Saved {
   shown: number[];
   /** Which was focused, by index. */
   active: number;
+  /**
+   * Groups with nothing in them.
+   *
+   * The one thing a path cannot express: nothing carries the path of an empty
+   * group, and making one before filling it is completely ordinary.
+   */
+  groups?: string[];
+  /** Groups folded shut in the rail. */
+  shut?: string[];
 }
 
 export const NOTHING: Saved = { sessions: [], shown: [], active: 0 };
@@ -129,6 +147,10 @@ export function fit(saved: Saved, maxChars = MAX_CHARS, maxSessions = MAX_SESSIO
     sessions,
     shown: saved.shown.filter((i) => i >= 0 && i < kept),
     active: saved.active >= 0 && saved.active < kept ? saved.active : 0,
+    // Carried through untouched. Trimming scrollback is about bytes of text,
+    // and a list of group names is not where the bytes are.
+    groups: saved.groups,
+    shut: saved.shut,
   };
 }
 
@@ -152,6 +174,7 @@ export function read(raw: string | null, folder: string): Saved {
         name: typeof s.name === 'string' && s.name.trim() ? s.name : undefined,
         tag: typeof s.tag === 'string' ? s.tag : undefined,
         cwd: typeof s.cwd === 'string' ? s.cwd : undefined,
+        group: typeof s.group === 'string' && s.group.trim() ? s.group : undefined,
         text: typeof s.text === 'string' ? s.text : '',
       });
       if (sessions.length >= MAX_SESSIONS) break;
@@ -165,7 +188,18 @@ export function read(raw: string | null, folder: string): Saved {
       ? Math.floor(o.active) : 0;
     // A record that remembers nothing on screen would restore panes and draw
     // none of them.
-    return { sessions, shown: shown.length ? [...new Set(shown)] : [0], active };
+    // Strings only, and only ones that say something. `groups.ts` does the
+    // cleaning; this only has to refuse what is not a list of strings.
+    const list = (v: unknown) => (Array.isArray(v)
+      ? [...new Set(v.filter((x): x is string => typeof x === 'string' && x.trim() !== ''))]
+      : undefined);
+    return {
+      sessions,
+      shown: shown.length ? [...new Set(shown)] : [0],
+      active,
+      groups: list(o.groups),
+      shut: list(o.shut),
+    };
   } catch {
     // A restore is a convenience. A bad record is a fresh terminal, never a
     // panel that will not open.

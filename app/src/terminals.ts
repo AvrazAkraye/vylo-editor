@@ -129,8 +129,14 @@ export function matches(s: Session, query: string, term = 'Terminal'): boolean {
     || fallback.toLowerCase().includes(q);
 }
 
-export function filter(list: Session[], query: string, term = 'Terminal'): Session[] {
+// Generic in the row type rather than taking `Session`: the panel's rows carry
+// fields of their own — which group they are in, which folder they opened in —
+// and a filter that returned the base type would quietly strip them.
+export function filter<T extends Session>(list: T[], query: string, term = 'Terminal'): T[] {
   const q = query.trim();
+  // The same array, not a copy of it: an empty query is not a change, and
+  // handing back a new array makes every memo downstream recompute on every
+  // keystroke that clears the box.
   if (!q) return list;
   return list.filter((s) => matches(s, q, term));
 }

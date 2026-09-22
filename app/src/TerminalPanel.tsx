@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
@@ -8,6 +8,11 @@ import {
   type Facts, type RowView,
 } from './terminals';
 import { MAX_GRID, MAX_PANES, focused, only, prune, swap as swapPane, toggle as togglePane } from './panes';
+import {
+  LAUNCH, MAX_DEPTH, depthOf as groupDepth, join as joinGroup,
+  nameOf as groupName, nodes as railNodes, renamed as regroup, tidy as tidyGroup,
+} from './groups';
+import { open as pickFile } from '@tauri-apps/plugin-dialog';
 import { CONTEXT_LINES } from './command';
 import {
   KEY as TERMS_KEY, read as readSaved, tail, write as writeSaved, type Saved,
@@ -50,6 +55,19 @@ import { useReorder } from './useReorder';
 
 interface Tab {
   id: string; n: number; born: number; dead: boolean;
+  /**
+   * The group it is in, as a path. See `groups.ts` for why a path and not a
+   * node in a tree — the short answer is that ids do not survive a restart
+   * and a path does.
+   */
+  group?: string;
+  /**
+   * Where its shell was started, when somebody chose.
+   *
+   * Only set for a session opened into a folder on purpose. Everything else
+   * takes the workspace root, which is what `cwd` on the view falls back to.
+   */
+  cwd?: string;
   /** Set when this pane exists to run one approved command. */
   command?: string;
   /**
@@ -296,11 +314,16 @@ export function TerminalPanel({
         n: x.n,
         name: x.name,
         tag: x.tag,
-        cwd: cwdRef.current[x.id],
+        group: x.group,
+        cwd: cwdRef.current[x.id] || x.cwd,
         text: tail(handles.current.get(x.id)?.lines() ?? []),
       })),
       shown: shownRef.current.map((id) => list.findIndex((x) => x.id === id)).filter((i) => i >= 0),
       active: Math.max(0, list.findIndex((x) => x.id === activeRef.current)),
+      // A group nobody has filled yet, and which rows are folded. Neither is
+      // derivable from the sessions, so both are written.
+      groups: emptyRef.current,
+      shut: shutRef.current,
     };
     try {
       localStorage.setItem(TERMS_KEY, writeSaved(localStorage.getItem(TERMS_KEY), root, saved));
@@ -339,7 +362,7 @@ export function TerminalPanel({
   const [tabs, setTabs] = useState<Tab[]>(() => {
     const saved = restored.current.sessions;
     if (!saved.length) return [newTab(1)];
-    const made = saved.map((x) => ({ ...newTab(x.n), name: x.name, tag: x.tag }));
+    const made = saved.map((x) => ({ ...newTab(x.n), name: x.name, tag: x.tag, group: x.group }));
     made.forEach((tabRow, i) => {
       restoring.set(tabRow.id, { text: saved[i].text, cwd: saved[i].cwd });
     });
@@ -371,6 +394,16 @@ export function TerminalPanel({
    * something people do while thinking about something else.
    */
   const [renaming, setRenaming] = useState<string | null>(null);
+  /** The group whose name is being typed, and the one whose menu is open. */
+  const [renamingGroup, setRenamingGroup] = useState<string | null>(null);
+  const [groupMenu, setGroupMenu] = useState<{ path: string; at: { x: number; y: number } } | null>(null);
+  /**
+   * The "open a group" form, or null.
+   *
+   * `into` is the group it will sit inside, so the same form serves New group
+   * and New sub-group — the only difference is what it is joined onto.
+   */
+  const [making, setMaking] = useState<{ into: string; name: string; dir: string; n: number } | null>(null);
   /** Set by Escape so the blur that follows does not save what was typed. */
   const cancelRename = useRef(false);
 
@@ -505,6 +538,69 @@ export function TerminalPanel({
     return () => live.current.exposeFocus(null);
   }, []);
 
+  /**
+   * Make a group and open the terminals that go in it.
+   *
+   * The count is the point. "Four terminals in the API folder" is one thing
+   * somebody wants, and doing it by hand is four presses of + followed by four
+   * `cd`s — which is also four chances to get one of them wrong and then spend
+   * a minute wondering why the build is running against the other project.
+   *
+   * They are opened in one go and laid out in one go: `snap` is asked for the
+   * count *after* the tabs exist, so the panes are arranged once rather than
+   * re-arranged as each shell appears.
+   */
+  function openGroup(into: string, name: string, dir: string, count: number) {
+    const path = joinGroup(into, name || t('Group'));
+    const n = Math.max(1, Math.min(MAX_GRID, Math.round(count) || 1));
+    const from = Math.max(0, ...tabs.map((x) => x.n));
+    const made: Tab[] = Array.from({ length: n }, (_, k) => ({
+      ...newTab(from + k + 1),
+      group: path,
+      cwd: dir || undefined,
+    }));
+    setTabs((p) => [...p, ...made]);
+    setActive(made[0].id);
+    setShown(made.map((x) => x.id));
+    // A group made from a form is one somebody is about to use, so it opens
+    // rather than arriving folded.
+    setShut((p) => p.filter((x) => x !== path));
+    // It has sessions now, so it is not one of the empty ones. Clearing it
+    // here keeps the two records from both claiming it.
+    setEmpties((p) => p.filter((x) => x !== path));
+    wanted.current = n;
+  }
+
+  /**
+   * Ask for the folder the group's shells start in.
+   *
+   * The same dialog the attach button opens, in directory mode. A cancelled
+   * pick leaves the form as it was rather than clearing it — somebody who
+   * opens the picker and changes their mind has not asked for the workspace.
+   */
+  async function pickDir() {
+    try {
+      const got = await pickFile({ directory: true, multiple: false, defaultPath: root || undefined });
+      const dir = typeof got === 'string' ? got : '';
+      if (dir) setMaking((v) => (v ? { ...v, dir } : v));
+    } catch { /* the dialog was dismissed, or is unavailable */ }
+  }
+
+  /**
+   * Keep a group that has just lost its last terminal.
+   *
+   * A group is a path, so a group nothing is in has nowhere to be recorded —
+   * it would simply stop being drawn. That is the wrong answer for somebody
+   * who made "server", ran four shells in it and closed them: the group was a
+   * decision, and closing a terminal is not a decision to unmake it.
+   */
+  function keepEmpty(path: string | undefined, without: string) {
+    const at = tidyGroup(path ?? '');
+    if (!at) return;
+    if (tabsRef.current.some((x) => x.id !== without && tidyGroup(x.group ?? '') === at)) return;
+    setEmpties((p) => (p.includes(at) ? p : [...p, at]));
+  }
+
   function add(beside = false) {
     const next = newTab(Math.max(0, ...tabs.map((x) => x.n)) + 1);
     setTabs((p) => [...p, next]);
@@ -615,6 +711,9 @@ export function TerminalPanel({
   }, [exposeDrop, claimDrop]);
 
   function close(id: string) {
+    // Before the tab goes, so the group it was in can be kept if this was the
+    // last thing in it.
+    keepEmpty(tabsRef.current.find((x) => x.id === id)?.group, id);
     handles.current.delete(id);
     // Closing a pane mid-command still has to answer the agent, or the loop
     // waits for a promise nothing will ever settle.
@@ -717,6 +816,76 @@ export function TerminalPanel({
 
 
   const rows = filter(tabs, query, t('Terminal'));
+
+  /**
+   * Groups nobody has filled yet, and groups folded shut.
+   *
+   * Neither is derivable from the sessions — a path only exists while
+   * something is in it, and "shut" is a view state — so both are kept here
+   * and written with the rest of the record.
+   */
+  const [empties, setEmpties] = useState<string[]>(() => restored.current.groups ?? []);
+  const [shut, setShut] = useState<string[]>(() => restored.current.shut ?? []);
+  const emptyRef = useRef(empties); emptyRef.current = empties;
+  const shutRef = useRef(shut); shutRef.current = shut;
+
+  /**
+   * The rail, flattened.
+   *
+   * Built from `rows` rather than `tabs`, so a search narrows the tree the way
+   * it narrows the list: a group whose every session was filtered out has
+   * nothing under it and is not drawn, which is the honest answer to "does
+   * this group contain what I am looking for".
+   *
+   * The exception is a group that is *empty on purpose* — it stays while there
+   * is no query, because it is a place somebody made, and disappears under one
+   * for the same reason as the rest.
+   */
+  const tree = useMemo(
+    () => railNodes(query.trim() ? [] : empties, rows.map((x) => ({ id: x.id, group: x.group })),
+      new Set(shut)),
+    [empties, rows, shut, query],
+  );
+  const byId = useMemo(() => new Map(tabs.map((x) => [x.id, x])), [tabs]);
+  /** Whether the rail is a tree at all. A flat list needs none of the chrome. */
+  const grouped = tree.some((n) => n.kind === 'group');
+
+  /** Fold one group, or open it. */
+  function foldGroup(path: string) {
+    setShut((p) => (p.includes(path) ? p.filter((x) => x !== path) : [...p, path]));
+  }
+
+  /**
+   * Rename a group, or move it somewhere else.
+   *
+   * Every path under it is rewritten, which is what makes a path model worth
+   * having: the sessions do not move and nothing has to be walked. The empty
+   * list goes through the same rewrite, or a group emptied and renamed would
+   * come back under its old name.
+   */
+  function renameGroup(from: string, to: string) {
+    const target = tidyGroup(to);
+    if (!from || !target || target === from) return;
+    setTabs((p) => p.map((x) => (x.group ? { ...x, group: regroup(x.group, from, target) } : x)));
+    setEmpties((p) => [...new Set(p.map((x) => regroup(x, from, target)))]);
+    setShut((p) => [...new Set(p.map((x) => regroup(x, from, target)))]);
+  }
+
+  /**
+   * Take a group away, keeping everything that was in it.
+   *
+   * Its sessions and sub-groups move up to its parent rather than being
+   * closed. Deleting a folder of terminals should never be a way to kill six
+   * shells by accident — closing them is what the × on each row is for.
+   */
+  function dropGroup(path: string) {
+    const up = (g: string) => (g && groupDepth(g) > 0
+      ? regroup(g, path, tidyGroup(path.split('/').slice(0, -1).join('/')))
+      : g);
+    setTabs((p) => p.map((x) => (x.group ? { ...x, group: up(x.group) || undefined } : x)));
+    setEmpties((p) => [...new Set(p.map(up).filter(Boolean))].filter((x) => x !== path));
+    setShut((p) => p.filter((x) => x !== path));
+  }
   // Pruned on every render rather than in an effect: a session can close from
   // the shell exiting, which is not a click and not a state change this
   // component started, and a pane pointing at it would draw nothing.
@@ -1074,6 +1243,33 @@ export function TerminalPanel({
         );
       })()}
 
+      {groupMenu && (() => {
+        const path = groupMenu.path;
+        const items: MenuItem[] = [
+          { kind: 'action', id: 'rename', label: 'Rename this group' },
+          { kind: 'action', id: 'sub', label: 'New group inside this one',
+            // Three levels is what the rail is wide enough to indent. See
+            // `groups.ts`.
+            disabled: groupDepth(path) >= MAX_DEPTH },
+          { kind: 'action', id: 'open', label: 'New terminals in this group' },
+          { kind: 'divider' },
+          // Its sessions move up rather than being closed: deleting a folder
+          // of terminals must never be a way to kill six shells by accident.
+          { kind: 'action', id: 'drop', label: 'Take the group away, keep the terminals', danger: true },
+        ];
+        return (
+          <ContextMenu at={groupMenu.at} items={items} t={t}
+            label={`${t('Actions')} — ${groupName(path)}`}
+            onClose={() => setGroupMenu(null)}
+            onPick={(id) => {
+              if (id === 'rename') setRenamingGroup(path);
+              else if (id === 'sub') setMaking({ into: path, name: '', dir: root, n: 1 });
+              else if (id === 'open') setMaking({ into: path.split('/').slice(0, -1).join('/'), name: groupName(path), dir: root, n: 4 });
+              else if (id === 'drop') dropGroup(path);
+            }} />
+        );
+      })()}
+
       {/* One strip, one shell under it — what every other terminal does, and
           what somebody who keeps six shells and looks at one of them wants.
           Above `panel-split` rather than inside it: that is a row of columns,
@@ -1107,6 +1303,15 @@ export function TerminalPanel({
                   title={t('New terminal')} aria-label={t('New terminal')}>
             <Icon name="plus" size={13} />
           </button>
+          {/* In tabs mode this strip is where the session chrome is, and
+              reaching back up to the panel bar for full screen is a trip past
+              the thing you were just looking at. Pushed to the far end so it
+              does not move as tabs are opened. */}
+          <button className="ttab-full" onClick={onToggleFull} aria-pressed={full}
+                  title={full ? t('Restore the panel') : t('Fill the window')}
+                  aria-label={full ? t('Restore the panel') : t('Fill the window')}>
+            <Icon name={full ? 'restore' : 'maximise'} size={13} />
+          </button>
         </div>
       )}
 
@@ -1126,11 +1331,57 @@ export function TerminalPanel({
                     title={t('What the rows show')} aria-label={t('What the rows show')}>
               <Icon name="swap" size={15} />
             </button>
+            <button className={`tsl-add ${making ? 'on' : ''}`}
+                    onClick={() => setMaking((v) => (v ? null : { into: '', name: '', dir: root, n: 4 }))}
+                    aria-expanded={making !== null}
+                    title={t('New group of terminals')} aria-label={t('New group of terminals')}>
+              <Icon name="folder" size={15} />
+            </button>
             <button className="tsl-add" onClick={() => add()}
                     title={t('New terminal')} aria-label={t('New terminal')}>
               <Icon name="plus" size={15} />
             </button>
           </div>
+
+          {making && (
+            /* Three questions, because they are the three that are tedious by
+               hand: what to call it, where the shells start, and how many.
+               Everything else about a group can be changed from its row. */
+            <div className="tsg-new">
+              {making.into && (
+                <p className="tsg-in">{fill(t('Inside {name}'), { name: groupName(making.into) })}</p>
+              )}
+              <input className="tsg-field" autoFocus value={making.name} spellCheck={false}
+                     onChange={(e) => setMaking((v) => (v ? { ...v, name: e.target.value } : v))}
+                     onKeyDown={(e) => {
+                       if (e.key === 'Enter') { openGroup(making.into, making.name, making.dir, making.n); setMaking(null); }
+                       else if (e.key === 'Escape') setMaking(null);
+                     }}
+                     placeholder={t('Group name')} aria-label={t('Group name')} />
+              {/* The folder every shell in the group starts in. The whole
+                  point of asking: four terminals that all need the same `cd`
+                  is four chances to get one of them wrong. */}
+              <button className="tsg-dir" onClick={() => { void pickDir(); }} title={making.dir || root}>
+                <Icon name="folder" size={12} />
+                <span>{making.dir === root || !making.dir ? t('This workspace') : shorten(making.dir, home)}</span>
+              </button>
+              <div className="tsg-n-pick" role="group" aria-label={t('How many terminals')}>
+                {LAUNCH.map((n) => (
+                  <button key={n} className={making.n === n ? 'on' : ''} aria-pressed={making.n === n}
+                          onClick={() => setMaking((v) => (v ? { ...v, n } : v))}>
+                    {n}
+                  </button>
+                ))}
+              </div>
+              <div className="tsg-go">
+                <button className="ghost" onClick={() => setMaking(null)}>{t('Cancel')}</button>
+                <button className="approve"
+                        onClick={() => { openGroup(making.into, making.name, making.dir, making.n); setMaking(null); }}>
+                  {fill(t('Open {n}'), { n: making.n })}
+                </button>
+              </div>
+            </div>
+          )}
 
           {tuning && (
             <div className="tsv">
@@ -1193,12 +1444,72 @@ export function TerminalPanel({
             {/* Two different states, and saying the second when the first is
                 true tells somebody their search failed when they never made
                 one. `Chats.tsx` already draws this distinction. */}
-            {rows.length === 0 && (
+            {rows.length === 0 && !grouped && (
               <p className="tsl-none">
                 {query.trim() ? t('No session matches that.') : t('No terminals open.')}
               </p>
             )}
-            {rows.map((tab, i) => {
+            {tree.map((node) => {
+              if (node.kind === 'group') {
+                const isShut = shut.includes(node.path);
+                return (
+                  <div key={`g:${node.path}`}
+                       className={`tsg${isShut ? ' shut' : ''}`}
+                       style={{ paddingInlineStart: `calc(var(--sp-3) + ${(node.depth - 1) * 12}px)` }}
+                       onContextMenu={(e) => {
+                         e.preventDefault();
+                         setGroupMenu({ path: node.path, at: { x: e.clientX, y: e.clientY } });
+                       }}>
+                    {renamingGroup === node.path ? (
+                      /* A field where the name is, holding the name — the same
+                         rule the session rows follow, for the same reason. */
+                      <input className="tsg-rename" data-nodrag autoFocus defaultValue={node.name}
+                             aria-label={t('Rename this group')}
+                             onKeyDown={(e) => {
+                               if (e.key === 'Enter') {
+                                 renameGroup(node.path, joinGroup(
+                                   node.path.split('/').slice(0, -1).join('/'), e.currentTarget.value));
+                                 setRenamingGroup(null);
+                               } else if (e.key === 'Escape') setRenamingGroup(null);
+                             }}
+                             onBlur={(e) => {
+                               renameGroup(node.path, joinGroup(
+                                 node.path.split('/').slice(0, -1).join('/'), e.currentTarget.value));
+                               setRenamingGroup(null);
+                             }} />
+                    ) : (
+                      <>
+                        <button className="tsg-fold" onClick={() => foldGroup(node.path)}
+                                aria-expanded={!isShut}
+                                title={isShut ? t('Open this group') : t('Fold this group')}
+                                aria-label={isShut ? t('Open this group') : t('Fold this group')}>
+                          <Icon name="chevron" size={11} turn={isShut ? -90 : 0} />
+                        </button>
+                        <button className="tsg-name" onDoubleClick={() => setRenamingGroup(node.path)}
+                                onClick={() => foldGroup(node.path)} title={node.path}>
+                          <span>{node.name}</span>
+                          {/* What a folded row is hiding. Zero is drawn too:
+                              an empty group saying nothing looks like one that
+                              failed to load its contents. */}
+                          <i className="tsg-n">{node.count}</i>
+                        </button>
+                        <button className="tsg-more" data-nodrag
+                                onClick={(e) => {
+                                  const r = e.currentTarget.getBoundingClientRect();
+                                  setGroupMenu({ path: node.path, at: { x: r.left, y: r.bottom } });
+                                }}
+                                title={t('Actions')} aria-label={`${t('Actions')} — ${node.name}`}>
+                          <Icon name="ellipsis" size={12} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              }
+              const tab = byId.get(node.id);
+              if (!tab) return null;
+              const i = rows.findIndex((x) => x.id === tab.id);
+              const nest = node.depth - 1;
               const state = stateOf(tab);
               const row = rowOf(tab, factsFor(tab.id), view,
                 { term: t('Terminal'), home, now: clock, t });
@@ -1235,6 +1546,7 @@ export function TerminalPanel({
               );
               return (
                 <div key={tab.id} className={`tsl-row ${tagClass(tab.tag)} ${drag.itemClass(i)} ${onScreen.includes(tab.id) ? 'on' : ''}`}
+                     style={nest > 0 ? { marginInlineStart: `${nest * 12}px` } : undefined}
                      onContextMenu={(e) => {
                        e.preventDefault();
                        setRowMenu({ id: tab.id, at: { x: e.clientX, y: e.clientY } });
@@ -1558,7 +1870,11 @@ export function TerminalPanel({
                   }
                   return false;
                 }}
-                cwd={restoring.get(tab.id)?.cwd || root}
+                /* Where the restore says it was, then where it was opened into
+                   on purpose, then the workspace. A restored session keeps the
+                   directory it was actually in, which is not always the one it
+                   started in. */
+                cwd={restoring.get(tab.id)?.cwd || tab.cwd || root}
                 dark={dark}
                 visible={on}
                 onReady={(h) => { if (h) handles.current.set(tab.id, h); else handles.current.delete(tab.id); }}

@@ -1978,6 +1978,89 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
 }
 .tsl-add:hover{ background:var(--panel-3); color:var(--ink); }
 
+/* ── folders of terminals ────────────────────────────────────────────────
+   A flat list is right for four terminals and wrong for fourteen. A group
+   header is deliberately *not* a row: it is a lighter, shorter line with the
+   fold on it, so the eye can tell at a glance which lines are terminals and
+   which are the things holding them. Indented by an inline style, because the
+   depth is data rather than a class. */
+.tsg{
+  display:flex; align-items:center; gap:var(--sp-1);
+  min-block-size:24px; margin-block-start:var(--sp-2);
+  border-radius:var(--r-2); color:var(--ink-2);
+}
+.tsg:hover{ background:var(--panel-3); }
+.tsg-fold, .tsg-more{
+  flex:none; display:grid; place-items:center; inline-size:18px; block-size:18px;
+  border:0; border-radius:var(--r-1); background:transparent; color:var(--mute); cursor:pointer;
+}
+.tsg-fold:hover, .tsg-more:hover{ color:var(--ink); }
+/* The chevron turns rather than swapping glyph, so the fold reads as the same
+   control in both states. */
+.tsg-fold svg{ transition:transform .12s; }
+.tsg-name{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-2);
+  border:0; background:transparent; cursor:pointer; text-align:start;
+  font:inherit; font-size:var(--fs-2); font-weight:700; color:inherit;
+  letter-spacing:.02em; padding:0;
+}
+.tsg-name span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* What a folded row is hiding. Drawn at zero too: a group saying nothing
+   looks like one that failed to load rather than one that is empty. */
+.tsg-n{
+  flex:none; font-style:normal; font-weight:600; font-size:var(--fs-1);
+  color:var(--mute); font-variant-numeric:tabular-nums;
+}
+.tsg.shut .tsg-n{ color:var(--brand); }
+.tsg-more{ opacity:0; }
+.tsg:hover .tsg-more, .tsg-more:focus-visible{ opacity:1; }
+/* Scoped under the row it grows along. A control that grows with nothing
+   saying it is in a row is a control that will be 320 pixels tall the first
+   time somebody puts it in a column — which is what `layout.test.mjs` is for
+   and what it caught here. */
+.tsg .tsg-rename{
+  flex:1; min-inline-size:0; font:inherit; font-size:var(--fs-2); font-weight:700;
+  padding:var(--sp-1) var(--sp-2); border-radius:var(--r-1);
+  border:1px solid var(--brand); background:var(--bg); color:var(--ink); outline:none;
+}
+
+/* ── opening a group ─────────────────────────────────────────────────────
+   Three questions, because they are the three that are tedious by hand: what
+   to call it, where the shells start, and how many. */
+.tsg-new{
+  flex:none; display:flex; flex-direction:column; gap:var(--sp-2);
+  padding:var(--sp-3) var(--sp-4) var(--sp-4);
+  border-bottom:1px solid var(--rule); background:var(--panel-2);
+}
+.tsg-in{ margin:0; font-size:var(--fs-1); color:var(--mute); }
+.tsg-field, .tsg-dir{
+  inline-size:100%; font:inherit; font-size:var(--fs-3);
+  padding:var(--sp-2) var(--sp-3); border-radius:var(--r-2);
+  border:1px solid var(--rule); background:var(--bg); color:var(--ink); outline:none;
+}
+.tsg-field:focus{ border-color:var(--brand); }
+.tsg-dir{
+  display:flex; align-items:center; gap:var(--sp-2); cursor:pointer;
+  color:var(--ink-2); text-align:start;
+}
+.tsg-dir:hover{ border-color:var(--brand); color:var(--ink); }
+.tsg-dir span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; direction:ltr; }
+/* The same ladder the panes use, for the same reason: a count is a number, and
+   a number is one character wide. */
+.tsg-n-pick{
+  display:flex; gap:var(--sp-1); padding:var(--sp-1);
+  border-radius:var(--r-2); background:var(--panel-3); border:1px solid var(--rule);
+}
+.tsg-n-pick button{
+  flex:1; font:inherit; font-size:var(--fs-2); padding:2px; border:0;
+  border-radius:var(--r-1); background:transparent; color:var(--mute); cursor:pointer;
+  font-variant-numeric:tabular-nums;
+}
+.tsg-n-pick button:hover{ color:var(--ink); }
+.tsg-n-pick button.on{ background:var(--panel); color:var(--brand); box-shadow:var(--shadow); }
+.tsg-go{ display:flex; gap:var(--sp-2); justify-content:flex-end; }
+.tsg-go .ghost, .tsg-go .approve{ font-size:var(--fs-2); padding:var(--sp-2) var(--sp-4); }
+
 .tsl-list{ flex:1; min-height:0; overflow-y:auto; padding:var(--sp-2) var(--sp-3); }
 .tsl-none{ margin:0; padding:var(--sp-5) var(--sp-4); font-size:var(--fs-3); color:var(--mute); }
 
@@ -2971,6 +3054,16 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   border:0; border-radius:var(--r-2); background:transparent; color:var(--mute); cursor:pointer;
 }
 .ttab-add:hover{ background:var(--panel-3); color:var(--ink); }
+/* Pushed to the far end, so it does not move as tabs are opened. In tabs mode
+   this strip is where the session chrome is, and reaching back to the panel
+   bar for full screen is a trip past the thing you were just looking at. */
+.ttab-full{
+  flex:none; margin-inline-start:auto; display:inline-flex; align-items:center;
+  padding-inline:var(--sp-3); border:0; border-radius:var(--r-2);
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.ttab-full:hover{ background:var(--panel-3); color:var(--ink); }
+.ttab-full[aria-pressed="true"]{ color:var(--brand); }
 
 /* ── a file over a pane ──────────────────────────────────────────────────
    Dropping files on a terminal has worked since panes could be split; what it

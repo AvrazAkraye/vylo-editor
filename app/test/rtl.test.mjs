@@ -273,6 +273,11 @@ const EXEMPT = [
   { selector: '.wc-path', prop: 'text-align', why: 'the other half of head-truncation' },
   { selector: '.mpick-dir', prop: 'direction', why: 'head-truncation, not language direction' },
   { selector: '.mpick-dir', prop: 'text-align', why: 'the other half of head-truncation' },
+  // The folder a group's shells will start in, on the button that picks it.
+  // Same reason as `.tfoot-path`: reading `/Users/you/work` right-to-left puts
+  // the root at the wrong end, and it is a path whatever language the person
+  // naming the group is typing in.
+  { selector: '.tsg-dir span', prop: 'direction', why: 'a filesystem path is LTR whatever the UI is' },
 
   // 3. Code does not mirror. A right-to-left CodeMirror would reverse the
   //    reading order of a file whose language has no opinion about the
