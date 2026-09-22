@@ -33,6 +33,34 @@
  * a token in only one of the two blocks makes the toggle disagree with the
  * system setting, which is the bug the two blocks exist to prevent.
  */
+/* ── Arabic and Kurdish ────────────────────────────────────────────────────
+ *
+ * The app ships Badini and Sorani, and the system has no dependable Arabic
+ * face: macOS draws Geeza Pro, Windows Tahoma, Linux whatever is installed.
+ * None were drawn to sit beside the Latin UI font, so the same sentence
+ * looked different on every machine.
+ *
+ * Noto Sans Arabic, chosen on coverage rather than looks. Sorani and Badini
+ * need ڕ ڵ ۆ ێ ە, which several well-known Arabic typefaces do not carry —
+ * Cairo, the obvious pick, is missing all five. A font without them does not
+ * fail loudly: it falls back per character, and a Kurdish sentence comes out
+ * in two typefaces.
+ *
+ * Bundled, not fetched: this is a desktop app and has to render a Kurdish
+ * filename with no network. See src/fonts/README.md.
+ */
+@font-face{
+  font-family:'Vylo Arabic';
+  src:url('./fonts/arabic.woff2') format('woff2');
+  font-weight:400 700;
+  font-style:normal;
+  font-display:swap;
+  /* Arabic script only. This is what keeps the Latin interface on the system
+     face and stops the app repainting in a different typeface on load. */
+  unicode-range:U+0600-06FF,U+0750-077F,U+0870-088E,U+08A0-08FF,
+                U+FB50-FDFF,U+FE70-FEFF,U+200C-200D,U+FDFC-FDFD;
+}
+
 :root{
   --bg:#FBFAFD;          /* app canvas */
   --panel:#FFFFFF;       /* raised surfaces: header, cards */
@@ -145,8 +173,13 @@
   --tag-pink:#C2418C;
   --tag-grey:#7E7A93;
 
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* 'Vylo Arabic' leads both stacks on purpose. A family is chosen per
+     codepoint and this one's unicode-range covers Arabic script only, so
+     Arabic and Kurdish take it while every Latin character falls straight
+     through to the system face the interface was designed in. Listing it
+     second would hand Arabic to whatever the OS happens to have. */
+  --mono: 'Vylo Arabic', ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: 'Vylo Arabic', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   /* Two OS measurements, not design values -- they are what macOS draws, so
      they are deliberately off the spacing scale. */
   --titlebar: 28px;        /* height of the traffic-light strip */
