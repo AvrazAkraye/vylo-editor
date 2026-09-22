@@ -174,7 +174,16 @@ export function shorten(path: string, home = '', keep = 3): string {
 // rather than argued about.
 
 /** What the first line of a row shows. */
-export type TitleAs = 'command' | 'cwd' | 'branch';
+/**
+ * What a row calls itself when nobody has named it.
+ *
+ * `running` is first and is the default: it is the one that answers "which of
+ * these fourteen is the one I want" without being configured, and it is read
+ * from the operating system rather than inferred. It falls through to the
+ * others whenever the shell is simply waiting, because a column of `zsh` is
+ * the problem, not the answer.
+ */
+export type TitleAs = 'running' | 'command' | 'cwd' | 'branch';
 
 /** How much room a row takes. */
 export type Density = 'comfortable' | 'compact';
@@ -204,10 +213,13 @@ export interface RowView {
 }
 
 export const ROW_VIEW: RowView = {
-  // The last command, because it is the one that changes as you work — a
-  // folder and a branch are usually the same across every pane you have open,
-  // and a title that reads the same on six rows is the problem this solves.
-  titleAs: 'command',
+  // What is running, because it is the one that is true *now* — the last
+  // command is what was true when it was typed, and a pane that finished a
+  // build an hour ago still calls itself the build. A folder and a branch are
+  // usually the same across every pane open, and a title that reads the same
+  // on six rows is the problem this solves. It falls through to the command
+  // whenever the shell is simply waiting.
+  titleAs: 'running',
   meta: { branch: true, cwd: false, state: true },
   density: 'comfortable',
   // Panes, because that is what this panel was built to do and what somebody
@@ -225,7 +237,7 @@ export function readView(raw: string | null): RowView {
     const v = raw ? JSON.parse(raw) : null;
     if (!v || typeof v !== 'object') return out;
     const r = v as Record<string, unknown>;
-    if (r.titleAs === 'command' || r.titleAs === 'cwd' || r.titleAs === 'branch') out.titleAs = r.titleAs;
+    if (r.titleAs === 'running' || r.titleAs === 'command' || r.titleAs === 'cwd' || r.titleAs === 'branch') out.titleAs = r.titleAs;
     if (r.density === 'compact' || r.density === 'comfortable') out.density = r.density;
     if (r.as === 'panes' || r.as === 'tabs') out.as = r.as;
     const m = (r.meta ?? {}) as Record<string, unknown>;
@@ -248,6 +260,58 @@ export interface Facts {
   branch?: string;
   /** The last command sent in this pane. */
   last?: string;
+  /**
+   * What the *operating system* says is in this terminal's foreground right
+   * now: `claude`, `vim`, `node`, or the shell's own name when nothing is
+   * running. Empty where the platform cannot say.
+   *
+   * The only one of these that is a fact rather than a guess, and the only one
+   * that goes back to being a shell when a program exits.
+   */
+  running?: string;
+  /** The title the terminal itself is showing, from `OSC 0`/`OSC 2`. */
+  title?: string;
+}
+
+/**
+ * Shells. When one of these is in the foreground, nothing is running.
+ *
+ * Worth a list rather than a comparison against the pane's own shell, because
+ * nothing here knows what that is — and because the answer is the same for a
+ * shell somebody started inside another one.
+ *
+ * `zsh` on fourteen rows is the problem the mark exists to solve, not a
+ * solution to it.
+ */
+const SHELLS = new Set([
+  'zsh', 'bash', 'sh', 'dash', 'ksh', 'mksh', 'ash', 'fish', 'nu', 'tcsh',
+  'csh', 'elvish', 'xonsh', 'pwsh', 'powershell', 'cmd',
+  'pwsh.exe', 'powershell.exe', 'cmd.exe',
+]);
+
+/** A name that could be a program, as against a sentence a shell set as a title. */
+const PLAIN = /^[a-z0-9][a-z0-9._+-]{0,23}$/i;
+
+/**
+ * What is running in the pane, or `''` when it is the shell waiting.
+ *
+ * The operating system first, because it is the only source that is right in
+ * both directions — it says `claude` while Claude is running and `zsh` the
+ * moment it exits.
+ *
+ * The terminal's own title is the fallback, and only when it looks like a bare
+ * program name. Shells overwhelmingly set the title to the directory or to
+ * `user@host: ~/somewhere`, and a row that showed that would be repeating the
+ * line underneath it. This is what Windows has instead of a foreground process
+ * group, so it is not dead code.
+ */
+export function runningOf(facts: Pick<Facts, 'running' | 'title'>): string {
+  const fg = (facts.running ?? '').trim().toLowerCase();
+  if (fg) return SHELLS.has(fg) ? '' : fg;
+  const said = (facts.title ?? '').trim();
+  if (!PLAIN.test(said)) return '';
+  const low = said.toLowerCase();
+  return SHELLS.has(low) ? '' : low;
 }
 
 /**
@@ -322,11 +386,31 @@ const CLAUDE = new Set(['claude', 'claude-code']);
  * A dead session is a terminal again whatever it was running, because what it
  * was running has exited.
  */
-export function markOf(s: Session, facts: Pick<Facts, 'last'>): Mark {
+export function markOf(s: Session, facts: Pick<Facts, 'last' | 'running' | 'title'>): Mark {
   if (s.dead) return 'terminal';
-  // A command pane exists to run one thing and that thing is known exactly.
-  const line = (s.command ?? '').trim() || (facts.last ?? '');
-  return CLAUDE.has(programOf(line)) ? 'claude' : 'terminal';
+  // The operating system, when it answered. Authoritative in **both**
+  // directions: `claude` means the mark, and `zsh` means no mark, without
+  // consulting anything else. That is the whole difference between this and
+  // what it replaced — reading the last command typed was right until Claude
+  // exited, after which the row went on claiming it for ever.
+  const fg = (facts.running ?? '').trim().toLowerCase();
+  if (fg) return CLAUDE.has(fg) ? 'claude' : 'terminal';
+
+  // Nothing from the platform — Windows, or a terminal that has only just
+  // opened. What is left are guesses, and they are not equal.
+  //
+  // A command pane exists to run one thing and that thing is known exactly,
+  // so nothing else about the pane may overrule it. A pane told to run
+  // `npm test` is npm even if the word claude is somewhere in its history.
+  const only = (s.command ?? '').trim();
+  if (only) return CLAUDE.has(programOf(only)) ? 'claude' : 'terminal';
+
+  // An ordinary shell pane has two, and either saying yes is enough: a title
+  // is sometimes the program naming itself, and the last line typed is what
+  // this used to rely on alone. Both are asked, because a title of `~/work`
+  // says nothing and must not stop the other being read.
+  const guesses = [facts.title ?? '', facts.last ?? ''];
+  return guesses.map(programOf).some((p) => CLAUDE.has(p)) ? 'claude' : 'terminal';
 }
 
 export interface Row {
@@ -356,15 +440,20 @@ export function rowOf(
   const last = (facts.last ?? '').trim();
   const cwd = (facts.cwd ?? '').trim();
   const branch = (facts.branch ?? '').trim();
+  const running = runningOf(facts);
 
   let title = named;
   let mono = false;
   if (!title) {
     // The chosen one first, then whatever else this pane actually has.
-    const wants: TitleAs[] = view.titleAs === 'command' ? ['command', 'cwd', 'branch']
-      : view.titleAs === 'cwd' ? ['cwd', 'command', 'branch']
-      : ['branch', 'cwd', 'command'];
+    const wants: TitleAs[] = view.titleAs === 'command' ? ['command', 'running', 'cwd', 'branch']
+      : view.titleAs === 'cwd' ? ['cwd', 'running', 'command', 'branch']
+      : view.titleAs === 'branch' ? ['branch', 'cwd', 'running', 'command']
+      : ['running', 'command', 'cwd', 'branch'];
     for (const want of wants) {
+      // Monospaced, because it is a string that ran rather than a phrase —
+      // the same rule `titleOf` follows for a command.
+      if (want === 'running' && running) { title = running; mono = true; break; }
       if (want === 'command' && (s.command || last)) {
         title = s.command || last; mono = true; break;
       }

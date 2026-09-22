@@ -40,6 +40,14 @@ struct Session {
     killer: Box<dyn ChildKiller + Send + Sync>,
     /// The shell's own process. `None` where the platform did not say.
     pid: Option<u32>,
+    /// The last foreground process looked up, and what it turned out to be.
+    ///
+    /// Asking the terminal which process group is in front of it is a single
+    /// cheap syscall and can be done on every poll. Turning that pid into a
+    /// *name* is not: on macOS it means a `sysctl` into a buffer the size of
+    /// `ARG_MAX`. A pid's name never changes, so it is looked up once per
+    /// program run rather than once per poll.
+    fg: Option<(u32, String)>,
 }
 
 #[derive(Default)]
@@ -241,9 +249,230 @@ pub fn pty_open(
                 writer,
                 killer,
                 pid,
+                fg: None,
             },
         );
     Ok(id)
+}
+
+/// What is running in this terminal right now, by name.
+///
+/// The terminal's *foreground process group* — which is the shell itself when
+/// it is sitting at its prompt, and the program when one is running. It is the
+/// same question every terminal emulator asks in order to title its tabs, and
+/// it is asked of the operating system rather than of the shell, so nothing
+/// has to be configured and no escape sequence has to arrive. `pty_cwd` above
+/// makes the same argument at more length.
+///
+/// Empty for everything that can ordinarily go wrong, and on Windows, which
+/// has no foreground process group to ask about.
+#[tauri::command]
+pub fn pty_running(state: tauri::State<'_, Terminals>, id: u32) -> String {
+    let mut map = match state.map.lock() {
+        Ok(m) => m,
+        Err(_) => return String::new(),
+    };
+    let session = match map.get_mut(&id) {
+        Some(s) => s,
+        None => return String::new(),
+    };
+    let pid = match fg_pid(session) {
+        Some(p) => p,
+        None => return String::new(),
+    };
+    if let Some((was, name)) = &session.fg {
+        if *was == pid {
+            return name.clone();
+        }
+    }
+    let name = name_of(pid).unwrap_or_default();
+    session.fg = Some((pid, name.clone()));
+    name
+}
+
+/// The pid of whatever process group the terminal has in front of it.
+#[cfg(unix)]
+fn fg_pid(session: &Session) -> Option<u32> {
+    match session.master.process_group_leader() {
+        Some(p) if p > 0 => Some(p as u32),
+        _ => None,
+    }
+}
+
+/// Not supported here: Windows consoles have no foreground process group.
+#[cfg(not(unix))]
+fn fg_pid(_session: &Session) -> Option<u32> {
+    None
+}
+
+/// The program out of an `argv[0]`.
+///
+/// Two conventions get in the way of "take the last path segment":
+///
+///   `-zsh`               a login shell. The leading hyphen is how a shell is
+///                        told it is one, and it is not part of the name.
+///   `claude bg-pty-host` a whole phrase, which some programs put in `argv[0]`
+///                        to label themselves in `ps`. Claude's background
+///                        helpers do exactly this.
+///
+/// The segment is taken *before* the first word, not after: a path can contain
+/// a space (`/Applications/My App/bin/tool`) and splitting first would answer
+/// `/Applications/My`.
+fn leaf(argv0: &str) -> String {
+    let base = argv0.rsplit(['/', '\\']).next().unwrap_or(argv0);
+    let word = base.split_whitespace().next().unwrap_or("");
+    word.strip_prefix('-').unwrap_or(word).to_string()
+}
+
+/// `argv[0]` out of a `KERN_PROCARGS2` buffer.
+///
+/// The layout, which is stable and is the reason this is worth doing at all:
+///
+/// ```text
+///   [0..4]   argc, a native-endian int
+///   [4..]    the executable path, NUL-terminated
+///            then NUL padding, to align what follows
+///            then argv[0], NUL-terminated
+/// ```
+///
+/// The executable path sitting right there is the tempting answer and is the
+/// wrong one. It is the *resolved* path, and Claude Code installs itself as
+/// `~/.local/bin/claude` symlinked to `~/.local/share/claude/versions/2.1.280`
+/// — so the resolved path's last segment is `2.1.280`, and a row that should
+/// read "claude" reads as a version number. `p_comm`, which `proc_name`
+/// returns, has the same problem for the same reason. `argv[0]` is what the
+/// shell actually ran, which is what somebody typed, which is the answer.
+///
+/// Separate from the syscall so it can be tested: the parsing is the part
+/// with edges, and the `sysctl` around it is three lines.
+#[cfg(target_os = "macos")]
+fn argv0_from(buf: &[u8]) -> Option<String> {
+    if buf.len() < 4 {
+        return None;
+    }
+    // Zero means there are no arguments, and the bytes after the path are the
+    // environment rather than an `argv[0]` to read.
+    let argc = i32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]);
+    if argc <= 0 {
+        return None;
+    }
+    let rest = &buf[4..];
+    let path_end = rest.iter().position(|&b| b == 0)?;
+    let mut at = path_end;
+    while at < rest.len() && rest[at] == 0 {
+        at += 1;
+    }
+    if at >= rest.len() {
+        return None;
+    }
+    let end = rest[at..]
+        .iter()
+        .position(|&b| b == 0)
+        .map(|n| at + n)
+        .unwrap_or(rest.len());
+    let out = String::from_utf8_lossy(&rest[at..end]).into_owned();
+    if out.is_empty() { None } else { Some(out) }
+}
+
+/// What a process is called, by pid.
+#[cfg(target_os = "macos")]
+fn name_of(pid: u32) -> Option<String> {
+    if let Some(argv0) = argv0_of(pid) {
+        let name = leaf(&argv0);
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+    // The resolved path, which is second choice for the reason `argv0_from`
+    // gives — but a real answer for everything that is not installed behind a
+    // versioned symlink.
+    let mut buf = vec![0u8; 4 * 1024];
+    // SAFETY: the buffer is `buf.len()` bytes and that is what is passed as
+    // the size. The call writes at most that many and returns how many.
+    let n = unsafe {
+        libc::proc_pidpath(
+            pid as libc::c_int,
+            buf.as_mut_ptr() as *mut libc::c_void,
+            buf.len() as u32,
+        )
+    };
+    if n <= 0 {
+        return None;
+    }
+    let path = String::from_utf8_lossy(&buf[..n as usize]).into_owned();
+    let name = leaf(&path);
+    if name.is_empty() { None } else { Some(name) }
+}
+
+/// The raw `KERN_PROCARGS2` bytes for a process.
+#[cfg(target_os = "macos")]
+fn argv0_of(pid: u32) -> Option<String> {
+    use std::sync::OnceLock;
+    // Asked once. It is a constant of the running kernel, and the buffer has
+    // to be this big or the call refuses rather than truncating.
+    static ARGMAX: OnceLock<usize> = OnceLock::new();
+    let max = *ARGMAX.get_or_init(|| {
+        const KERN_ARGMAX: libc::c_int = 8;
+        let mut mib = [libc::CTL_KERN, KERN_ARGMAX];
+        let mut out: libc::c_int = 0;
+        let mut len = std::mem::size_of::<libc::c_int>() as libc::size_t;
+        // SAFETY: `mib` is the two-element name this sysctl takes, and `out`
+        // and `len` describe one `c_int`, which is what it writes.
+        let r = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                2,
+                &mut out as *mut _ as *mut libc::c_void,
+                &mut len,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if r == 0 && out > 0 { out as usize } else { 256 * 1024 }
+    });
+
+    const KERN_PROCARGS2: libc::c_int = 49;
+    let mut mib = [libc::CTL_KERN, KERN_PROCARGS2, pid as libc::c_int];
+    let mut buf = vec![0u8; max];
+    let mut len = buf.len() as libc::size_t;
+    // SAFETY: `mib` is the three-element name this sysctl takes, and `buf`
+    // and `len` describe the same allocation.
+    let r = unsafe {
+        libc::sysctl(
+            mib.as_mut_ptr(),
+            3,
+            buf.as_mut_ptr() as *mut libc::c_void,
+            &mut len,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if r != 0 {
+        return None;
+    }
+    buf.truncate(len);
+    argv0_from(&buf)
+}
+
+/// What a process is called, by pid.
+#[cfg(target_os = "linux")]
+fn name_of(pid: u32) -> Option<String> {
+    if let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) {
+        let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
+        let name = leaf(&String::from_utf8_lossy(&raw[..end]));
+        if !name.is_empty() {
+            return Some(name);
+        }
+    }
+    let comm = std::fs::read_to_string(format!("/proc/{pid}/comm")).ok()?;
+    let name = leaf(comm.trim());
+    if name.is_empty() { None } else { Some(name) }
+}
+
+/// Not supported here.
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn name_of(_pid: u32) -> Option<String> {
+    None
 }
 
 /// Where the shell in this terminal currently is.
@@ -720,6 +949,78 @@ fn trim_history(lines: &[String], cap: usize) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// What `argv[0]` reduces to, which is the row's whole answer to "what is
+    /// running in there".
+    ///
+    /// The version-number case is the one worth a test: Claude Code installs
+    /// as `~/.local/bin/claude` symlinked to `.../versions/2.1.280`, so
+    /// anything that reads the *resolved* path — `proc_pidpath`, `p_comm`,
+    /// `proc_name` — answers `2.1.280`. This machine was checked before the
+    /// code was written and `ps -o ucomm=` says exactly that.
+    #[test]
+    fn leaf_takes_the_program_out_of_argv0() {
+        assert_eq!(super::leaf("/Users/x/.local/bin/claude"), "claude");
+        assert_eq!(super::leaf("claude"), "claude");
+        // A login shell is told it is one by a hyphen on argv[0]. It is not
+        // part of the name, and a rail full of `-zsh` would be a rail full of
+        // a convention nobody outside a shell has heard of.
+        assert_eq!(super::leaf("-zsh"), "zsh");
+        assert_eq!(super::leaf("/bin/-bash"), "bash");
+        // Some programs put a whole phrase in argv[0] to label themselves in
+        // `ps`; Claude's background helpers arrive as exactly this.
+        assert_eq!(super::leaf("claude bg-pty-host"), "claude");
+        // The segment is taken before the first word and not after, because a
+        // path can contain a space and splitting first answers
+        // `/Applications/My`.
+        assert_eq!(super::leaf("/Applications/My App/bin/tool"), "tool");
+        assert_eq!(super::leaf("C:\\tools\\node.exe"), "node.exe");
+        assert_eq!(super::leaf(""), "");
+        assert_eq!(super::leaf("   "), "");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn argv0_is_read_out_of_a_procargs2_buffer() {
+        // argc, then the resolved executable path, then NUL padding, then
+        // argv[0]. The padding is the part that makes this worth parsing
+        // rather than splitting.
+        fn buf(argc: i32, path: &str, pad: usize, args: &[&str]) -> Vec<u8> {
+            let mut v = argc.to_ne_bytes().to_vec();
+            v.extend_from_slice(path.as_bytes());
+            v.push(0);
+            v.extend(std::iter::repeat(0u8).take(pad));
+            for a in args {
+                v.extend_from_slice(a.as_bytes());
+                v.push(0);
+            }
+            v
+        }
+        let real = buf(
+            1,
+            "/Users/x/.local/share/claude/versions/2.1.280",
+            7,
+            &["/Users/x/.local/bin/claude"],
+        );
+        assert_eq!(
+            super::argv0_from(&real).as_deref(),
+            Some("/Users/x/.local/bin/claude")
+        );
+        // And the whole point: the path sitting in front of it is the wrong
+        // answer, which is why it is stepped over rather than read.
+        assert_eq!(super::leaf(&super::argv0_from(&real).unwrap()), "claude");
+
+        assert_eq!(
+            super::argv0_from(&buf(2, "/bin/zsh", 0, &["-zsh", "-i"])).as_deref(),
+            Some("-zsh")
+        );
+        // No arguments means the bytes after the path are the environment.
+        assert!(super::argv0_from(&buf(0, "/bin/zsh", 3, &["PATH=/usr/bin"])).is_none());
+        assert!(super::argv0_from(&[]).is_none());
+        assert!(super::argv0_from(&[1, 0, 0]).is_none());
+        // A path with nothing after it at all.
+        assert!(super::argv0_from(&buf(1, "/bin/zsh", 0, &[])).is_none());
+    }
+
     /// The shell's own history, in the three formats it comes in.
     ///
     /// Parsed rather than read line for line, because zsh's extended format

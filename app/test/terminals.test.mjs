@@ -3,7 +3,7 @@
 // The state is the part worth testing hardest: it decides whether a row shows a
 // tick or a warning, and reporting a crashed command as finished-cleanly is the
 // one mistake here that would matter.
-import { stateOf, titleOf, since, matches, filter, shorten, ROW_VIEW, ROW_VIEW_KEY, readView, writeView, rowOf, programOf, markOf } from '../.test-build/terminals.js';
+import { stateOf, titleOf, since, matches, filter, shorten, ROW_VIEW, ROW_VIEW_KEY, readView, writeView, rowOf, programOf, markOf, runningOf } from '../.test-build/terminals.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -322,6 +322,86 @@ ok('a dead pane is a terminal whatever it ran',
    markOf(shell(1, { dead: true, code: 0 }), { last: 'claude' }) === 'terminal');
 ok('even one that failed',
    markOf(shell(1, { dead: true, code: 1 }), { last: 'claude' }) === 'terminal');
+
+// ── what the operating system says is in there ────────────────────────────
+//
+// This replaced reading the last command typed, and the reason is one case:
+// that was right until the program exited, after which the row went on
+// claiming it for ever. The foreground process group is right in both
+// directions.
+ok('a program in the foreground is what is running', runningOf({ running: 'claude' }) === 'claude');
+ok('and is lowercased', runningOf({ running: 'Claude' }) === 'claude');
+ok('and trimmed', runningOf({ running: '  vim \n' }) === 'vim');
+// `zsh` on fourteen rows is the problem the mark exists to solve.
+ok('a shell waiting is nothing running', runningOf({ running: 'zsh' }) === '');
+ok('whichever shell it is', ['bash', 'fish', 'sh', 'nu', 'pwsh', 'cmd.exe']
+  .every((sh) => runningOf({ running: sh }) === ''));
+ok('nothing is nothing', runningOf({}) === '' && runningOf({ running: '' }) === '');
+
+// The terminal's own title is what Windows has instead of a foreground
+// process group, so this is not dead code.
+ok('a title that is a bare program name counts', runningOf({ title: 'vim' }) === 'vim');
+ok('but the process group wins over it', runningOf({ running: 'node', title: 'vim' }) === 'node');
+ok('and a shell in the foreground beats a title too', runningOf({ running: 'zsh', title: 'vim' }) === '');
+// Shells overwhelmingly set the title to the directory, and a row showing
+// that would be repeating the line underneath it.
+ok('a path is not a program', runningOf({ title: '~/Documents/vylo' }) === '');
+ok('nor is user@host', runningOf({ title: 'avraz@mac: ~/work' }) === '');
+ok('nor a sentence', runningOf({ title: 'building the thing' }) === '');
+ok('nor a shell named in one', runningOf({ title: 'zsh' }) === '');
+
+// ── the mark, now that it is a fact ───────────────────────────────────────
+ok('the operating system saying claude is the mark',
+   markOf(shell(1), { running: 'claude' }) === 'claude');
+// The case the old version got wrong: claude was run, then exited.
+ok('and the operating system saying the shell takes it away',
+   markOf(shell(1), { running: 'zsh', last: 'claude' }) === 'terminal');
+ok('even against a command pane that ran it',
+   markOf(shell(1, { command: 'claude -p x' }), { running: 'zsh' }) === 'terminal');
+ok('something else running is a terminal',
+   markOf(shell(1), { running: 'node', last: 'claude' }) === 'terminal');
+
+// With no answer from the platform the old guesses still stand, and any of
+// them is enough.
+ok('with no answer, the last command still counts',
+   markOf(shell(1), { last: 'claude' }) === 'claude');
+ok('and a command pane does', markOf(shell(1, { command: 'claude' }), {}) === 'claude');
+ok('and a title that names it', markOf(shell(1), { title: 'claude' }) === 'claude');
+// A guess that says nothing must not stop a later one being asked: this is
+// why they are all mapped rather than returned on the first non-empty.
+ok('a folder title does not silence the last command',
+   markOf(shell(1), { title: '~/work', last: 'claude' }) === 'claude');
+ok('and none of them saying it is a terminal',
+   markOf(shell(1), { title: '~/work', last: 'npm test' }) === 'terminal');
+ok('a dead pane is still a terminal whatever is reported',
+   markOf(shell(1, { dead: true, code: 0 }), { running: 'claude' }) === 'terminal');
+
+// ── the row's title ───────────────────────────────────────────────────────
+const view = (over = {}) => ({ ...readView(null), ...over });
+ok('running is what a fresh install titles rows by', readView(null).titleAs === 'running');
+ok('and it is a value the reader accepts back',
+   readView(JSON.stringify({ titleAs: 'running' })).titleAs === 'running');
+ok('a pane running something is titled by it', (() => {
+  const r = rowOf(shell(3), { running: 'claude' }, view());
+  return r.title === 'claude' && r.mono === true;
+})(), rowOf(shell(3), { running: 'claude' }, view()));
+// It falls through whenever the shell is simply waiting, because a column of
+// `zsh` is the problem and not the answer.
+ok('a pane at its prompt falls through to the last command',
+   rowOf(shell(3), { running: 'zsh', last: 'npm test' }, view()).title === 'npm test');
+ok('and then to the folder',
+   rowOf(shell(3), { running: 'zsh', cwd: '/a/b/vylo' }, view()).title === 'vylo');
+ok('and then to its number',
+   rowOf(shell(3), { running: 'zsh' }, view(), { term: 'Terminal' }).title === 'Terminal 3');
+// A name somebody typed still wins over all of it.
+ok('a typed name outranks what is running',
+   rowOf(shell(3, { name: 'build' }), { running: 'claude' }, view()).title === 'build');
+// And the other preferences still lead with what they say, with running
+// slotted in behind.
+ok('choosing the folder still leads with the folder',
+   rowOf(shell(3), { running: 'claude', cwd: '/a/b/vylo' }, view({ titleAs: 'cwd' })).title === 'vylo');
+ok('but falls to running before the command',
+   rowOf(shell(3), { running: 'claude', last: 'npm test' }, view({ titleAs: 'cwd' })).title === 'claude');
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

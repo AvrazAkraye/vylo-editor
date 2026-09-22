@@ -149,6 +149,15 @@ export function TerminalPanel({
   const [note, setNote] = useState('');
   /** Where each shell is, by tab id. Asked after a command, never polled. */
   const [cwds, setCwds] = useState<Record<string, string>>({});
+  /**
+   * What is running in each pane, and what each terminal calls itself.
+   *
+   * `running` comes from the operating system on a timer; `titles` arrive by
+   * themselves, when a program or a shell sets one. See `runningOf` for why
+   * both exist and which wins.
+   */
+  const [running, setRunning] = useState<Record<string, string>>({});
+  const [titles, setTitles] = useState<Record<string, string>>({});
   /** The session row a menu is open on. */
   const [rowMenu, setRowMenu] = useState<{ id: string; at: MenuPoint } | null>(null);
   /**
@@ -296,7 +305,40 @@ export function TerminalPanel({
     cwd: cwds[id],
     branch: branches[id],
     last: (history[id] ?? [])[(history[id] ?? []).length - 1],
+    running: running[id],
+    title: titles[id],
   });
+
+  /**
+   * Ask each open pane what is in front of it.
+   *
+   * On a timer, and it is the only thing here that is: a directory changes
+   * when a command runs and a branch when a directory does, so both are asked
+   * at the moment they can have changed. This one changes *without anybody
+   * pressing a key* — a build finishing is exactly the moment a row should
+   * stop saying it is building — so there is nothing to hang it on.
+   *
+   * Every pane, not only the drawn ones. The row in the rail is the whole
+   * point — "which of these fourteen is the one with Claude in it" is a
+   * question about the thirteen that are *not* on screen. It is affordable
+   * because it is one `tcgetpgrp` per pane, and the name behind the pid is
+   * looked up once per program run rather than once per ask; see
+   * `pty_running`.
+   */
+  useEffect(() => {
+    let off = false;
+    const ask = () => {
+      for (const { id } of tabsRef.current) {
+        void handles.current.get(id)?.running().then((what) => {
+          if (off) return;
+          setRunning((p) => (p[id] === what ? p : { ...p, [id]: what }));
+        }).catch(() => {});
+      }
+    };
+    ask();
+    const timer = window.setInterval(ask, 2_500);
+    return () => { off = true; window.clearInterval(timer); };
+  }, []);
 
   /**
    * Write this folder's terminals down.
@@ -348,6 +390,13 @@ export function TerminalPanel({
     void handles.current.get(id)?.cwd().then((where) => {
       if (where) setCwds((p) => (p[id] === where ? p : { ...p, [id]: where }));
     });
+    // A line was just sent, so this is the likeliest moment in the pane's life
+    // for something to have started. The timer would catch it within a couple
+    // of seconds anyway; this is so that typing `claude` and watching the row
+    // change are the same moment rather than two.
+    void handles.current.get(id)?.running().then((what) => {
+      setRunning((p) => (p[id] === what ? p : { ...p, [id]: what }));
+    }).catch(() => {});
   }, []);
   /**
    * What was saved for this folder, read once when the panel mounts.
@@ -1488,7 +1537,7 @@ export function TerminalPanel({
               <div className="tsv-set">
                 <span className="tsv-label">{t('Title')}</span>
                 <span className="tk-pills">
-                  {([['command', 'Last command'], ['cwd', 'Folder'], ['branch', 'Branch']] as const).map(([k, label]) => (
+                  {([['running', 'Running'], ['command', 'Last command'], ['cwd', 'Folder'], ['branch', 'Branch']] as const).map(([k, label]) => (
                     <button key={k} className={`tk-pill ${view.titleAs === k ? 'on' : ''}`}
                             aria-pressed={view.titleAs === k}
                             onClick={() => setView((v) => ({ ...v, titleAs: k }))}>{t(label)}</button>
@@ -1893,6 +1942,7 @@ export function TerminalPanel({
                 // whole. A recalled or tab-completed line is not remembered
                 // twice-wrong; it is not remembered at all.
                 onSent={(line) => setHistory((h) => ({ ...h, [tab.id]: remember(h[tab.id] ?? [], line) }))}
+                onTitle={(title) => setTitles((p) => (p[tab.id] === title ? p : { ...p, [tab.id]: title }))}
                 onDropPaths={(paths) => dropPaths(tab.id, paths)}
                 /**
                  * Hold a bulk paste; let an ordinary one through.

@@ -30,6 +30,21 @@ export interface TermHandle {
    * times a second for an answer that is almost always the same one.
    */
   cwd(): Promise<string>;
+  /**
+   * What is running in this terminal right now, by name — `claude`, `vim`,
+   * `node` — or the shell's own name when it is sitting at its prompt.
+   *
+   * The terminal's foreground process group, asked of the operating system.
+   * The alternatives were both tried and both fail: the *title* is whatever
+   * the shell was configured to set and is usually the directory or nothing,
+   * and the last line somebody typed is a guess that never goes back to being
+   * a shell when the program exits.
+   *
+   * Asked on a timer, unlike `cwd`, because this is the one fact about a pane
+   * that changes without anybody pressing a key — a build finishing is exactly
+   * the moment the row should stop saying it is running.
+   */
+  running(): Promise<string>;
   clear(): void;
   /** Put keystrokes on the input line, as if typed. */
   type(data: string): void;
@@ -77,6 +92,15 @@ interface Props {
   onTyped?: (state: Typed) => void;
   /** A line was sent. Only fires for one this app saw whole — see suggest.ts. */
   onSent?: (line: string) => void;
+  /**
+   * The title the terminal itself is showing, from `OSC 0`/`OSC 2`.
+   *
+   * What a program or a shell says this window is. Most shells set it to the
+   * directory and many set nothing at all, so it is a supplement to
+   * `running()` rather than a replacement — but on Windows, where there is no
+   * foreground process group to ask about, it is the only thing there is.
+   */
+  onTitle?: (title: string) => void;
   /** Files were dropped on this pane. */
   onDropPaths?: (paths: string[]) => void;
   /**
@@ -134,7 +158,7 @@ function palette(dark: boolean) {
       };
 }
 
-export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths, onPaste, restore }: Props) {
+export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths, onPaste, onTitle, restore }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
@@ -147,8 +171,8 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
    * the terminal is built once — reading them at call time is what keeps the
    * effect from tearing down a live shell to pick up a new closure.
    */
-  const keys = useRef({ onTyped, onSent, onKey, onDropPaths, onPaste });
-  keys.current = { onTyped, onSent, onKey, onDropPaths, onPaste };
+  const keys = useRef({ onTyped, onSent, onKey, onDropPaths, onPaste, onTitle });
+  keys.current = { onTyped, onSent, onKey, onDropPaths, onPaste, onTitle };
   // Props the long-lived pty callbacks need to read at call time rather than
   // capture at mount time.
   const cb = useRef({ onExit, onError, onData });
@@ -296,6 +320,11 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       })
       .catch((e) => cb.current.onError(explain(e, 'open a terminal')));
 
+    // What the shell or the program says this window is. Not used for the
+    // icon — see `running` — but it is the only answer Windows has, and a
+    // program that sets one is usually naming itself.
+    const titled = t.onTitleChange((title) => keys.current.onTitle?.(title));
+
     const typed = t.onData((d) => {
       if (ptyId !== null) void invoke('pty_write', { id: ptyId, data: d }).catch(() => {});
       // Every keystroke passes through here on its way to the pty, which is why
@@ -350,6 +379,7 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       focus: () => t.focus(),
       fit: () => { try { f.fit(); } catch { /* hidden */ } },
       cwd: async () => (ptyId === null ? '' : invoke<string>('pty_cwd', { id: ptyId }).catch(() => '')),
+      running: async () => (ptyId === null ? '' : invoke<string>('pty_running', { id: ptyId }).catch(() => '')),
       clear: () => t.clear(),
       /**
        * Put keystrokes on the input line, as if typed.
@@ -411,6 +441,7 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
       ro.disconnect();
       el.removeEventListener('paste', onPasteEvent, true);
       typed.dispose();
+      titled.dispose();
       if (ptyId !== null) void invoke('pty_close', { id: ptyId }).catch(() => {});
       ptyId = null;
       t.dispose();

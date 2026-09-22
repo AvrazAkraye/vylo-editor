@@ -1980,7 +1980,7 @@ pub fn run() {
             set_global_shortcut,
             export_write,
             watch::watch_start, watch::watch_stop,
-            pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close, pty::pty_cwd, pty::shell_commands, pty::shell_history, pty::complete_path
+            pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close, pty::pty_cwd, pty::pty_running, pty::shell_commands, pty::shell_history, pty::complete_path
         ])
         .run(tauri::generate_context!())
         .expect("error while running Vylo Editor");
