@@ -150,6 +150,51 @@ export interface Msg {
   kind: Kind;
   /** The display name the sender publishes, when there is one. */
   who: string;
+  /**
+   * How far an outgoing message got. Empty on anything incoming, and on
+   * anything the server did not say — a tick that is guessed is worse than no
+   * tick, because the whole point of the mark is that it is evidence.
+   */
+  status: Status;
+  /** The message this one was a reply to, when it was one. */
+  quoted: Quoted | null;
+}
+
+/**
+ * How far a message of ours got: accepted by the server, delivered to the
+ * phone, read by the person. `''` is "the server did not say".
+ *
+ * `PLAYED` — a voice note listened to — is folded into `read`, because the
+ * distinction is one WhatsApp itself draws only for audio and the row has one
+ * mark to draw either way.
+ */
+export type Status = '' | 'pending' | 'sent' | 'delivered' | 'read';
+
+/**
+ * Evolution reports this as a word on some records and a number on others,
+ * and the numbers are the protocol's own. Both are read; anything else is
+ * `''`, which draws nothing.
+ */
+const STATUS_OF: Record<string, Status> = {
+  PENDING: 'pending', SERVER_ACK: 'sent', DELIVERY_ACK: 'delivered',
+  READ: 'read', PLAYED: 'read', ERROR: '',
+  '1': 'pending', '2': 'sent', '3': 'delivered', '4': 'read', '5': 'read', '0': '',
+};
+
+/**
+ * The message a reply was to, as much of it as travelled with the reply.
+ *
+ * WhatsApp sends the quoted message *inside* the reply rather than a pointer
+ * to it, which is why this can be drawn without having the original in the
+ * thread — a reply to something said last year still shows what it answered.
+ */
+export interface Quoted {
+  /** `stanzaId`: the quoted message's own WhatsApp id, for jumping to it. */
+  id: string;
+  /** Who said it, when the envelope names them. A group names a participant. */
+  who: string;
+  text: string;
+  kind: Kind;
 }
 
 /** Which envelope carries the words, per message type. */
@@ -172,6 +217,38 @@ const KIND_OF: Record<string, Kind> = {
   documentWithCaptionMessage: 'document',
   stickerMessage: 'sticker',
 };
+
+/**
+ * The reply context hanging off whichever envelope carries this message.
+ *
+ * `contextInfo` rides on the envelope rather than on the record, and every
+ * kind of message can carry one — a photo can be a reply as easily as a line
+ * of text — so every envelope is looked in rather than just the text ones.
+ *
+ * A `contextInfo` with no `quotedMessage` is the common case and is not a
+ * reply: it is where mentions and forwarding scores live too.
+ */
+function quotedOf(message: Record<string, unknown>): Quoted | null {
+  for (const v of Object.values(message)) {
+    if (!v || typeof v !== 'object') continue;
+    const ctx = (v as Record<string, unknown>).contextInfo;
+    if (!ctx || typeof ctx !== 'object') continue;
+    const c = ctx as Record<string, unknown>;
+    const inner = c.quotedMessage;
+    if (!inner || typeof inner !== 'object') continue;
+    const { text, kind } = bodyOf(inner as Record<string, unknown>);
+    return {
+      id: trim(c.stanzaId),
+      // `participant` is a jid, so it names the person only in the sense that
+      // a number does. It is what there is: the push name of somebody else's
+      // old message does not travel with the quote.
+      who: phoneOf(trim(c.participant)),
+      text,
+      kind,
+    };
+  }
+  return null;
+}
 
 function bodyOf(message: Record<string, unknown>): { text: string; kind: Kind } {
   for (const [key, field] of TEXT_AT) {
@@ -226,6 +303,10 @@ export function normalise(raw: unknown): Msg | null {
     text,
     kind,
     who: trim(r.pushName),
+    // Only ours has a status worth drawing: the ticks on an incoming message
+    // are the *sender's* evidence, not ours, and we are not the sender.
+    status: key.fromMe === true ? (STATUS_OF[trim(r.status) || String(r.status ?? '')] ?? '') : '',
+    quoted: quotedOf(message),
   };
 }
 
@@ -343,6 +424,15 @@ export const GROUP_GAP = 5 * 60 * 1000;
 export type Row =
   | { kind: 'day'; at: number; key: string }
   /**
+   * The line that says "everything below here arrived since you last looked".
+   *
+   * Only ever one, and only when there is something above it — a divider at
+   * the very top of a thread separates nothing from everything, which is a
+   * line that means "this conversation is new" dressed up as one that means
+   * "you have missed something".
+   */
+  | { kind: 'new'; at: number }
+  /**
    * `head` is the first message of a run and `tail` the last. A run of one is
    * both. The component hangs everything on these two: the sender's name goes
    * on the head, the time and the corner go on the tail, and the messages
@@ -362,12 +452,32 @@ function sameRun(a: Msg, b: Msg): boolean {
   return b.at - a.at <= GROUP_GAP;
 }
 
-/** A conversation, ready to draw. Messages must be oldest first. */
-export function threadRows(msgs: readonly Msg[]): Row[] {
+/**
+ * A conversation, ready to draw. Messages must be oldest first.
+ *
+ * `seenAt` is when this conversation was last looked at, from the same record
+ * `chatsFrom` counts unread against, and it puts one divider before the first
+ * thing that arrived after it. Zero — a conversation never opened — draws no
+ * divider at all, because a thread where everything is new has nothing to
+ * separate it from.
+ */
+export function threadRows(msgs: readonly Msg[], seenAt = 0): Row[] {
   const out: Row[] = [];
   let day = '';
+  // The first incoming message after the last look. Found up front, and by
+  // index rather than by timestamp, so the divider goes in *before* the day
+  // heading it shares a position with — and so two messages in the same second
+  // cannot both claim it.
+  //
+  // At index 0 it is suppressed: everything in the thread is new, and there is
+  // nothing above the line for it to be separated from. Finding the index and
+  // then rejecting 0 is not the same as skipping 0 and carrying on looking,
+  // which draws the line under the first unread message instead of over it.
+  const first = seenAt > 0 ? msgs.findIndex((m) => !m.fromMe && m.at > seenAt) : -1;
+  const mark = first > 0 ? first : -1;
   for (let i = 0; i < msgs.length; i++) {
     const m = msgs[i];
+    if (i === mark) out.push({ kind: 'new', at: m.at });
     const d = dayOf(m.at);
     if (d !== day) { out.push({ kind: 'day', at: m.at, key: d }); day = d; }
     const prev = i > 0 ? msgs[i - 1] : null;
@@ -379,5 +489,108 @@ export function threadRows(msgs: readonly Msg[]): Row[] {
       tail: !next || !sameRun(m, next),
     });
   }
+  return out;
+}
+
+
+/* ── answering one message in particular ─────────────────────────────────── */
+
+/** The `quoted` field of an outgoing message, in the shape the server wants. */
+export interface Quoting {
+  quoted?: { key: { id: string; remoteJid: string; fromMe: boolean } };
+}
+
+/**
+ * What to spread into a send body to make it a reply, or nothing at all.
+ *
+ * The server wants the *key* of the message being answered — the three fields
+ * WhatsApp identifies a message by: which conversation, whether we sent it,
+ * and its own id. `keyId` and not `id`, for the same reason
+ * `/chat/getBase64FromMediaMessage` needs it: `id` is Evolution's own row id
+ * and means nothing to WhatsApp, so a reply built from it quotes nothing and
+ * says so only by arriving as an ordinary message.
+ *
+ * Spread rather than assigned, so a send with nothing to quote carries no
+ * `quoted` key at all. An empty one and an absent one are not the same thing
+ * to a server that validates the field.
+ */
+export function quoting(to: Msg | null, jid: string): Quoting {
+  if (!to || !to.keyId || !jid) return {};
+  return { quoted: { key: { id: to.keyId, remoteJid: jid, fromMe: to.fromMe } } };
+}
+
+/* ── what you were in the middle of saying ───────────────────────────────── */
+
+/**
+ * Where the unsent replies are kept.
+ *
+ * A draft is per conversation, because the panel is one column and switching
+ * chats is how you look something up mid-sentence. Losing the sentence to do
+ * that is the kind of small rudeness that makes an app feel borrowed.
+ *
+ * Stored rather than held in memory: the panel unmounts when it closes, and
+ * "I closed the sidebar" is not "I changed my mind about what I was writing".
+ */
+export const DRAFTS_KEY = 'vylo.whatsapp.drafts.v1';
+
+/**
+ * How many conversations keep a draft.
+ *
+ * Unbounded, this grows for as long as the app is installed and every entry is
+ * a sentence somebody abandoned months ago. The cap is generous enough that
+ * nobody meets it in a session and small enough that the record stays a
+ * record rather than a log.
+ */
+export const MAX_DRAFTS = 40;
+
+/** Stored drafts, repaired. A bad record is no drafts, never a throw. */
+export function readDrafts(raw: string | null): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const v = JSON.parse(raw) as unknown;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+    const out: Record<string, string> = {};
+    for (const [jid, text] of Object.entries(v as Record<string, unknown>)) {
+      if (jid.includes('@') && typeof text === 'string' && text.trim()) out[jid] = text;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The drafts with one conversation's changed.
+ *
+ * Nothing is mutated and an empty draft is a *removal* rather than an empty
+ * string, so a conversation that was written in and then cleared leaves no
+ * trace — the alternative is a record full of `''` that counts against the cap
+ * and means nothing.
+ *
+ * The cap drops the conversations that have not been touched longest, which
+ * needs an order the record does not carry. `order` is the chat list, newest
+ * first, as the panel already has it; without one the oldest keys go, which is
+ * insertion order and close enough for a fallback nothing should reach.
+ */
+export function setDraft(
+  drafts: Readonly<Record<string, string>>,
+  jid: string,
+  text: string,
+  order: readonly string[] = [],
+): Record<string, string> {
+  const out: Record<string, string> = { ...drafts };
+  if (!jid || !jid.includes('@')) return out;
+  if (text.trim()) out[jid] = text;
+  else delete out[jid];
+  const keys = Object.keys(out);
+  if (keys.length <= MAX_DRAFTS) return out;
+  const rank = (k: string) => {
+    const i = order.indexOf(k);
+    return i === -1 ? Number.MAX_SAFE_INTEGER : i;
+  };
+  // The one just written is never the one dropped, whatever the order says.
+  const doomed = keys.filter((k) => k !== jid).sort((a, b) => rank(a) - rank(b))
+    .slice(MAX_DRAFTS - 1);
+  for (const k of doomed) delete out[k];
   return out;
 }

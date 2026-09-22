@@ -2500,6 +2500,129 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 }
 .wa-bubble.mine .wa-clock{ color:var(--on-fill); opacity:.7; }
 
+/* ── searching ───────────────────────────────────────────────────────────
+   One box above the list, for conversations and for what was said in them.
+   Inside the field rather than beside it: a 248px column has no room for a
+   label, and a magnifier inside the box is the one convention that needs
+   none. */
+.wa-find{
+  flex:none; display:flex; align-items:center; gap:var(--sp-2);
+  margin:var(--sp-2) var(--sp-4) var(--sp-1);
+  padding-inline:var(--sp-3); padding-block:2px;
+  border:1px solid var(--rule); border-radius:var(--r-3);
+  background:var(--panel-3); color:var(--mute);
+}
+.wa-find:focus-within{ border-color:var(--brand); color:var(--ink-2); }
+.wa-find svg{ flex:none; }
+.wa-find input{
+  flex:1; min-inline-size:0; border:0; background:transparent; color:var(--ink);
+  font:inherit; font-size:var(--fs-3); padding-block:var(--sp-2);
+}
+.wa-find input:focus, .wa-find input:focus-visible{ outline:none; }
+.wa-find input::placeholder{ color:var(--mute); opacity:.7; }
+.wa-find-x{
+  flex:none; display:inline-flex; border:0; padding:2px; border-radius:99px;
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.wa-find-x:hover{ color:var(--ink); background:var(--panel-2); }
+
+/* A heading inside the list, telling the two kinds of result apart. Not a
+   row: it is never a target, so it is not drawn as one. */
+.wa-sep{
+  padding:var(--sp-4) var(--sp-4) var(--sp-2);
+  font-size:var(--fs-1); font-weight:700; letter-spacing:.04em;
+  text-transform:uppercase; color:var(--mute);
+}
+/* A message result is a chat row whose second line is the message rather than
+   the latest one, so it needs nothing of its own but a way to be told apart
+   when the eye runs down the column. */
+.wa-hit .wa-last{ opacity:.85; }
+
+/* The hit itself. `--brand-wash` rather than the usual yellow: this sits on
+   both panel and bubble backgrounds and in both themes, and a fixed colour
+   fails one of the four. */
+.wa mark{
+  background:var(--brand-wash); color:inherit;
+  border-radius:var(--r-1); padding-inline:1px;
+}
+.wa-bubble.mine mark{ background:rgb(255 255 255 / .28); }
+
+/* ── where you had got to ────────────────────────────────────────────────
+   "New since you last looked" is a claim this side can actually make; the
+   server is not storing read state. Drawn as a rule across the thread with
+   the words centred in it, which is the one shape that reads as a boundary
+   rather than as another message. */
+.wa-new{
+  align-self:stretch; display:flex; align-items:center; gap:var(--sp-3);
+  margin-block:var(--sp-4) var(--sp-2); color:var(--brand);
+}
+.wa-new::before, .wa-new::after{ content:''; flex:1; height:1px; background:currentColor; opacity:.35; }
+.wa-new span{
+  font-size:var(--fs-1); font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+}
+
+/* ── a reply, and what it answers ────────────────────────────────────────
+   WhatsApp sends the quoted message inside the reply rather than a pointer to
+   it, so this draws even when the original is older than the page loaded. The
+   bar down the inline start is what says "this is not the message, it is what
+   the message is about". */
+.wa-quote{
+  display:block; margin-block-end:var(--sp-2);
+  padding-inline-start:var(--sp-3); padding-block:1px;
+  border-inline-start:2px solid var(--brand);
+  font-size:var(--fs-2); line-height:1.35; opacity:.85;
+}
+.wa-quote b{ display:block; color:var(--brand); font-weight:700; }
+.wa-quote span{
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+  overflow:hidden; white-space:pre-wrap;
+}
+.wa-bubble.mine .wa-quote{ border-inline-start-color:var(--on-fill); }
+.wa-bubble.mine .wa-quote b{ color:var(--on-fill); }
+
+/* One action, and only under the pointer. A message is not a button in the
+   resting state — making it one costs the text selection people use to copy a
+   verification code out of it. */
+.wa-reply{
+  position:absolute; inset-block-start:2px; inset-inline-end:2px;
+  display:inline-flex; padding:3px; border:0; border-radius:99px;
+  background:var(--panel-2); color:var(--mute);
+  opacity:0; cursor:pointer; transition:opacity .12s;
+}
+.wa-bubble.mine .wa-reply{ background:var(--panel); }
+.wa-bubble:hover .wa-reply, .wa-reply:focus-visible{ opacity:1; }
+.wa-reply:hover{ color:var(--brand); }
+
+/* How far a message of ours got. Two marks for delivered and read, one for
+   sent, and the second overlaps the first the way the real one does — drawn
+   by an offset rather than as a second glyph with its own box, which would
+   read as two separate ticks with a space in them. */
+.wa-ack{ display:inline-flex; align-items:center; margin-inline-start:3px; }
+.wa-ack .two{ margin-inline-start:-6px; }
+.wa-ack.read{ color:var(--ok, var(--brand)); opacity:1; }
+.wa-bubble.mine .wa-ack.read{ color:var(--on-fill); opacity:1; }
+
+/* What is being answered, above the box that answers it. Without it the quote
+   is invisible until after it is sent, and a reply attached to the wrong
+   message is not something that can be taken back. */
+.wa-answering{
+  display:flex; align-items:center; gap:var(--sp-2);
+  padding:var(--sp-2) var(--sp-3);
+  border-inline-start:2px solid var(--brand); border-radius:var(--r-2);
+  background:var(--panel-3); color:var(--ink-2);
+}
+.wa-answering svg{ flex:none; color:var(--brand); }
+.wa-answering-what{ flex:1; min-inline-size:0; font-size:var(--fs-2); line-height:1.3; }
+.wa-answering-what b{ display:block; color:var(--brand); font-weight:700; }
+.wa-answering-what span{
+  display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:.8;
+}
+.wa-answering button{
+  flex:none; display:inline-flex; border:0; padding:2px; border-radius:99px;
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.wa-answering button:hover{ color:var(--err); }
+
 /* ── the composer ────────────────────────────────────────────────────────
    One box with the button inside it, rather than a textarea with two buttons
    on a row underneath. The old shape spent a third of a 248px column on

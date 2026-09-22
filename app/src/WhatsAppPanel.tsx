@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { fill } from './i18n';
 import {
-  BLANK, KEY, chatsFrom, inChat, isGroup, phoneOf, read, ready, relDay,
-  messagesFrom, threadRows, write,
-  type Chat, type Conn, type Msg, type Row,
+  BLANK, DRAFTS_KEY, KEY, chatsFrom, inChat, isGroup, phoneOf, read, readDrafts,
+  quoting, ready, relDay, messagesFrom, setDraft as withDraft, threadRows, write,
+  type Chat, type Conn, type Msg, type Row, type Status,
 } from './whatsapp';
+import { findChats, findEverywhere, marked, snippet, type Hit } from './whatsappfind';
 import { WireError, apiCall } from './whatsappwire';
 import {
   displayMime, handoverOf, hasMedia, mediaBodyFor, mediaFrom, mediaPath, nameFor,
@@ -229,6 +230,50 @@ function frameOf(url: string, mime: string): Promise<string | null> {
   });
 }
 
+/**
+ * Text with the search hits marked.
+ *
+ * The runs come from `whatsappfind`, which counts them against the original
+ * string rather than the folded one. Doing it here instead would draw the
+ * highlight a character or two to the left of the word in any text with a
+ * tatweel or a haraka in it, which is most Arabic text.
+ */
+function Mark({ text, q }: { text: string; q: string }) {
+  if (!q.trim()) return <>{text}</>;
+  return (
+    <>
+      {marked(text, q).map((r, i) => (
+        r.hit ? <mark key={i}>{r.text}</mark> : <Fragment key={i}>{r.text}</Fragment>
+      ))}
+    </>
+  );
+}
+
+/**
+ * How far a message of ours got, as the mark WhatsApp itself draws.
+ *
+ * Nothing at all when the server did not say. A tick that is guessed is worse
+ * than no tick: the whole point of the mark is that it is evidence, and an
+ * optimistic one turns "it was delivered" into "it was sent to a server that
+ * may have dropped it".
+ */
+function Ticks({ status, t }: { status: Status; t: (s: string) => string }) {
+  if (!status) return null;
+  const said = status === 'pending' ? t('Sending')
+    : status === 'sent' ? t('Sent')
+    : status === 'delivered' ? t('Delivered')
+    : t('Read');
+  return (
+    <span className={`wa-ack ${status}`} title={said} aria-label={said}>
+      {status === 'pending' ? <Icon name="clock" size={11} /> : <Icon name="check" size={11} />}
+      {/* Two marks for delivered and read, one for sent. The second is drawn
+          offset by CSS rather than as a second glyph with its own box, so the
+          pair overlaps the way the real one does. */}
+      {(status === 'delivered' || status === 'read') && <Icon name="check" size={11} className="two" />}
+    </span>
+  );
+}
+
 export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
   const [conn, setConn] = useState<Conn>(() => read(localStorage.getItem(KEY)));
   const [form, setForm] = useState<Conn>(conn);
@@ -238,6 +283,37 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
   const [open, setOpen] = useState('');
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  /**
+   * What is in the search box, and it is one box for two jobs: on the chat
+   * list it finds conversations, and inside one it finds messages. The same
+   * box because it is the same question — "where is the thing about X" — and
+   * two boxes would make the person answer which kind of thing first.
+   */
+  const [find, setFind] = useState('');
+  /**
+   * The message being replied to, when there is one.
+   *
+   * Held as the whole message rather than an id: the composer draws what is
+   * being answered, and looking that up again from the id would fail for a
+   * reply to something older than the page currently loaded.
+   */
+  const [replyTo, setReplyTo] = useState<Msg | null>(null);
+
+  /**
+   * The unsent replies, by conversation.
+   *
+   * The panel is one column, so switching chats is how you look something up
+   * mid-sentence. Losing the sentence to do that is the kind of small
+   * rudeness that makes an app feel borrowed — and it survives the panel
+   * closing, because "I closed the sidebar" is not "I changed my mind about
+   * what I was writing".
+   */
+  const [drafts, setDrafts] = useState<Record<string, string>>(
+    () => readDrafts(localStorage.getItem(DRAFTS_KEY)),
+  );
+  useEffect(() => {
+    try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts)); } catch { /* private mode */ }
+  }, [drafts]);
 
   /**
    * When each conversation was last looked at.
@@ -255,8 +331,44 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
 
   const chats = useMemo(() => chatsFrom(msgs, seen), [msgs, seen]);
   const thread = useMemo(() => (open ? inChat(msgs, open) : []), [msgs, open]);
-  const rows = useMemo(() => threadRows(thread), [thread]);
+  /**
+   * When this conversation was last looked at, *frozen at the moment it was
+   * opened*.
+   *
+   * `show` stamps `seen` the instant a chat is opened, which is right for the
+   * unread count on the list and useless for the divider — reading it live
+   * would move the line to the bottom before the first paint and the person
+   * would never see where they had got to. So the value is captured on open
+   * and left alone until they leave.
+   */
+  const wasSeen = useRef(0);
+  const rows = useMemo(() => threadRows(thread, wasSeen.current), [thread]);
+  /** Where the divider is, so the thread can open there rather than at the end. */
+  const newMark = useRef<HTMLDivElement>(null);
   const here = useMemo(() => chats.find((c) => c.jid === open), [chats, open]);
+
+  /**
+   * The chat list under the query, and the messages under it.
+   *
+   * Two lists rather than one, because they answer different questions and the
+   * person searching knows which they meant: "Ahmad" is a conversation and
+   * "the invoice" is a line inside one. Merged, a name would sort against a
+   * sentence and neither would be where it was expected.
+   *
+   * `names` is handed to the search rather than looked up there, because
+   * deriving a display name is `chatsFrom`'s job and involves a fallback chain
+   * nothing else has any business repeating.
+   */
+  const found = useMemo(() => findChats(chats, find), [chats, find]);
+  const names = useMemo(
+    () => Object.fromEntries(chats.map((c) => [c.jid, c.name])) as Record<string, string>,
+    [chats],
+  );
+  const hits = useMemo(
+    () => (find.trim() ? findEverywhere(msgs, find, names) : { hits: [] as Hit[], total: 0 }),
+    [msgs, find, names],
+  );
+  const searching = find.trim().length > 0;
 
   /**
    * Downloaded attachments, by message.
@@ -394,12 +506,76 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
   }, [state, conn, call, sayWhy]);
 
   const foot = useRef<HTMLDivElement>(null);
-  useEffect(() => { foot.current?.scrollIntoView({ block: 'end' }); }, [thread.length, open]);
+  /*
+   * Opening a conversation with unread messages lands on the first of them
+   * rather than at the very bottom: the reason to open it is to read what was
+   * missed. Every other reason to scroll is the end of the thread.
+   *
+   * Only on the *first* run for a conversation, which is what `jumped` is
+   * for. The divider stays put for as long as you are in the chat — `wasSeen`
+   * is frozen on purpose — so without the guard every message that arrived
+   * while you were reading would scroll you back up to where you came in.
+   */
+  const jumped = useRef('');
+  useEffect(() => {
+    const arriving = jumped.current !== open;
+    jumped.current = open;
+    if (arriving && newMark.current) newMark.current.scrollIntoView({ block: 'center' });
+    else foot.current?.scrollIntoView({ block: 'end' });
+  }, [thread.length, open]);
 
+  /**
+   * Put the composer back in the drafts record.
+   *
+   * Called when leaving a conversation rather than on every keystroke: the
+   * record is written to localStorage whenever it changes, and a write per
+   * character is a lot of work to save something that is only ever read when
+   * you come back.
+   */
+  const keep = useCallback(() => {
+    if (!open) return;
+    setDrafts((d) => withDraft(d, open, draft, chats.map((c) => c.jid)));
+  }, [open, draft, chats]);
+
+  /** Open a conversation, with whatever was half-written in it. */
   function show(jid: string) {
+    keep();
+    wasSeen.current = seen[jid] ?? 0;
     setOpen(jid);
+    setDraft(drafts[jid] ?? '');
+    setReplyTo(null);
+    // A search is about finding one thing. Having found it, the box has done
+    // its job, and carrying the query into the conversation would filter the
+    // thread the person just asked to see all of.
+    setFind('');
     setSeen((s) => ({ ...s, [jid]: Date.now() }));
   }
+
+  /** Back to the list, keeping the sentence. */
+  function leave() {
+    keep();
+    setOpen('');
+    setReplyTo(null);
+    setFind('');
+  }
+
+  /*
+   * The panel unmounts when the sidebar closes, and that is not a decision
+   * about what was being written. The ref is read rather than the state
+   * because an unmount effect that depends on either would run on every
+   * keystroke, saving the very thing it is trying to save at the end.
+   */
+  const held = useRef({ open, draft, chats });
+  held.current = { open, draft, chats };
+  useEffect(() => () => {
+    const { open: at, draft: text, chats: list } = held.current;
+    if (!at) return;
+    try {
+      const next = withDraft(readDrafts(localStorage.getItem(DRAFTS_KEY)), at, text,
+        list.map((c) => c.jid));
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
+    } catch { /* private mode */ }
+  }, []);
 
   /**
    * Fetch the bytes behind one message, once.
@@ -581,10 +757,15 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
       // note -- still has to be said.
       if (caption) {
         await call(conn, `/message/sendText/${encodeURIComponent(conn.instance)}`,
-          { number, text: caption });
+          { number, text: caption, ...quoting(replyTo, open) });
       }
       setDraft('');
       setOutbox([]);
+      setReplyTo(null);
+      // The composer is empty now, so the stored draft for this conversation
+      // has to go with it — otherwise coming back restores a sentence that has
+      // already been sent.
+      setDrafts((d) => withDraft(d, open, '', chats.map((c) => c.jid)));
       // Straight back rather than waiting for the next tick, so the message
       // appears where it was typed.
       const back = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, { limit: PAGE });
@@ -1046,11 +1227,34 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
 
         {why && <p className="wa-why">{why}</p>}
 
+        {chats.length > 0 && (
+          /* One box for two jobs: conversations by name and messages by what
+             was said. The same question — "where is the thing about X" — and
+             two boxes would make the person answer which kind first. */
+          <div className="wa-find">
+            <Icon name="search" size={12} />
+            <input value={find} dir="auto" spellCheck={false}
+                   onChange={(e) => setFind(e.target.value)}
+                   onKeyDown={(e) => { if (e.key === 'Escape') setFind(''); }}
+                   placeholder={t('Search names and messages')}
+                   aria-label={t('Search names and messages')} />
+            {searching && (
+              <button className="wa-find-x" onClick={() => setFind('')}
+                      title={t('Clear the search')} aria-label={t('Clear the search')}>
+                <Icon name="close" size={11} />
+              </button>
+            )}
+          </div>
+        )}
+
         {chats.length === 0 ? (
           <p className="ft-empty">{t('Nothing has arrived yet. Messages appear here as they come in.')}</p>
+        ) : searching && found.length === 0 && hits.total === 0 ? (
+          <p className="ft-empty">{fill(t('Nothing matches “{q}”.'), { q: find.trim() })}</p>
         ) : (
           <ul className="wa-list">
-            {chats.map((c: Chat) => (
+            {searching && found.length > 0 && <li className="wa-sep">{t('Conversations')}</li>}
+            {found.map((c: Chat) => (
               <li key={c.jid}>
                 <button className="wa-row" onClick={() => show(c.jid)}>
                   <span className={`wa-mark ${tintOf(c.jid)} ${c.group ? 'group' : ''}`}>
@@ -1058,7 +1262,7 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
                   </span>
                   <span className="wa-what">
                     <span className="wa-line">
-                      <b dir="auto">{c.name}</b>
+                      <b dir="auto"><Mark text={c.name} q={find} /></b>
                       {/* The clock is part of the row, not a detail behind a
                           hover: "when" is half of what a chat list is for. */}
                       <time className="wa-when">{clockOf(c.at)}</time>
@@ -1066,9 +1270,40 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
                     <span className="wa-line">
                       <span className="wa-last" dir="auto">
                         {c.lastFromMe && <em>{t('You:')}</em>}
-                        {c.last || kindLabel(c.lastKind, t)}
+                        {c.last ? <Mark text={c.last} q={find} /> : kindLabel(c.lastKind, t)}
                       </span>
                       {c.unread > 0 && <i className="wa-dot">{c.unread}</i>}
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+            {searching && hits.total > 0 && (
+              <li className="wa-sep">
+                {hits.total > hits.hits.length
+                  ? fill(t('Messages — {n} of {total}'), { n: hits.hits.length, total: hits.total })
+                  : fill(t('Messages ({n})'), { n: hits.total })}
+              </li>
+            )}
+            {searching && hits.hits.map((h) => (
+              <li key={`h${h.msg.id}`}>
+                {/* Opening the conversation is all this does. Scrolling it to
+                    the message would need the thread to hold everything ever
+                    said in it, and it holds a page. */}
+                <button className="wa-row wa-hit" onClick={() => show(h.msg.jid)}>
+                  <span className={`wa-mark ${tintOf(h.msg.jid)} ${isGroup(h.msg.jid) ? 'group' : ''}`}>
+                    {isGroup(h.msg.jid) ? <Icon name="memory" size={13} /> : initialsOf(h.name)}
+                  </span>
+                  <span className="wa-what">
+                    <span className="wa-line">
+                      <b dir="auto">{h.name}</b>
+                      <time className="wa-when">{clockOf(h.msg.at)}</time>
+                    </span>
+                    <span className="wa-line">
+                      <span className="wa-last" dir="auto">
+                        {h.msg.fromMe && <em>{t('You:')}</em>}
+                        <Mark text={snippet(h.msg.text, find)} q={find} />
+                      </span>
                     </span>
                   </span>
                 </button>
@@ -1118,7 +1353,7 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
           {/* In a window the list is already on screen, so a Back button would
               point at something the eye is already on. */}
           {!full && (
-            <button className="sb-act wa-back" onClick={() => setOpen('')} title={t('All chats')}
+            <button className="sb-act wa-back" onClick={leave} title={t('All chats')}
                     aria-label={t('All chats')}>
               <Icon name="chevron" size={13} turn={180} />
             </button>
@@ -1166,6 +1401,10 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
         )}
         {rows.map((r: Row, i) => (r.kind === 'day' ? (
           <div key={`d${r.key}`} className="wa-day"><span>{dayLabel(r.at)}</span></div>
+        ) : r.kind === 'new' ? (
+          /* "New since you last looked" is a claim this side can actually
+             make; the server is not storing read state. See `chatsFrom`. */
+          <div key="new" className="wa-new" ref={newMark}><span>{t('New messages')}</span></div>
         ) : (
           <div key={r.msg.id || `m${i}`}
                className={[
@@ -1201,6 +1440,15 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
             {group && !r.msg.fromMe && r.head && r.msg.who && (
               <span className="wa-from" dir="auto">{r.msg.who}</span>
             )}
+            {/* WhatsApp sends the quoted message *inside* the reply rather
+                than a pointer to it, so this draws even when the original is
+                older than the page currently loaded. */}
+            {r.msg.quoted && (
+              <span className="wa-quote" dir="auto">
+                <b>{r.msg.quoted.who ? `+${r.msg.quoted.who}` : t('Reply to')}</b>
+                <span>{r.msg.quoted.text || kindLabel(r.msg.quoted.kind, t)}</span>
+              </span>
+            )}
             {body(r.msg)}
             {/* `dir="auto"` per message, not per panel. A thread holds Arabic,
                 Kurdish and English at once — often in one conversation — and the
@@ -1209,7 +1457,18 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
                 character. Inheriting the interface's direction put Arabic
                 punctuation at the wrong end of English sentences and the other
                 way round. */}
-            {r.msg.text && <span className="wa-text" dir="auto">{r.msg.text}</span>}
+            {r.msg.text && (
+              <span className="wa-text" dir="auto"><Mark text={r.msg.text} q={find} /></span>
+            )}
+            {/* One action, on hover, and not while picking — picking already
+                owns the whole bubble as a target. A menu here would be three
+                things behind a press for a panel that is 248px wide. */}
+            {!picking && (
+              <button className="wa-reply" onClick={() => { setReplyTo(r.msg); setFind(''); }}
+                      title={t('Reply to this')} aria-label={t('Reply to this')}>
+                <Icon name="chevron" size={11} turn={180} />
+              </button>
+            )}
             {/* A message with neither words nor anything to fetch still has to
                 occupy a line, or a run silently loses one of its members. */}
             {!r.msg.text && !hasMedia(r.msg) && (
@@ -1220,13 +1479,34 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
             )}
             {/* The clock on the last of a run only. On every message it is a
                 column of identical numbers down the side of the thread. */}
-            {r.tail && <time className="wa-clock">{clockOf(r.msg.at)}</time>}
+            {r.tail && (
+              <time className="wa-clock">
+                {clockOf(r.msg.at)}
+                <Ticks status={r.msg.status} t={t} />
+              </time>
+            )}
           </div>
         )))}
         <div ref={foot} />
       </div>
 
       <div className="wa-send">
+        {/* What is being answered, above the box that answers it. Without this
+            the quote is invisible until after it is sent, and a reply attached
+            to the wrong message is not something you can take back. */}
+        {replyTo && (
+          <div className="wa-answering">
+            <Icon name="chevron" size={11} turn={180} />
+            <span className="wa-answering-what" dir="auto">
+              <b>{replyTo.fromMe ? t('You:') : (replyTo.who || t('Reply to'))}</b>
+              <span>{replyTo.text || kindLabel(replyTo.kind, t)}</span>
+            </span>
+            <button onClick={() => setReplyTo(null)}
+                    title={t('Do not reply to it')} aria-label={t('Do not reply to it')}>
+              <Icon name="close" size={11} />
+            </button>
+          </div>
+        )}
         {/* What is about to go, before it goes. A photo shows itself: the whole
             point of picking one is knowing you picked the right one. */}
         {outbox.length > 0 && (
