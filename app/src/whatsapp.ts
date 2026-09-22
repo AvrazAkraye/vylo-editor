@@ -181,6 +181,45 @@ const STATUS_OF: Record<string, Status> = {
   '1': 'pending', '2': 'sent', '3': 'delivered', '4': 'read', '5': 'read', '0': '',
 };
 
+/** How far along each one is, so the furthest can be picked out of a bag. */
+const RANK: Record<Status, number> = { '': 0, pending: 1, sent: 2, delivered: 3, read: 4 };
+
+/**
+ * How far a message of ours got, out of wherever this server keeps it.
+ *
+ * `status` on the record is the documented place and is null on every record
+ * this instance returns. What it has instead is `MessageUpdate`, an array of
+ * every acknowledgement that has arrived — and **it is not in order**. A real
+ * one reads
+ *
+ *   [READ, SERVER_ACK, ERROR, DELIVERY_ACK, DELIVERY_ACK]
+ *
+ * so taking the last element reports a delivery for a message that has been
+ * read, and taking the first reports a read for one that errored on a second
+ * device. Neither is a timeline; it is a bag of things that happened.
+ *
+ * So the *furthest* is taken, by rank. A message cannot un-deliver, and an
+ * ERROR beside three acknowledgements means one of several devices refused
+ * it, not that it failed — it ranks zero and loses to anything real.
+ *
+ * Both places are read, because the documented one is right on other versions
+ * and this costs one field lookup.
+ */
+function statusOf(r: Record<string, unknown>): Status {
+  let best: Status = '';
+  const saw = (v: unknown) => {
+    const s = STATUS_OF[trim(v) || String(v ?? '')] ?? '';
+    if (RANK[s] > RANK[best]) best = s;
+  };
+  saw(r.status);
+  if (Array.isArray(r.MessageUpdate)) {
+    for (const u of r.MessageUpdate) {
+      if (u && typeof u === 'object') saw((u as Record<string, unknown>).status);
+    }
+  }
+  return best;
+}
+
 /**
  * The message a reply was to, as much of it as travelled with the reply.
  *
@@ -228,13 +267,24 @@ const KIND_OF: Record<string, Kind> = {
  * A `contextInfo` with no `quotedMessage` is the common case and is not a
  * reply: it is where mentions and forwarding scores live too.
  */
-function quotedOf(message: Record<string, unknown>): Quoted | null {
-  for (const v of Object.values(message)) {
-    if (!v || typeof v !== 'object') continue;
-    const ctx = (v as Record<string, unknown>).contextInfo;
+function quotedOf(r: Record<string, unknown>, message: Record<string, unknown>): Quoted | null {
+  // Two places, because this instance uses the first and the protocol's own
+  // shape — which other Evolution versions store — is the second. Reading
+  // only the envelope found nothing at all here: every reply on this server
+  // hangs its context off the *record*, and the envelope's `contextInfo` is
+  // where mentions and the ephemeral timer live.
+  const places: unknown[] = [
+    r.contextInfo,
+    ...Object.values(message).map((v) => (v && typeof v === 'object'
+      ? (v as Record<string, unknown>).contextInfo : null)),
+  ];
+  for (const ctx of places) {
     if (!ctx || typeof ctx !== 'object') continue;
     const c = ctx as Record<string, unknown>;
     const inner = c.quotedMessage;
+    // A `contextInfo` with no `quotedMessage` is the common case and is not a
+    // reply: nearly every record here has one, carrying `mentionedJid` and
+    // the disappearing-message settings.
     if (!inner || typeof inner !== 'object') continue;
     const { text, kind } = bodyOf(inner as Record<string, unknown>);
     return {
@@ -305,8 +355,8 @@ export function normalise(raw: unknown): Msg | null {
     who: trim(r.pushName),
     // Only ours has a status worth drawing: the ticks on an incoming message
     // are the *sender's* evidence, not ours, and we are not the sender.
-    status: key.fromMe === true ? (STATUS_OF[trim(r.status) || String(r.status ?? '')] ?? '') : '',
-    quoted: quotedOf(message),
+    status: key.fromMe === true ? statusOf(r) : '',
+    quoted: quotedOf(r, message),
   };
 }
 

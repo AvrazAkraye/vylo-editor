@@ -348,5 +348,103 @@ ok('it is keyId and never id', (() => {
 ok('a message with no keyId cannot be quoted',
    !('quoted' in quoting(at(1, { keyId: '' }), 'a@s.whatsapp.net')));
 
+// ── the shapes the live instance actually returns ─────────────────────────
+//
+// Everything above was written against the documented shape. These were read
+// off `chat/findMessages` on the real server, and both features were parsing
+// places that are always empty on it:
+//
+//   - `status` on the record is null on all 36 records. What it has instead is
+//     `MessageUpdate`, an array of every acknowledgement that arrived, and the
+//     array is NOT in order.
+//   - `contextInfo` is a field of the *record*. The envelope has one too, and
+//     on this server it never carries `quotedMessage` — it holds mentions and
+//     the disappearing-message settings.
+{
+  // Verbatim, from the reply this app sent and read back.
+  const live = {
+    id: 'cmud63g0t02qfnt4y8cids0pm',
+    key: { id: '3EB0B0619AA073D7E8D6FC', fromMe: true, remoteJid: '121298634178579@lid' },
+    pushName: 'Você',
+    messageType: 'conversation',
+    message: { conversation: 'Test from Vylo Editor 0.95.0 — this one is a reply.' },
+    messageTimestamp: 1790111378,
+    source: 'web',
+    contextInfo: {
+      stanzaId: '3AF41D981947F0E12BAC',
+      participant: '121298634178579@lid',
+      mentionedJid: [], groupMentions: [],
+      quotedMessage: { conversation: 'Create me an app' },
+      disappearingMode: { initiator: 0 },
+    },
+    MessageUpdate: [{ status: 'DELIVERY_ACK' }, { status: 'SERVER_ACK' }],
+  };
+  const m = normalise(live);
+  ok('a reply on this server is read from the record, not the envelope',
+     m.quoted !== null && m.quoted.text === 'Create me an app', m.quoted);
+  ok('with the id of what it answered', m.quoted.id === '3AF41D981947F0E12BAC');
+  ok('and the status comes out of MessageUpdate', m.status === 'delivered', m.status);
+}
+{
+  // The plain message sent in the same breath. It has a contextInfo too —
+  // nearly every record does — and it is not a reply.
+  const live = {
+    id: 'cmud63f1w02q9nt4yi5cqg6km',
+    key: { id: '3EB09B0A3CCE92D6ACBCB7', fromMe: true, remoteJid: '121298634178579@lid' },
+    messageType: 'conversation',
+    message: { conversation: 'Test from Vylo Editor 0.95.0 — plain message.' },
+    messageTimestamp: 1790111377,
+    contextInfo: { mentionedJid: [], groupMentions: [], disappearingMode: { initiator: 0 } },
+    MessageUpdate: [{ status: 'SERVER_ACK' }],
+  };
+  const m = normalise(live);
+  ok('a contextInfo without a quotedMessage is not a reply', m.quoted === null, m.quoted);
+  ok('and its status is still read', m.status === 'sent');
+}
+// The array is a bag of things that happened, not a timeline. Taking the last
+// element reports a delivery for a message that has been read; taking the
+// first reports a read for one that errored on a second device.
+{
+  const of = (ups) => normalise({
+    key: { id: 'k', fromMe: true, remoteJid: 'a@s.whatsapp.net' },
+    message: { conversation: 'x' }, messageTimestamp: 1, MessageUpdate: ups,
+  }).status;
+  ok('the furthest acknowledgement wins, not the last',
+     of([{ status: 'READ' }, { status: 'SERVER_ACK' }, { status: 'DELIVERY_ACK' }]) === 'read');
+  ok('nor the first',
+     of([{ status: 'SERVER_ACK' }, { status: 'READ' }]) === 'read');
+  // An ERROR beside three acknowledgements means one of several devices
+  // refused it, not that the message failed.
+  ok('an error loses to anything real',
+     of([{ status: 'READ' }, { status: 'SERVER_ACK' }, { status: 'ERROR' }, { status: 'DELIVERY_ACK' }]) === 'read');
+  ok('but an error on its own is no tick', of([{ status: 'ERROR' }]) === '');
+  ok('an empty array is no tick', of([]) === '');
+  ok('and rubbish in it is skipped', of([null, 'x', 7, { status: 'READ' }]) === 'read');
+  ok('a MessageUpdate that is not an array is ignored', (() => {
+    const m = normalise({ key: { id: 'k', fromMe: true, remoteJid: 'a@s.whatsapp.net' },
+      message: { conversation: 'x' }, messageTimestamp: 1, MessageUpdate: 'nope' });
+    return m.status === '';
+  })());
+}
+// The documented field still works, because it is right on other versions.
+ok('the record status is still read when it is there', normalise({
+  key: { id: 'k', fromMe: true, remoteJid: 'a@s.whatsapp.net' },
+  message: { conversation: 'x' }, messageTimestamp: 1, status: 'READ',
+}).status === 'read');
+ok('and the furthest of the two places wins', normalise({
+  key: { id: 'k', fromMe: true, remoteJid: 'a@s.whatsapp.net' },
+  message: { conversation: 'x' }, messageTimestamp: 1,
+  status: 'SERVER_ACK', MessageUpdate: [{ status: 'READ' }],
+}).status === 'read');
+// And the envelope's contextInfo is still read, because that is where other
+// versions put it.
+ok('a reply in the envelope is still found', normalise({
+  key: { id: 'k', fromMe: false, remoteJid: 'a@s.whatsapp.net' },
+  messageType: 'extendedTextMessage',
+  message: { extendedTextMessage: { text: 'yes', contextInfo: {
+    stanzaId: 'OLD', quotedMessage: { conversation: 'asked?' } } } },
+  messageTimestamp: 1,
+}).quoted.text === 'asked?');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
