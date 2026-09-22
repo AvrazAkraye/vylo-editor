@@ -19,7 +19,7 @@
 // The plan fixtures are built through `planSummary` rather than hand-written,
 // so the two halves cannot drift into agreeing with each other and disagreeing
 // with the server.
-import { adopted, chip, signedOut, daysLeft} from '../.test-build/session.js';
+import { adopted, chip as chipAt, signedOut, daysLeft} from '../.test-build/session.js';
 import { planSummary } from '../.test-build/account.js';
 
 let pass = 0, fail = 0;
@@ -91,6 +91,15 @@ const NOTHING = { apiKey: '', token: '' };
 }
 
 // ─── the status-bar chip ──────────────────────────────────────────────────
+
+// `chip` reads the clock, because a renewal inside the next week outranks the
+// token balance. So every call here pins it. It did not, and that was a test
+// that failed on a *date*: the fixture below carries `period_end: 2026-09-30`,
+// which was a comfortable month away when it was written and was seven days
+// away on the morning of the 22nd. Five assertions about the token balance
+// started reading `tail: 'days'` months after anything in this file changed.
+const T0 = Date.parse('2026-09-01T00:00:00Z');
+const chip = (plan, now = T0) => chipAt(plan, now);
 
 const usage = (plan, rest = {}) => ({
   plan, used_tokens: 0, input_tokens: 0, output_tokens: 0, requests: 0,
@@ -185,8 +194,6 @@ ok('nothing signed in draws no chip', chip(null) === null);
 // was parsed, and was never rendered — so a fourteen-day trial with most of its
 // tokens unspent showed a comfortable number right up to the morning it
 // stopped working.
-const DAY = 86_400_000;
-const T0 = Date.parse('2026-09-01T00:00:00Z');
 
 ok('no renewal date, no countdown', daysLeft(null, T0) === null);
 ok('a date MySQL shape is understood', daysLeft('2026-09-11 00:00:00', T0) === 10);
