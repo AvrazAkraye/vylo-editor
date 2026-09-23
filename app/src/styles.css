@@ -618,6 +618,12 @@ body.resizing-v .cmp-grip i{ background:var(--brand); }
 .cmp-model select:hover{ color:var(--ink); }
 .cmp-model:hover{ color:var(--ink); }
 .cmp-model .ic{ pointer-events:none; }
+/* Effort borrows the model picker's whole shape, because it is a property of
+   the model and should read as one more setting of the same kind rather than
+   as a separate control. The leading glyph is what tells the two apart at a
+   glance; the select inside needs no room of its own on that side. */
+.cmp-effort select{ padding-inline-start:var(--sp-1); }
+.cmp-effort > .ic:first-child{ color:var(--brand); opacity:.8; }
 
 .cmp-hint{ margin-inline-start:auto; font-family:var(--mono); font-size:var(--fs-2); color:var(--mute); }
 

@@ -25,7 +25,12 @@ export interface Model {
 export const MODELS: Model[] = [
   { id: 'claude-haiku-4-5', short: 'Haiku 4.5', label: 'Haiku 4.5 — fastest, cheapest' },
   { id: 'claude-sonnet-5', short: 'Sonnet 5', label: 'Sonnet 5 — balanced' },
-  { id: 'claude-opus-4-8', short: 'Opus 4.8', label: 'Opus 4.8 — most capable' },
+  { id: 'claude-opus-4-8', short: 'Opus 4.8', label: 'Opus 4.8 — the previous Opus' },
+  // Last, because the list runs from least to most capable and this is now the
+  // most. Its thinking cannot be switched off — effort is the only control —
+  // and it defaults to `medium` where every earlier Opus defaults to `high`;
+  // see effort.ts.
+  { id: 'claude-opus-5-5', short: 'Opus 5.5', label: 'Opus 5.5 — most capable' },
 ];
 
 /**

@@ -9,6 +9,7 @@ import { add, fold, NO_USAGE, type Usage } from './usage';
 import { fit, limitsFor, estimateText, summaryBlock, type Fitted } from './budget';
 import { learn, learnedFor, parseLimitError, type Learned, type LimitKind } from './limits';
 import { MAX_ATTEMPTS, backoffMs, pause, retryable, retryableMessage } from './retry';
+import { effortField, type EffortBook } from './effort';
 
 /**
  * The agent loop.
@@ -504,6 +505,13 @@ export interface RunOptions {
    * translated on the way out and replies on the way back, in openai.ts.
    */
   wire?: Wire;
+  /**
+   * How hard each model should think, by model. Sent as `output_config.effort`
+   * on the Anthropic wire for a model that takes it, and nowhere else — Haiku
+   * rejects the field with a 400, which is why this is a book rather than one
+   * level. See effort.ts.
+   */
+  efforts?: EffortBook;
   /** Tokens for the whole turn, once it ends. Hops are summed. */
   onUsage?: (u: Usage) => void;
   /**
@@ -730,6 +738,8 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
           tools: toolsFor(o),
           messages: fitted.messages,
           stream: true,
+          // Spread, so a model that takes no effort gets no field at all.
+          ...effortField(wire, o.efforts ?? {}, o.model),
         };
         res = await fetch(endpointFor({ baseUrl: o.baseUrl, wire }), {
           method: 'POST',

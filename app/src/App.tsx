@@ -92,6 +92,10 @@ import {
   forgetToken, loadToken, me, planSummary, saveToken, signOut,
   type PlanOffer, type PlanSummary } from './account';
 import { MODELS } from './models';
+import {
+  EFFORTS, EFFORT_KEY, effortLabel, effortOf, effortsFor, readEfforts, setEffort, writeEfforts,
+  type Effort, type EffortBook,
+} from './effort';
 import { adopted, chip, signedOut } from './session';
 import { TrafficLights, rehideNativeButtons } from './TrafficLights';
 import { TodoPanel } from './TodoPanel';
@@ -391,6 +395,18 @@ export function App() {
       // The same dotted-id repair the `model` effect below applies, because
       // this fallback reads the stored value before that effect has run.
       (localStorage.getItem(LS.model) || 'claude-haiku-4-5').replace(/(\d)\.(\d)/g, '$1-$2')));
+  /**
+   * How hard each model thinks, by model.
+   *
+   * Per model rather than one setting, because the same word does not mean the
+   * same amount of thinking on two models — and a level is always sent rather
+   * than left to the model's default, because the gateway applies a default
+   * of its own. effort.ts has both arguments at length.
+   */
+  const [efforts, setEfforts] = useState<EffortBook>(() => readEfforts(localStorage.getItem(EFFORT_KEY)));
+  useEffect(() => {
+    try { localStorage.setItem(EFFORT_KEY, writeEfforts(efforts)); } catch { /* private mode */ }
+  }, [efforts]);
   const [root, setRoot] = useState(() => localStorage.getItem(LS.root) || '');
   const [prompt, setPrompt] = useState('');
   const [lines, setLines] = useState<Line[]>([]);
@@ -4032,6 +4048,7 @@ export function App() {
       history.current = await runAgent({
         baseUrl: wired.baseUrl, apiKey: wired.apiKey, model: wired.model,
         wire: wired.wire, root,
+        efforts,
         history: history.current,
         pending: pending.current,
         askToRun,
@@ -5882,6 +5899,28 @@ export function App() {
               })()}
               <Icon name="chevron" size={11} turn={90} />
             </span>
+
+            {/* Beside the model because it is a property of the model: the
+                levels on offer are the ones this model takes, and a model that
+                takes none — Haiku, which rejects the field — shows nothing
+                rather than a control that would fail every turn. Only on the
+                Anthropic wire, for the reason `effortField` gives. */}
+            {wired.wire === 'anthropic' && effortsFor(wired.model).length > 0 && (() => {
+              const now = effortOf(efforts, wired.model) as Effort;
+              return (
+                <span className="cmp-model cmp-effort"
+                      title={t('How hard the model thinks before answering. Higher is slower and uses more of your plan’s tokens.')}>
+                  <Icon name="sparkle" size={11} />
+                  <select value={now} aria-label={t('Effort')}
+                          onChange={(e) => setEfforts((b) => setEffort(b, wired.model, e.target.value as Effort))}>
+                    {EFFORTS.filter((l) => effortsFor(wired.model).includes(l)).map((l) => (
+                      <option key={l} value={l}>{effortLabel(l, t)}</option>
+                    ))}
+                  </select>
+                  <Icon name="chevron" size={11} turn={90} />
+                </span>
+              );
+            })()}
 
             <span className="cmp-hint">{SEND_KEY}</span>
 

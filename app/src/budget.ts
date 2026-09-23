@@ -79,6 +79,10 @@ export const LIMITS: Record<string, Limits> = {
   'claude-sonnet-5': { context: 200_000, maxOutput: 16_384 },
   'claude-opus-4-8': { context: 200_000, maxOutput: 16_384 },
   'claude-opus-5': { context: 200_000, maxOutput: 16_384 },
+  // The same opening guess as its siblings, for the reason above: the real
+  // figures are larger, and `limits.ts` learns them from the first error that
+  // states them rather than from a number written here without asking.
+  'claude-opus-5-5': { context: 200_000, maxOutput: 16_384 },
 };
 
 /** 4096 is what the app sent before this file, so it is the safe unknown. */

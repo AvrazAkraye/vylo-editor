@@ -42,7 +42,7 @@ limit. It is also available in
 
 ## What is out of scope
 
-- The absence of code signing. As of 0.101.0 the macOS and Windows binaries are
+- The absence of code signing. As of 0.102.0 the macOS and Windows binaries are
   not signed or notarised, and SAFETY.md says so. It is known and tracked.
 - Anything an approved `run_command` does. There is no sandbox and no
   allow-list; that is stated, and the gate is that a human read the string.
