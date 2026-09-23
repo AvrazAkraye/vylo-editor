@@ -169,7 +169,15 @@ export function trouble(code: string): string | null {
     case 'service-not-allowed':
       return 'Microphone access was refused. Allow it in your system settings.';
     case 'audio-capture': return 'No microphone was found.';
-    case 'network': return 'Dictation needs a connection, and there was none.';
+    // Not "there was no connection", which is what this said, and which was
+    // false for everybody who saw it. On macOS the engine is Apple's speech
+    // service running inside this app, and when the app had not declared why it
+    // wanted the microphone, WebKit refused before asking and reported the
+    // refusal as `network` — to people who were online the whole time. On
+    // Windows, WebView2 reports the same code when its speech backend is not
+    // there at all. So the message names both things worth checking and
+    // claims neither.
+    case 'network': return 'Dictation could not reach the speech service. Check that you are online, and that Vylo Editor is allowed speech recognition in your system settings.';
     case 'language-not-supported': return 'Dictation does not have that language.';
     default: return 'Dictation stopped unexpectedly.';
   }

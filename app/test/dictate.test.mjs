@@ -130,8 +130,13 @@ ok('no permission is reported as something a person can act on',
 ok('a policy refusal says the same thing, because it looks the same from here',
    trouble('service-not-allowed') === trouble('not-allowed'));
 ok('no microphone is its own message', trouble('audio-capture') === 'No microphone was found.');
-ok('an engine that needs the network says so',
-   trouble('network') === 'Dictation needs a connection, and there was none.');
+// It used to say "and there was none", which was false for everybody who saw
+// it: on macOS the real cause was a missing permission, reported by WebKit as
+// `network`. A message that states a cause it cannot know sends the person
+// looking in the wrong place.
+ok('a network error names both things worth checking',
+   trouble('network') === 'Dictation could not reach the speech service. Check that you are online, and that Vylo Editor is allowed speech recognition in your system settings.');
+ok('and does not claim there was no connection', !/there was none/.test(trouble('network')));
 ok('a language the engine will not do says so',
    trouble('language-not-supported') === 'Dictation does not have that language.');
 // The two that are not failures. A red line for the end of a sentence would be

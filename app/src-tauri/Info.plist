@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged by Tauri into the Info.plist it generates for the macOS bundle.
+
+  Dictation is the webview's `webkitSpeechRecognition`, and on macOS that is
+  Apple's speech service running inside *this* app. macOS will not let an app
+  use the microphone or speech recognition unless the app says why, here - and
+  without these two keys it does not even ask the person. WebKit refuses before
+  requesting, because requesting without a reason would crash the app, and the
+  refusal reaches the page as the Web Speech `network` error. So dictation said
+  "needs a connection, and there was none" to people who were online the whole
+  time. See dictate.ts.
+
+  The wording is what the permission dialog shows, so it says exactly what
+  happens and nothing more flattering: the words go into the message box to be
+  read and edited, nothing is sent until the person sends it, and the listening
+  is Apple's, which may use Apple's servers.
+-->
+<plist version="1.0">
+<dict>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Vylo Editor listens only while you are dictating into the message box. Nothing is recorded or kept.</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>Vylo Editor turns what you say into text in the message box, for you to read and edit before you send it. Apple's speech recognition does the listening.</string>
+</dict>
+</plist>
