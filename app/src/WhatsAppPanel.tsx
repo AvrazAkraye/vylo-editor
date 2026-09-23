@@ -18,6 +18,11 @@ import { open as pickFile } from '@tauri-apps/plugin-dialog';
 import { invoke } from '@tauri-apps/api/core';
 import { KEY as PROVIDERS_KEY, read as readProviders, type Provider } from './providers';
 import {
+  BLANK_SPEECH, SEND_FORMAT, TTS_KEY, canSpeak, chunks as speechChunks,
+  langOf as speechLang, readSpeech, speakerIn, speechBody, speechHeaders, speechPath,
+  voiceFor, worthSpeaking, writeSpeech, type Speech,
+} from './whatsapptts';
+import {
   BLANK_VOICE, VOICE_KEY, VOICE_LANGS, acceptsName, backendFor, endpointOf,
   formFor, jobIdFrom, jobPath, jobState, langOf, modeOf, modelFor, readVoice,
   textFrom, transcribePath, transcriptNote, uploadHeaders, voiceForm,
@@ -298,6 +303,29 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
    * reply to something older than the page currently loaded.
    */
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
+  /**
+   * How a typed reply is spoken when it is sent as a voice note.
+   *
+   * Only this needs a paid endpoint: reading a message *aloud* is the
+   * browser's own synthesiser, which is free and needs nothing configured.
+   * See `whatsapptts.ts` for why the two jobs do not share a source.
+   */
+  const [speech, setSpeech] = useState<Speech>(() => readSpeech(localStorage.getItem(TTS_KEY)));
+  useEffect(() => {
+    try { localStorage.setItem(TTS_KEY, writeSpeech(speech)); } catch { /* private mode */ }
+  }, [speech]);
+  /** The message being read out loud, so its button can say so and stop it. */
+  const [reading, setReading] = useState('');
+  /** Set while a voice note is being made, which is a request and a send. */
+  const [speaking, setSpeaking] = useState(false);
+  /**
+   * Whether this webview can read anything out at all.
+   *
+   * Asked once rather than per message. A button that is drawn and does
+   * nothing is worse than one that is not drawn, and there is no way to find
+   * out other than looking.
+   */
+  const canRead = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   /**
    * The unsent replies, by conversation.
@@ -523,6 +551,96 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
     if (arriving && newMark.current) newMark.current.scrollIntoView({ block: 'center' });
     else foot.current?.scrollIntoView({ block: 'end' });
   }, [thread.length, open]);
+
+  /**
+   * Read one message out loud, or stop reading it.
+   *
+   * The browser's own synthesiser. It costs nothing, needs no key and no
+   * network, and macOS ships voices for Arabic — sending a line of somebody's
+   * chat to a paid endpoint so they can hear it would be charging them for
+   * what their computer already does.
+   *
+   * The voice is chosen from the *words*, not from a setting. This thread is
+   * Arabic, Sorani, Badini and English in one conversation, and one voice
+   * picked once is the wrong voice for most of it.
+   */
+  function readOut(m: Msg) {
+    const say = window.speechSynthesis;
+    if (!say) return;
+    // Pressing it again stops, and so does pressing a different one: two
+    // messages read at once is two messages nobody can follow.
+    say.cancel();
+    if (reading === m.id) { setReading(''); return; }
+    const said = new SpeechSynthesisUtterance(m.text);
+    const voices = say.getVoices();
+    const want = voiceFor(m.text, voices.map((v) => ({ name: v.name, lang: v.lang })));
+    const found = want ? voices.find((v) => v.name === want.name) : undefined;
+    if (found) said.voice = found;
+    // A hint even when no voice matched: a machine with no Arabic voice
+    // installed should get its default reading it rather than silence.
+    const lang = speechLang(m.text);
+    if (lang) said.lang = lang;
+    said.onend = () => setReading((cur) => (cur === m.id ? '' : cur));
+    said.onerror = () => setReading((cur) => (cur === m.id ? '' : cur));
+    setReading(m.id);
+    say.speak(said);
+  }
+
+  // Nothing should go on talking after the panel has gone.
+  useEffect(() => () => { try { window.speechSynthesis?.cancel(); } catch { /* unsupported */ } }, []);
+
+  /**
+   * Send what is in the composer as a voice note.
+   *
+   * This is the half that cannot use the browser: `speechSynthesis` speaks to
+   * the speakers and hands back nothing, and a voice note has to be bytes. So
+   * it goes to the same provider `whatsappvoice.ts` finds a transcriber in —
+   * the same shape on the same base — under the same rule, which is that the
+   * key is sent to that provider's address and to no other.
+   *
+   * Only the first piece of a long message is sent. WhatsApp draws a voice
+   * note as one bubble with one waveform, and three of them arriving in a row
+   * is not a voice note, it is a machine talking over itself. What did not go
+   * is put back in the box and said plainly, rather than silently dropped.
+   */
+  async function sayIt() {
+    const words = draft.trim();
+    if (!words || !open || speaking || sending) return;
+    const provider = speakerIn(readProviders(localStorage.getItem(PROVIDERS_KEY)));
+    if (!provider || !canSpeak(speech)) {
+      setWhy(t('Sending a voice note needs a provider that can make one. Add one in Settings.'));
+      return;
+    }
+    const pieces = speechChunks(words);
+    if (!pieces.length) return;
+    setSpeaking(true);
+    setWhy('');
+    try {
+      const res = await fetch(speechPath(provider), {
+        method: 'POST',
+        headers: speechHeaders(provider),
+        body: JSON.stringify(speechBody(pieces[0], speech, SEND_FORMAT)),
+      });
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      if (!bytes.length) throw new Error(t('That came back empty.'));
+      let raw = '';
+      for (const b of bytes) raw += String.fromCharCode(b);
+      const number = phoneOf(open) || open;
+      await call(conn, sendAudioPath(conn.instance), { number, audio: btoa(raw) });
+      const left = pieces.slice(1).join(' ');
+      setDraft(left);
+      setDrafts((d) => withDraft(d, open, left, chats.map((c) => c.jid)));
+      if (left) setWhy(t('Only the first part went as a voice note. The rest is still in the box.'));
+      const back = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, { limit: PAGE });
+      setMsgs(messagesFrom(back));
+    } catch (e) {
+      setWhy(e instanceof WireError ? sayWhy(e)
+        : `${t('That voice note did not send.')} ${e instanceof Error ? e.message : ''}`.trim());
+    } finally {
+      setSpeaking(false);
+    }
+  }
 
   /**
    * Put the composer back in the drafts record.
@@ -1147,6 +1265,32 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
               each have their own — and these conversations are in Kurdish.
               Leaving the key empty falls back to any OpenAI-shaped provider in
               Settings, which can do Arabic and English and not Kurdish. */}
+          {/* The other direction, and it is a separate section because it is a
+              separate thing: reading a message *aloud* uses the machine's own
+              voices and is configured nowhere, because there is nothing to
+              configure. Only a voice note that has to be **sent** needs an
+              endpoint, because it has to be bytes. */}
+          <p className="wa-sect">{t('Sending voice notes')}</p>
+          <p className="wa-why">{t('Made by whichever provider you have added that can. Reading a message out loud uses your own machine and needs nothing here.')}</p>
+          <label>{t('Speech model')}
+            <input value={speech.model} spellCheck={false}
+                   onChange={(e) => setSpeech({ ...speech, model: e.target.value })}
+                   placeholder={BLANK_SPEECH.model} /></label>
+          <label>{t('Speaking voice')}
+            <input value={speech.voice} spellCheck={false}
+                   onChange={(e) => setSpeech({ ...speech, voice: e.target.value })}
+                   placeholder={BLANK_SPEECH.voice} /></label>
+          {/* Typed rather than a slider: the useful values are a handful of
+              steps and a slider in a 248px column cannot hit them. */}
+          <label>{t('Speed')}
+            <select value={String(speech.speed)}
+                    onChange={(e) => setSpeech({ ...speech, speed: Number(e.target.value) || 1 })}>
+              {['0.75', '1', '1.25', '1.5'].map((v) => (
+                <option key={v} value={v}>{v === '1' ? t('Normal') : `${v}×`}</option>
+              ))}
+            </select>
+          </label>
+
           <p className="wa-sect">{t('Reading voice notes')}</p>
           <label>{t('Voice service')}
             <input value={vc.baseUrl} spellCheck={false}
@@ -1464,10 +1608,23 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
                 owns the whole bubble as a target. A menu here would be three
                 things behind a press for a panel that is 248px wide. */}
             {!picking && (
-              <button className="wa-reply" onClick={() => { setReplyTo(r.msg); setFind(''); }}
-                      title={t('Reply to this')} aria-label={t('Reply to this')}>
-                <Icon name="chevron" size={11} turn={180} />
-              </button>
+              <span className="wa-acts">
+                {/* Free, local and instant — the browser's own voices. Offered
+                    only where there are enough words to be worth hearing;
+                    reading "ok" aloud takes longer to start than to hear. */}
+                {worthSpeaking(r.msg.text) && canRead && (
+                  <button className={reading === r.msg.id ? 'on' : ''}
+                          onClick={() => readOut(r.msg)}
+                          title={reading === r.msg.id ? t('Stop reading') : t('Read this out loud')}
+                          aria-label={reading === r.msg.id ? t('Stop reading') : t('Read this out loud')}>
+                    <Icon name={reading === r.msg.id ? 'pause' : 'play'} size={11} />
+                  </button>
+                )}
+                <button onClick={() => { setReplyTo(r.msg); setFind(''); }}
+                        title={t('Reply to this')} aria-label={t('Reply to this')}>
+                  <Icon name="chevron" size={11} turn={180} />
+                </button>
+              </span>
             )}
             {/* A message with neither words nor anything to fetch still has to
                 occupy a line, or a run silently loses one of its members. */}
@@ -1539,6 +1696,17 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
           {/* In the box rather than under it: the button belongs to the words
               being typed, and a composer that grows must not push its own Send
               off the bottom of a 248px column. */}
+          {/* Beside Send rather than replacing it: the same words can go
+              either way, and which one is a decision about the person being
+              written to, not a mode the composer is in. */}
+          {draft.trim().length > 0 && (
+            <button className="wa-say" disabled={speaking || sending}
+                    onClick={() => void sayIt()}
+                    title={speaking ? t('Making the voice note…') : t('Send this as a voice note')}
+                    aria-label={speaking ? t('Making the voice note…') : t('Send this as a voice note')}>
+              <Icon name={speaking ? 'clock' : 'mic'} size={13} />
+            </button>
+          )}
           <button className="wa-go" disabled={(!draft.trim() && outbox.length === 0) || sending}
                   title={sending ? t('Sending…') : t('Send')}
                   aria-label={sending ? t('Sending…') : t('Send')}

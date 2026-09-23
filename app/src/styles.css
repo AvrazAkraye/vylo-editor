@@ -2689,18 +2689,24 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .wa-bubble.mine .wa-quote{ border-inline-start-color:var(--on-fill); }
 .wa-bubble.mine .wa-quote b{ color:var(--on-fill); }
 
-/* One action, and only under the pointer. A message is not a button in the
-   resting state — making it one costs the text selection people use to copy a
-   verification code out of it. */
-.wa-reply{
+/* Two actions now, and only under the pointer. A message is not a button in
+   the resting state — making it one costs the text selection people use to
+   copy a verification code out of it. */
+.wa-acts{
   position:absolute; inset-block-start:2px; inset-inline-end:2px;
-  display:inline-flex; padding:3px; border:0; border-radius:99px;
-  background:var(--panel-2); color:var(--mute);
-  opacity:0; cursor:pointer; transition:opacity .12s;
+  display:inline-flex; gap:2px;
+  opacity:0; transition:opacity .12s;
 }
-.wa-bubble.mine .wa-reply{ background:var(--panel); }
-.wa-bubble:hover .wa-reply, .wa-reply:focus-visible{ opacity:1; }
-.wa-reply:hover{ color:var(--brand); }
+.wa-acts button{
+  display:inline-flex; padding:3px; border:0; border-radius:99px;
+  background:var(--panel-2); color:var(--mute); cursor:pointer;
+}
+.wa-bubble.mine .wa-acts button{ background:var(--panel); }
+.wa-bubble:hover .wa-acts, .wa-acts:focus-within{ opacity:1; }
+.wa-acts button:hover{ color:var(--brand); }
+/* Reading is a state, not a press: it goes on for as long as the message
+   takes, and the button is how it is stopped. */
+.wa-acts button.on{ color:var(--brand); background:var(--brand-wash); opacity:1; }
 
 /* How far a message of ours got. Two marks for delivered and read, one for
    sent, and the second overlaps the first the way the real one does — drawn
@@ -2797,6 +2803,16 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   field-sizing:content; max-block-size:96px;
 }
 .wa-send textarea::placeholder{ color:var(--mute); opacity:.65; }
+/* Beside Send, not instead of it: the same words can go either way, and which
+   one is a decision about the person being written to rather than a mode the
+   composer is in. Quieter than Send, because typing is still the usual answer. */
+.wa-say{
+  flex:none; align-self:flex-end; display:inline-flex;
+  margin-block-end:2px; padding:var(--sp-2); border:0; border-radius:99px;
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.wa-say:hover:not(:disabled){ color:var(--brand); background:var(--brand-wash); }
+.wa-say:disabled{ opacity:.5; cursor:default; }
 /* The ring is on the box, so the control inside it must not draw a second one. */
 .wa-send textarea:focus, .wa-send textarea:focus-visible{ outline:none; }
 .wa-go{
