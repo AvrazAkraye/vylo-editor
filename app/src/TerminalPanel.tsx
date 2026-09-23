@@ -9,7 +9,7 @@ import {
 } from './terminals';
 import { MAX_GRID, MAX_PANES, focused, only, prune, swap as swapPane, toggle as togglePane } from './panes';
 import {
-  LAUNCH, MAX_DEPTH, depthOf as groupDepth, join as joinGroup,
+  LAUNCH, MAX_DEPTH, all as allGroups, depthOf as groupDepth, join as joinGroup,
   nameOf as groupName, nodes as railNodes, renamed as regroup, tidy as tidyGroup,
 } from './groups';
 import { open as pickFile } from '@tauri-apps/plugin-dialog';
@@ -271,6 +271,18 @@ export function TerminalPanel({
   const row = useRef<HTMLDivElement>(null);
   /** Each drawn pane's element, so a drop can be matched to the one under it. */
   const boxes = useRef(new Map<string, HTMLElement>());
+  /**
+   * Where each group heading is, for a row let go on one.
+   *
+   * The same shape as `boxes` and for the same reason: read at drop time, so
+   * a heading that folded or scrolled while the row was in the air is not a
+   * rectangle remembered from when the drag began.
+   */
+  const heads = useRef(new Map<string, HTMLElement>());
+  /** The rail's own scroller, so "below the list" can be told from "off it". */
+  const listBox = useRef<HTMLElement | null>(null);
+  /** The heading under the pointer mid-drag, or `null`. */
+  const [overGroup, setOverGroup] = useState<string | null>(null);
 
   /** Ask one pane where its shell is now. */
   useEffect(() => {
@@ -861,7 +873,36 @@ export function TerminalPanel({
   const drag = useReorder({
     axis: 'y',
     enabled: !query.trim(),
-    onMove: (from, to) => setTabs((p) => move(p, from, to)),
+    /**
+     * `from` and `to` are positions in what is **drawn**, which stopped being
+     * the order the list is kept in the moment groups arrived: the rail draws
+     * headings and indented rows, and the hook counts only the rows. So the
+     * indices are translated through the drawn order rather than used against
+     * `tabs` directly, which would have moved a different session than the one
+     * being carried.
+     *
+     * Landing among another group's rows files it there as well. That is what
+     * the gesture plainly means — a row put between two things in a folder is
+     * in that folder — and the alternative is a row that springs back to where
+     * it came from for a reason nobody can see.
+     */
+    onMove: (from, to) => {
+      setOverGroup(null);
+      const drawn = drawnRef.current;
+      const id = drawn[from];
+      const onto = drawn[to];
+      if (!id || !onto || id === onto) return;
+      const mine = tabsRef.current.find((x) => x.id === id);
+      const theirs = tabsRef.current.find((x) => x.id === onto);
+      if (theirs && tidyGroup(mine?.group ?? '') !== tidyGroup(theirs.group ?? '')) {
+        fileInto(id, theirs.group ?? '');
+      }
+      setTabs((p) => {
+        const a = p.findIndex((x) => x.id === id);
+        const b = p.findIndex((x) => x.id === onto);
+        return a < 0 || b < 0 ? p : move(p, a, b);
+      });
+    },
     /**
      * Carried out of the list and let go on a pane: that pane becomes this
      * session.
@@ -876,9 +917,33 @@ export function TerminalPanel({
      * the box the rows on screen are not the list, and `from` would index the
      * wrong session.
      */
+    /**
+     * Let go on a group heading: the session is filed there.
+     *
+     * Offered before the reorder, which is what `onDropInside` is for. A row
+     * dropped on a heading is being put *in* something, and "between the two
+     * rows either side of that heading" is not what the gesture meant.
+     */
+    onDropInside: (from, at) => {
+      setOverGroup(null);
+      const id = drawnRef.current[from];
+      const path = headAt(at);
+      if (!id || path === null) return false;
+      fileInto(id, path);
+      return true;
+    },
     onDropOut: (from, at) => {
-      const id = tabs[from]?.id;
+      setOverGroup(null);
+      const id = drawnRef.current[from];
       if (!id) return false;
+      // Below the list but still on it: out of whatever group it was in. The
+      // empty space under the last row is the one place in the rail that
+      // plainly belongs to no group, which is what makes it the way to say so.
+      const rail = listBox.current?.getBoundingClientRect();
+      if (rail && at.x >= rail.left && at.x <= rail.right && at.y >= rail.top && at.y <= rail.bottom) {
+        fileInto(id, '');
+        return true;
+      }
       for (const [paneId, el] of boxes.current) {
         const r = el.getBoundingClientRect();
         if (r.width <= 0 || r.height <= 0) continue;
@@ -929,6 +994,106 @@ export function TerminalPanel({
   const byId = useMemo(() => new Map(tabs.map((x) => [x.id, x])), [tabs]);
   /** Whether the rail is a tree at all. A flat list needs none of the chrome. */
   const grouped = tree.some((n) => n.kind === 'group');
+  /**
+   * The sessions in the order they are drawn.
+   *
+   * What the reorder hook's indices mean. Through a ref because the hook holds
+   * the callbacks and reads them at drop time, and a list captured when the
+   * drag began would be stale by the time it landed.
+   */
+  const drawn = useMemo(
+    () => tree.filter((n): n is Extract<typeof n, { kind: 'session' }> => n.kind === 'session').map((n) => n.id),
+    [tree],
+  );
+  const drawnRef = useRef(drawn); drawnRef.current = drawn;
+  /** Every group that exists, for the menus that offer to move things into one. */
+  const groups = useMemo(
+    () => allGroups(empties, tabs.map((x) => ({ id: x.id, group: x.group }))),
+    [empties, tabs],
+  );
+
+  /*
+   * Which heading the row in the air is over.
+   *
+   * The reorder is a pointer drag, not an HTML5 one, so there is no
+   * `dragover` to listen to — the position is tracked here instead, and only
+   * while something is actually being carried.
+   */
+  useEffect(() => {
+    if (!drag.dragging) { setOverGroup(null); return undefined; }
+    const move2 = (e: PointerEvent) => setOverGroup(headAt({ x: e.clientX, y: e.clientY }));
+    window.addEventListener('pointermove', move2);
+    return () => window.removeEventListener('pointermove', move2);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [drag.dragging]);
+
+  /**
+   * Which group heading a point is on, or `null`.
+   *
+   * Headings only. A row landing on another row is a reorder and is none of
+   * this function's business.
+   */
+  function headAt(at: { x: number; y: number }): string | null {
+    for (const [path, el] of heads.current) {
+      const r = el.getBoundingClientRect();
+      if (r.width <= 0 || r.height <= 0) continue;
+      if (at.x < r.left || at.x > r.right || at.y < r.top || at.y > r.bottom) continue;
+      return path;
+    }
+    return null;
+  }
+
+  /**
+   * Put a session in a group, or take it out of one.
+   *
+   * `''` is out. A group that was folded opens, because the row has just gone
+   * into it and a filing cabinet that swallows the thing you filed is not
+   * telling you it worked.
+   */
+  function fileInto(id: string, path: string) {
+    const to = tidyGroup(path);
+    setTabs((p) => p.map((x) => (x.id === id ? { ...x, group: to || undefined } : x)));
+    if (to) {
+      setShut((p) => p.filter((x) => x !== to));
+      // It has something in it now, so it is not one of the empty ones.
+      setEmpties((p) => p.filter((x) => x !== to));
+    } else {
+      // The group it just left may now have nothing in it, and a group is a
+      // path — with nothing carrying it, it would simply stop being drawn.
+      keepEmpty(tabsRef.current.find((x) => x.id === id)?.group, id);
+    }
+  }
+
+  /**
+   * This pane, alone and filling the window — and back to exactly what was
+   * there before.
+   *
+   * Two things at once on purpose: "full screen" on a pane that is one of
+   * four means both of them, and a button that filled the window while
+   * leaving three panes sharing it would have answered half the question.
+   *
+   * What was showing is remembered rather than recomputed, because there is
+   * no rule that reconstructs it: which panes were up and whether the panel
+   * was already full are decisions somebody made, and the only honest way to
+   * put them back is to have kept them.
+   */
+  const before = useRef<{ shown: string[]; full: boolean } | null>(null);
+  function loom(id: string) {
+    const was = before.current;
+    if (was) {
+      before.current = null;
+      setShown(was.shown.length ? was.shown : [id]);
+      if (full !== was.full) onToggleFull();
+      return;
+    }
+    before.current = { shown: [...onScreen], full };
+    setActive(id);
+    setShown(only(id));
+    if (!full) onToggleFull();
+  }
+
+  /** Everything above a group path, or `''`. Local so the menus can read it. */
+  const parentOfPath = (path: string) => path.split('/').slice(0, -1).join('/');
 
   /** Fold one group, or open it. */
   function foldGroup(path: string) {
@@ -1346,6 +1511,17 @@ export function TerminalPanel({
           { kind: 'action', id: 'split', label: on ? 'Hide this pane' : 'Show this alongside',
             disabled: !on && onScreen.length >= MAX_GRID },
           { kind: 'action', id: 'rename', label: 'Rename this terminal' },
+          // Dragging a row onto a heading does this too, and is the faster
+          // way — but the drag is off while the search box has anything in
+          // it, which is exactly when somebody has just found the session
+          // they want to file.
+          ...(groups.length > 0 || tab.group
+            ? [{ kind: 'divider' as const },
+              ...groups.filter((g) => g !== tidyGroup(tab.group ?? ''))
+                .slice(0, 8)
+                .map((g) => ({ kind: 'action' as const, id: `into:${g}`, label: `→ ${g}` })),
+              ...(tab.group ? [{ kind: 'action' as const, id: 'into:', label: 'Out of the group' }] : [])]
+            : []),
           { kind: 'divider' },
           { kind: 'swatches' },
           { kind: 'divider' },
@@ -1361,7 +1537,8 @@ export function TerminalPanel({
             onTag={(tag: Tag) => setTabs((p) => p.map((x) => (x.id === tab.id ? { ...x, tag } : x)))}
             onClose={() => setRowMenu(null)}
             onPick={(id) => {
-              if (id === 'split') { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id), MAX_GRID)); }
+              if (id.startsWith('into:')) fileInto(tab.id, id.slice(5));
+              else if (id === 'split') { setActive(tab.id); setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id), MAX_GRID)); }
               else if (id === 'rename') rename(tab);
               else if (id === 'clear') handles.current.get(tab.id)?.clear();
               else if (id === 'close') close(tab.id);
@@ -1381,6 +1558,20 @@ export function TerminalPanel({
             // `groups.ts`.
             disabled: groupDepth(path) >= MAX_DEPTH },
           { kind: 'action', id: 'open', label: 'New terminals in this group' },
+          // A group can be moved into another, which is the same rewrite
+          // renaming is — every path under it, in one `map`. Anything that
+          // would land inside itself is left out, because a folder cannot
+          // contain its own parent.
+          ...(() => {
+            const room = groups.filter((g) => g !== path && !g.startsWith(`${path}/`)
+              && groupDepth(g) + 1 <= MAX_DEPTH && g !== parentOfPath(path));
+            return room.length
+              ? [{ kind: 'divider' as const },
+                ...room.slice(0, 8).map((g) => ({ kind: 'action' as const, id: `move:${g}`, label: `→ ${g}` })),
+                ...(groupDepth(path) > 1
+                  ? [{ kind: 'action' as const, id: 'move:', label: 'Out to the top level' }] : [])]
+              : [];
+          })(),
           { kind: 'divider' },
           // Its sessions move up rather than being closed: deleting a folder
           // of terminals must never be a way to kill six shells by accident.
@@ -1391,7 +1582,8 @@ export function TerminalPanel({
             label={`${t('Actions')} — ${groupName(path)}`}
             onClose={() => setGroupMenu(null)}
             onPick={(id) => {
-              if (id === 'rename') setRenamingGroup(path);
+              if (id.startsWith('move:')) renameGroup(path, joinGroup(id.slice(5), groupName(path)));
+              else if (id === 'rename') setRenamingGroup(path);
               else if (id === 'sub') setMaking({ into: path, name: '', dir: root, n: 1 });
               else if (id === 'open') setMaking({ into: path.split('/').slice(0, -1).join('/'), name: groupName(path), dir: root, n: 4 });
               else if (id === 'drop') dropGroup(path);
@@ -1569,7 +1761,13 @@ export function TerminalPanel({
             </div>
           )}
 
-          <div {...drag.strip} className={`tsl-list ${view.density} ${drag.strip.className}`}>
+          <div {...drag.strip}
+               /* Spread first, so this wins — and then hands the element on.
+                  The hook needs it to measure the rows; this needs it to tell
+                  "below the last row" from "off the rail entirely", which is
+                  how a session is taken out of a group. */
+               ref={(el) => { listBox.current = el; drag.strip.ref(el); }}
+               className={`tsl-list ${view.density} ${drag.strip.className}${grouped ? ' grouped' : ''}`}>
             {/* Two different states, and saying the second when the first is
                 true tells somebody their search failed when they never made
                 one. `Chats.tsx` already draws this distinction. */}
@@ -1583,7 +1781,14 @@ export function TerminalPanel({
                 const isShut = shut.includes(node.path);
                 return (
                   <div key={`g:${node.path}`}
-                       className={`tsg${isShut ? ' shut' : ''}`}
+                       ref={(el) => {
+                         // Read at drop time, so a heading that folded or
+                         // scrolled while a row was in the air is not a
+                         // rectangle remembered from when the drag began.
+                         if (el) heads.current.set(node.path, el);
+                         else heads.current.delete(node.path);
+                       }}
+                       className={`tsg${isShut ? ' shut' : ''}${overGroup === node.path ? ' taking' : ''}`}
                        style={{ paddingInlineStart: `calc(var(--sp-3) + ${(node.depth - 1) * 12}px)` }}
                        onContextMenu={(e) => {
                          e.preventDefault();
@@ -1924,6 +2129,15 @@ export function TerminalPanel({
                       ))}
                     </select>
                   </span>
+                  {/* Before the ×, because it is the one people reach for
+                      and the × is the one they must not hit by accident. */}
+                  <button className="tsl-x tpane-full"
+                          onClick={() => loom(tab.id)}
+                          aria-pressed={before.current !== null}
+                          title={before.current ? t('Put the panes back') : t('This one, full screen')}
+                          aria-label={`${before.current ? t('Put the panes back') : t('This one, full screen')} — ${title.text}`}>
+                    <Icon name={before.current ? 'restore' : 'maximise'} size={11} />
+                  </button>
                   <button className="tsl-x"
                           onClick={() => setShown(togglePane(onScreen, tab.id, tabs.map((x) => x.id), MAX_GRID))}
                           title={t('Hide this pane')} aria-label={`${t('Hide this pane')} — ${title.text}`}>

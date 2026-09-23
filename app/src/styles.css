@@ -1997,6 +1997,17 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
   border-radius:var(--r-2); color:var(--ink-2);
 }
 .tsg:hover{ background:var(--panel-3); }
+/* A row is in the air over this heading and letting go will file it here.
+   The same dashed outline a pane gets, because it is the same promise: this
+   is where the thing you are carrying will land. */
+.tsg.taking{
+  background:var(--brand-wash); color:var(--brand);
+  outline:2px dashed var(--brand); outline-offset:-2px;
+}
+/* The empty space under the last row is the one part of the rail that plainly
+   belongs to no group, which is what makes it the way to say "out of it".
+   Given a floor to aim at only while a row is being carried. */
+.tsl-list.grouped.reordering{ padding-block-end:34px; }
 .tsg-fold, .tsg-more{
   flex:none; display:grid; place-items:center; inline-size:18px; block-size:18px;
   border:0; border-radius:var(--r-1); background:transparent; color:var(--mute); cursor:pointer;

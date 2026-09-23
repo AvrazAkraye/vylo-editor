@@ -97,6 +97,22 @@ export interface ReorderOptions {
    * on a handle inside a row did, which is what this replaces.
    */
   onDropOut?: (index: number, at: { x: number; y: number }) => boolean;
+
+  /**
+   * Let go *on* the list, somewhere that means something other than a
+   * position.
+   *
+   * The mirror of `onDropOut`, with the same contract: it is offered the drop
+   * first and the reorder happens unless it answers true. A caller that does
+   * not recognise where the row landed says so, and the gesture ends as an
+   * ordinary reorder rather than half happening.
+   *
+   * It exists because a list can hold things that are not rows. A group
+   * heading is the case here: a row let go on one is being *filed*, and
+   * "between the two rows either side of that heading" is not what anybody
+   * meant by the gesture.
+   */
+  onDropInside?: (index: number, at: { x: number; y: number }) => boolean;
 }
 
 export interface Reorder {
@@ -137,7 +153,7 @@ const IDLE: Shown = { from: -1, to: -1, dragging: false };
 const rowsIn = (host: HTMLElement): HTMLElement[] =>
   Array.from(host.querySelectorAll<HTMLElement>(`.${ITEM}`));
 
-export function useReorder({ axis, enabled = true, onMove, onDropOut }: ReorderOptions): Reorder {
+export function useReorder({ axis, enabled = true, onMove, onDropOut, onDropInside }: ReorderOptions): Reorder {
   const host = useRef<HTMLElement | null>(null);
   const live = useRef<Live | null>(null);
   // Set when a drag actually happened, so the click it turns into is swallowed
@@ -151,6 +167,8 @@ export function useReorder({ axis, enabled = true, onMove, onDropOut }: ReorderO
   move.current = onMove;
   const out = useRef(onDropOut);
   out.current = onDropOut;
+  const into = useRef(onDropInside);
+  into.current = onDropInside;
 
   /** Put everything back, whatever the drag ended as. */
   function finish(pointer: number): void {
@@ -250,6 +268,9 @@ export function useReorder({ axis, enabled = true, onMove, onDropOut }: ReorderO
     // no honest way to guess what the person meant.
     if (rows !== l.rows) return;
     if (inside) {
+      // Offered first, and the reorder still happens if it declines — the
+      // same ordering `onDropOut` documents, for the same reason.
+      if (into.current?.(from, { x: e.clientX, y: e.clientY })) return;
       if (to !== from) move.current(from, to);
       return;
     }
