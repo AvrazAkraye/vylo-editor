@@ -45,6 +45,22 @@ export interface TermHandle {
    * the moment the row should stop saying it is running.
    */
   running(): Promise<string>;
+  /**
+   * The last `lines` non-empty lines of the live screen, whatever is selected
+   * and wherever the cursor is.
+   *
+   * Not `text`, which prefers the selection because it serves Send to chat.
+   * This serves the agents dashboard, which reads the screen for a question an
+   * agent is waiting on — and a selection left in the scrollback must not
+   * decide whether an agent needs somebody.
+   *
+   * The whole live screen rather than up to the cursor, and that was learned
+   * the hard way: in Claude Code's trust dialog the cursor sits on `❯ No,
+   * exit`, and everything that says it is a question — the second option and
+   * `Enter to confirm · Esc to cancel` — is *below* it. Reading to the cursor
+   * read a menu with no question in it.
+   */
+  screen(lines: number): string;
   clear(): void;
   /** Put keystrokes on the input line, as if typed. */
   type(data: string): void;
@@ -101,6 +117,15 @@ interface Props {
    * foreground process group to ask about, it is the only thing there is.
    */
   onTitle?: (title: string) => void;
+  /**
+   * The terminal printed something the person did not just type.
+   *
+   * What the agents dashboard calls *working*: an agent redraws its spinner
+   * many times a second while it works and goes quiet at its prompt. The echo
+   * of the person's own keystrokes is left out, or typing a question into an
+   * idle agent would call it working. Called at most every `OUTPUT_EVERY_MS`.
+   */
+  onOutput?: () => void;
   /** Files were dropped on this pane. */
   onDropPaths?: (paths: string[]) => void;
   /**
@@ -158,7 +183,12 @@ function palette(dark: boolean) {
       };
 }
 
-export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths, onPaste, onTitle, restore }: Props) {
+/** Output this soon after a keystroke is its echo, not the program speaking. */
+const ECHO_MS = 350;
+/** How often `onOutput` may fire; the caller only keeps a timestamp. */
+const OUTPUT_EVERY_MS = 400;
+
+export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onError, onData, onMoved, onTyped, onSent, onKey, onDropPaths, onPaste, onTitle, onOutput, restore }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
   const fit = useRef<FitAddon | null>(null);
@@ -171,8 +201,8 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
    * the terminal is built once — reading them at call time is what keeps the
    * effect from tearing down a live shell to pick up a new closure.
    */
-  const keys = useRef({ onTyped, onSent, onKey, onDropPaths, onPaste, onTitle });
-  keys.current = { onTyped, onSent, onKey, onDropPaths, onPaste, onTitle };
+  const keys = useRef({ onTyped, onSent, onKey, onDropPaths, onPaste, onTitle, onOutput });
+  keys.current = { onTyped, onSent, onKey, onDropPaths, onPaste, onTitle, onOutput };
   // Props the long-lived pty callbacks need to read at call time rather than
   // capture at mount time.
   const cb = useRef({ onExit, onError, onData });
@@ -273,6 +303,10 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
     let ptyId: number | null = null;
     let disposed = false;
     let closed = false;
+    // When the person last typed, and when `onOutput` last fired. Local to the
+    // run for the same reason `ptyId` is.
+    let typedAt = 0;
+    let saidAt = 0;
     const channel = new Channel<PtyEvent>();
     channel.onmessage = (m) => {
       // The reader thread can have a frame in flight when the pane goes away,
@@ -297,6 +331,11 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
          */
         t.write(m.data, () => { if (pinned.at) t.scrollToBottom(); });
         cb.current.onData?.(m.data);
+        const now = Date.now();
+        if (now - typedAt > ECHO_MS && now - saidAt > OUTPUT_EVERY_MS) {
+          saidAt = now;
+          keys.current.onOutput?.();
+        }
       }
       else if (!closed) { closed = true; cb.current.onExit(m.code); }
     };
@@ -326,6 +365,7 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
     const titled = t.onTitleChange((title) => keys.current.onTitle?.(title));
 
     const typed = t.onData((d) => {
+      typedAt = Date.now();
       if (ptyId !== null) void invoke('pty_write', { id: ptyId, data: d }).catch(() => {});
       // Every keystroke passes through here on its way to the pty, which is why
       // the input line is counted rather than read off the screen — see
@@ -419,6 +459,17 @@ export function TerminalView({ cwd, dark, visible, command, onReady, onExit, onE
         // the pin goes back on even if the reader had scrolled away.
         pinned.at = true;
         t.scrollToBottom();
+      },
+      screen: (lines) => {
+        // Rows [baseY, baseY + rows) are the live screen, whether or not the
+        // reader has scrolled away from it.
+        const buf = t.buffer.active;
+        const out: string[] = [];
+        for (let i = buf.baseY; i < buf.baseY + t.rows; i++) {
+          const line = (buf.getLine(i)?.translateToString(true) ?? '').trimEnd();
+          if (line.trim()) out.push(line);
+        }
+        return out.slice(-lines).join('\n');
       },
       text: (lines) => {
         const sel = t.getSelection();

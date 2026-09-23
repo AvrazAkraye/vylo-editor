@@ -2122,6 +2122,96 @@ body.resizing-v{ cursor:row-resize; user-select:none; }
    still win: what a shell is *doing* outranks what it is running, and a
    failed pane that stayed Claude-coloured would be a failure nobody saw. */
 .tsl-mark.claude{ color:var(--claude); background:color-mix(in srgb, var(--claude) 14%, transparent); }
+/* An agent at work, and one waiting on the person. The ring is outside the
+   badge so it reads whatever tint the badge already has; the pulse is slow
+   enough to be noticed in the corner of the eye and not so fast that a column
+   of six working agents is a column of six things flashing. */
+.tsl-mark.is-working{ box-shadow:0 0 0 2px color-mix(in srgb, var(--ok) 55%, transparent); animation:fleet-pulse 1.6s ease-in-out infinite; }
+.tsl-mark.is-needs{ box-shadow:0 0 0 2px var(--warn); }
+@keyframes fleet-pulse{ 50%{ box-shadow:0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); } }
+@media (prefers-reduced-motion: reduce){ .tsl-mark.is-working{ animation:none; } }
+
+/* ── the agents dashboard ────────────────────────────────────────────────
+   Drawn in place of the panes, which stay mounted underneath: every pane is a
+   running process, and opening the view that reports on the agents must not
+   stop one. */
+.panel-body.away{ display:none !important; }
+.fleet{
+  flex:1; min-block-size:0; overflow-y:auto;
+  padding:var(--sp-6) var(--sp-7); display:flex; flex-direction:column; gap:var(--sp-5);
+}
+.fleet-head{ display:flex; align-items:center; gap:var(--sp-4); }
+.fleet-n{ font-size:34px; font-weight:700; line-height:1; color:var(--ink); font-variant-numeric:tabular-nums; }
+.fleet-what{ display:flex; flex-direction:column; gap:2px; }
+.fleet-what b{ font-size:var(--fs-4); color:var(--ink); }
+.fleet-what span{ font-size:var(--fs-2); color:var(--mute); }
+/* The tally drawn to scale. Needs first, on the logic the sections follow:
+   it is the part of the bar waiting on the reader. */
+.fleet-bar{ display:flex; block-size:6px; border-radius:99px; overflow:hidden; background:var(--panel-3); gap:2px; }
+.fleet-bar i{ display:block; block-size:100%; }
+.fleet-bar .needs{ background:var(--warn); }
+.fleet-bar .working{ background:var(--ok); }
+.fleet-bar .idle{ background:var(--rule-2, var(--rule)); }
+.fleet-chips{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+.fleet-chip{
+  display:inline-flex; align-items:center; gap:var(--sp-2);
+  padding:var(--sp-1) var(--sp-4); border-radius:99px; border:1px solid var(--rule);
+  background:transparent; color:var(--ink-2); font:inherit; font-size:var(--fs-2); cursor:pointer;
+}
+.fleet-chip span{ color:var(--mute); font-variant-numeric:tabular-nums; }
+.fleet-chip i{ inline-size:6px; block-size:6px; border-radius:50%; background:var(--mute); }
+.fleet-chip.needs i{ background:var(--warn); }
+.fleet-chip.working i{ background:var(--ok); }
+.fleet-chip:hover{ border-color:var(--rule-2); color:var(--ink); }
+.fleet-chip.on{ background:var(--panel); border-color:var(--rule-2); color:var(--ink); box-shadow:var(--shadow); }
+.fleet-none{ margin:0; color:var(--mute); font-size:var(--fs-3); }
+.fleet-sec h4{
+  display:flex; align-items:center; gap:var(--sp-2); margin:0 0 var(--sp-3);
+  font-size:var(--fs-3); font-weight:700; color:var(--ink);
+}
+.fleet-sec h4 i{ inline-size:7px; block-size:7px; border-radius:50%; background:var(--mute); }
+.fleet-sec.needs h4 i{ background:var(--warn); }
+.fleet-sec.working h4 i{ background:var(--ok); }
+.fleet-sec h4 span{ color:var(--mute); font-weight:600; font-variant-numeric:tabular-nums; }
+.fleet-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:var(--sp-3); }
+.fleet-card{
+  display:flex; align-items:center; gap:var(--sp-4); min-inline-size:0;
+  padding:var(--sp-4) var(--sp-5); border-radius:var(--r-3); border:1px solid var(--rule);
+  background:var(--panel-2); color:inherit; font:inherit; text-align:start; cursor:pointer;
+}
+.fleet-card:hover{ border-color:var(--rule-2); background:var(--panel); }
+.fleet-card.needs{ border-color:color-mix(in srgb, var(--warn) 55%, var(--rule)); }
+.fleet-mark{
+  position:relative; flex:none; display:grid; place-items:center; inline-size:30px; block-size:30px;
+  border-radius:50%; color:var(--claude); background:color-mix(in srgb, var(--claude) 14%, transparent);
+}
+.fleet-mark i{
+  position:absolute; inset-inline-end:-1px; inset-block-end:-1px; inline-size:10px; block-size:10px;
+  border-radius:50%; border:2px solid var(--panel-2); background:var(--mute);
+}
+.fleet-card.working .fleet-mark i{ background:var(--ok); }
+.fleet-card.needs .fleet-mark i{ background:var(--warn); }
+.fleet-text{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:2px; }
+.fleet-text b{ font-size:var(--fs-3); color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fleet-text span{ font-size:var(--fs-2); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fleet-pill{
+  flex:none; font-size:var(--fs-1); font-weight:600; padding:2px var(--sp-3); border-radius:99px;
+  background:var(--panel-3); color:var(--mute);
+}
+.fleet-pill.working{ color:var(--ok); background:color-mix(in srgb, var(--ok) 14%, transparent); }
+.fleet-pill.needs{ color:var(--warn); background:var(--warn-wash); }
+.fleet-empty{ align-items:center; justify-content:center; text-align:center; color:var(--mute); }
+.fleet-empty p{ margin:0; max-inline-size:44ch; font-size:var(--fs-3); }
+.fleet-empty b{ color:var(--ink); }
+/* The count on the toggle: amber for agents waiting, green for ones working. */
+.fleet-toggle{ position:relative; }
+.fleet-badge{
+  position:absolute; inset-block-start:0; inset-inline-end:0; min-inline-size:14px; block-size:14px;
+  padding-inline:3px; border-radius:99px; font-style:normal; font-size:9px; font-weight:700;
+  line-height:14px; text-align:center; color:#fff; font-variant-numeric:tabular-nums;
+}
+.fleet-badge.needs{ background:var(--warn); }
+.fleet-badge.working{ background:var(--ok); }
 .tsl-mark.claude.busy{ color:var(--warn); background:var(--warn-wash); }
 .tsl-mark.claude.failed{ color:var(--err); background:var(--err-wash); }
 .tsl-dot{

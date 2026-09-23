@@ -3,8 +3,10 @@ import { invoke } from '@tauri-apps/api/core';
 import { TerminalView, type TermHandle } from './TerminalView';
 import { readable } from './ansi';
 import { Icon } from './Icon';
+import { FleetView } from './FleetView';
+import { WORKING_MS, agentOf, statusOf, taskOf, type Card, type Status as AgentStatus } from './fleet';
 import {
-  ROW_VIEW_KEY, filter, markOf, readView, rowOf, shorten, stateOf, titleOf, writeView,
+  ROW_VIEW_KEY, filter, markOf, programOf, readView, rowOf, shorten, stateOf, titleOf, writeView,
   type Facts, type RowView,
 } from './terminals';
 import { MAX_GRID, MAX_PANES, focused, only, prune, swap as swapPane, toggle as togglePane } from './panes';
@@ -157,6 +159,19 @@ export function TerminalPanel({
    * both exist and which wins.
    */
   const [running, setRunning] = useState<Record<string, string>>({});
+  const runningRef = useRef(running); runningRef.current = running;
+  /**
+   * When each terminal last printed something the person did not type.
+   *
+   * A ref, not state: an agent at work prints many times a second, and a
+   * re-render per chunk would be the whole panel redrawing to record a number
+   * nothing reads until the next tick. The tick below turns it into a status.
+   */
+  const lastOut = useRef(new Map<string, number>());
+  /** What each agent is doing — working, idle, or waiting on the person. See fleet.ts. */
+  const [statuses, setStatuses] = useState<Record<string, AgentStatus>>({});
+  /** Whether the agents dashboard is drawn in place of the panes. */
+  const [dash, setDash] = useState(false);
   const [titles, setTitles] = useState<Record<string, string>>({});
   /** The session row a menu is open on. */
   const [rowMenu, setRowMenu] = useState<{ id: string; at: MenuPoint } | null>(null);
@@ -311,6 +326,36 @@ export function TerminalPanel({
     }
     return () => { off = true; };
   }, [cwds]);
+
+  /*
+   * Once a second, what each agent is doing.
+   *
+   * Only terminals whose foreground program is an agent are looked at, and the
+   * screen is read only for the quiet ones: a terminal that printed in the last
+   * few seconds is working whatever it says, so reading its buffer would be
+   * work for an answer that is already known. State is set only when a status
+   * actually changed, so an unchanged second costs no render.
+   */
+  useEffect(() => {
+    const tick = () => {
+      const now = Date.now();
+      const next: Record<string, AgentStatus> = {};
+      for (const { id } of tabsRef.current) {
+        if (!agentOf(runningRef.current[id] ?? '')) continue;
+        const last = lastOut.current.get(id) ?? 0;
+        const quiet = now - last > WORKING_MS;
+        const screen = quiet ? (handles.current.get(id)?.screen(8) ?? '') : '';
+        next[id] = statusOf({ lastOut: last, now, screen });
+      }
+      setStatuses((prev) => {
+        const a = Object.keys(prev), b = Object.keys(next);
+        return a.length === b.length && b.every((k) => prev[k] === next[k]) ? prev : next;
+      });
+    };
+    tick();
+    const timer = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   /** Everything known about one pane, for its row. */
   const factsFor = (id: string): Facts => ({
@@ -992,6 +1037,42 @@ export function TerminalPanel({
     [empties, rows, shut, query],
   );
   const byId = useMemo(() => new Map(tabs.map((x) => [x.id, x])), [tabs]);
+  /**
+   * The agents, as the dashboard draws them, in session-list order.
+   *
+   * The title is what the agent was last asked to do, falling back to the
+   * session's own name; the place is the folder its shell is in now.
+   */
+  const cards: Card[] = tabs.flatMap((tab) => {
+    const agent = agentOf(running[tab.id] ?? '');
+    if (!agent) return [];
+    const task = taskOf(history[tab.id] ?? [], (line) => agentOf(programOf(line)) !== null);
+    return [{
+      id: tab.id,
+      title: task || titleOf(tab, t('Terminal')).text,
+      agent,
+      where: shorten(cwds[tab.id] || tab.cwd || root, home),
+      status: statuses[tab.id] ?? 'idle',
+    }];
+  });
+  const needsYou = cards.filter((c) => c.status === 'needs').length;
+  const working = cards.filter((c) => c.status === 'working').length;
+
+  /**
+   * Leave the dashboard for one agent's terminal.
+   *
+   * Into the pane the person is focused on rather than replacing the whole
+   * layout: somebody with three panes up who checks on a fourth agent wants it
+   * *there*, not the other three taken away. Already on screen, it is focused.
+   */
+  function openAgent(id: string) {
+    setDash(false);
+    setActive(id);
+    if (onScreen.includes(id)) return;
+    const seat = Math.max(0, onScreen.indexOf(focus));
+    setShown(onScreen.length ? swapPane(onScreen, seat, id) : [id]);
+  }
+
   /** Whether the rail is a tree at all. A flat list needs none of the chrome. */
   const grouped = tree.some((n) => n.kind === 'group');
   /**
@@ -1472,6 +1553,18 @@ export function TerminalPanel({
               </button>
             ))}
           </span>
+          {/* The count on it is the answer to "does anything need me" without
+              opening it: amber for agents waiting on a question, green for
+              ones working, nothing when every agent is idle — an idle count on
+              a badge is a number that asks for attention it does not need. */}
+          <button className={`ghost icon fleet-toggle ${dash ? 'on' : ''}`} onClick={() => setDash((v) => !v)}
+                  aria-pressed={dash}
+                  title={t(dash ? 'Back to the terminals' : 'Agents dashboard')}
+                  aria-label={t(dash ? 'Back to the terminals' : 'Agents dashboard')}>
+            <Icon name="board" size={14} />
+            {needsYou > 0 ? <i className="fleet-badge needs">{needsYou}</i>
+              : working > 0 ? <i className="fleet-badge working">{working}</i> : null}
+          </button>
           <button className="ghost icon" onClick={onToggleFull} aria-pressed={full}
                   title={t(full ? 'Restore the panel' : 'Fill the window')}
                   aria-label={t(full ? 'Restore the panel' : 'Fill the window')}><Icon name={full ? 'restore' : 'maximise'} size={14} /></button>
@@ -1860,7 +1953,11 @@ export function TerminalPanel({
                    fourteen rows all wearing a terminal glyph is fourteen rows
                    that look the same, and the one with Claude in it is the one
                    being looked for. See `markOf`. */
-                <span className={`tsl-mark ${state}${mark === 'claude' ? ' claude' : ''}`}>
+                /* And what the agent in it is doing, for the rail to say without
+                   opening the dashboard: a pulse while it works, amber while it
+                   waits on a question. Idle adds nothing — most agents are idle
+                   most of the time, and a mark on all of them marks nothing. */
+                <span className={`tsl-mark ${state}${mark === 'claude' ? ' claude' : ''}${statuses[tab.id] === 'working' ? ' is-working' : statuses[tab.id] === 'needs' ? ' is-needs' : ''}`}>
                   <Icon name={mark} size={14} />
                   {/* The badge carries the state, so the second line is free
                       to say something the badge cannot. */}
@@ -1983,8 +2080,12 @@ export function TerminalPanel({
           why. The column count is handed to CSS rather than written there,
           because it depends on how many panes are drawn: two columns for
           three and four, three for five and six. */}
+      {dash && <FleetView cards={cards} t={t} onOpen={openAgent} />}
+      {/* Hidden, never unmounted, while the dashboard is up: every pane is a
+          running process, and an agent must not stop because somebody opened
+          the view that reports on it. */}
       <div ref={row}
-           className={`panel-body ${onScreen.length > 1 ? 'split' : ''} ${gridded ? 'grid' : ''}`}
+           className={`panel-body ${onScreen.length > 1 ? 'split' : ''} ${gridded ? 'grid' : ''} ${dash ? 'away' : ''}`}
            style={gridded ? ({ '--tcols': columns(onScreen.length) } as CSSProperties) : undefined}>
         {tabs.map((tab) => {
           const on = onScreen.includes(tab.id);
@@ -2157,6 +2258,7 @@ export function TerminalPanel({
                 // twice-wrong; it is not remembered at all.
                 onSent={(line) => setHistory((h) => ({ ...h, [tab.id]: remember(h[tab.id] ?? [], line) }))}
                 onTitle={(title) => setTitles((p) => (p[tab.id] === title ? p : { ...p, [tab.id]: title }))}
+                onOutput={() => { lastOut.current.set(tab.id, Date.now()); }}
                 onDropPaths={(paths) => dropPaths(tab.id, paths)}
                 /**
                  * Hold a bulk paste; let an ordinary one through.

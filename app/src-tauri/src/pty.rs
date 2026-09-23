@@ -345,40 +345,98 @@ fn leaf(argv0: &str) -> String {
 ///
 /// Separate from the syscall so it can be tested: the parsing is the part
 /// with edges, and the `sysctl` around it is three lines.
+/// The arguments out of a `KERN_PROCARGS2` buffer — `argv[0]` first, at most
+/// `MAX_ARGS` of them.
+///
+/// More than `argv[0]` because an interpreter's first argument is the program
+/// that is really running: `node …/@openai/codex/bin/codex.js` is Codex, and
+/// reading only `argv[0]` called it `node`. See `program_of`.
 #[cfg(target_os = "macos")]
-fn argv0_from(buf: &[u8]) -> Option<String> {
+fn args_from(buf: &[u8]) -> Vec<String> {
+    const MAX_ARGS: usize = 8;
     if buf.len() < 4 {
-        return None;
+        return Vec::new();
     }
     // Zero means there are no arguments, and the bytes after the path are the
     // environment rather than an `argv[0]` to read.
     let argc = i32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]);
     if argc <= 0 {
-        return None;
+        return Vec::new();
     }
     let rest = &buf[4..];
-    let path_end = rest.iter().position(|&b| b == 0)?;
+    let Some(path_end) = rest.iter().position(|&b| b == 0) else { return Vec::new() };
     let mut at = path_end;
     while at < rest.len() && rest[at] == 0 {
         at += 1;
     }
-    if at >= rest.len() {
-        return None;
+    let mut out = Vec::new();
+    while out.len() < (argc as usize).min(MAX_ARGS) && at < rest.len() {
+        let end = rest[at..].iter().position(|&b| b == 0).map(|n| at + n).unwrap_or(rest.len());
+        out.push(String::from_utf8_lossy(&rest[at..end]).into_owned());
+        at = end + 1;
     }
-    let end = rest[at..]
-        .iter()
-        .position(|&b| b == 0)
-        .map(|n| at + n)
-        .unwrap_or(rest.len());
-    let out = String::from_utf8_lossy(&rest[at..end]).into_owned();
-    if out.is_empty() { None } else { Some(out) }
+    // An empty argv[0] is no answer, whatever follows it.
+    if out.first().map_or(true, |a| a.is_empty()) { Vec::new() } else { out }
+}
+
+/// Programs that run another program named by their first argument.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const INTERPRETERS: &[&str] = &["node", "nodejs", "bun", "deno", "python", "python3", "ruby"];
+
+/// The name of the program a script belongs to.
+///
+/// A script inside `node_modules` belongs to its **package**, which is the name
+/// somebody would recognise: `…/node_modules/@openai/codex/bin/codex.js` is
+/// `codex`, and `…/node_modules/@google/gemini-cli/dist/index.js` is
+/// `gemini-cli` rather than `index`. The last `node_modules` wins, because a
+/// package's own dependencies nest inside it. Outside one, it is the file's
+/// name without its extension: `node server.js` is `server`.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn script_name(path: &str) -> String {
+    let norm = path.replace('\\', "/");
+    if let Some(i) = norm.rfind("node_modules/") {
+        let mut parts = norm[i + "node_modules/".len()..].split('/');
+        let first = parts.next().unwrap_or("");
+        let pkg = if first.starts_with('@') { parts.next().unwrap_or("") } else { first };
+        if !pkg.is_empty() {
+            return pkg.to_string();
+        }
+    }
+    let file = norm.rsplit('/').next().unwrap_or("");
+    let stem = match file.rfind('.') {
+        Some(dot) if dot > 0 => &file[..dot],
+        _ => file,
+    };
+    stem.to_string()
+}
+
+/// What a process is running, from its arguments.
+///
+/// `leaf(argv[0])`, unless that is an interpreter — then the script it was
+/// given. Flags before the script are stepped over (`node --no-warnings x.js`).
+/// An interpreter with nothing after it is itself: a bare `node` is a REPL,
+/// and `node` is the honest name for it.
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn program_of(args: &[String]) -> String {
+    let Some(first) = args.first() else { return String::new() };
+    let name = leaf(first);
+    if INTERPRETERS.contains(&name.as_str()) {
+        if let Some(script) = args[1..].iter().find(|a| !a.starts_with('-') && !a.is_empty()) {
+            let s = script_name(script);
+            if !s.is_empty() {
+                return s;
+            }
+        }
+    }
+    name
 }
 
 /// What a process is called, by pid.
 #[cfg(target_os = "macos")]
 fn name_of(pid: u32) -> Option<String> {
-    if let Some(argv0) = argv0_of(pid) {
-        let name = leaf(&argv0);
+    let args = args_of(pid);
+    if !args.is_empty() {
+        let name = program_of(&args);
         if !name.is_empty() {
             return Some(name);
         }
@@ -404,9 +462,9 @@ fn name_of(pid: u32) -> Option<String> {
     if name.is_empty() { None } else { Some(name) }
 }
 
-/// The raw `KERN_PROCARGS2` bytes for a process.
+/// A process's arguments, from `KERN_PROCARGS2`.
 #[cfg(target_os = "macos")]
-fn argv0_of(pid: u32) -> Option<String> {
+fn args_of(pid: u32) -> Vec<String> {
     use std::sync::OnceLock;
     // Asked once. It is a constant of the running kernel, and the buffer has
     // to be this big or the call refuses rather than truncating.
@@ -448,18 +506,19 @@ fn argv0_of(pid: u32) -> Option<String> {
         )
     };
     if r != 0 {
-        return None;
+        return Vec::new();
     }
     buf.truncate(len);
-    argv0_from(&buf)
+    args_from(&buf)
 }
 
 /// What a process is called, by pid.
 #[cfg(target_os = "linux")]
 fn name_of(pid: u32) -> Option<String> {
     if let Ok(raw) = std::fs::read(format!("/proc/{pid}/cmdline")) {
-        let end = raw.iter().position(|&b| b == 0).unwrap_or(raw.len());
-        let name = leaf(&String::from_utf8_lossy(&raw[..end]));
+        let args: Vec<String> = raw.split(|&b| b == 0).filter(|a| !a.is_empty()).take(8)
+            .map(|a| String::from_utf8_lossy(a).into_owned()).collect();
+        let name = program_of(&args);
         if !name.is_empty() {
             return Some(name);
         }
@@ -978,6 +1037,34 @@ mod tests {
         assert_eq!(super::leaf("   "), "");
     }
 
+    /// Which program an interpreter is running.
+    ///
+    /// The case that made this necessary: Codex installed through npm runs as
+    /// `node …/@openai/codex/bin/codex.js`, and the agents dashboard never saw
+    /// it because the foreground program was called `node`.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[test]
+    fn an_interpreter_is_named_by_the_script_it_runs() {
+        let a = |xs: &[&str]| xs.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        assert_eq!(super::program_of(&a(&["node", "/opt/homebrew/lib/node_modules/@openai/codex/bin/codex.js"])), "codex");
+        assert_eq!(super::program_of(&a(&["node", "/usr/lib/node_modules/@google/gemini-cli/dist/index.js"])), "gemini-cli");
+        assert_eq!(super::program_of(&a(&["node", "/x/node_modules/@anthropic-ai/claude-code/cli.js"])), "claude-code");
+        // The last node_modules wins: a package's dependencies nest inside it.
+        assert_eq!(super::program_of(&a(&["node", "/x/node_modules/a/node_modules/vite/bin/vite.js"])), "vite");
+        assert_eq!(super::program_of(&a(&["node", "/usr/local/lib/node_modules/npm/bin/npm-cli.js"])), "npm");
+        // Flags before the script are stepped over.
+        assert_eq!(super::program_of(&a(&["/usr/bin/node", "--no-warnings", "server.js"])), "server");
+        // A bare interpreter is a REPL, and that is its honest name.
+        assert_eq!(super::program_of(&a(&["node"])), "node");
+        assert_eq!(super::program_of(&a(&["python3", "-i"])), "python3");
+        // Not an interpreter: argv[0] as before, arguments ignored.
+        assert_eq!(super::program_of(&a(&["/Users/x/.local/bin/claude", "--resume"])), "claude");
+        assert_eq!(super::program_of(&a(&["-zsh"])), "zsh");
+        assert_eq!(super::program_of(&[]), "");
+        // Windows separators, for a path somebody pasted.
+        assert_eq!(super::script_name("C:\\npm\\node_modules\\@openai\\codex\\bin\\codex.js"), "codex");
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn argv0_is_read_out_of_a_procargs2_buffer() {
@@ -1002,23 +1089,23 @@ mod tests {
             &["/Users/x/.local/bin/claude"],
         );
         assert_eq!(
-            super::argv0_from(&real).as_deref(),
+            super::args_from(&real).first().map(String::as_str),
             Some("/Users/x/.local/bin/claude")
         );
         // And the whole point: the path sitting in front of it is the wrong
         // answer, which is why it is stepped over rather than read.
-        assert_eq!(super::leaf(&super::argv0_from(&real).unwrap()), "claude");
+        assert_eq!(super::leaf(&super::args_from(&real)[0]), "claude");
 
         assert_eq!(
-            super::argv0_from(&buf(2, "/bin/zsh", 0, &["-zsh", "-i"])).as_deref(),
+            super::args_from(&buf(2, "/bin/zsh", 0, &["-zsh", "-i"])).first().map(String::as_str),
             Some("-zsh")
         );
         // No arguments means the bytes after the path are the environment.
-        assert!(super::argv0_from(&buf(0, "/bin/zsh", 3, &["PATH=/usr/bin"])).is_none());
-        assert!(super::argv0_from(&[]).is_none());
-        assert!(super::argv0_from(&[1, 0, 0]).is_none());
+        assert!(super::args_from(&buf(0, "/bin/zsh", 3, &["PATH=/usr/bin"])).is_empty());
+        assert!(super::args_from(&[]).is_empty());
+        assert!(super::args_from(&[1, 0, 0]).is_empty());
         // A path with nothing after it at all.
-        assert!(super::argv0_from(&buf(1, "/bin/zsh", 0, &[])).is_none());
+        assert!(super::args_from(&buf(1, "/bin/zsh", 0, &[])).is_empty());
     }
 
     /// The shell's own history, in the three formats it comes in.
