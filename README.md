@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.59.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.101.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -92,7 +92,7 @@ string in the UI has no catalogue entry at all. Layout stays left-to-right in
 every language — a deliberate decision, matching the Vylo OTP dashboard — while
 Arabic-script text shapes right-to-left within each line.
 
-**Native, and small.** 8 MB installed and a 3.9 MB download, because it is a
+**Native, and small.** 8 MB installed and a 4 MB download, because it is a
 Tauri app with a Rust tool layer rather than an Electron shell. One codebase
 produces both the macOS `.app` and the Windows `.exe`.
 
