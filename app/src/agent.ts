@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { Pending } from './pending';
 import { appendFact, MEMORY_FILE } from './memory';
 import { callTool, splitTool } from './mcp';
+import { isWhatsAppTool } from './whatsapptool';
 import { SSEDecoder, TurnAssembler } from './sse';
 import { OpenAIAssembler, fromOpenAI, toOpenAI } from './openai';
 import { endpointFor, headersFor, type Wire } from './providers';
@@ -230,6 +231,25 @@ const CHAT_NOTE = [
   'If the person wants work done in their project, say that Code mode is where',
   'the agent can see it.',
 ].join('\n');
+
+/**
+ * Chat mode with WhatsApp connected. The person set up the WhatsApp module by
+ * hand, and asking to message somebody from a chat is the most natural place
+ * to ask it — a model that says it cannot, with the module on, is wrong.
+ */
+const CHAT_WHATSAPP_NOTE = [
+  '',
+  'You are in **Chat** mode: a conversation that is not tied to a project. You',
+  'have no view of any repository — do not claim to have read or changed a file.',
+  'Your only tools are the WhatsApp ones: whatsapp_chats and whatsapp_read to find',
+  'and read conversations, and whatsapp_send to send a message. When the person',
+  'asks you to send something on WhatsApp, find the conversation and send it —',
+  'they are shown the exact recipient and text and approve it before it leaves.',
+].join('\n');
+
+/** The WhatsApp tools among a turn's extra tools: the only ones Chat mode is given. */
+const whatsAppOnly = (tools: readonly unknown[] = []): unknown[] =>
+  tools.filter((t) => isWhatsAppTool(String((t as { name?: unknown })?.name ?? '')));
 
 const BASE_SYSTEM = [
   'You are Vylo Editor, a coding agent working on a folder on the user\'s own machine.',
@@ -611,19 +631,22 @@ export function keepText(messages: Msg[]): Msg[] {
  * so "Ask changes nothing" can only hold if they are left out.
  */
 export function toolsFor(o: Pick<RunOptions, 'mode' | 'extraTools'>): unknown[] {
-  // No tools at all is the whole meaning of Chat — see `Mode`.
-  if (o.mode === 'chat') return [];
+  // No project tools is the whole meaning of Chat — see `Mode`. WhatsApp,
+  // when the person connected it, is not the project: it is how they asked
+  // for something to be sent, and every send is approved first.
+  if (o.mode === 'chat') return whatsAppOnly(o.extraTools);
   if (o.mode === 'ask') return [...READ_TOOLS];
   return [...TOOLS, ...(o.extraTools ?? [])];
 }
 
-export function system(o: Pick<RunOptions, 'mode' | 'environment' | 'memory'>, summary = ''): string {
+export function system(o: Pick<RunOptions, 'mode' | 'environment' | 'memory'> & Partial<Pick<RunOptions, 'extraTools'>>, summary = ''): string {
   // Chat carries nothing about the project — not the environment block, not
   // the memory — so the model cannot answer about a repository it was never
   // shown. The sandbox is the absence, not an instruction to ignore.
   if (o.mode === 'chat') {
     const cut = summaryBlock(summary);
-    return cut ? `${BASE_SYSTEM}\n${CHAT_NOTE}\n\n${cut}` : `${BASE_SYSTEM}\n${CHAT_NOTE}`;
+    const note = whatsAppOnly(o.extraTools).length ? CHAT_WHATSAPP_NOTE : CHAT_NOTE;
+    return cut ? `${BASE_SYSTEM}\n${note}\n\n${cut}` : `${BASE_SYSTEM}\n${note}`;
   }
   const base = o.mode === 'ask' ? `${BASE_SYSTEM}\n${ASK_NOTE}` : BASE_SYSTEM;
   const parts = [base];
@@ -891,8 +914,16 @@ export async function runAgent(o: RunOptions): Promise<Msg[]> {
     // across several would break the alternation the API expects, and trains the
     // model out of asking for calls in parallel.
     const results: Block[] = [];
+    // Only what this turn offered runs. A mode is the tools it is given, and a
+    // model that names one it was not given — write_file in Chat, run_command
+    // in Ask — is refused here, not dispatched on the strength of the name.
+    const offered = new Set(toolsFor(o).map((t) => String((t as { name?: unknown }).name ?? '')));
     for (const c of calls) {
       if (o.signal?.aborted) throw new Stopped(keepText(messages));
+      if (!offered.has(c.name)) {
+        results.push({ type: 'tool_result', tool_use_id: c.id, content: `${c.name} is not available in this mode.`, is_error: true });
+        continue;
+      }
       o.onEvent({ kind: 'tool', text: `${c.name}(${JSON.stringify(c.input)})` });
       o.onToolStart?.(c.name, c.input);
       const r = await runTool(

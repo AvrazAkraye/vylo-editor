@@ -149,7 +149,14 @@ for (const forbidden of ABSENT) {
 // A model with the repository in its prompt answers about the repository
 // whether or not it was asked to. Chat carries nothing: no tools, no
 // environment block, no memory — so it cannot claim to have read a file.
-ok('chat mode sends no tools at all', toolsFor({ mode: 'chat', extraTools: [{ name: 'x' }] }).length === 0);
+ok('chat mode sends no project or MCP tools', toolsFor({ mode: 'chat', extraTools: [{ name: 'x' }, { name: 'mcp__s__write' }] }).length === 0);
+{
+  const wa = [{ name: 'whatsapp_chats' }, { name: 'whatsapp_read' }, { name: 'whatsapp_send' }];
+  const names = toolsFor({ mode: 'chat', extraTools: [{ name: 'x' }, ...wa] }).map((t) => t.name);
+  ok('but WhatsApp, when connected, is offered in chat — and nothing else', names.join() === 'whatsapp_chats,whatsapp_read,whatsapp_send', names.join());
+  ok('the chat prompt says so only when it is connected',
+     system({ mode: 'chat', extraTools: wa }).includes('whatsapp_send') && !system({ mode: 'chat' }).includes('whatsapp_send'));
+}
 ok('not even the read tools', (() => {
   const names = toolsFor({ mode: 'chat' }).map((t) => t.name);
   return !READ_TOOLS.some((t) => names.includes(t.name));

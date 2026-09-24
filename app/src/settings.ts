@@ -131,7 +131,7 @@ export type SettingId =
   | 'autoApprove'
   | 'modules' | 'railSide' | 'mcpServers'
   | 'drafts' | 'checkpoints' | 'fileHistory' | 'clipboardHistory' | 'terminals'
-  | 'version' | 'updates' | 'safety';
+  | 'version' | 'developer' | 'website' | 'updates' | 'safety';
 
 export interface Setting {
   id: SettingId;
@@ -313,6 +313,15 @@ export const SETTINGS: readonly Setting[] = [
   {
     id: 'version', category: 'about', label: 'Version',
     keywords: ['build', 'release', 'number', 'changelog'],
+  },
+  {
+    id: 'developer', category: 'about', label: 'Developed by',
+    keywords: ['author', 'developer', 'made by', 'credits', 'Avraz Sardar'],
+  },
+  {
+    id: 'website', category: 'about', label: 'Website',
+    hint: 'Plans, the gateway and the other Vylo apps.',
+    keywords: ['vylo-tech.com', 'site', 'web', 'home page', 'contact', 'plans'],
   },
   {
     id: 'updates', category: 'about', label: 'Check for updates',

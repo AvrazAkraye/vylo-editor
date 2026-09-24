@@ -5401,13 +5401,86 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .rsch-writers{ display:flex; flex-direction:column; gap:var(--sp-3); }
 .rsch-clock{ display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-5); margin:0; font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
 .rsch-writers ul{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
-.rsch-writers li{
+.rsch-writers > ul > li{
   display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) var(--sp-4);
   border-radius:var(--r-2); background:var(--brand-wash); font-size:var(--fs-2);
 }
-.rsch-writers li b{ flex:none; color:var(--brand); font-weight:600; }
+.rsch-writers > ul > li b{ flex:none; color:var(--brand); font-weight:600; }
 .rsch-writer-what{ flex:1; min-inline-size:0; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .rsch-writer-n{ flex:none; color:var(--mute); font-variant-numeric:tabular-nums; }
+.rsch-writers > ul > li{ flex-wrap:wrap; }
+/* Each writer's part, filling against the words the outline gave it. */
+.rsch-writer-bar{ flex-basis:100%; block-size:3px; border-radius:999px; background:var(--panel-3); overflow:hidden; }
+.rsch-writer-bar > i{ display:block; block-size:100%; background:var(--brand); transition:inline-size .5s ease; }
+
+/* ── a run in progress ──
+   One bar for the whole document: a fixed share for each stage before
+   writing, then the words. Before there are words to count it sweeps, which
+   says "working" without claiming a number. */
+.rsch-bar{ position:relative; block-size:6px; border-radius:999px; background:var(--panel-3); overflow:hidden; }
+.rsch-bar > i{
+  position:absolute; inset-block:0; inset-inline-start:0; border-radius:inherit; overflow:hidden;
+  background:var(--brand); transition:inline-size .6s ease;
+}
+.rsch-bar > i::after{
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(90deg, transparent, rgb(255 255 255 / .35), transparent);
+  animation:rsch-sweep 1.6s linear infinite;
+}
+.rsch-bar.is-early > i{ inline-size:28% !important; animation:rsch-slide 1.5s ease-in-out infinite; }
+@keyframes rsch-sweep{ from{ transform:translateX(-100%); } to{ transform:translateX(100%); } }
+@keyframes rsch-slide{ from{ inset-inline-start:-28%; } to{ inset-inline-start:100%; } }
+.rsch-clock b{ color:var(--brand); font-weight:700; }
+/* The stage being worked on, ringed as well as lit. */
+.rsch-steps li.is-live i{ box-shadow:0 0 0 3px color-mix(in srgb, var(--brand) 25%, transparent); }
+
+/* What the run has done, newest first. */
+.rsch-log{
+  list-style:none; margin:0; padding:0; padding-inline-start:var(--sp-4);
+  display:flex; flex-direction:column; gap:var(--sp-1);
+  border-inline-start:2px solid var(--rule); font-size:var(--fs-2); color:var(--mute);
+}
+.rsch-log li{ display:flex; gap:var(--sp-3); line-height:1.5; }
+.rsch-log li.is-new{ color:var(--ink); animation:rise .3s ease-out; }
+.rsch-log-at{ flex:none; min-inline-size:3.2em; font-variant-numeric:tabular-nums; }
+
+/* The page, before its first words: what is happening, not an empty sheet. */
+.rsch-working{
+  display:flex; flex-direction:column; align-items:center; gap:var(--sp-4);
+  margin-block:var(--sp-10); padding:var(--sp-10) var(--sp-8);
+  border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel);
+  text-align:center; font-size:var(--fs-3);
+}
+.rsch-working > b{ font-size:var(--fs-6); color:var(--ink); }
+.rsch-working > p{ margin:0; color:var(--mute); }
+.rsch-working .rsch-writers{ align-self:stretch; text-align:start; }
+.rsch-spinner{
+  inline-size:34px; block-size:34px; border-radius:50%;
+  border:3px solid var(--panel-3); border-block-start-color:var(--brand);
+  animation:rsch-spin .9s linear infinite;
+}
+@keyframes rsch-spin{ to{ transform:rotate(360deg); } }
+/* A part whose writer has not put a word down yet. */
+.rsch-skeleton{ display:flex; flex-direction:column; gap:var(--sp-3); margin-block:var(--sp-4) var(--sp-8); }
+.rsch-skeleton i{
+  display:block; block-size:12px; border-radius:6px;
+  background:linear-gradient(90deg, var(--panel-3) 25%, var(--panel-2) 50%, var(--panel-3) 75%);
+  background-size:200% 100%; animation:rsch-shimmer 1.3s linear infinite;
+}
+.rsch-skeleton i:nth-child(2){ inline-size:92%; }
+.rsch-skeleton i:nth-child(3){ inline-size:68%; }
+@keyframes rsch-shimmer{ from{ background-position:200% 0; } to{ background-position:-200% 0; } }
+.rsch-caret{
+  display:inline-block; inline-size:2px; block-size:1em; margin-inline-start:2px;
+  vertical-align:text-bottom; background:var(--brand); animation:p 1s steps(1) infinite;
+}
+.rsch-reader-head{ position:relative; }
+.rsch-head-bar{ position:absolute; inset-block-end:-1px; inset-inline:0; block-size:2px; }
+.rsch-head-bar > i{ display:block; block-size:100%; background:var(--brand); transition:inline-size .6s ease; }
+@media (prefers-reduced-motion: reduce){
+  .rsch-bar > i::after, .rsch-spinner, .rsch-skeleton i, .rsch-caret, .rsch-log li.is-new{ animation:none; }
+  .rsch-bar.is-early > i{ animation:none; inset-inline-start:0; }
+}
 .rsch-toc button.is-live{ color:var(--brand); font-weight:600; }
 
 /* ── the full window ── */
@@ -5454,31 +5527,57 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .rsch-welcome-grid .rsch-card{ cursor:default; }
 .rsch-welcome .rsch-docs{ padding:0; }
 
-/* ── paper, for the print dialog and a PDF ──
-   Kept out of the screen entirely; while printing, everything else in the
-   page is hidden and this is all the dialog sees. */
-#rsch-print{ display:none; }
-@media print{
-  @page{ size:A4; margin:2.5cm; }
-  :root.rsch-printing body > *:not(#rsch-print){ display:none !important; }
-  :root.rsch-printing #rsch-print{ display:block; }
-  :root.rsch-printing body{ background:#fff; }
+/* ── paper, for the PDF ──
+   A4 sheets drawn by `Paper` in ResearchPanel.tsx, each with its own
+   footnotes at its foot. On screen the view is only ever mounted while a PDF
+   is being made, and is kept out of sight — but laid out, because the pages
+   are made by measuring it. While printing, everything else in the page is
+   hidden and the sheets are all the webview prints. */
+#rsch-print{
+  position:fixed; inset-block-start:0; inset-inline-start:-100000px; visibility:hidden; pointer-events:none;
   /* Paper is white in every theme: the dark theme's tokens would print its
      light ink on white — footnotes that vanish — and its dark panels behind
      the table headers. */
-  #rsch-print{
-    color-scheme:light;
-    --ink:#000; --mute:#444; --brand:#000; --rule:#bbb; --rule-2:#888; --panel:#fff; --panel-2:#eee; --panel-3:#f5f5f5;
-  }
-  #rsch-print .rsch-page{ overflow:visible; padding:0; color:#000; font-size:14pt; line-height:1.8; }
-  #rsch-print .rsch-page > *{ max-inline-size:none; }
-  #rsch-print .rsch-cover{ break-after:page; border:0; min-block-size:24cm; }
-  #rsch-print .rsch-front{ break-after:page; border:0; }
-  #rsch-print .rsch-part-head > :first-child{ break-after:avoid; }
-  #rsch-print .rsch-refs{ break-before:page; }
-  /* The yellow says which gaps are the researcher's; a default print drops backgrounds. */
-  #rsch-print .rsch-hole, #rsch-print .rsch-table th{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-  #rsch-print .rsch-hole{ background:#fff3b0; }
-  #rsch-print .rsch-fn{ color:#000; }
-  #rsch-print .rsch-notes{ font-size:11pt; }
+  color-scheme:light; background:#fff; color:#000;
+  --ink:#000; --mute:#444; --brand:#000; --rule:#bbb; --rule-2:#888; --panel:#fff; --panel-2:#eee; --panel-3:#f5f5f5;
+}
+/* The written area of a page: A4 inside 2.5 cm margins, as the Word file. */
+#rsch-print .rsch-sheet-body, #rsch-print .rsch-sheet-notes{ inline-size:160mm; }
+#rsch-print .rsch-page{
+  flex:none; overflow:visible; padding:0; margin:0;
+  color:#000; font-size:14pt; line-height:1.8;
+}
+#rsch-print .rsch-page > *{ max-inline-size:none; margin-inline:0; }
+#rsch-print .rsch-page h1{ font-size:20pt; }
+#rsch-print .rsch-page h2{ font-size:16pt; margin:0 0 10pt; }
+#rsch-print .rsch-page h3, #rsch-print .rsch-page h4, #rsch-print .rsch-page h5, #rsch-print .rsch-page h6{ font-size:14pt; margin:10pt 0 6pt; }
+#rsch-print .rsch-page p{ margin:0 0 8pt; }
+/* A piece keeps its margins inside itself, so its measured height is the room it takes. */
+#rsch-print .rsch-piece{ display:flow-root; position:relative; }
+#rsch-print .rsch-cut{ overflow:hidden; }
+#rsch-print .rsch-cover{ border:0; padding:0; margin-block-end:14pt; }
+#rsch-print .rsch-cover.is-full{ min-block-size:247mm; margin:0; }
+#rsch-print .rsch-paper-title{ text-align:center; }
+#rsch-print .rsch-paper-center{ text-align:center; }
+#rsch-print .rsch-paper-list{ margin:0 0 4pt; }
+#rsch-print .rsch-paper-ref{ text-align:start; margin:0 0 6pt; }
+#rsch-print .rsch-page[data-digits="eastern"] ol.rsch-paper-list{ list-style-type:arabic-indic; }
+#rsch-print .rsch-fn{ color:#000; }
+#rsch-print .rsch-sheet-notes{ margin:0; font-size:11pt; line-height:1.5; }
+#rsch-print .rsch-sheet-notes li{ margin-block-end:2pt; }
+#rsch-print .rsch-sheet{
+  inline-size:210mm; block-size:296.5mm; padding:25mm; box-sizing:border-box;
+  display:flex; flex-direction:column; overflow:hidden; break-after:page; background:#fff;
+}
+#rsch-print .rsch-sheet:last-child{ break-after:auto; }
+#rsch-print .rsch-sheet .rsch-sheet-body{ flex:1; min-block-size:0; overflow:hidden; }
+#rsch-print .rsch-sheet .rsch-sheet-notes{ flex:none; }
+/* The yellow says which gaps are the researcher's; a default print drops backgrounds. */
+#rsch-print .rsch-hole, #rsch-print .rsch-table th{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+#rsch-print .rsch-hole{ background:#fff3b0; }
+@media print{
+  @page{ size:A4; margin:0; }
+  :root.rsch-printing body > *:not(#rsch-print){ display:none !important; }
+  :root.rsch-printing body{ background:#fff; margin:0; }
+  :root.rsch-printing #rsch-print{ position:static; visibility:visible; }
 }

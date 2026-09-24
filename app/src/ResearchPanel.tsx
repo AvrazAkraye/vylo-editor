@@ -25,7 +25,7 @@ import {
   EMPTY_SECTION, UNREADABLE_ABSTRACT, UNREADABLE_OUTLINE, highestKey, redoAbstract, rewrite, run,
   type Deps, type Progress,
 } from './researchrun';
-import { docxBase64, fileNameFor } from './researchdocx';
+import { breaksOf, docxBase64, fileNameFor } from './researchdocx';
 import { deleteDoc, loadDocs, saveDoc } from './researchstore';
 import {
   DATA_EXTENSIONS, bytesOf, fromDocx, fromPdf, fromText, fromXlsx, inflateRaw, kindOfName, pdfPrompt, textOfBytes,
@@ -106,7 +106,24 @@ interface Job {
    * planning before it or the parts an earlier run wrote.
    */
   from?: { at: number; done: number };
+  /** What the run has done so far, oldest first, for the activity list. */
+  log: LogEntry[];
 }
+
+/**
+ * One thing a run did. Kept as facts rather than sentences, so the list is
+ * said in whatever language the interface is in when it is drawn.
+ */
+type LogEntry = { at: number } & (
+  | { what: 'stage'; stage: Stage }
+  | { what: 'sources'; n: number }
+  | { what: 'outline'; n: number }
+  | { what: 'part'; heading: string; words: number }
+  | { what: 'note'; note: NonNullable<Progress['note']> }
+);
+
+/** The longest a log grows; a dissertation's forty parts and its stages fit well inside it. */
+const MAX_LOG = 120;
 
 /** Runs in progress, by document id. */
 const jobs = new Map<string, Job>();
@@ -181,7 +198,9 @@ function start(doc: Doc, gw: Target, efforts: EffortBook, work: Work, onFail: (e
   // A file still being read would land after the run took its copy, and be lost.
   if (jobs.has(doc.id) || readsOf(doc.id).length) return;
   const ctl = new AbortController();
-  const job: Job = { ctl, progress: { stage: doc.stage }, started: Date.now() };
+  const job: Job = { ctl, progress: { stage: doc.stage }, started: Date.now(), log: [] };
+  let before = doc;
+  const log = (e: LogEntry) => { job.log.push(e); if (job.log.length > MAX_LOG) job.log.shift(); };
   jobs.set(doc.id, job);
   // Which model wrote it goes with the document, for the line that says so.
   doc = doc.model === gw.model ? doc : { ...doc, model: gw.model };
@@ -191,6 +210,22 @@ function start(doc: Doc, gw: Target, efforts: EffortBook, work: Work, onFail: (e
   const onChange = (d: Doc, p: Progress) => {
     if (gone.has(d.id)) return;
     known.set(d.id, d);
+    // What changed since the last report, as the run's activity: a stage
+    // begun, the sources kept once the search and the screen are over, the
+    // outline, each part as it is finished, anything the run had to say.
+    const at = Date.now();
+    const was = job.progress;
+    if (p.stage !== was.stage) {
+      if (was.stage === 'sources') log({ at, what: 'sources', n: d.sources.filter((x) => x.use).length });
+      log({ at, what: 'stage', stage: p.stage });
+    }
+    if (!before.sections.length && d.sections.length) log({ at, what: 'outline', n: d.sections.length });
+    const wasDone = new Set(before.sections.filter((x) => x.state === 'done').map((x) => x.id));
+    for (const x of d.sections) {
+      if (x.state === 'done' && x.text && !wasDone.has(x.id)) log({ at, what: 'part', heading: x.heading, words: wordCount(x.text) });
+    }
+    if (p.note && p.note.code !== was.note?.code) log({ at, what: 'note', note: p.note });
+    before = d;
     job.progress = p;
     if (p.stage === 'writing' && !job.from) job.from = { at: Date.now(), done: d.sections.filter((s) => s.state === 'done').length };
     notifySoon();
@@ -522,20 +557,25 @@ function localRuns(runs: Rich[], doc: Doc): Rich[] {
   });
 }
 
-/** Rich text. A DOI is shown and can be copied; it is not a link, because a link would navigate the app's own window. */
+/** One run of rich text that is not a footnote. A DOI is shown and can be copied; it is not a link, because a link would navigate the app's own window. */
+function runEl(r: Rich, i: number): ReactNode {
+  const text = r.text;
+  if (r.hole) return <mark key={i} className="rsch-hole">{text}</mark>;
+  if (r.bold && r.italic) return <b key={i}><i>{text}</i></b>;
+  if (r.bold) return <b key={i}>{text}</b>;
+  if (r.italic) return <i key={i}>{text}</i>;
+  if (r.link) return <span key={i} className="rsch-link" dir="ltr">{text}</span>;
+  return <Fragment key={i}>{text}</Fragment>;
+}
+
+/** Rich text, its footnotes numbered from one in each part, as the reader shows them. */
 function richEls(runs: Rich[], pass: Pass): ReactNode[] {
   return localRuns(runs, pass.doc).map((r, i) => {
     if (r.note) {
       pass.notes.push(r.note);
       return <sup key={i} className="rsch-fn">{localDigits(String(pass.notes.length), pass.doc)}</sup>;
     }
-    const text = r.text;
-    if (r.hole) return <mark key={i} className="rsch-hole">{text}</mark>;
-    if (r.bold && r.italic) return <b key={i}><i>{text}</i></b>;
-    if (r.bold) return <b key={i}>{text}</b>;
-    if (r.italic) return <i key={i}>{text}</i>;
-    if (r.link) return <span key={i} className="rsch-link" dir="ltr">{text}</span>;
-    return <Fragment key={i}>{text}</Fragment>;
+    return runEl(r, i);
   });
 }
 
@@ -880,12 +920,45 @@ function useTick(on: boolean) {
 }
 
 /**
- * Who is writing what, while a document is being written: one row a writer,
- * with the part it has and the words it has put down so far, and the time the
- * run has taken and — once a part is done to measure by — roughly how long is
- * left.
+ * How far a run has come, from 0 to 100. The stages before writing are short
+ * and each takes a fixed share; writing is most of the bar and moves with the
+ * words — the ones finished and the ones being written this second — against
+ * the words the outline asked for.
  */
-function WritersStatus({ t, doc, job }: { t: (s: string) => string; doc: Doc; job: Job }) {
+function percentOf(doc: Doc, job: Job): number {
+  const stage = job.progress.stage;
+  if (stage === 'done') return 100;
+  if (stage === 'abstract') return 96;
+  if (stage !== 'writing') return stage === 'outline' ? 18 : stage === 'sources' ? 8 : 2;
+  const live = new Map<number, number>();
+  for (const w of job.progress.writers ?? []) live.set(w.index, wordCount(w.live));
+  if (!job.progress.writers && job.progress.index !== undefined) live.set(job.progress.index, wordCount(job.progress.live ?? ''));
+  let want = 0;
+  let got = 0;
+  doc.sections.forEach((x, i) => {
+    if (x.words <= 0 || x.state === 'author') return;
+    want += x.words;
+    got += Math.min(x.words, x.state === 'done' ? x.words : live.get(i) ?? 0);
+  });
+  return Math.round(25 + (want ? (70 * got) / want : 0));
+}
+
+/** One line of the activity list, in the interface language. */
+function logText(e: LogEntry, t: (s: string) => string): string {
+  if (e.what === 'stage') return stageName(e.stage, t);
+  if (e.what === 'sources') return fill(t('{n} sources kept for the document'), { n: e.n });
+  if (e.what === 'outline') return fill(t('Outline ready: {n} parts'), { n: e.n });
+  if (e.what === 'part') return fill(t('Written: {heading} — {n} words'), { heading: e.heading, n: e.words.toLocaleString() });
+  return noteText(e.note, t);
+}
+
+/**
+ * Where a run is, while it runs: a bar that fills as the document does, the
+ * time taken and — once a part is done to measure by — roughly how long is
+ * left, one row a writer with the part it has and the words it has put down,
+ * and the run's activity so far, newest first.
+ */
+function RunStatus({ t, doc, job, rows = 5 }: { t: (s: string) => string; doc: Doc; job: Job; rows?: number }) {
   useTick(true);
   const writers = job.progress.writers ?? (job.progress.index !== undefined
     ? [{ agent: 1, index: job.progress.index, live: job.progress.live ?? '' }]
@@ -898,27 +971,51 @@ function WritersStatus({ t, doc, job }: { t: (s: string) => string; doc: Doc; jo
   const from = job.from;
   const since = from ? done - from.done : 0;
   const left = from && since > 0 && done < todo.length ? ((Date.now() - from.at) / since) * (todo.length - done) : 0;
+  const pct = percentOf(doc, job);
+  // Before writing there are no words to count, so the bar says it is working
+  // rather than pretending to measure.
+  const early = job.progress.stage !== 'writing' && job.progress.stage !== 'abstract';
+  const recent = job.log.slice(-rows).reverse();
   return (
     <div className="rsch-writers">
+      <div className={`rsch-bar ${early ? 'is-early' : ''}`} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}
+           aria-label={t('Progress')}>
+        <i style={{ inlineSize: `${pct}%` }} />
+      </div>
       <p className="rsch-clock">
+        {!early && <b>{pct}%</b>}
         <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
         {left > 0 && <span>{fill(t('about {time} left'), { time: clock(left) })}</span>}
+        {todo.length > 0 && <span>{fill(t('{done} of {n} written'), { done, n: todo.length })}</span>}
       </p>
       {writers.length > 0 && (
         <ul>
           {writers.map((w) => {
             const sec = doc.sections[w.index];
             if (!sec) return null;
+            const n = wordCount(w.live);
             return (
               <li key={w.agent}>
                 <span className="rsch-dot is-live" aria-hidden="true" />
                 <b>{fill(t('Writer {n}'), { n: w.agent })}</b>
                 <span className="rsch-writer-what" dir="auto">{sec.heading}</span>
-                <span className="rsch-writer-n">{fill(t('{n} words'), { n: wordCount(w.live).toLocaleString() })}</span>
+                <span className="rsch-writer-n">{n ? fill(t('{n} words'), { n: n.toLocaleString() }) : t('Starting…')}</span>
+                {/* The part's own bar: its words against what the outline gave it. */}
+                <span className="rsch-writer-bar" aria-hidden="true"><i style={{ inlineSize: `${Math.min(100, sec.words ? (100 * n) / sec.words : 0)}%` }} /></span>
               </li>
             );
           })}
         </ul>
+      )}
+      {recent.length > 0 && (
+        <ol className="rsch-log" aria-label={t('Activity')}>
+          {recent.map((e, i) => (
+            <li key={`${e.at}-${i}`} className={i === 0 ? 'is-new' : ''}>
+              <span className="rsch-log-at">{clock(e.at - job.started)}</span>
+              <span dir="auto">{logText(e, t)}</span>
+            </li>
+          ))}
+        </ol>
       )}
     </div>
   );
@@ -1019,9 +1116,14 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
    * prints that to the file; no print dialog.
    */
   const pdfDoc = async (doc: Doc, path: string) => {
+    // The paper view lays its pages out first — measured, then drawn — and
+    // says when they are ready; a thesis is a few hundred milliseconds.
+    const ready = new Promise<void>((r) => {
+      paperReady = r;
+      window.setTimeout(r, 15_000);
+    });
     setPrinting(doc.id);
-    // Two frames: one for React to put the paper view in, one for layout.
-    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    await ready;
     try {
       await invoke('save_pdf', { path });
     } finally {
@@ -1063,10 +1165,7 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
     </div>
   );
 
-  const printView = printed && createPortal(
-    <Reader doc={printed} t={t} mode="print" onClose={() => setPrinting(null)} begin={begin} />,
-    document.body,
-  );
+  const printView = printed && createPortal(<Paper key={printed.id} doc={printed} />, document.body);
 
   if (full) {
     return (
@@ -1576,7 +1675,7 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
             {job.progress.note ? <span className="rsch-note"> {noteText(job.progress.note, t)}</span> : null}
           </p>
         )}
-        {busy && <WritersStatus t={t} doc={doc} job={job} />}
+        {busy && <RunStatus t={t} doc={doc} job={job} />}
         {!busy && paused && <p>{t('Check the sources and the outline, then write.')}</p>}
         {!busy && doc.error && <p className="rsch-bad">{errorText(doc.error, t)}</p>}
         {doc.sections.length > 0 && (
@@ -2084,7 +2183,429 @@ function DetailsTab({ doc, t, busy, onChange, onAbstract, ready, routes, efforts
   );
 }
 
+// ── paper, for the PDF ────────────────────────────────────────────────────
+
+/**
+ * The document on A4 sheets, with every footnote at the foot of the page its
+ * marker is on and numbered from one on each page — as the Word file puts
+ * them, and as Arab and Kurdish universities expect them. The reader shows a
+ * part's notes after the part; paper cannot, because a page is where a
+ * footnote belongs and the browser has no footnotes of its own to lay out.
+ *
+ * So the pages are made here. Everything is drawn once, off screen, at the
+ * paper's own width and type, and measured: each piece's height, where each
+ * footnote marker sits in it, how tall each note is. Then the pieces are
+ * placed page by page, each page's notes counted against its room, a
+ * paragraph that does not fit continued on the next page at a line boundary,
+ * and a heading never left alone at the foot of one. Then the sheets are drawn
+ * with their real numbers, and the PDF is printed from them.
+ */
+
+/** A footnote, known by its place in the document until its page gives it a number. */
+interface PaperNote { id: number; runs: Rich[] }
+
+/** One piece of the flow — the cover, a heading, a paragraph, a table, one list item, one reference. */
+interface Piece {
+  key: string;
+  /** Begins a new page: a thesis's chapters, the abstract, the reference list. */
+  newPage?: boolean;
+  /** Has a page to itself: the cover of a thesis. */
+  alone?: boolean;
+  /** A heading, kept on the page with the start of what follows it. */
+  keep?: boolean;
+  /** Text that may continue on the next page, line by line. */
+  flows?: boolean;
+  notes: PaperNote[];
+  draw: (num: (id: number) => string) => ReactNode;
+}
+
+/** A piece on a sheet: all of it, or `height` pixels of it from `from` down. */
+interface Slice { piece: number; from: number; height?: number }
+interface Sheet { slices: Slice[]; notes: number[] }
+
+/** Pixels in a millimetre, as CSS draws them on screen and on paper alike. */
+const MM = 96 / 25.4;
+/** The written area of an A4 page inside 2.5 cm margins, the Word file's. */
+const BODY_HEIGHT = (297 - 50) * MM;
+
+/** Runs with their footnote markers numbered by `num`, which the pages decide. */
+function paperRuns(runs: Rich[], ids: (number | undefined)[], num: (id: number) => string): ReactNode[] {
+  return runs.map((r, i) => (r.note && ids[i] !== undefined
+    ? <sup key={i} className="rsch-fn" data-fn={ids[i]}>{num(ids[i]!)}</sup>
+    : runEl(r, i)));
+}
+
+/** The document as pieces, in reading order, each citation rendered once in that order. */
+function piecesOf(doc: Doc): Piece[] {
+  const ctx = citeContext(doc);
+  const k = kindOf(doc.kind);
+  const w = WORDS[doc.lang];
+  const thesis = k.cover === 'thesis';
+  const loc = (text: string) => localDigits(text, doc);
+  const out: Piece[] = [];
+  let next = 0;
+  // A run of text with its notes given ids in document order: "مصدر سابق" is
+  // decided by the citation context as it walks, so every run is rendered
+  // exactly once, here, in the order it is read.
+  const take = (raw: Rich[]) => {
+    const runs = localRuns(raw, doc);
+    const notes: PaperNote[] = [];
+    const ids = runs.map((r) => {
+      if (!r.note) return undefined;
+      notes.push({ id: next, runs: r.note });
+      return next++;
+    });
+    return { notes, show: (num: (id: number) => string) => paperRuns(runs, ids, num) };
+  };
+  const text = (runs: Parameters<typeof renderRuns>[0]) => take(renderRuns(runs, ctx));
+
+  out.push({ key: 'cover', alone: thesis, notes: [], draw: () => <Cover doc={doc} /> });
+  // Whether the next piece starts a page. A thesis's cover is a page of its
+  // own; a paper's title runs straight into the text, as in the Word file.
+  let fresh = thesis;
+  const push = (piece: Piece) => { out.push(fresh ? { ...piece, newPage: true } : piece); fresh = false; };
+
+  if (k.dedication) {
+    for (const [head, hole] of [[w.dedication, w.holeDedication], [w.thanks, w.holeThanks]]) {
+      fresh = true;
+      push({ key: `front-${head}`, keep: true, notes: [], draw: () => <h2 className="rsch-paper-title">{head}</h2> });
+      push({ key: `front-${head}-hole`, notes: [], draw: () => <p className="rsch-paper-center"><mark className="rsch-hole">{hole}</mark></p> });
+    }
+  }
+  if (k.abstract !== 'none' && doc.abstract) {
+    if (thesis) fresh = true;
+    push({ key: 'abstract-h', keep: true, notes: [], draw: () => <h2 className="rsch-paper-title">{w.abstract}</h2> });
+    doc.abstract.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean).forEach((x, i) => {
+      push({ key: `abstract-${i}`, flows: true, notes: [], draw: () => <p>{loc(x)}</p> });
+    });
+    if (doc.keywords.length) {
+      push({ key: 'keywords', flows: true, notes: [], draw: () => <p><b>{w.keywords}:</b> {loc(doc.keywords.join(RTL(doc.lang) ? '، ' : ', '))}</p> });
+    }
+  }
+
+  const breaks = breaksOf(doc);
+  doc.sections.forEach((sec, si) => {
+    if (breaks.has(si)) fresh = true;
+    push({ key: `h-${sec.id}`, keep: true, notes: [], draw: () => <div className="rsch-part-head"><H level={sec.level}>{loc(sec.heading)}</H></div> });
+    if (!sec.text) return;
+    blocksOf(sec.text).forEach((b, bi) => {
+      const key = `${sec.id}-${bi}`;
+      if (b.t === 'p') {
+        const x = text(b.runs);
+        push({ key, flows: true, notes: x.notes, draw: (num) => <p>{x.show(num)}</p> });
+      } else if (b.t === 'hole') {
+        push({ key, flows: true, notes: [], draw: () => <p><mark className="rsch-hole">[{loc(b.text)}]</mark></p> });
+      } else if (b.t === 'h') {
+        const x = text(b.runs);
+        const depth = Math.min(6, sec.level + 1 + b.depth);
+        push({
+          key, keep: true, notes: x.notes,
+          draw: (num) => (depth <= 4 ? <h4>{x.show(num)}</h4> : depth === 5 ? <h5>{x.show(num)}</h5> : <h6>{x.show(num)}</h6>),
+        });
+      } else if (b.t === 'table') {
+        const head = b.head.map((c) => text(c));
+        const rows = b.rows.map((row) => row.map((c) => text(c)));
+        const notes = [...head, ...rows.flat()].flatMap((c) => c.notes);
+        push({
+          key, notes,
+          draw: (num) => (
+            <div className="rsch-table">
+              <table>
+                <thead><tr>{head.map((c, i) => <th key={i}>{c.show(num)}</th>)}</tr></thead>
+                <tbody>{rows.map((row, r) => <tr key={r}>{row.map((c, i) => <td key={i}>{c.show(num)}</td>)}</tr>)}</tbody>
+              </table>
+            </div>
+          ),
+        });
+      } else {
+        b.items.forEach((item, ii) => {
+          const x = text(item);
+          const li = (num: (id: number) => string) => <li>{x.show(num)}</li>;
+          push({
+            key: `${key}-${ii}`, flows: true, notes: x.notes,
+            draw: (num) => (b.t === 'ul' ? <ul className="rsch-paper-list">{li(num)}</ul> : <ol className="rsch-paper-list" start={ii + 1}>{li(num)}</ol>),
+          });
+        });
+      }
+    });
+  });
+
+  const refs = referenceList(ctx);
+  if (refs.length) {
+    if (thesis) fresh = true;
+    push({ key: 'refs', keep: true, notes: [], draw: () => <h2 className="rsch-paper-title">{w.references}</h2> });
+    refs.forEach((g, gi) => {
+      if ((refs.length > 1 || doc.style === 'footnotes') && g.heading) {
+        push({ key: `refs-${gi}`, keep: true, notes: [], draw: () => <h3>{loc(g.heading!)}</h3> });
+      }
+      for (const e of g.entries) {
+        const rtl = /[؀-ۿ]/.test(e.runs.map((r) => r.text).join('').slice(0, 40));
+        const x = take(e.runs);
+        push({
+          key: `ref-${e.key}`, flows: true, notes: x.notes,
+          draw: (num) => (
+            <p className="rsch-paper-ref" dir={rtl ? 'rtl' : 'ltr'}>
+              {e.n !== undefined && <span className="rsch-n">{doc.style === 'ieee' ? `[${e.n}] ` : `${rtl ? loc(String(e.n)) : String(e.n)}. `}</span>}
+              {x.show(num)}
+            </p>
+          ),
+        });
+      }
+    });
+  }
+
+  if (k.abstract === 'both' && doc.lang !== 'en' && doc.abstractEn) {
+    fresh = true;
+    const en = (node: ReactNode) => <div dir="ltr" lang="en">{node}</div>;
+    if (doc.meta.titleEn) push({ key: 'en-title', keep: true, notes: [], draw: () => en(<h2 className="rsch-paper-title">{doc.meta.titleEn}</h2>) });
+    push({ key: 'en-abstract-h', keep: true, notes: [], draw: () => en(<h2 className="rsch-paper-title">{WORDS.en.abstract}</h2>) });
+    doc.abstractEn.split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean).forEach((x, i) => {
+      push({ key: `en-abstract-${i}`, flows: true, notes: [], draw: () => en(<p>{x}</p>) });
+    });
+    if (doc.keywordsEn.length) {
+      push({ key: 'en-keywords', flows: true, notes: [], draw: () => en(<p><b>{WORDS.en.keywords}:</b> {doc.keywordsEn.join(', ')}</p>) });
+    }
+  }
+  return out;
+}
+
+/** What the paginator needs to know about a piece, read off the drawn page. */
+interface Measured {
+  height: number;
+  /** Where the text's first line starts, below the piece's top margin. */
+  top: number;
+  /** The height of one line, for a piece that may continue on the next page. */
+  line: number;
+  /** Each footnote marker in it, and how far down the piece it sits. */
+  marks: { id: number; at: number }[];
+}
+
+/**
+ * Place the pieces on pages. Greedy, as Word is: each piece goes on the page
+ * if it fits with its footnotes; a paragraph that does not is cut after the
+ * last line that fits together with the notes of the markers above the cut;
+ * a heading goes to the next page unless the start of what follows it fits
+ * too; and a piece too tall for any page is put on one of its own and cut
+ * off, rather than lost.
+ */
+function paginate(pieces: Piece[], m: Measured[], noteHeight: Map<number, number>, noteRoom: number): Sheet[] {
+  const sheets: Sheet[] = [];
+  let cur: Sheet = { slices: [], notes: [] };
+  let used = 0;
+  let notes = 0;
+  const turn = () => {
+    if (cur.slices.length) sheets.push(cur);
+    cur = { slices: [], notes: [] };
+    used = 0;
+    notes = 0;
+  };
+  // Notes cost their own height, and the rule above them once a page has any.
+  const cost = (ids: number[]) => (ids.length ? (cur.notes.length ? 0 : noteRoom) + ids.reduce((n, id) => n + (noteHeight.get(id) ?? 0), 0) : 0);
+  const put = (i: number, from: number, height: number | undefined, ids: number[]) => {
+    notes += cost(ids);
+    cur.notes.push(...ids);
+    cur.slices.push({ piece: i, from, height });
+    used += height ?? m[i].height - from;
+  };
+
+  pieces.forEach((p, i) => {
+    const me = m[i];
+    if ((p.newPage || p.alone) && cur.slices.length) turn();
+    let from = 0;
+    for (let guard = 0; guard < 1000; guard++) {
+      const room = BODY_HEIGHT - used - notes;
+      const rest = me.height - from;
+      const ids = me.marks.filter((x) => x.at >= from).map((x) => x.id);
+      // The start of the next piece, which a heading must not be parted from.
+      const after = p.keep && m[i + 1] ? Math.min(m[i + 1].height, m[i + 1].top + 2 * (m[i + 1].line || 0) || m[i + 1].height) : 0;
+      if (rest + cost(ids) + after <= room) {
+        put(i, from, from ? rest : undefined, ids);
+        break;
+      }
+      if (p.flows && me.line > 0) {
+        const lead = from ? 0 : me.top;
+        let n = Math.floor((room - lead) / me.line);
+        for (; n > 0; n--) {
+          const end = from + lead + n * me.line;
+          const inside = me.marks.filter((x) => x.at >= from && x.at < end).map((x) => x.id);
+          if (lead + n * me.line + cost(inside) <= room) break;
+        }
+        const end = from + lead + n * me.line;
+        // Two lines at the foot of a page at least, unless the page is empty.
+        if ((n >= 2 || (n >= 1 && !cur.slices.length)) && end < me.height - 1) {
+          put(i, from, end - from, me.marks.filter((x) => x.at >= from && x.at < end).map((x) => x.id));
+          turn();
+          from = end;
+          continue;
+        }
+      }
+      if (!cur.slices.length) {
+        // Taller than a page and cannot be cut: its own page, the rest clipped.
+        put(i, from, from ? rest : undefined, ids);
+        break;
+      }
+      turn();
+    }
+    if (p.alone) turn();
+  });
+  turn();
+  return sheets;
+}
+
+/** Called when the sheets are drawn and ready to print. */
+let paperReady: (() => void) | null = null;
+
+function Paper({ doc }: { doc: Doc }) {
+  const pieces = useMemo(() => piecesOf(doc), [doc]);
+  const [sheets, setSheets] = useState<Sheet[] | null>(null);
+  const flow = useRef<HTMLDivElement>(null);
+  const noteList = useRef<HTMLOListElement>(null);
+  const page = { dir: RTL(doc.lang) ? 'rtl' : 'ltr', lang: doc.lang, 'data-digits': doc.lang !== 'en' && doc.digits !== 'western' ? 'eastern' : 'western' };
+  const allNotes = useMemo(() => pieces.flatMap((p) => p.notes), [pieces]);
+  const noteRuns = useMemo(() => new Map(allNotes.map((n) => [n.id, localRuns(n.runs, doc)])), [allNotes, doc]);
+
+  useEffect(() => {
+    if (sheets) return;
+    let gone = false;
+    // Measured once the fonts are in, or the Arabic is measured in a fallback.
+    void document.fonts.ready.then(() => {
+      if (gone || !flow.current || !noteList.current) return;
+      const m: Measured[] = [...flow.current.children].map((el) => {
+        const box = el.getBoundingClientRect();
+        const first = el.firstElementChild instanceof HTMLElement ? el.firstElementChild : null;
+        const style = first ? getComputedStyle(first) : null;
+        const line = style ? Number.parseFloat(style.lineHeight) || 0 : 0;
+        const top = first ? first.getBoundingClientRect().top - box.top : 0;
+        const marks = [...el.querySelectorAll<HTMLElement>('sup[data-fn]')].map((sup) => ({
+          id: Number(sup.dataset.fn),
+          at: sup.getBoundingClientRect().top - box.top,
+        }));
+        return { height: box.height, top, line, marks };
+      });
+      const heights = new Map<number, number>();
+      let items = 0;
+      for (const li of noteList.current.querySelectorAll<HTMLElement>('li[data-note]')) {
+        const h = li.getBoundingClientRect().height + (Number.parseFloat(getComputedStyle(li).marginBlockEnd) || 0);
+        heights.set(Number(li.dataset.note), h);
+        items += h;
+      }
+      // The rule above a page's notes and the space around it: the list with
+      // all of them, less the notes themselves.
+      const room = Math.max(0, noteList.current.getBoundingClientRect().height - items);
+      setSheets(paginate(pieces, m, heights, room));
+    });
+    return () => { gone = true; };
+  }, [pieces, sheets]);
+
+  useEffect(() => {
+    if (!sheets) return;
+    // Two frames for the sheets to be laid out before the page is printed.
+    requestAnimationFrame(() => requestAnimationFrame(() => { paperReady?.(); paperReady = null; }));
+  }, [sheets]);
+
+  const noteEl = (id: number, n: string, measuring = false) => (
+    <li key={id} dir="auto" data-note={measuring ? id : undefined}>
+      <span className="rsch-fn-n">{n})</span> {paperRuns(noteRuns.get(id) ?? [], [], () => '')}
+    </li>
+  );
+
+  if (!sheets) {
+    const probe = () => localDigits('8', doc);
+    return (
+      <div id="rsch-print" className="is-measuring">
+        <div className="rsch-sheet-body rsch-page is-paper" ref={flow} {...page}>
+          {pieces.map((p) => <div key={p.key} className="rsch-piece">{p.draw(probe)}</div>)}
+        </div>
+        <ol className="rsch-notes rsch-sheet-notes" ref={noteList} {...page}>
+          {allNotes.map((n) => noteEl(n.id, localDigits('88', doc), true))}
+        </ol>
+      </div>
+    );
+  }
+
+  const number = new Map<number, string>();
+  for (const sh of sheets) sh.notes.forEach((id, j) => number.set(id, localDigits(String(j + 1), doc)));
+  const num = (id: number) => number.get(id) ?? '';
+  return (
+    <div id="rsch-print">
+      {sheets.map((sh, si) => (
+        <div className="rsch-sheet" key={si}>
+          <div className="rsch-sheet-body rsch-page is-paper" {...page}>
+            {sh.slices.map((sl) => {
+              const p = pieces[sl.piece];
+              const drawn = p.draw(num);
+              if (sl.height === undefined && !sl.from) return <div key={p.key} className="rsch-piece">{drawn}</div>;
+              // A paragraph cut across pages: this page's lines of it, the
+              // rest drawn again on the next page and moved up past them.
+              return (
+                <div key={`${p.key}-${sl.from}`} className="rsch-piece rsch-cut" style={{ blockSize: sl.height }}>
+                  <div style={{ marginBlockStart: -sl.from }}>{drawn}</div>
+                </div>
+              );
+            })}
+          </div>
+          {sh.notes.length > 0 && (
+            <ol className="rsch-notes rsch-sheet-notes" {...page}>
+              {sh.notes.map((id, j) => noteEl(id, localDigits(String(j + 1), doc)))}
+            </ol>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ── the reader ────────────────────────────────────────────────────────────
+
+/**
+ * The cover, laid out as the Word file lays it out, as Iraqi universities lay
+ * theirs out: the institution at the top on the reading side, the logo across
+ * from it, the title, who presented it and who supervised, and the two years
+ * under a double rule. The same in the reader and on paper.
+ */
+function Cover({ doc }: { doc: Doc }) {
+  const k = kindOf(doc.kind);
+  const w = WORDS[doc.lang];
+  const statement = statementOf(doc);
+  const years = yearsOf(doc);
+  const loc = (text: string) => localDigits(text, doc);
+  return (
+    <header className={`rsch-cover ${k.cover === 'thesis' ? 'is-full' : ''}`}>
+      {k.cover === 'thesis' && (
+        <div className="rsch-cover-top">
+          <div>
+            {[...doc.meta.authority.split('\n'), doc.meta.university, doc.meta.college, doc.meta.department]
+              .map((l) => l.trim()).filter(Boolean).map((l, i) => <p key={i}>{loc(l)}</p>)}
+          </div>
+          {doc.logo && (
+            <figure className="rsch-cover-logo">
+              <img src={doc.logo} alt="" />
+              {doc.logoCaption && doc.meta.university.trim() && <figcaption>{loc(doc.meta.university.trim())}</figcaption>}
+            </figure>
+          )}
+        </div>
+      )}
+      <h1>{loc(doc.meta.title || doc.request)}</h1>
+      {statement && <p className="rsch-statement">{loc(statement)}</p>}
+      {doc.meta.author && (
+        <>
+          <p className="rsch-by">{loc(bylineOf(doc))}</p>
+          <p className="rsch-who">{doc.meta.author}</p>
+        </>
+      )}
+      {doc.meta.supervisor && (
+        <>
+          <p className="rsch-by">{w.supervisor}</p>
+          <p className="rsch-who">{doc.meta.supervisor}</p>
+          {doc.meta.supervisorTitle && <p className="rsch-who-title">{loc(doc.meta.supervisorTitle)}</p>}
+        </>
+      )}
+      {k.cover === 'thesis' && (years.start || years.end) && (
+        <div className="rsch-cover-foot"><span>{loc(years.start)}</span><span>{loc(years.end)}</span></div>
+      )}
+    </header>
+  );
+}
 
 /** A part's heading at its level: a chapter is an h2, a الفرع an h5. */
 function H({ level, children }: { level: number; children: ReactNode }) {
@@ -2106,20 +2627,16 @@ function Reader({ doc, t, at, nonce, mode, onClose, begin }: {
   at?: string;
   /** Changed to scroll to `at` again. */
   nonce?: number;
-  /**
-   * Over the window from the sidebar; beside the controls in the full window;
-   * or as paper, for a PDF — the same document
-   * each time, without the controls in print.
-   */
-  mode: 'overlay' | 'inline' | 'print';
+  /** Over the window from the sidebar, or beside the controls in the full window. */
+  mode: 'overlay' | 'inline';
   onClose: () => void;
   begin: (doc: Doc, work: Work) => void;
 }) {
   useWatch();
   // A part being edited is kept outside the reader too, so drawing it anew —
   // leaving the full window, reopening the reader — finds the edit where it
-  // was. Paper never shows one.
-  const [editing, setEditingNow] = useState<{ id: string; text: string } | null>(() => (mode === 'print' ? null : edits.get(doc.id) ?? null));
+  // was.
+  const [editing, setEditingNow] = useState<{ id: string; text: string } | null>(() => edits.get(doc.id) ?? null);
   const setEditing = (v: { id: string; text: string } | null) => {
     if (v) edits.set(doc.id, v);
     else edits.delete(doc.id);
@@ -2149,8 +2666,6 @@ function Reader({ doc, t, at, nonce, mode, onClose, begin }: {
   const { pass, refs } = drawn;
   const w = WORDS[doc.lang];
   const k = kindOf(doc.kind);
-  const statement = statementOf(doc);
-  const years = yearsOf(doc);
   const loc = (text: string) => localDigits(text, doc);
 
   useEffect(() => {
@@ -2198,49 +2713,24 @@ function Reader({ doc, t, at, nonce, mode, onClose, begin }: {
   const live = new Map<number, string>();
   for (const x of job?.progress.writers ?? []) live.set(x.index, x.live);
   if (!job?.progress.writers && job?.progress.index !== undefined) live.set(job.progress.index, job.progress.live ?? '');
-  const controls = mode !== 'print' && !busy && !editing && !readsOf(doc.id).length;
+  const controls = !busy && !editing && !readsOf(doc.id).length;
 
   const page = (
-          <div className={`rsch-page ${mode === 'print' ? 'is-paper' : ''}`} ref={body} dir={RTL(doc.lang) ? 'rtl' : 'ltr'} lang={doc.lang}
+          <div className="rsch-page" ref={body} dir={RTL(doc.lang) ? 'rtl' : 'ltr'} lang={doc.lang}
                data-digits={doc.lang !== 'en' && doc.digits !== 'western' ? 'eastern' : 'western'}>
-            {/* The cover, laid out as the Word file lays it out, as Iraqi
-                universities lay theirs out: the institution at the top on the reading side, the
-                logo across from it, the title, who presented it and who
-                supervised, and the two years under a double rule. */}
-            <header className={`rsch-cover ${k.cover === 'thesis' ? 'is-full' : ''}`}>
-              {k.cover === 'thesis' && (
-                <div className="rsch-cover-top">
-                  <div>
-                    {[...doc.meta.authority.split('\n'), doc.meta.university, doc.meta.college, doc.meta.department]
-                      .map((l) => l.trim()).filter(Boolean).map((l, i) => <p key={i}>{loc(l)}</p>)}
-                  </div>
-                  {doc.logo && (
-                    <figure className="rsch-cover-logo">
-                      <img src={doc.logo} alt="" />
-                      {doc.logoCaption && doc.meta.university.trim() && <figcaption>{loc(doc.meta.university.trim())}</figcaption>}
-                    </figure>
-                  )}
-                </div>
-              )}
-              <h1>{loc(doc.meta.title || doc.request)}</h1>
-              {statement && <p className="rsch-statement">{loc(statement)}</p>}
-              {doc.meta.author && (
-                <>
-                  <p className="rsch-by">{loc(bylineOf(doc))}</p>
-                  <p className="rsch-who">{doc.meta.author}</p>
-                </>
-              )}
-              {doc.meta.supervisor && (
-                <>
-                  <p className="rsch-by">{w.supervisor}</p>
-                  <p className="rsch-who">{doc.meta.supervisor}</p>
-                  {doc.meta.supervisorTitle && <p className="rsch-who-title">{loc(doc.meta.supervisorTitle)}</p>}
-                </>
-              )}
-              {k.cover === 'thesis' && (years.start || years.end) && (
-                <div className="rsch-cover-foot"><span>{loc(years.start)}</span><span>{loc(years.end)}</span></div>
-              )}
-            </header>
+            <Cover doc={doc} />
+
+            {/* While a run is getting to the first words — planning, the
+                search, the outline — the page says what is happening rather
+                than standing empty under the cover. */}
+            {job && !doc.sections.some((x) => x.text) && (
+              <div className="rsch-working" role="status" dir={document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr'}>
+                <span className="rsch-spinner" aria-hidden="true" />
+                <b>{stageName(job.progress.stage, t)}…</b>
+                <p>{t('The document fills in here as each part is written.')}</p>
+                <RunStatus t={t} doc={doc} job={job} rows={8} />
+              </div>
+            )}
 
             {k.dedication && (
               <section className="rsch-front">
@@ -2285,14 +2775,11 @@ function Reader({ doc, t, at, nonce, mode, onClose, begin }: {
                     </div>
                   </div>
                 ) : live.get(i) ? (
-                  <p className="rsch-streaming">{live.get(i)}</p>
+                  <p className="rsch-streaming">{live.get(i)}<span className="rsch-caret" aria-hidden="true" /></p>
+                ) : live.has(i) ? (
+                  <div className="rsch-skeleton" aria-label={t('Starting…')}><i /><i /><i /></div>
                 ) : s.text ? (
                   drawn.bodies.get(s.id)
-                ) : mode === 'print' ? (
-                  // On paper a part not written yet is its heading alone, as
-                  // in the Word file — never the plan's brief for it, or a
-                  // note in the interface's language.
-                  null
                 ) : s.state === 'author' ? (
                   <p><mark className="rsch-hole">{t('[You are writing this part.]')}</mark></p>
                 ) : s.words > 0 ? (
@@ -2337,10 +2824,10 @@ function Reader({ doc, t, at, nonce, mode, onClose, begin }: {
           </div>
   );
 
-  if (mode === 'print') return <div id="rsch-print">{page}</div>;
 
   const head = (
     <div className="rsch-reader-head">
+      {job && <span className="rsch-head-bar" aria-hidden="true"><i style={{ inlineSize: `${percentOf(doc, job)}%` }} /></span>}
       <b dir="auto">{doc.meta.title || doc.request}</b>
       <span>{kindName(doc.kind, t)} · {styleName(doc.style, t)} · {fill(t('{n} words'), { n: wordsOf(doc).toLocaleString() })}</span>
       {mode === 'overlay' && (

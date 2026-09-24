@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.107.0.
+version 0.108.0.
 
 ---
 
@@ -241,7 +241,10 @@ Messages are fetched to this machine and drawn there. **The agent can read
 them, and only through tools you switched on by connecting an instance.**
 `whatsapp_chats` and `whatsapp_read` in `app/src/whatsapptool.ts` are offered
 to the model only once a connection exists, and they change nothing and leave
-nothing behind, so they run like reading a file does. *Send to chat* still does
+nothing behind, so they run like reading a file does. In Chat mode, which has
+no project tools, the WhatsApp tools are the only ones offered, and the agent
+loop refuses any tool a turn did not offer, whatever the model asks for.
+*Send to chat* still does
 what it always did, for when you want to hand over one conversation rather than
 let it look.
 
@@ -761,7 +764,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.107.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.108.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -786,6 +789,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.107.0. Every statement above was read out of the code. If
+*Last checked against 0.108.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

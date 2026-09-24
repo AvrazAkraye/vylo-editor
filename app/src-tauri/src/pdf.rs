@@ -88,13 +88,13 @@ fn render(window: &tauri::WebviewWindow, path: PathBuf, tx: Sender<Done>) -> Res
                 // result is checked; the handler owns what it captures.
                 unsafe {
                     let core7: ICoreWebView2_7 = wv.controller().CoreWebView2()?.cast()?;
-                    // A4 with 2.5 cm margins, stated rather than left to the
-                    // defaults (1 cm, US Letter, no backgrounds). The page's
-                    // own @page rule says the same, so whichever of the two
-                    // WebView2 follows, the margins are the Word file's.
+                    // A4 with no margins, stated rather than left to the
+                    // defaults (1 cm, US Letter, no backgrounds): the page
+                    // draws its own A4 sheets, each with the Word file's
+                    // 2.5 cm inside it and its footnotes at its foot.
                     let env6: ICoreWebView2Environment6 = wv.environment().cast()?;
                     let s = env6.CreatePrintSettings()?;
-                    let margin = 2.5 / 2.54;
+                    let margin = 0.0;
                     s.SetPageWidth(210.0 / 25.4)?;
                     s.SetPageHeight(297.0 / 25.4)?;
                     s.SetMarginTop(margin)?;
@@ -237,8 +237,8 @@ mod mac {
             let url: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: url_path];
             let _: () = msg_send![dict, setObject: url, forKey: NSPrintJobSavingURL];
             let _: () = msg_send![info, setPaperSize: Size { width: 595.28, height: 841.89 }];
-            // The page's own @page rule sets the margins. Set here as well,
-            // WebKit scales the page down to fit inside both.
+            // The page draws its own A4 sheets, margins and all, under an
+            // @page rule of no margin; margins here would shrink them to fit.
             let _: () = msg_send![info, setTopMargin: 0.0f64];
             let _: () = msg_send![info, setBottomMargin: 0.0f64];
             let _: () = msg_send![info, setLeftMargin: 0.0f64];

@@ -228,5 +228,29 @@ const lastOf = (a) => a[a.length - 1];
      sent.length === 1 && /Rate limited/.test(String(err)), String(err));
 }
 
+// ── a mode is the tools it was given ──────────────────────────────────────
+{
+  // Chat is offered no write_file. A model that asks for it anyway is told
+  // no, and nothing is staged.
+  let staged = 0;
+  const sent = gateway([asksForTool('a.ts'), answers('ok')]);
+  const out = await runAgent(opts({ mode: 'chat', pending: { ...pending, stageWrite: async () => { staged++; return { isNew: true }; } } }));
+  const result = out.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).find((b) => b.type === 'tool_result');
+  ok('a tool the mode did not offer is refused, not run', staged === 0 && result?.is_error === true && /not available/.test(result.content), JSON.stringify(result));
+  ok('and the chat request offered no tools to begin with', !(sent[0].tools ?? []).length);
+}
+{
+  // WhatsApp in Chat reaches the host's runner.
+  const call = reply({ content: [{ type: 'tool_use', id: 'w1', name: 'whatsapp_chats', input: {} }], stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 } });
+  gateway([call, answers('ok')]);
+  let ran = '';
+  await runAgent(opts({
+    mode: 'chat',
+    extraTools: [{ name: 'whatsapp_chats', input_schema: { type: 'object', properties: {} } }],
+    extraRun: async (c) => { ran = c.name; return { content: '{"chats":[]}', isError: false }; },
+  }));
+  ok('a WhatsApp tool offered in chat runs through the host', ran === 'whatsapp_chats', ran);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

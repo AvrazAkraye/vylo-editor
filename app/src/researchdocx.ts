@@ -926,12 +926,10 @@ function compose(L: Lib, stored: Doc, fontWanted?: string): { file: DocxFile; fi
 
   const sections: Section[] = (Array.isArray(doc.sections) ? doc.sections : []).filter((s) => s && typeof s === 'object');
   const levelOf = (s: Section): 1 | 2 | 3 | 4 => (s.level === 2 || s.level === 3 || s.level === 4 ? s.level : 1);
-  const tops = sections.map((s, i) => (levelOf(s) === 1 ? i : -1)).filter((i) => i >= 0);
-  const named = tops.slice(1).filter((i) => CONCLUSION.test(str(sections[i].heading)));
-  const conclusion = named.length ? named[named.length - 1] : tops.length > 1 ? tops[tops.length - 1] : -1;
+  const breaks = breaksOf({ kind: doc.kind, sections });
   sections.forEach((s, i) => {
     const level = levelOf(s);
-    const pageBreak = thesis && (i === 0 || (level === 1 && (k.chapters || i === conclusion)));
+    const pageBreak = breaks.has(i);
     children.push(...heading(str(s.heading), level, pageBreak));
     const text = str(s.text);
     if (text.trim()) for (const b of blocksOf(text)) children.push(...blockParts(b));
@@ -1080,6 +1078,26 @@ const DEVICE = /^(?:con|prn|aux|nul|com\d|lpt\d)$/i;
  * extension, cut where a word ends. `research.docx` when the title leaves
  * nothing.
  */
+/**
+ * The parts that start on a new page. A thesis starts its first part, each
+ * chapter and its conclusion on a page of their own; a paper runs on. The PDF
+ * draws its pages by the same rule, so the two files break in the same places.
+ */
+export function breaksOf(doc: Pick<Doc, 'kind' | 'sections'>): Set<number> {
+  const k = kindOf(doc.kind);
+  const out = new Set<number>();
+  if (k.cover !== 'thesis') return out;
+  const sections: Section[] = (Array.isArray(doc.sections) ? doc.sections : []).filter((s) => s && typeof s === 'object');
+  const levelOf = (s: Section) => (s.level === 2 || s.level === 3 || s.level === 4 ? s.level : 1);
+  const tops = sections.map((s, i) => (levelOf(s) === 1 ? i : -1)).filter((i) => i >= 0);
+  const named = tops.slice(1).filter((i) => CONCLUSION.test(str(sections[i].heading)));
+  const conclusion = named.length ? named[named.length - 1] : tops.length > 1 ? tops[tops.length - 1] : -1;
+  sections.forEach((s, i) => {
+    if (i === 0 || (levelOf(s) === 1 && (k.chapters || i === conclusion))) out.add(i);
+  });
+  return out;
+}
+
 export function fileNameFor(doc: Doc): string {
   const title = str(doc?.meta?.title).normalize('NFC');
   const kept = title.replace(/[^\p{L}\p{M}\p{N}\u200C _-]+/gu, ' ').replace(/\s+/g, ' ').trim();

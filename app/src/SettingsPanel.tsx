@@ -657,6 +657,21 @@ function Control({ row, ...p }: ControlProps) {
           <span className="set-val set-mono">{version || '—'}</span>
         </Row>
       );
+    case 'developer':
+      return (
+        <Row label={label} hint={hint}>
+          <span className="set-val">Avraz Sardar</span>
+        </Row>
+      );
+    case 'website':
+      return (
+        <Row label={label} hint={hint}>
+          <button className="ghost set-btn" dir="ltr"
+                  onClick={() => void invoke('open_url', { url: 'https://vylo-tech.com' }).catch(() => {})}>
+            vylo-tech.com
+          </button>
+        </Row>
+      );
     case 'updates':
       return (
         <Row label={label} hint={hint}>

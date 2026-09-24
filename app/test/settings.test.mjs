@@ -64,7 +64,7 @@ const find = (groups, id) => ids(groups).includes(id);
                  // Shortcuts, beside the other key a person presses.
                  'pushToTalk',
                  'autoApprove', 'modules', 'railSide', 'drafts', 'checkpoints', 'fileHistory',
-                 'clipboardHistory', 'terminals', 'version', 'updates', 'safety'];
+                 'clipboardHistory', 'terminals', 'version', 'developer', 'website', 'updates', 'safety'];
   for (const id of ADDED) ok(`${id} is in the catalogue`, by.has(id));
 
   ok('and there is nothing in the catalogue this file has not named',
@@ -154,6 +154,8 @@ const find = (groups, id) => ids(groups).includes(id);
   ok('"undo" finds checkpoints — the store with no button until now',
      find(search('undo', en), 'checkpoints'));
   ok('"SAFETY.md" finds the safety documents', find(search('SAFETY.md', en), 'safety'));
+  ok('"vylo-tech.com" finds the website', find(search('vylo-tech.com', en), 'website'));
+  ok('the developer is found by name', find(search('Avraz', en), 'developer'));
 }
 
 // ── typing the name of a category ─────────────────────────────────────────
@@ -176,8 +178,8 @@ const find = (groups, id) => ids(groups).includes(id);
   ok('"storage" returns the five local stores and nothing else',
      ids(search('storage', en)).join() === 'drafts,checkpoints,fileHistory,clipboardHistory,terminals',
      ids(search('storage', en)).join());
-  ok('"about" is a category name too, and finds its three rows',
-     ids(search('about', en)).join() === 'version,updates,safety',
+  ok('"about" is a category name too, and finds its five rows',
+     ids(search('about', en)).join() === 'version,developer,website,updates,safety',
      ids(search('about', en)).join());
 
   // Per row rather than as a separate category pass, which is the difference
