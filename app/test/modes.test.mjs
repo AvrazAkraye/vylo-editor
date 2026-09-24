@@ -71,10 +71,14 @@ const ABSENT = [
   // it. Its guards (.docx only, zip bytes only, 32 MB) narrow what it can
   // write; they do not make it a tool.
   'export_write_docx',
-  // Opens the system print dialog on the window, for a Research document's
-  // PDF. It writes nothing itself, but a model that could open dialogs on the
-  // person's screen would be reaching outside the app, which no tool does.
-  'print_page',
+  // Writes the window, printed, as a PDF to the path a save panel returned —
+  // Research's Save as PDF. Like export_write_docx, an absolute path is safe
+  // here only while nothing the model produces can reach it.
+  'save_pdf',
+  // Selects a file in Finder or Explorer. It opens and writes nothing, but a
+  // model that could put windows on the person's screen would be reaching
+  // outside the app, which no tool does.
+  'reveal_path',
   // The file operations and the git writes. These have been absent from the
   // schema since G1 and M-whatever respectively, and until now they were absent
   // by nobody's decision — no test said they had to be. `create_file`'s own doc

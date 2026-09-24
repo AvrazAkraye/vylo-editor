@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.106.0.
+version 0.107.0.
 
 ---
 
@@ -454,10 +454,14 @@ item, and every one of them is absent from the tool schema below:
   exactly the document the panel was showing you. It refuses a name that does
   not end in .docx and bytes that do not begin as a ZIP archive does, and it
   creates no folders.
-- `print_page` writes nothing. It opens the operating system's print dialog on
-  the window, after the Research panel has put a print view of the document you
-  were shown into the page, with everything else in it hidden from print. A PDF
-  exists only if you choose to save one in that dialog, where you choose.
+- `save_pdf` writes a PDF of the Research document to the path the save panel
+  returned after you pressed **Save as PDF…** — the webview prints the page to
+  that file itself, with no print dialog, after the panel has put a paper view
+  of the document you were shown into the page and hidden everything else. It
+  refuses a name that does not end in .pdf and a folder that does not exist,
+  and creates none.
+- `reveal_path` writes nothing and opens nothing: it selects a file in Finder
+  or Explorer — a row of the file tree, or a document you have just saved.
 - `history_restore`, `checkpoint_restore`, `checkpoint_redo` — putting a file
   back to a version this app already recorded, from the File History panel or an
   undo button.
@@ -477,7 +481,7 @@ everything:  write_file   edit_file   run_command   remember
 
 `apply_write` is not among them. Neither are `create_file`, `create_dir`,
 `rename_path`, `delete_path`, `git_create_branch`, `git_commit`, `export_write`,
-`export_write_docx`, `print_page`, `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
+`export_write_docx`, `save_pdf`, `reveal_path`, `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
 `history_forget_all`, `checkpoint_save`, `checkpoint_restore`, `checkpoint_redo`,
 `store_sizes`, `store_empty`,
 `capture_screenshot`, `set_global_shortcut`, `watch_start`, `watch_stop`,
@@ -514,13 +518,14 @@ refuses anything that does not start with the root — so `..` and symlinks
 *resolve* rather than being pattern-matched, and a file that does not exist yet
 is checked through its parent.
 
-There are **six** deliberate exceptions, and what they have in common is that
+There are **eight** deliberate exceptions, and what they have in common is that
 the path is one you chose rather than one the model supplied. `read_image`,
 `read_text_attachment`, `read_document` and `read_any_file` read a file you
 dragged in or picked — each says so in its doc comment in `lib.rs`; the
 Research panel's data files come through the last three. `export_write` and
-`export_write_docx` *write* to an absolute path, which is the save panel's. All
-six are absent from the tool schema, so no tool call reaches any of them however
+`export_write_docx` *write* to an absolute path, which is the save panel's, and
+so does `save_pdf`; `reveal_path` shows one in Finder or Explorer. All eight are
+absent from the tool schema, so no tool call reaches any of them however
 the model is prompted.
 
 **Size limits.** The agent will not read a file over 512 KB. The editor shows
@@ -756,7 +761,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.106.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.107.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -781,6 +786,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.106.0. Every statement above was read out of the code. If
+*Last checked against 0.107.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

@@ -5138,6 +5138,9 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .rsch-acts{ display:flex; flex-wrap:wrap; gap:var(--sp-3); padding-inline:var(--sp-7); }
 .rsch-acts .ghost, .rsch-acts .sb-cta-go{ display:inline-flex; align-items:center; gap:var(--sp-2); }
 .rsch-saved{ margin:0; padding-inline:var(--sp-7); font-size:var(--fs-2); color:var(--ok); overflow-wrap:anywhere; }
+/* Where it went, and the way to it: the file selected in Finder or Explorer. */
+.rsch-saved-row{ display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2) var(--sp-4); padding-inline:var(--sp-7); }
+.rsch-saved-row .rsch-saved{ flex:1; min-inline-size:0; padding-inline:0; }
 
 .rsch-tabs{
   display:flex; gap:2px; margin:var(--sp-2) var(--sp-6) 0; padding:2px;

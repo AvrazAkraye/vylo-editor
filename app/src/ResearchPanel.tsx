@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openPanel, save as savePanel } from '@tauri-apps/plugin-dialog';
 import { Icon } from './Icon';
+import { IS_MAC } from './Welcome';
 import * as ask from './ask';
 import { fill, type Lang } from './i18n';
 import { explain } from './errors';
@@ -988,20 +989,11 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
     };
   }, [isFull]);
 
-  // The print view stays in the page while the system's print dialog is open
-  // — it prints what is in the page when the person confirms — and goes when
-  // printing is over.
+  // The paper view is in the page only while a PDF is being made of it.
   useEffect(() => {
     if (!printing) return;
     document.documentElement.classList.add('rsch-printing');
-    const done = () => setPrinting(null);
-    window.addEventListener('afterprint', done);
-    const late = window.setTimeout(done, 10 * 60_000);
-    return () => {
-      document.documentElement.classList.remove('rsch-printing');
-      window.removeEventListener('afterprint', done);
-      window.clearTimeout(late);
-    };
+    return () => document.documentElement.classList.remove('rsch-printing');
   }, [printing]);
 
   const routes: Routes = useMemo(() => ({ providers, gateway, fallback: gw, choice }), [providers, gateway, gw, choice]);
@@ -1021,16 +1013,20 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
   };
 
   /**
-   * Print the document, for a PDF. The page gets a print view of exactly the
-   * document on screen, and the system's own print dialog opens on it — where
-   * "Save as PDF" is one of the choices. The app writes nothing itself.
+   * Write the document as a PDF to `path`, which the save panel returned. The
+   * page gets a paper view of exactly the document on screen — the reader's
+   * blocks and citations, laid out by the print styles — and the webview
+   * prints that to the file; no print dialog.
    */
-  const printDoc = (doc: Doc) => {
+  const pdfDoc = async (doc: Doc, path: string) => {
     setPrinting(doc.id);
-    // Two frames: one for React to put the print view in, one for layout.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      invoke('print_page').catch((e: unknown) => { setPrinting(null); report(explain(e, t('print the document'))); });
-    }));
+    // Two frames: one for React to put the paper view in, one for layout.
+    await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+    try {
+      await invoke('save_pdf', { path });
+    } finally {
+      setPrinting(null);
+    }
   };
 
   const reader = reading && known.get(reading.id);
@@ -1060,7 +1056,7 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
                      if (!full) setReading({ id: open.id, at });
                      else if (at) setJump((j) => ({ at, n: (j?.n ?? 0) + 1 }));
                    }}
-                   onPrint={() => printDoc(open)} begin={begin} onError={report} />
+                   onPdf={(path) => pdfDoc(open, path)} begin={begin} onError={report} />
         : <Home t={t} lang={lang} routes={routes} efforts={efforts} plan={plan} ready={ready} docs={docs}
                 onOpen={setOpenId} onError={report}
                 onStart={(doc) => { keep(doc); setOpenId(doc.id); begin(doc, { how: 'run', stopBefore: doc.pause ? 'writing' : undefined }); }} />}
@@ -1442,7 +1438,7 @@ function DocRow({ doc, t, onOpen }: { doc: Doc; t: (s: string) => string; onOpen
 
 type Tab = 'outline' | 'sources' | 'details';
 
-function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead, onPrint, begin, onError }: {
+function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead, onPdf, begin, onError }: {
   doc: Doc;
   t: (s: string) => string;
   routes: Routes;
@@ -1453,8 +1449,8 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
   inFull: boolean;
   onBack: () => void;
   onRead: (sectionId?: string) => void;
-  /** Open the system's print dialog on the document, for a PDF. */
-  onPrint: () => void;
+  /** Write the document as a PDF to a path the save panel returned. */
+  onPdf: (path: string) => Promise<void>;
   begin: (doc: Doc, work: Work) => void;
   onError: (m: string) => void;
 }) {
@@ -1491,6 +1487,26 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
       setSaved(path);
     } catch (e) {
       onError(explain(e, t('save the Word document')));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const savePdf = async () => {
+    if (busy) return;
+    setSaving(true);
+    setSaved('');
+    try {
+      const path = await savePanel({
+        title: t('Save as PDF'),
+        defaultPath: fileNameFor(doc).replace(/\.docx$/i, '.pdf'),
+        filters: [{ name: 'PDF', extensions: ['pdf'] }],
+      });
+      if (!path) return;
+      await onPdf(path);
+      setSaved(path);
+    } catch (e) {
+      onError(explain(e, t('save the PDF')));
     } finally {
       setSaving(false);
     }
@@ -1602,13 +1618,20 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
                 title={busy ? t('Stop the writing before saving.') : undefined}>
           <Icon name="file" size={12} />{t('Save as Word…')}
         </button>
-        <button className="ghost" disabled={busy || !somethingWritten} onClick={onPrint}
-                title={busy ? t('Stop the writing before saving.') : t('Opens the print dialog: choose Save as PDF there.')}>
+        <button className="ghost" disabled={busy || !somethingWritten || saving} onClick={() => void savePdf()}
+                title={busy ? t('Stop the writing before saving.') : undefined}>
           <Icon name="file" size={12} />{t('Save as PDF…')}
         </button>
       </div>
-      {saved && <p className="rsch-saved" dir="auto">{fill(t('Saved to {path}'), { path: saved })}</p>}
-      {saved && <p className="rsch-lede">{t('Word asks to update the fields when it opens the file: say yes, and the table of contents gets its page numbers.')}</p>}
+      {saved && (
+        <div className="rsch-saved-row">
+          <p className="rsch-saved" dir="auto">{fill(t('Saved to {path}'), { path: saved })}</p>
+          <button className="ghost" onClick={() => invoke('reveal_path', { path: saved }).catch((e: unknown) => onError(explain(e, t('show the file'))))}>
+            <Icon name="folder" size={12} />{IS_MAC ? t('Show in Finder') : t('Show in Explorer')}
+          </button>
+        </div>
+      )}
+      {saved && /\.docx$/i.test(saved) && <p className="rsch-lede">{t('Word asks to update the fields when it opens the file: say yes, and the table of contents gets its page numbers.')}</p>}
 
       <div className="rsch-tabs" role="tablist">
         {(['outline', 'sources', 'details'] as const).map((x) => (
@@ -2085,7 +2108,7 @@ function Reader({ doc, t, at, nonce, mode, onClose, begin }: {
   nonce?: number;
   /**
    * Over the window from the sidebar; beside the controls in the full window;
-   * or as paper, for the system's print dialog and a PDF — the same document
+   * or as paper, for a PDF — the same document
    * each time, without the controls in print.
    */
   mode: 'overlay' | 'inline' | 'print';

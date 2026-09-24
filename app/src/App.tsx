@@ -4836,6 +4836,7 @@ export function App() {
             { kind: 'action', id: 'copyPath', label: 'Copy the path' },
             { kind: 'action', id: 'copyRel', label: 'Copy the path from the project' },
             { kind: 'divider' },
+            { kind: 'action', id: 'revealOs', label: IS_MAC ? 'Reveal in Finder' : 'Show in Explorer' },
             ...(fileMenu.isDir
               ? [{ kind: 'action', id: 'new', label: 'New file here' } as MenuItem]
               : [{ kind: 'action', id: 'open', label: 'Open' } as MenuItem]),
@@ -4851,6 +4852,10 @@ export function App() {
             const whole = `${root.replace(/[\\/]+$/, '')}/${fileMenu.path}`;
             if (id === 'copyPath') void navigator.clipboard.writeText(whole).catch(() => {});
             else if (id === 'copyRel') void navigator.clipboard.writeText(fileMenu.path).catch(() => {});
+            else if (id === 'revealOs') {
+              // Selected in the file manager, not opened: nothing runs.
+              invoke('reveal_path', { path: whole }).catch((e: unknown) => push({ kind: 'error', text: explain(e, t('show the file')) }));
+            }
             else if (id === 'open') void openFile(fileMenu.path);
             else if (id === 'new') void newFile(fileMenu.path);
             else if (id === 'rename') void renameEntry(fileMenu.path);

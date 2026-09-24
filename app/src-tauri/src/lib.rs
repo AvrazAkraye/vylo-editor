@@ -39,6 +39,7 @@ mod drafts;
 mod history;
 mod index;
 mod mcp;
+mod pdf;
 mod pty;
 mod summon;
 mod walk;
@@ -1933,20 +1934,6 @@ fn export_write_docx(path: String, data: String) -> Result<(), String> {
     write_docx(&path, &data, MAX_DOCX_BYTES)
 }
 
-/// Open the system's print dialog on what the window shows — for a PDF of a
-/// Research document.
-///
-/// The panel puts a print view of the document into the page first, and the
-/// page's print styles hide everything else, so the dialog shows the document
-/// as paper. The operating system's dialog does the rest: printing it, or —
-/// one of its own choices — saving it as a PDF where the person picks. This
-/// command writes nothing, and like every command that reaches outside the
-/// app it is absent from the tool schema (`test/modes.test.mjs` names it).
-#[tauri::command]
-fn print_page(window: tauri::WebviewWindow) -> Result<(), String> {
-    window.print().map_err(|e| format!("Could not open the print dialog: {e}"))
-}
-
 /// `export_write_docx` with its ceiling as an argument, so the tests can pin
 /// the size check with a few bytes rather than thirty-two megabytes of them.
 fn write_docx(path: &str, data: &str, max: usize) -> Result<(), String> {
@@ -2061,7 +2048,7 @@ pub fn run() {
             store_sizes, store_empty,
             capture_screenshot,
             set_global_shortcut,
-            export_write, export_write_docx, print_page,
+            export_write, export_write_docx, pdf::save_pdf, pdf::reveal_path,
             watch::watch_start, watch::watch_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close, pty::pty_cwd, pty::pty_running, pty::shell_commands, pty::shell_history, pty::complete_path
         ])

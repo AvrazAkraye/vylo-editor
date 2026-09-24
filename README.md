@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.106.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.107.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -105,7 +105,7 @@ each with the structure it is examined against (المقدمة، المباحث 
 of sources, and how many writers work on the parts at once; attach your own
 Excel, Word, CSV or PDF results and the document reports them as they are. It
 is planned, outlined and written section by section — in the sidebar or over
-the whole window — and saved as a Word file or, through the print dialog, a
+the whole window — and saved as a Word file or a
 PDF, with the cover page and the university's logo and name, footnotes that
 say *مصدر سابق* the second time, Arabic-Indic numerals and a قائمة المصادر
 grouped by kind. The references are real: found in OpenAlex and Crossref, or

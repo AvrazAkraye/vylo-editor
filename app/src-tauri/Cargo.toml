@@ -67,6 +67,12 @@ strip = true
 # selector calls in src/mac.rs hide the native window buttons so the app can
 # draw its own, which is cheaper than the alternative -- `decorations: false`
 # would take the window's rounded corners with them.
+# WebView2's PrintToPdf, for Save as PDF (src/pdf.rs). The versions wry
+# already builds against, so nothing new is compiled.
+[target.'cfg(windows)'.dependencies]
+webview2-com = "0.38"
+windows = "0.61"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 # Already in the tree several times over — every crate that touches a file
