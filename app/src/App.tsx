@@ -163,7 +163,7 @@ import { watch as watchDoc } from './docs';
 import { SkillsPanel } from './SkillsPanel';
 import { UsagePanel } from './UsagePanel';
 import { WhatsAppPanel } from './WhatsAppPanel';
-import { ResearchPanel } from './ResearchPanel';
+import { ResearchPanel, toggleResearchFull } from './ResearchPanel';
 import { KEY as WA_KEY, read as readWa } from './whatsapp';
 import { callerFor } from './whatsappwire';
 import { runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
@@ -4327,6 +4327,13 @@ export function App() {
                 <Icon name="plus" size={14} />
               </button>
             )}
+            {/* A thesis is not read or written in a sidebar: the module opens
+                over the whole window, the document beside its controls. */}
+            {shown === 'research' && (
+              <button className="sb-act" onClick={() => toggleResearchFull(true)} title={t('Full screen')} aria-label={t('Full screen')}>
+                <Icon name="maximise" size={14} />
+              </button>
+            )}
             {shown === 'files' && root && (
               <>
                 <button className="sb-act" onClick={() => void newFile()}
@@ -4398,6 +4405,7 @@ export function App() {
                 token, which authenticates nothing at /v1/messages. */}
             {shown === 'research' && (
               <ResearchPanel t={t} lang={lang} gw={wired} efforts={efforts} plan={plan}
+                    providers={providers} choice={choice} gateway={{ baseUrl, apiKey }}
                     onProviders={() => { setSettingsAt('account'); setShowSettings(true); }}
                     onError={(m) => push({ kind: 'error', text: m })} />
             )}

@@ -745,10 +745,21 @@ function compose(L: Lib, stored: Doc, fontWanted?: string): { file: DocxFile; fi
         data: logo.data,
         transformation: { width: (logo.width * scale) / EMU_PER_PIXEL, height: (logo.height * scale) / EMU_PER_PIXEL },
       });
+      // The university's name under the logo, when the researcher asked for
+      // it: logos that carry no name of their own need one. Picture and name
+      // are then centred on each other rather than the picture pushed to the
+      // cell's edge.
+      const caption = doc.logoCaption ? str(meta.university).replace(/\s+/g, ' ').trim() : '';
+      const named = caption
+        ? line(caption, { size: c.lines - 4, bold: true }, { align: 'center', line: 276, after: 0, side: own })
+        : [];
       out.push(layout([
         { width: 6236, children: institution },
         // Word's own spacing under a picture, which the example's logo keeps.
-        { width: 2835, children: [paragraph([picture], { side: own, align: 'end', size: look.body, line: 276, after: 200 })] },
+        { width: 2835, children: [
+          paragraph([picture], { side: own, align: caption ? 'center' : 'end', size: look.body, line: 276, after: caption ? 60 : 200 }),
+          ...named,
+        ] },
       ]));
     } else {
       out.push(...institution);

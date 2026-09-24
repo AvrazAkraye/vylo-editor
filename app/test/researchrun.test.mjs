@@ -9,7 +9,9 @@
 // the model may name itself is legislation, and it is added once, unverified,
 // with the next free key, never over one the document already has. The search
 // services are sent the plan's queries and nothing else — never the request,
-// which is the researcher's own words. What the
+// which is the researcher's own words. Several writers at once really overlap,
+// start parts in outline order, and write into one document, so no part one
+// of them finished is ever lost to another finishing in the same tick. What the
 // panel is told comes as codes and fixed sentences it can translate, and a
 // stream the transport starts again is shown from its new start, not after the
 // broken one. Everything here runs against stub deps — the run itself never
@@ -438,6 +440,348 @@ const DONE = globalThis.DONE;
   ok('the continuation is stored joined once', out.sections[0].text === 'The first part ends here. The second part follows.', out.sections[0].text);
   ok('a continuation can be restarted too', typeof h.calls[1].onRestart === 'function');
 }
+
+// ── several writers at once ───────────────────────────────────────────────
+// The researcher sets how many writers work at once. What matters: the calls
+// really overlap, as many as there are writers or parts left; parts are
+// started in outline order; every writer writes into the one document as it
+// is when it finishes, so no part a writer finished is ever lost to another;
+// a failure starts nothing new but keeps what is in hand; a stop puts every
+// part in hand back once. Titles and text are invented.
+
+let unhandled = 0;
+process.on('unhandledRejection', () => { unhandled++; });
+const flush = () => new Promise((r) => setTimeout(r, 0));
+const PARALLEL = 'being written at the same time';
+const PREVIOUS = 'The end of the part before it';
+
+/**
+ * Stub deps whose model calls wait to be answered, so a test decides when each
+ * one finishes and in what order. `pending` is every call started and not yet
+ * answered — the calls in flight. `answer` streams a reply in two halves and
+ * resolves the call; `fail` rejects it. `log` has every save and every view in
+ * the order they happened.
+ */
+function gated() {
+  const h = harness(() => { throw new Error('not used'); });
+  const pending = [];
+  const log = [];
+  let most = 0;
+  h.deps.generate = (o) => new Promise((resolve, reject) => {
+    h.calls.push(o);
+    pending.push({ o, resolve, reject });
+    most = Math.max(most, pending.length);
+  });
+  const save = h.deps.save;
+  h.deps.save = (doc) => { log.push({ saved: doc }); save(doc); };
+  const onChange = (doc, p) => { log.push({ doc, p }); h.onChange(doc, p); };
+  const take = (p) => pending.splice(pending.indexOf(p), 1);
+  return {
+    ...h, onChange, pending, log, most: () => most,
+    call: (heading) => pending.find((p) => headingOf(p.o) === heading),
+    answer(p, text, stop = 'end_turn') {
+      take(p);
+      const half = Math.ceil(text.length / 2);
+      p.o.onText?.(text.slice(0, half));
+      p.o.onText?.(text.slice(half));
+      p.resolve({ text, stopReason: stop });
+    },
+    fail(p, e) { take(p); p.reject(e); },
+  };
+}
+
+/** Whether every part done in one save is done, with the same text, in every save after it. */
+function neverLost(saves) {
+  return saves.every((d, k) => k === 0 || saves[k - 1].sections.every((s, j) =>
+    s.state !== 'done' || (d.sections[j].state === 'done' && d.sections[j].text === s.text)));
+}
+
+/** Whether every view shows every part the last save before it had done. */
+function viewsKeepUp(log) {
+  let saved = null;
+  return log.every((e) => {
+    if (e.saved) { saved = e.saved; return true; }
+    return !saved || saved.sections.every((s, j) => s.state !== 'done' || (e.doc.sections[j].state === 'done' && e.doc.sections[j].text === s.text));
+  });
+}
+
+{
+  const doc = makeDoc({
+    kind: 'proposal', lang: 'en', stage: 'writing', agents: 3, request: 'a research proposal on invented tides',
+    sections: [
+      sec('Introduction', { words: 400 }),
+      sec('Part one', { words: 0 }),
+      sec('First strand', { level: 2, words: 500 }),
+      sec('Second strand', { level: 2, words: 500 }),
+      sec('Your data', { state: 'author', text: 'The researcher’s own paragraph.' }),
+      sec('Third strand'),
+      sec('Fourth strand'),
+      sec('Conclusion', { words: 400 }),
+    ],
+  });
+  const g = gated();
+  const going = run(doc, g.deps, { onChange: g.onChange });
+  const toWrite = 6;
+  const flights = [];
+  const finished = [];
+  await flush();
+  while (g.pending.length) {
+    flights.push([g.pending.length, Math.min(3, toWrite - finished.length)]);
+    // The newest call is answered first, so parts finish out of outline order.
+    const p = g.pending[g.pending.length - 1];
+    finished.push(headingOf(p.o));
+    g.answer(p, `The text of ${headingOf(p.o)}, in full.`);
+    await flush();
+  }
+  const done = await going;
+  const byHeading = (hd) => g.calls.find((o) => headingOf(o) === hd).user;
+
+  ok('three writers: three calls are in flight at once', g.most() === 3, g.most());
+  ok('at every moment, as many calls are in flight as there are writers or parts left', flights.every(([a, b]) => a === b), flights);
+  ok('parts are started in outline order, the empty heading and the researcher’s part skipped',
+    same(g.calls.map(headingOf), ['Introduction', 'First strand', 'Second strand', 'Third strand', 'Fourth strand', 'Conclusion']), g.calls.map(headingOf));
+  ok('… and here finished out of it', same(finished, ['Second strand', 'Third strand', 'Fourth strand', 'Conclusion', 'First strand', 'Introduction']), finished);
+  ok('every request says other parts are being written at the same time', g.calls.every((o) => o.user.includes(PARALLEL)));
+  ok('a part whose part before is still being written is handed no ending',
+    !byHeading('Introduction').includes(PREVIOUS) && !byHeading('First strand').includes(PREVIOUS) && !byHeading('Second strand').includes(PREVIOUS));
+  ok('a part whose part before has text is handed its end',
+    byHeading('Third strand').includes(`${PREVIOUS}, for continuity (do not repeat it):\n…The researcher’s own paragraph.`)
+    && byHeading('Fourth strand').includes('…The text of Third strand, in full.') && byHeading('Conclusion').includes('…The text of Fourth strand, in full.'));
+
+  ok('every part is in the document', done.stage === 'done'
+    && done.sections.every((s, j) => j === 1 ? s.state === 'done' && s.text === '' : j === 4 ? s === doc.sections[4] : s.state === 'done' && s.text === `The text of ${s.heading}, in full.`),
+    done.sections.map((s) => [s.state, s.text]));
+  ok('no save ever loses a part another writer finished', neverLost(g.saves));
+  ok('no view does either', viewsKeepUp(g.log));
+  ok('no save says a part is being written', !g.saves.some((d) => d.sections.some((s) => s.state === 'writing')));
+  ok('the last thing saved is what is returned', g.saves[g.saves.length - 1] === done);
+
+  const busy = g.changes.filter((c) => c.p.writers?.length);
+  const agentAt = {};
+  for (const c of busy) for (const w of c.p.writers) agentAt[w.index] ??= w.agent;
+  ok('each part is written by one numbered writer; a free writer takes the next part',
+    same(agentAt, { 0: 1, 2: 2, 3: 3, 5: 3, 6: 3, 7: 3 }), agentAt);
+  ok('the panel is told every part being written, in outline order',
+    busy.some((c) => same(c.p.writers.map((w) => [w.agent, w.index]), [[1, 0], [2, 2], [3, 3]]))
+    && busy.every((c) => c.p.writers.every((w, k) => k === 0 || c.p.writers[k - 1].index < w.index)));
+  ok('… each shown as writing in the document it is sent', busy.every((c) => c.p.writers.every((w) => c.doc.sections[w.index].state === 'writing')));
+  ok('… index and live are the first writer’s, as a one-part panel expects',
+    busy.every((c) => c.p.index === c.p.writers[0].index && c.p.live === c.p.writers[0].live));
+  ok('… and a later writer’s streamed text is told too',
+    busy.some((c) => c.p.writers[0].index === 0 && c.p.writers.some((w) => w.index === 3 && w.live === 'The text of Second strand, in full.')));
+  ok('between parts, the panel is told no writer is at work', same(g.changes.filter((c) => c.p.stage === 'writing').pop().p.writers, []));
+}
+
+// ── two writers finishing in the same tick ────────────────────────────────
+{
+  const doc = makeDoc({ kind: 'proposal', lang: 'en', stage: 'writing', agents: 2, sections: [sec('Alpha'), sec('Beta')] });
+  const g = gated();
+  const going = run(doc, g.deps, { onChange: g.onChange });
+  await flush();
+  const [a, b] = g.pending.slice();
+  // Both answered before either writer takes its next step.
+  g.answer(b, 'Beta was written.');
+  g.answer(a, 'Alpha was written.');
+  const done = await going;
+  ok('two writers finishing in the same tick: both parts are in the document',
+    done.sections[0].text === 'Alpha was written.' && done.sections[1].text === 'Beta was written.' && done.stage === 'done');
+  ok('… and the save after the second holds the first',
+    same(g.saves.map((d) => d.sections.filter((s) => s.state === 'done').map((s) => s.heading)), [['Beta'], ['Alpha', 'Beta'], ['Alpha', 'Beta'], ['Alpha', 'Beta']]),
+    g.saves.map((d) => d.sections.map((s) => s.state)));
+  ok('… each save touched the document', g.saves.every((d, k) => k === 0 || d.updated > g.saves[k - 1].updated));
+}
+
+// ── a restart clears one writer's text ────────────────────────────────────
+{
+  const doc = makeDoc({ kind: 'proposal', lang: 'en', stage: 'writing', agents: 2, sections: [sec('Alpha'), sec('Beta')] });
+  const g = gated();
+  const going = run(doc, g.deps, { onChange: g.onChange });
+  await flush();
+  const [a, b] = g.pending.slice();
+  a.o.onText('Alpha so far');
+  b.o.onText('A broken start');
+  b.o.onRestart();
+  const last = g.changes[g.changes.length - 1].p;
+  ok('a restart clears only its own writer’s text',
+    same(last.writers, [{ agent: 1, index: 0, live: 'Alpha so far' }, { agent: 2, index: 1, live: '' }]), last.writers);
+  ok('… and index and live are still the first writer’s', last.index === 0 && last.live === 'Alpha so far');
+  g.answer(b, 'Beta whole.');
+  g.answer(a, 'Alpha whole.');
+  const done = await going;
+  ok('… and what is stored is each writer’s answer alone', done.sections[0].text === 'Alpha whole.' && done.sections[1].text === 'Beta whole.');
+}
+
+// ── the parallel request, and the number of writers ───────────────────────
+{
+  const three = (agents) => makeDoc({
+    kind: 'proposal', lang: 'en', stage: 'writing', ...(agents === undefined ? {} : { agents }), sections: [sec('Alpha'), sec('Beta'), sec('Gamma')],
+  });
+  const reply = (o) => (what(o) === 'continue' ? 'the argument, and ends.'
+    : headingOf(o) === 'Alpha' ? { text: 'Alpha stops in the middle of the', stop: 'max_tokens' } : 'The rest of it.');
+  for (const agents of [undefined, 1]) {
+    const h = harness(reply);
+    const out = await run(three(agents), h.deps);
+    ok(`one writer (agents ${agents}): no request says others write at once`,
+      same(h.calls.map(what), ['section', 'continue', 'section', 'section']) && h.calls.every((o) => !o.user.includes(PARALLEL)) && out.stage === 'done');
+  }
+  const h = harness(reply);
+  const out = await run(three(2), h.deps);
+  ok('two writers: every request says so, the continuation included',
+    h.calls.length === 4 && h.calls.some((o) => what(o) === 'continue') && h.calls.every((o) => o.user.includes(PARALLEL)) && out.stage === 'done');
+  ok('… and the part that ran out of room is continued and joined as before',
+    out.sections[0].text === 'Alpha stops in the middle of the argument, and ends.', out.sections[0].text);
+
+  const one = gated();
+  const going1 = run(three(undefined), one.deps);
+  await flush();
+  while (one.pending.length) { one.answer(one.pending[0], `${headingOf(one.pending[0].o)} was written.`); await flush(); }
+  await going1;
+  ok('one writer: one call at a time, each part handed the end of the one before',
+    one.most() === 1 && one.calls[1].user.includes('…Alpha was written.') && one.calls[2].user.includes('…Beta was written.'));
+
+  const many = gated();
+  const going = run(makeDoc({
+    kind: 'proposal', lang: 'en', stage: 'writing', agents: 20, sections: Array.from({ length: 10 }, (_, k) => sec(`Part ${k + 1}`)),
+  }), many.deps);
+  await flush();
+  ok('at most eight writers, however many are asked for', many.pending.length === 8, many.pending.length);
+  while (many.pending.length) { many.answer(many.pending[0], 'Text.'); await flush(); }
+  const all = await going;
+  ok('… and every part is still written', many.most() === 8 && many.calls.length === 10 && all.sections.every((s) => s.state === 'done'));
+
+  const few = gated();
+  const goingFew = run(makeDoc({ kind: 'proposal', lang: 'en', stage: 'writing', agents: 5, sections: [sec('Alpha'), sec('Beta')] }), few.deps);
+  await flush();
+  ok('more writers than parts: one call a part', few.pending.length === 2);
+  while (few.pending.length) { few.answer(few.pending[0], 'Text.'); await flush(); }
+  await goingFew;
+  ok('… and no more', few.most() === 2 && few.calls.length === 2);
+}
+
+// ── the abstract waits for every writer ───────────────────────────────────
+{
+  const doc = makeDoc({ kind: 'article', lang: 'en', stage: 'writing', agents: 3, sections: ['One', 'Two', 'Three', 'Four'].map((hd) => sec(hd)) });
+  const g = gated();
+  const going = run(doc, g.deps);
+  let atAbstract = null;
+  await flush();
+  while (g.pending.length) {
+    const p = g.pending[0];
+    if (what(p.o) === 'abstract') {
+      atAbstract = { alone: g.pending.length === 1, written: g.saves[g.saves.length - 1].sections.every((s) => s.state === 'done') };
+      g.answer(p, '{"abstract": "An invented abstract."}');
+    } else {
+      g.answer(p, `${headingOf(p.o)} was written.`);
+    }
+    await flush();
+  }
+  const out = await going;
+  ok('the abstract is asked for only once every writer has finished', atAbstract?.alone === true && atAbstract.written === true, atAbstract);
+  const abstractCall = g.calls[g.calls.length - 1];
+  ok('… from every part', what(abstractCall) === 'abstract' && ['One', 'Two', 'Three', 'Four'].every((hd) => abstractCall.user.includes(`${hd} was written.`)));
+  ok('… and the document is done', out.stage === 'done' && out.abstract === 'An invented abstract.');
+  const four = g.calls.find((o) => headingOf(o) === 'Four').user;
+  ok('a part started while the one before it is being written is handed no ending, not an older one',
+    !four.includes(PREVIOUS) && !four.includes('One was written.'));
+}
+
+// ── a failure while other writers are at work ─────────────────────────────
+{
+  const doc = makeDoc({ kind: 'article', lang: 'en', stage: 'writing', agents: 3, sections: ['One', 'Two', 'Three', 'Four', 'Five'].map((hd) => sec(hd)) });
+  const g = gated();
+  const going = run(doc, g.deps, { onChange: g.onChange });
+  await flush();
+  g.fail(g.call('Two'), new Error('overloaded_error'));
+  await flush();
+  const mid = g.saves[g.saves.length - 1];
+  ok('a part that fails is marked failed at once, with why, and so is the document',
+    mid.sections[1].state === 'failed' && mid.sections[1].error === 'overloaded_error' && mid.error === 'overloaded_error');
+  ok('… no new part is started', g.pending.length === 2 && g.calls.length === 3);
+  ok('… and the panel still sees the parts in hand being written',
+    same(g.changes[g.changes.length - 1].p.writers.map((w) => w.index), [0, 2]));
+  g.answer(g.call('Three'), 'Three was written.');
+  await flush();
+  ok('… the parts in hand are finished, and still nothing new starts', g.pending.length === 1 && g.calls.length === 3);
+  g.answer(g.call('One'), 'One was written.');
+  const out = await going;
+  ok('… and kept', out.sections[0].state === 'done' && out.sections[0].text === 'One was written.' && out.sections[2].text === 'Three was written.');
+  ok('the run ends at writing with the failure on the document, no abstract asked for',
+    out.stage === 'writing' && out.error === 'overloaded_error' && out.sections[1].state === 'failed' && !g.calls.some((o) => what(o) === 'abstract'));
+  ok('the parts not started are still waiting', out.sections[3].state === 'waiting' && out.sections[4].state === 'waiting');
+  ok('what is returned is what was saved last', g.saves[g.saves.length - 1] === out);
+  ok('no save lost a part, and none says writing', neverLost(g.saves) && !g.saves.some((d) => d.sections.some((s) => s.state === 'writing')));
+
+  const again = harness((o) => (what(o) === 'abstract' ? ABSTRACT : `${headingOf(o)} again.`));
+  const done = await run(out, again.deps);
+  ok('run again, it writes only the failed part and the ones not started, then the abstract',
+    same(again.calls.map((o) => (what(o) === 'abstract' ? 'abstract' : headingOf(o))), ['Two', 'Four', 'Five', 'abstract']) && done.stage === 'done' && !('error' in done)
+    && done.sections[0] === out.sections[0] && done.sections[2] === out.sections[2]);
+}
+{
+  const doc = makeDoc({ kind: 'proposal', lang: 'en', stage: 'writing', agents: 2, sections: [sec('Alpha'), sec('Beta'), sec('Gamma')] });
+  const g = gated();
+  const going = run(doc, g.deps);
+  await flush();
+  g.fail(g.call('Alpha'), new Error('529 overloaded'));
+  g.answer(g.call('Beta'), '```\n```');
+  const out = await going;
+  ok('two parts in hand both failing: each says its own why',
+    out.sections[0].error === '529 overloaded' && out.sections[1].error === EMPTY_SECTION && out.sections[2].state === 'waiting' && g.calls.length === 2);
+  ok('… and the document says one of them', [EMPTY_SECTION, '529 overloaded'].includes(out.error));
+}
+
+// ── stopping several writers ──────────────────────────────────────────────
+{
+  const ctl = new AbortController();
+  const doc = makeDoc({ kind: 'article', lang: 'en', stage: 'writing', agents: 3, sections: ['One', 'Two', 'Three', 'Four', 'Five'].map((hd) => sec(hd)) });
+  const g = gated();
+  let rejected = 0;
+  let caught = null;
+  const going = run(doc, g.deps, { signal: ctl.signal, onChange: g.onChange }).then(() => null, (e) => { rejected++; caught = e; });
+  await flush();
+  g.answer(g.call('Two'), 'Two was written.');
+  await flush();
+  g.call('One').o.onText('One, half');
+  g.call('Four').o.onText('Four, half');
+  const saved = g.saves.length;
+  const shown = g.changes.length;
+  ctl.abort();
+  g.fail(g.call('One'), new DOMException('The operation was aborted.', 'AbortError'));
+  g.fail(g.call('Three'), new TypeError('network connection was lost'));
+  await flush();
+  ok('a stop waits for every writer to let go before it puts anything back', rejected === 0 && g.saves.length === saved && g.changes.length === shown);
+  g.fail(g.call('Four'), new DOMException('The operation was aborted.', 'AbortError'));
+  await going;
+  ok('a stop rejects once, with an AbortError, whatever each transport threw', rejected === 1 && caught?.name === 'AbortError');
+  const after = g.saves.slice(saved);
+  ok('every part in hand is put back as it was, in one save',
+    after.length === 1 && [0, 2, 3].every((j) => after[0].sections[j].state === 'waiting' && after[0].sections[j].text === ''), after.map((d) => d.sections.map((s) => s.state)));
+  ok('what was finished before the stop is kept', after[0].sections[1].state === 'done' && after[0].sections[1].text === 'Two was written.');
+  ok('the stop is not a failure', !('error' in after[0]) && after[0].stage === 'writing' && after[0].sections[4].state === 'waiting');
+  const views = g.changes.slice(shown);
+  ok('… and shown once, with no writer at work', views.length === 1 && views[0].doc === after[0] && same(views[0].p.writers, []) && views[0].p.index === 0);
+  ok('nothing is started after the stop', g.calls.length === 4 && !g.calls.some((o) => what(o) === 'abstract'));
+}
+{
+  // Stopped the moment one writer finishes, before it takes its next part.
+  const ctl = new AbortController();
+  const doc = makeDoc({ kind: 'proposal', lang: 'en', stage: 'writing', agents: 2, sections: [sec('Alpha'), sec('Beta'), sec('Gamma')] });
+  const g = gated();
+  const going = run(doc, g.deps, {
+    signal: ctl.signal,
+    onChange: (d) => { if (d.sections[0].state === 'done') ctl.abort(); },
+  }).then(() => null, (e) => e);
+  await flush();
+  g.answer(g.call('Alpha'), 'Alpha was written.');
+  await flush();
+  const saved = g.saves.length;
+  g.fail(g.call('Beta'), new DOMException('The operation was aborted.', 'AbortError'));
+  const e = await going;
+  ok('a stop as a writer finishes starts no new part, and puts back only the part in hand', e?.name === 'AbortError' && g.calls.length === 2
+    && g.saves.length === saved + 1 && g.saves[saved].sections[1].state === 'waiting' && g.saves[saved].sections[0].text === 'Alpha was written.');
+}
+await flush();
+ok('no writer left a rejection unhandled', unhandled === 0, unhandled);
 
 // ── the outline ───────────────────────────────────────────────────────────
 {

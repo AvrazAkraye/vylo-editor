@@ -391,7 +391,10 @@ function yearOf(y: unknown): string {
 
 /** A title without the full stop the record ended it with — the style adds its own — unless that stop ends an abbreviation. */
 function titleOf(raw: unknown): string {
-  const t = str(raw);
+  // The Unicode hyphen and non-breaking hyphen are in many records' titles —
+  // "e\u2011government" — and in few fonts: Times New Roman and Simplified
+  // Arabic draw an empty box. A plain hyphen reads the same.
+  const t = str(raw).replace(/[\u2010\u2011]/g, '-');
   const cut = t.replace(/[\s.:;,،؛]+$/, '');
   return t.endsWith('.') && /(^|[\s.])\p{L}$/u.test(cut) ? t : cut;
 }

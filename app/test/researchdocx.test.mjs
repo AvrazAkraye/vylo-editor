@@ -410,6 +410,15 @@ ok('western digits asked for: none converted, pages and notes numbered 1 2 3', t
   && /<w:pgNumType w:start="1" w:fmt="decimal"\/>/.test(western.part('word/document.xml')) && !western.part('word/settings.xml').includes('hindiNumbers'));
 const broken = await build({ ...bare, logo: 'data:image/png;base64,bm90IGEgcGljdHVyZQ==' });
 ok('a logo that is not a picture is left off', ![...broken.files.keys()].some((n) => n.startsWith('word/media/')));
+
+// The university's name under the logo, when asked for.
+{
+  const captioned = await build({ ...paper, logoCaption: true });
+  const xml = captioned.part('word/document.xml');
+  ok('a caption: the university’s name follows the logo in its cell',
+     /<w:drawing>[\s\S]*?<\/w:tc>/.test(xml) && /<w:drawing>[\s\S]*?جامعة الرافدين الوسطى[\s\S]*?<\/w:tc>/.test(xml.slice(xml.indexOf('<w:drawing>'))));
+  ok('no caption unless asked', !/<w:drawing>[\s\S]{0,4000}?جامعة الرافدين الوسطى[\s\S]*?<\/w:tc>/.test((await build(paper)).part('word/document.xml').split('<w:drawing>')[1]?.split('</w:tc>')[0] ?? ''));
+}
 const enNotes = footnotes(E.part('word/footnotes.xml')).filter((n) => /w:type=/.test(n.attrs));
 ok('English: the footnote rule left as Word makes it', enNotes.every((n) => !n.xml.includes('<w:bidi/>') && !n.xml.includes('<w:jc ')));
 

@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.105.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.106.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -97,16 +97,22 @@ Arabic-script text shapes right-to-left within each line.
 **Research, written the way Iraqi and Kurdish universities ask for it.** Turn
 on the Research module and say what you need — *ورقة عمل عن…*, *رسالة ماجستير
 في…*, *نامەی ماستەر لەسەر…*, *a PhD dissertation on…* — and the phrase switches
-on that kind of document: a working paper, a research article, a literature
-review, a research proposal, a graduation project, a master's thesis or a PhD
-dissertation, each with the structure it is examined against (المقدمة، المباحث
-والمطالب، الخاتمة). It is planned, outlined and written section by section, and
-saved as a Word file with the cover page, footnotes that say *مصدر سابق* the
-second time, Arabic-Indic numerals and a قائمة المصادر grouped by kind. The
-references are real: found in OpenAlex and Crossref, or added by DOI, and the
-model may cite only those, through markers the app turns into citations itself
-— it is never asked to write one. Where the document needs the researcher's own
-data, it leaves a marked gap instead of inventing any.
+on that kind of document: a working paper, a research article, a conference
+paper, a literature review, a research proposal, a graduation project, a
+master's thesis or a PhD dissertation, in Arabic, Sorani, Badini or English,
+each with the structure it is examined against (المقدمة، المباحث والمطالب،
+الخاتمة). You choose the model and how hard it thinks, the number of words and
+of sources, and how many writers work on the parts at once; attach your own
+Excel, Word, CSV or PDF results and the document reports them as they are. It
+is planned, outlined and written section by section — in the sidebar or over
+the whole window — and saved as a Word file or, through the print dialog, a
+PDF, with the cover page and the university's logo and name, footnotes that
+say *مصدر سابق* the second time, Arabic-Indic numerals and a قائمة المصادر
+grouped by kind. The references are real: found in OpenAlex and Crossref, or
+added by DOI, and the model may cite only those, through markers the app turns
+into citations itself — it is never asked to write one. Where the document
+needs the researcher's own data, it leaves a marked gap instead of inventing
+any.
 
 **Native, and small.** 8 MB installed and a 4 MB download, because it is a
 Tauri app with a Rust tool layer rather than an Electron shell. One codebase

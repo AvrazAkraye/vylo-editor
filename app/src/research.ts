@@ -46,6 +46,7 @@
  */
 
 import { fold } from './settings';
+import type { Effort } from './effort';
 
 // ── the vocabulary ────────────────────────────────────────────────────────
 
@@ -55,7 +56,7 @@ export type DocLang = 'ar' | 'ckb' | 'kmr' | 'en';
 export const DOC_LANGS: readonly DocLang[] = ['ar', 'ckb', 'kmr', 'en'];
 
 /** The kinds of document — each one a skill. */
-export type Kind = 'working-paper' | 'article' | 'review' | 'proposal' | 'graduation' | 'masters' | 'phd';
+export type Kind = 'working-paper' | 'article' | 'conference' | 'review' | 'proposal' | 'graduation' | 'masters' | 'phd';
 
 /**
  * Citation styles, as the reference list and the citations are formatted.
@@ -197,6 +198,26 @@ export interface Meta {
   year: string;
 }
 
+/**
+ * A file of the researcher's own — survey results, a spreadsheet, interview
+ * notes, a draft chapter — read into text when they attached it.
+ *
+ * The text is what the model is given, and the only data the document may
+ * report: rule 2 of the system prompt forbids inventing any, and these files
+ * are how a results chapter gets real numbers instead of a gap.
+ */
+export interface DataFile {
+  id: string;
+  name: string;
+  /** How it was read: as text, as a table (CSV, a spreadsheet), from a Word file, or transcribed from a PDF. */
+  kind: 'text' | 'table' | 'document' | 'pdf';
+  text: string;
+  /** The size of the file on disk. */
+  bytes: number;
+  /** Only the start of it could be kept. */
+  truncated: boolean;
+}
+
 /** Where a document's run is. */
 export type Stage = 'new' | 'planning' | 'sources' | 'outline' | 'writing' | 'abstract' | 'done';
 
@@ -228,6 +249,8 @@ export interface Doc {
   pause: boolean;
   /** The university's logo for the cover, as a `data:image/png` or `data:image/jpeg` URL. */
   logo?: string;
+  /** Print the university's name under the logo, as logos that carry no name need. */
+  logoCaption?: boolean;
   /** The font the Word file asks for; empty is the language's usual one. */
   font?: string;
   /**
@@ -237,6 +260,30 @@ export interface Doc {
   digits?: 'eastern' | 'western';
   /** The model its last run was started with, for the line that names it. */
   model?: string;
+  /**
+   * The model the researcher chose to write it with, as the composer names a
+   * choice — a provider and a model. Absent is the composer's own.
+   */
+  choice?: {
+    provider: string;
+    model: string;
+    /**
+     * The provider's address when it was chosen. A provider removed in
+     * Settings frees its id for the next one added, and a document must not
+     * follow its old id to a host nobody chose for it.
+     */
+    at?: string;
+  };
+  /** How hard that model thinks — its effort. Absent is the model's default. */
+  effort?: Effort;
+  /** How many writers work on its parts at the same time. One writes them in order. */
+  agents?: number;
+  /** Words to aim for, when the researcher set a number rather than a length. */
+  words?: number;
+  /** Sources to look for, when the researcher set a number. */
+  sourcesWanted?: number;
+  /** The researcher's own data, read from files they attached. */
+  files?: DataFile[];
   error?: string;
 }
 
@@ -349,6 +396,35 @@ export const KINDS: readonly KindSpec[] = [
       '5. Discussion: the results read against the literature.',
       '6. Conclusion, with limitations and directions for future research.',
       'No chapters. ' + THEORETICAL,
+    ].join('\n'),
+  },
+  {
+    id: 'conference',
+    label: 'Conference paper',
+    about: 'A paper for a scientific conference: an abstract, the study, and recommendations, within the organisers’ limit.',
+    triggers: [
+      'بحث مؤتمر', 'بحث المؤتمر', 'بحث لمؤتمر', 'بحث مقدم الى مؤتمر', 'ورقة مؤتمر', 'بحوث المؤتمرات', 'مشاركة في مؤتمر',
+      'توێژینەوەی کۆنفرانس', 'توێژینەوە بۆ کۆنفرانس', 'وتاری کۆنفرانس',
+      'ڤەکولینا کۆنفرانسێ', 'ڤەکولین بۆ کۆنفرانسێ', 'گۆتارا کۆنفرانسێ',
+      'conference paper', 'conference research', 'conference proceedings paper', 'paper for a conference',
+    ],
+    rank: 3,
+    words: { short: 3000, standard: 5000, long: 7500 },
+    sources: 25,
+    chapters: false,
+    cover: 'paper',
+    dedication: false,
+    abstract: 'both',
+    contents: false,
+    shape: [
+      'A research paper for a scientific conference, to be read by its committee and published in its proceedings.',
+      'Main headings, in this order:',
+      '1. Introduction: the problem, its importance, the questions or hypotheses, and the aim — the conference theme it answers.',
+      '2. Previous studies and the theoretical background, briefly.',
+      '3. Methodology: approach, sample or material, instruments, analysis.',
+      '4. Results and discussion, organised by the questions.',
+      '5. Conclusions and recommendations, numbered and concrete.',
+      'No chapters. Concise throughout: a conference allows few pages. ' + THEORETICAL,
     ].join('\n'),
   },
   {
@@ -699,7 +775,7 @@ export const WORDS: Readonly<Record<DocLang, Words>> = {
     thanks: 'الشكر والتقدير',
     by: 'من قبل',
     byline: {
-      'working-paper': 'ورقة عمل مقدمة من قبل', article: 'بحث مقدم من قبل', review: 'بحث مقدم من قبل',
+      'working-paper': 'ورقة عمل مقدمة من قبل', article: 'بحث مقدم من قبل', conference: 'بحث مقدم من قبل', review: 'بحث مقدم من قبل',
       proposal: 'خطة بحث مقدمة من قبل', graduation: 'بحث تخرج مقدم من قبل', masters: 'رسالة مقدمة من قبل', phd: 'أطروحة مقدمة من قبل',
     },
     supervisor: 'بإشراف',
@@ -709,6 +785,7 @@ export const WORDS: Readonly<Record<DocLang, Words>> = {
     statement: {
       'working-paper': ['ورقة عمل مقدمة إلى {venue}'],
       article: ['بحث مقدم للنشر في {venue}'],
+      conference: ['بحث مقدم إلى {venue}'],
       review: ['بحث مقدم للنشر في {venue}'],
       proposal: ['خطة بحث مقدمة إلى {department}', 'في {college}', '، {university}'],
       graduation: ['بحث تخرج مقدم إلى {department}', 'في {college}', '، {university}', '، وهو جزء من متطلبات نيل درجة البكالوريوس', 'في {field}'],
@@ -727,7 +804,7 @@ export const WORDS: Readonly<Record<DocLang, Words>> = {
     thanks: 'سوپاس و پێزانین',
     by: 'لەلایەن',
     byline: {
-      'working-paper': 'وەرەقەی کار پێشکەشکراوە لەلایەن', article: 'توێژینەوە پێشکەشکراوە لەلایەن', review: 'توێژینەوە پێشکەشکراوە لەلایەن',
+      'working-paper': 'وەرەقەی کار پێشکەشکراوە لەلایەن', article: 'توێژینەوە پێشکەشکراوە لەلایەن', conference: 'توێژینەوە پێشکەشکراوە لەلایەن', review: 'توێژینەوە پێشکەشکراوە لەلایەن',
       proposal: 'پلانی توێژینەوە پێشکەشکراوە لەلایەن', graduation: 'پرۆژەی دەرچوون پێشکەشکراوە لەلایەن', masters: 'نامە پێشکەشکراوە لەلایەن', phd: 'نامە پێشکەشکراوە لەلایەن',
     },
     supervisor: 'بە سەرپەرشتیی',
@@ -737,6 +814,7 @@ export const WORDS: Readonly<Record<DocLang, Words>> = {
     statement: {
       'working-paper': ['وەرەقەی کارە پێشکەش بە {venue} کراوە'],
       article: ['توێژینەوەیەکە بۆ بڵاوکردنەوە لە {venue}'],
+      conference: ['توێژینەوەیەکە پێشکەش بە {venue} کراوە'],
       review: ['توێژینەوەیەکە بۆ بڵاوکردنەوە لە {venue}'],
       proposal: ['پلانی توێژینەوەیە پێشکەش بە {department} کراوە', 'لە {college}', '، {university}'],
       graduation: ['پرۆژەی دەرچوونە پێشکەش بە {department} کراوە', 'لە {college}', '، {university}', '، وەک بەشێک لە پێداویستییەکانی بەدەستهێنانی بڕوانامەی بەکالۆریۆس', 'لە {field}'],
@@ -755,7 +833,7 @@ export const WORDS: Readonly<Record<DocLang, Words>> = {
     thanks: 'سوپاس و پێزانین',
     by: 'ژ لایێ',
     byline: {
-      'working-paper': 'وەرەقا کاری پێشکێشکری ژ لایێ', article: 'ڤەکولین پێشکێشکری ژ لایێ', review: 'ڤەکولین پێشکێشکری ژ لایێ',
+      'working-paper': 'وەرەقا کاری پێشکێشکری ژ لایێ', article: 'ڤەکولین پێشکێشکری ژ لایێ', conference: 'ڤەکولین پێشکێشکری ژ لایێ', review: 'ڤەکولین پێشکێشکری ژ لایێ',
       proposal: 'پلانا ڤەکولینێ پێشکێشکری ژ لایێ', graduation: 'پرۆژێ دەرچوونێ پێشکێشکری ژ لایێ', masters: 'نامە پێشکێشکری ژ لایێ', phd: 'نامە پێشکێشکری ژ لایێ',
     },
     supervisor: 'ب سەرپەرشتیا',
@@ -765,6 +843,7 @@ export const WORDS: Readonly<Record<DocLang, Words>> = {
     statement: {
       'working-paper': ['وەرەقا کاری یە پێشکێشی {venue} کری'],
       article: ['ڤەکولینەکە بۆ بەلاڤکرنێ د {venue} دا'],
+      conference: ['ڤەکولینەکە پێشکێشی {venue} کری'],
       review: ['ڤەکولینەکە بۆ بەلاڤکرنێ د {venue} دا'],
       proposal: ['پلانا ڤەکولینێ یە پێشکێشی {department} کری', 'ل {college}', '، {university}'],
       graduation: ['پرۆژێ دەرچوونێ یە پێشکێشی {department} کری', 'ل {college}', '، {university}', '، وەک پشکەک ژ پێدڤیێن بدەستڤەئینانا بڕوانامەیا بەکالۆریۆسێ', 'د {field} دا'],
@@ -783,7 +862,7 @@ export const WORDS: Readonly<Record<DocLang, Words>> = {
     thanks: 'Acknowledgements',
     by: 'By',
     byline: {
-      'working-paper': 'A working paper presented by', article: 'A paper by', review: 'A paper by',
+      'working-paper': 'A working paper presented by', article: 'A paper by', conference: 'A paper presented by', review: 'A paper by',
       proposal: 'A research proposal by', graduation: 'A graduation project by', masters: 'A thesis by', phd: 'A dissertation by',
     },
     supervisor: 'Supervised by',
@@ -793,6 +872,7 @@ export const WORDS: Readonly<Record<DocLang, Words>> = {
     statement: {
       'working-paper': ['A working paper presented to {venue}'],
       article: ['A paper submitted for publication in {venue}'],
+      conference: ['A paper presented to {venue}'],
       review: ['A paper submitted for publication in {venue}'],
       proposal: ['A research proposal submitted to {department}', ', {college}', ', {university}'],
       graduation: ['A graduation project submitted to {department}', ', {college}', ', {university}', ', in partial fulfilment of the requirements for the degree of Bachelor', 'in {field}'],
@@ -927,6 +1007,98 @@ export const EMPTY_META: Meta = {
   university: '', college: '', department: '', field: '', venue: '', city: '', year: '',
 };
 
+// ── universities, and their logos ─────────────────────────────────────────
+
+/**
+ * Universities a researcher is likely to be writing for, by the name their
+ * covers print — Iraq's public universities and the Kurdistan Region's, in
+ * Arabic, Sorani and English. A list to choose from, not a rule: any name can
+ * be typed.
+ */
+export const UNIVERSITIES: readonly string[] = [
+  'جامعة بغداد', 'الجامعة المستنصرية', 'الجامعة التكنولوجية', 'جامعة النهرين', 'جامعة الموصل', 'جامعة البصرة',
+  'جامعة الكوفة', 'جامعة بابل', 'جامعة تكريت', 'جامعة الأنبار', 'جامعة ديالى', 'جامعة كربلاء', 'جامعة واسط',
+  'جامعة القادسية', 'جامعة ذي قار', 'جامعة ميسان', 'جامعة المثنى', 'جامعة كركوك', 'جامعة سامراء', 'جامعة الفلوجة',
+  'جامعة نينوى', 'جامعة الحمدانية', 'جامعة تلعفر', 'جامعة الفرات الأوسط التقنية', 'الجامعة التقنية الوسطى',
+  'الجامعة التقنية الشمالية', 'الجامعة التقنية الجنوبية', 'الجامعة العراقية', 'جامعة صلاح الدين', 'جامعة السليمانية',
+  'جامعة دهوك', 'جامعة كويه', 'جامعة زاخو', 'جامعة كرميان', 'جامعة حلبجة', 'جامعة رابرين', 'جامعة سوران',
+  'جامعة أربيل التقنية', 'جامعة السليمانية التقنية', 'جامعة دهوك التقنية',
+  'زانکۆی سەلاحەددین', 'زانکۆی سلێمانی', 'زانکۆی دهۆک', 'زانکۆی کۆیە', 'زانکۆی زاخۆ', 'زانکۆی گەرمیان',
+  'زانکۆی هەڵەبجە', 'زانکۆی ڕاپەڕین', 'زانکۆی سۆران', 'زانکۆی پۆلیتەکنیکی هەولێر', 'زانکۆی پۆلیتەکنیکی سلێمانی',
+  'زانکۆی پۆلیتەکنیکی دهۆک', 'زانکۆیا دهۆکێ', 'زانکۆیا زاخۆ',
+  'University of Baghdad', 'University of Mosul', 'University of Basrah', 'University of Kufa', 'University of Babylon',
+  'Tikrit University', 'Salahaddin University-Erbil', 'University of Sulaimani', 'University of Duhok', 'Koya University',
+  'University of Zakho', 'University of Garmian', 'University of Halabja', 'Soran University', 'University of Raparin',
+  'Erbil Polytechnic University', 'Sulaimani Polytechnic University', 'Duhok Polytechnic University',
+  'University of Kurdistan Hewlêr', 'American University of Kurdistan', 'The American University of Iraq, Sulaimani',
+];
+
+/** Where the logos are kept: one per university, and one for covers that name none. */
+export const LOGO_KEY = 'vylo.research.logo.v1';
+
+/** Logos by university, the key being the university's name folded — so جامعة دهوك and جامعه دهوك are one. */
+export type Logos = Readonly<Record<string, string>>;
+
+const logoKey = (university: string) => folded(university.trim());
+
+/**
+ * The saved logos, from storage. The first version kept one logo as a bare
+ * data URL, and it was the logo of whichever university the profile named;
+ * `university` is that name, so the logo stays with it.
+ */
+export function readLogos(raw: string | null, university = ''): Logos {
+  if (!raw) return {};
+  if (raw.startsWith('data:image/')) return /^data:image\/(png|jpeg);base64,/.test(raw) ? { [logoKey(university)]: raw } : {};
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    const out: Record<string, string> = {};
+    for (const [k, url] of Object.entries(v)) {
+      if (typeof url === 'string' && /^data:image\/(png|jpeg);base64,/.test(url)) out[k] = url;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The logo for a university: its own, and nothing when it has none. Another
+ * university's logo on a cover is worse than no logo; the one kept for covers
+ * that name no university is only for those.
+ */
+export function logoFor(logos: Logos, university: string): string {
+  return logos[logoKey(university)] ?? '';
+}
+
+/**
+ * How many logos are kept, and how much they may weigh together. They share
+ * the browser's storage with the chats, and a supervisor who prepares covers
+ * for every university they examine at would otherwise crowd the chats out.
+ */
+export const LOGO_LIBRARY = { count: 8, bytes: 1_600_000 } as const;
+
+/**
+ * The logos with this university's set — or taken away, when `url` is empty.
+ * The one just set goes last, and the oldest go first when the library is
+ * over its limits.
+ */
+export function withLogo(logos: Logos, university: string, url: string): Logos {
+  const key = logoKey(university);
+  const next: Record<string, string> = { ...logos };
+  delete next[key];
+  if (url) next[key] = url;
+  const keys = Object.keys(next);
+  let bytes = keys.reduce((n, k) => n + next[k].length, 0);
+  let count = keys.length;
+  for (const k of keys) {
+    if (k === key || (count <= LOGO_LIBRARY.count && bytes <= LOGO_LIBRARY.bytes)) break;
+    bytes -= next[k].length;
+    count -= 1;
+    delete next[k];
+  }
+  return next;
+}
+
 /** The cover fields a researcher fills once and keeps: who they are, and where. */
 export type Profile = Pick<Meta, 'author' | 'supervisor' | 'supervisorTitle' | 'authority' | 'university' | 'college' | 'department' | 'field' | 'city'>;
 
@@ -993,15 +1165,79 @@ export function newDoc(o: {
   };
 }
 
-/** The words a document should come to, all sections together. */
-export function targetWords(doc: Pick<Doc, 'kind' | 'length'>): number {
-  return kindOf(doc.kind).words[doc.length];
+/** The limits on what a researcher may set, and what a mistyped number is brought back to. */
+export const LIMITS = {
+  words: { min: 500, max: 150_000 },
+  sources: { min: 0, max: 200 },
+  agents: { min: 1, max: 8 },
+} as const;
+
+/** A number the researcher typed, as a whole number inside its limits; `null` when it is not a number at all. */
+export function clampTo(value: unknown, limit: { min: number; max: number }): number | null {
+  const n = typeof value === 'number' ? value : Number.parseInt(String(value ?? '').replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660)).replace(/[^\d]/g, ''), 10);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(limit.max, Math.max(limit.min, Math.round(n)));
 }
 
-/** The references to look for, scaled a little with the length. */
-export function targetSources(doc: Pick<Doc, 'kind' | 'length'>): number {
+/** The words a document should come to, all sections together: the number the researcher set, or its kind's length. */
+export function targetWords(doc: Pick<Doc, 'kind' | 'length'> & Partial<Pick<Doc, 'words'>>): number {
+  const set = doc.words ? clampTo(doc.words, LIMITS.words) : null;
+  return set ?? kindOf(doc.kind).words[doc.length];
+}
+
+/** The references to look for: the number the researcher set, or one scaled a little with the length. */
+export function targetSources(doc: Pick<Doc, 'kind' | 'length'> & Partial<Pick<Doc, 'sourcesWanted'>>): number {
+  if (doc.sourcesWanted !== undefined) return clampTo(doc.sourcesWanted, LIMITS.sources) ?? 0;
   const n = kindOf(doc.kind).sources;
   return doc.length === 'short' ? Math.round(n * 0.7) : doc.length === 'long' ? Math.round(n * 1.3) : n;
+}
+
+/** How many writers a document runs with, from one to the limit. */
+export function agentsOf(doc: Partial<Pick<Doc, 'agents'>>): number {
+  return clampTo(doc.agents ?? 1, LIMITS.agents) ?? 1;
+}
+
+/**
+ * Pages a number of words comes to, roughly, as the Word file sets them: an
+ * A4 page at 14 point with line-and-a-half spacing holds about 250 words of
+ * Arabic or Kurdish and 300 of English at 12 point.
+ */
+export function pagesFor(words: number, lang: DocLang): number {
+  return Math.max(1, Math.round(words / (lang === 'en' ? 300 : 250)));
+}
+
+/** How much of the researcher's files each kind of request carries, in characters. */
+export const DATA_BUDGET = { plan: 3_000, outline: 16_000, section: 24_000 } as const;
+
+/**
+ * The researcher's files as the model reads them, inside a budget.
+ *
+ * The budget is shared out so a small file is never cut to make room for a
+ * large one: each file in turn, smallest first, gets an equal share of what is
+ * left. A file that had to be cut says so, because a model that believes it
+ * has the whole survey will write about the part it never saw.
+ */
+export function dataBlock(files: readonly DataFile[] | undefined, budget: number): string {
+  const list = (files ?? []).filter((f) => f.text.trim());
+  if (!list.length || budget <= 0) return '';
+  const share = new Map<string, number>();
+  let left = budget;
+  const bySize = [...list].sort((a, b) => a.text.length - b.text.length);
+  bySize.forEach((f, i) => {
+    const give = Math.min(f.text.length, Math.floor(left / (bySize.length - i)));
+    share.set(f.id, give);
+    left -= give;
+  });
+  const parts = list.map((f) => {
+    const n = share.get(f.id) ?? 0;
+    const cut = n < f.text.length || f.truncated;
+    return `--- ${f.name}${cut ? ' (only its beginning is shown here)' : ''} ---\n${f.text.slice(0, n)}`;
+  });
+  return [
+    'The researcher\'s own data files. They are the only data this document may report: use their figures exactly as given, and do not extend them to anything they do not contain.',
+    ...parts,
+    '--- end of the data files ---',
+  ].join('\n');
 }
 
 /**
@@ -1134,6 +1370,7 @@ export function planPrompt(doc: Doc): string {
     doc.meta.title ? `They have already chosen the title: ${doc.meta.title}` : '',
     doc.meta.field ? `Their field: ${doc.meta.field}` : '',
     doc.notes.trim() ? `Their notes:\n${doc.notes.trim()}` : '',
+    dataBlock(doc.files, DATA_BUDGET.plan),
     '',
     'Reply with one JSON object and nothing else, of this shape:',
     '{',
@@ -1200,6 +1437,8 @@ export function outlinePrompt(doc: Doc): string {
     HIERARCHY[doc.lang],
     '',
     doc.notes.trim() ? `The researcher's notes and data:\n${doc.notes.trim()}\n` : '',
+    doc.files?.length ? 'Plan the parts that report results around the data files below — one part for each question or table they answer — and nothing the data cannot support.' : '',
+    dataBlock(doc.files, DATA_BUDGET.outline),
     list ? 'The sources available, by marker:' : 'No sources were found; plan without them.',
     list,
     '',
@@ -1219,7 +1458,9 @@ export function outlinePrompt(doc: Doc): string {
  * title only, so any of them can still be cited without paying for every
  * abstract every time.
  */
-export function sectionPrompt(doc: Doc, index: number, o: { previous?: string; redo?: string; current?: string } = {}): string {
+export function sectionPrompt(
+  doc: Doc, index: number, o: { previous?: string; redo?: string; current?: string; parallel?: boolean } = {},
+): string {
   const k = kindOf(doc.kind);
   const sec = doc.sections[index];
   const outline = doc.sections.map((s, i) =>
@@ -1244,7 +1485,13 @@ export function sectionPrompt(doc: Doc, index: number, o: { previous?: string; r
       : '',
     '',
     doc.notes.trim() ? `The researcher's notes and data — use them where they belong, exactly as given:\n${doc.notes.trim()}\n` : '',
+    dataBlock(doc.files, DATA_BUDGET.section),
     o.previous ? `The end of the part before it, for continuity (do not repeat it):\n…${o.previous}\n` : '',
+    // Several writers work at once, each on its own part of the same outline.
+    // Without this each one opens by introducing the whole topic again.
+    o.parallel
+      ? 'Other parts of this document are being written at the same time, from this same outline, by other writers. Write only this part: do not introduce the topic again, do not anticipate the parts after it, and begin with this part\'s own substance.'
+      : '',
     near.length ? 'Sources this part should draw on, with what each says:' : '',
     ...near.map((s) => sourceLine(s, true)),
     '',
@@ -1262,7 +1509,9 @@ export function sectionPrompt(doc: Doc, index: number, o: { previous?: string; r
  * given where it stopped and carries on from there, rather than starting the
  * section again and repeating half of it.
  */
-export function continuePrompt(doc: Doc, index: number, sofar: string, o: { redo?: string; current?: string } = {}): string {
+export function continuePrompt(
+  doc: Doc, index: number, sofar: string, o: { redo?: string; current?: string; parallel?: boolean } = {},
+): string {
   return [
     // A rewrite that runs out of room is still that rewrite: the instruction
     // goes with the continuation, or the second half is written to the old brief.

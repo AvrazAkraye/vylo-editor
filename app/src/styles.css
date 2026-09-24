@@ -5286,6 +5286,9 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   border-block-start:1px solid var(--rule-2);
 }
 .rsch-notes li{ margin-block-end:var(--sp-2); text-align:justify; }
+/* An English note in an Arabic document is set ragged, as the Word file sets
+   it: justified, its words stretch round a DOI that cannot break. */
+.rsch-notes li:dir(ltr){ text-align:start; }
 .rsch-fn-n{ color:var(--mute); }
 /* Numbered lists in the body, in the numerals the document uses. Not the
    notes or the source list, which print their numbers as text already. */
@@ -5333,4 +5336,146 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 @media (max-width: 760px){
   .rsch-toc{ display:none; }
   .rsch-page{ padding:var(--sp-7); }
+}
+
+/* ── Research: how it is written, the full window, and paper ─────────────── */
+/* The settings sit in the same two-column grid as the form around them. */
+.rsch-set{ display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4); }
+.rsch-f small{ font-size:var(--fs-1); font-weight:400; color:var(--mute); line-height:1.45; }
+.rsch-f input[type="number"]{ font-variant-numeric:tabular-nums; }
+/* Intelligence: the levels side by side, because the difference between them
+   is the choice — a menu would hide the ones not chosen. */
+.rsch-levels{ display:flex; flex-wrap:wrap; gap:2px; padding:2px; border-radius:var(--r-2); background:var(--panel-2); }
+.rsch-levels button, .rsch-presets button, .rsch-langs button{
+  flex:1 1 auto; padding:var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-2); cursor:pointer; white-space:nowrap;
+}
+.rsch-levels button:hover, .rsch-presets button:hover, .rsch-langs button:hover{ color:var(--ink); }
+.rsch-levels button.on, .rsch-presets button.on, .rsch-langs button.on{
+  background:var(--panel); color:var(--ink); font-weight:600; box-shadow:var(--shadow);
+}
+.rsch-levels button:disabled, .rsch-presets button:disabled, .rsch-langs button:disabled{ opacity:var(--dim); cursor:default; }
+.rsch-presets{ display:flex; flex-wrap:wrap; gap:2px; margin-block-start:var(--sp-1); }
+.rsch-presets button{ flex:0 1 auto; padding:1px var(--sp-3); background:var(--panel-2); }
+/* The language: four buttons in one bar, each in its own script. */
+.rsch-langs{
+  display:grid; grid-template-columns:repeat(2, 1fr); gap:2px; padding:2px;
+  border-radius:var(--r-2); background:var(--panel-2);
+}
+.rsch-langs button{ font-size:var(--fs-3); padding:var(--sp-3); }
+/* Writers: a stepper, the number large because it is the setting. */
+.rsch-step{ display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; }
+.rsch-step button{
+  inline-size:28px; block-size:28px; border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink); font:inherit; font-size:var(--fs-5); line-height:1; cursor:pointer;
+}
+.rsch-step button:disabled{ opacity:var(--dim); cursor:default; }
+.rsch-step b{ min-inline-size:1.5em; text-align:center; font-size:var(--fs-6); color:var(--ink); font-variant-numeric:tabular-nums; }
+.rsch-step small{ flex-basis:100%; }
+
+/* The researcher's files. */
+.rsch-data{ display:flex; flex-direction:column; gap:var(--sp-3); }
+.rsch-data > .rsch-row small{ flex:1; min-inline-size:12ch; font-size:var(--fs-1); color:var(--mute); line-height:1.45; }
+.rsch-data .ghost{ display:inline-flex; align-items:center; gap:var(--sp-2); }
+.rsch-files{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+.rsch-files li{
+  display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-2) var(--sp-3);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel);
+  font-size:var(--fs-2); color:var(--mute);
+}
+.rsch-files li b{ flex:1; min-inline-size:0; font-weight:500; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rsch-files li.is-reading{ border-style:dashed; }
+
+/* A logo with a caption under it, as a cover carries the name beneath. */
+.rsch-logo-what{ flex:1 1 12ch; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.rsch-logo-what b{ font-size:var(--fs-3); font-weight:500; color:var(--ink); }
+.rsch-logo-what span{ font-size:var(--fs-1); color:var(--mute); }
+.rsch-cover-logo{ margin:0; display:flex; flex-direction:column; align-items:center; gap:var(--sp-2); }
+.rsch-cover-logo figcaption{ font-size:var(--fs-3); font-weight:700; text-align:center; }
+.rsch-in{ margin-inline:0; }
+
+/* Who is writing what. */
+.rsch-writers{ display:flex; flex-direction:column; gap:var(--sp-3); }
+.rsch-clock{ display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-5); margin:0; font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
+.rsch-writers ul{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+.rsch-writers li{
+  display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) var(--sp-4);
+  border-radius:var(--r-2); background:var(--brand-wash); font-size:var(--fs-2);
+}
+.rsch-writers li b{ flex:none; color:var(--brand); font-weight:600; }
+.rsch-writer-what{ flex:1; min-inline-size:0; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rsch-writer-n{ flex:none; color:var(--mute); font-variant-numeric:tabular-nums; }
+.rsch-toc button.is-live{ color:var(--brand); font-weight:600; }
+
+/* ── the full window ── */
+.rsch-full{
+  position:fixed; inset:0; z-index:50; display:flex; flex-direction:column;
+  background:var(--bg); animation:rise .18s ease-out;
+}
+.rsch-full-head{
+  flex:none; display:flex; align-items:center; gap:var(--sp-4);
+  padding:var(--sp-4) var(--sp-7);
+  border-block-end:1px solid var(--rule); background:var(--panel);
+}
+/* The window's buttons float over the top strip on macOS, on the physical
+   left whatever the language. The header starts under the strip instead of
+   beside it, so nothing has to mirror around them. */
+.mac .rsch-full-head{ padding-block-start:calc(var(--titlebar) + var(--sp-2)); }
+.rsch-full-head b{ font-size:var(--fs-5); color:var(--ink); }
+.rsch-full-head span{ flex:1; min-inline-size:0; font-size:var(--fs-3); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rsch-full-head .sb-act{ margin-inline-start:auto; }
+/* What went wrong, said in the window: the chat where the app says it is underneath. */
+.rsch-full-error{
+  flex:none; display:flex; align-items:center; gap:var(--sp-4); margin:0;
+  padding:var(--sp-3) var(--sp-7); border-block-end:1px solid var(--rule);
+  background:var(--err-wash); color:var(--err); font-size:var(--fs-2); line-height:1.5;
+}
+.rsch-full-error span{ flex:1; min-inline-size:0; overflow-wrap:anywhere; }
+.rsch-full:focus{ outline:none; }
+.rsch-full-main{ flex:1; min-block-size:0; display:flex; }
+.rsch-full-side{
+  flex:none; inline-size:min(440px, 38vw); overflow-y:auto;
+  border-inline-end:1px solid var(--rule); background:var(--panel-2);
+}
+.rsch-full-doc{ flex:1; min-inline-size:0; display:flex; overflow:hidden; }
+.rsch-reader.is-inline{
+  inline-size:100%; block-size:100%; border:0; border-radius:0; box-shadow:none; animation:none;
+}
+.rsch-away{ text-align:center; }
+.rsch-welcome{ flex:1; overflow-y:auto; padding:var(--sp-10) 48px; }
+.rsch-welcome > *{ max-inline-size:980px; margin-inline:auto; }
+.rsch-welcome h2{ font-size:22px; margin-block:var(--sp-4) var(--sp-3); color:var(--ink); }
+.rsch-welcome h3{ font-size:var(--fs-6); margin-block:var(--sp-10) var(--sp-4); color:var(--ink); }
+.rsch-welcome > p{ font-size:var(--fs-4); color:var(--mute); line-height:1.6; }
+.rsch-welcome-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:var(--sp-5); margin-block-start:var(--sp-8); }
+.rsch-welcome-grid .rsch-card{ cursor:default; }
+.rsch-welcome .rsch-docs{ padding:0; }
+
+/* ── paper, for the print dialog and a PDF ──
+   Kept out of the screen entirely; while printing, everything else in the
+   page is hidden and this is all the dialog sees. */
+#rsch-print{ display:none; }
+@media print{
+  @page{ size:A4; margin:2.5cm; }
+  :root.rsch-printing body > *:not(#rsch-print){ display:none !important; }
+  :root.rsch-printing #rsch-print{ display:block; }
+  :root.rsch-printing body{ background:#fff; }
+  /* Paper is white in every theme: the dark theme's tokens would print its
+     light ink on white — footnotes that vanish — and its dark panels behind
+     the table headers. */
+  #rsch-print{
+    color-scheme:light;
+    --ink:#000; --mute:#444; --brand:#000; --rule:#bbb; --rule-2:#888; --panel:#fff; --panel-2:#eee; --panel-3:#f5f5f5;
+  }
+  #rsch-print .rsch-page{ overflow:visible; padding:0; color:#000; font-size:14pt; line-height:1.8; }
+  #rsch-print .rsch-page > *{ max-inline-size:none; }
+  #rsch-print .rsch-cover{ break-after:page; border:0; min-block-size:24cm; }
+  #rsch-print .rsch-front{ break-after:page; border:0; }
+  #rsch-print .rsch-part-head > :first-child{ break-after:avoid; }
+  #rsch-print .rsch-refs{ break-before:page; }
+  /* The yellow says which gaps are the researcher's; a default print drops backgrounds. */
+  #rsch-print .rsch-hole, #rsch-print .rsch-table th{ -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  #rsch-print .rsch-hole{ background:#fff3b0; }
+  #rsch-print .rsch-fn{ color:#000; }
+  #rsch-print .rsch-notes{ font-size:11pt; }
 }

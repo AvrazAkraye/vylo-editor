@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.105.0.
+version 0.106.0.
 
 ---
 
@@ -211,10 +211,14 @@ DOI.
 
 The writing itself is model requests like any other (`app/src/generate.ts`, the
 row above). The plan, the outline, each section and the abstract go to the
-gateway, or to the provider whose model you chose, exactly as a chat turn does,
-under the same rule: that one's key and no other. They carry your request, your
-notes and data, the outline, the text written so far, and the records of the
-references found.
+model you chose for that document in the panel — the composer's, unless you
+chose another — resolved by the same `route` the composer uses: the gateway, or
+one of your providers, under the same rule, that one's key and no other. With
+several writers, several of those requests are in flight at once. They carry
+your request, your notes and data, the text of the data files you attached, the
+outline, the text written so far, and the records of the references found. A
+PDF you attach as data is sent once to that same model, to be transcribed, and
+what comes back is kept as the file's text.
 
 **The eleventh is WhatsApp, and it goes where you send it.** Every request is
 built in one place, `app/src/whatsappwire.ts`, from an Evolution API instance
@@ -450,6 +454,10 @@ item, and every one of them is absent from the tool schema below:
   exactly the document the panel was showing you. It refuses a name that does
   not end in .docx and bytes that do not begin as a ZIP archive does, and it
   creates no folders.
+- `print_page` writes nothing. It opens the operating system's print dialog on
+  the window, after the Research panel has put a print view of the document you
+  were shown into the page, with everything else in it hidden from print. A PDF
+  exists only if you choose to save one in that dialog, where you choose.
 - `history_restore`, `checkpoint_restore`, `checkpoint_redo` — putting a file
   back to a version this app already recorded, from the File History panel or an
   undo button.
@@ -469,7 +477,7 @@ everything:  write_file   edit_file   run_command   remember
 
 `apply_write` is not among them. Neither are `create_file`, `create_dir`,
 `rename_path`, `delete_path`, `git_create_branch`, `git_commit`, `export_write`,
-`export_write_docx`, `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
+`export_write_docx`, `print_page`, `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
 `history_forget_all`, `checkpoint_save`, `checkpoint_restore`, `checkpoint_redo`,
 `store_sizes`, `store_empty`,
 `capture_screenshot`, `set_global_shortcut`, `watch_start`, `watch_stop`,
@@ -506,12 +514,14 @@ refuses anything that does not start with the root — so `..` and symlinks
 *resolve* rather than being pattern-matched, and a file that does not exist yet
 is checked through its parent.
 
-There are **four** deliberate exceptions, and what they have in common is that
-the path is one you chose rather than one the model supplied. `read_image` and
-`read_text_attachment` read a file you dragged in or picked — both say so in
-their doc comments in `lib.rs`. `export_write` and `export_write_docx` *write*
-to an absolute path, which is the save panel's. All four are absent from the
-tool schema, so no tool call reaches any of them however the model is prompted.
+There are **six** deliberate exceptions, and what they have in common is that
+the path is one you chose rather than one the model supplied. `read_image`,
+`read_text_attachment`, `read_document` and `read_any_file` read a file you
+dragged in or picked — each says so in its doc comment in `lib.rs`; the
+Research panel's data files come through the last three. `export_write` and
+`export_write_docx` *write* to an absolute path, which is the save panel's. All
+six are absent from the tool schema, so no tool call reaches any of them however
+the model is prompted.
 
 **Size limits.** The agent will not read a file over 512 KB. The editor shows
 the first 2 MB of a larger file and goes read-only, because saving a buffer that
@@ -677,16 +687,19 @@ clothes.
 
 **Research documents are not one of them either.** So that a thesis written
 over weeks survives closing the panel or the app, each document's draft — the
-request, your notes and data, a copy of the cover details, the outline, the
-text written so far and the references found — is
+request, your notes and data, the text of your data files, a copy of the cover
+details, the outline, the text written so far and the references found — is
 kept in the webview's IndexedDB, in a database named `vylo-research`, on this
 machine (`app/src/researchstore.ts`). Deleting a document in the panel deletes
 it there. The cover details a researcher fills in once — name, supervisor,
 university and the like — are kept in `localStorage` under
 `vylo.research.profile.v1` (`PROFILE_KEY` in `app/src/research.ts`).
-A university logo, if you add one, is a picture you choose yourself with the
-system's file picker; it is kept in `localStorage` under `vylo.research.logo.v1`,
-and in each document it was put on.
+University logos, if you add them, are pictures you choose yourself with the
+system's file picker; they are kept in `localStorage` under
+`vylo.research.logo.v1`, one for each university and eight at most, the oldest
+dropped first (`LOGO_LIBRARY`), and in each document one was put on. Data files you attach are chosen with the file picker too, and
+`app/src/researchdata.ts` unpacks a Word or Excel file in the page; only the
+text read out of them is kept, in the document's draft.
 
 Chats, settings, your gateway key, your session token, which MCP servers you
 enabled, any model providers you added, the clipboard history, the terminal
@@ -743,7 +756,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.105.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.106.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -768,6 +781,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.105.0. Every statement above was read out of the code. If
+*Last checked against 0.106.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

@@ -15,15 +15,28 @@
  * sleep, credit runs out, a provider has a bad afternoon. So the document
  * carries where it is — its `stage`, and a state on every section — and `run`
  * starts from that rather than from the beginning. Everything worth paying for
- * is saved the moment it exists, so the most a failure costs is the section
- * that was being written when it happened.
+ * is saved the moment it exists, so the most a failure costs is the sections
+ * that were being written when it happened.
  *
- * Stopping and failing are different things. Pressing Stop puts the section
- * being written back the way it was and lets the `AbortError` through, because
- * nothing went wrong. A model that errors marks its section failed, says why
- * on the document, and ends the run there: writing chapter five after chapter
- * four failed would hand chapter five an ending to continue from that is not
- * there.
+ * Stopping and failing are different things. Pressing Stop puts the sections
+ * being written back the way they were and lets the `AbortError` through,
+ * because nothing went wrong. A model that errors marks its section failed,
+ * says why on the document, and starts nothing after it: writing chapter five
+ * after chapter four failed would hand chapter five an ending to continue from
+ * that is not there.
+ *
+ * ## Several writers, one document
+ *
+ * Forty sections one after another is the best part of an hour; the
+ * researcher can ask for up to eight writers at once (`agentsOf`). Each takes
+ * the next part in outline order when it is free, so the document still fills
+ * from the front. They share one document and nothing else: a writer that
+ * finishes puts its part into the document as it is at that moment, never into
+ * the copy it started from, which is missing whatever the others finished
+ * since. Each writer is told the others exist, or every part would open by
+ * introducing the whole topic again; and it is handed the end of the part
+ * before it only when that part is written — one still being written has no
+ * end yet. One writer is the run as it always was.
  *
  * ## The model's reply is read, never trusted
  *
@@ -74,7 +87,7 @@
 
 import type { Doc, Section, Source, Stage } from './research';
 import {
-  abstractPrompt, citable, continuePrompt, kindOf, outlinePrompt, planPrompt, screenPrompt, sectionPrompt,
+  abstractPrompt, agentsOf, citable, continuePrompt, kindOf, outlinePrompt, planPrompt, screenPrompt, sectionPrompt,
   systemFor, targetSources, targetWords, tokensFor,
 } from './research';
 import { markerPieces } from './prose';
@@ -115,10 +128,14 @@ export interface Deps {
 }
 
 /**
- * What the run is doing, for the panel. `index` is the section being written,
- * `live` its text as it streams in (not yet cleaned), and `note` something the
- * researcher should know that did not stop the run, as a code the panel words
- * in the researcher's language:
+ * What the run is doing, for the panel. `writers` is every section being
+ * written right now, in outline order: which writer has it (from 1), and its
+ * text as it streams in (not yet cleaned) — present, and empty between parts,
+ * whenever sections are being written. `index` and `live` are the first of
+ * them, so a panel that shows one part at a time shows what it always did;
+ * with no writer at work, `index` is the section just finished or put back.
+ * `note` is something the researcher should know that did not stop the run,
+ * as a code the panel words in the researcher's language:
  *
  * - `plan-unreadable`: the plan's reply could not be read twice, so the
  *   request itself is the title. It is not a search (see `no-queries`, which
@@ -136,6 +153,7 @@ export interface Progress {
   stage: Stage;
   index?: number;
   live?: string;
+  writers?: { agent: number; index: number; live: string }[];
   note?: { code: 'plan-unreadable' | 'no-queries' | 'search-partial' | 'search-failed'; failed?: number; of?: number; detail?: string };
 }
 
@@ -206,8 +224,10 @@ export const EMPTY_SECTION = 'The model returned no text for this part.';
  *
  * Resumes from `doc.stage`: a new document is planned, one stopped in the
  * middle of its sections carries on with the first section that is not
- * written. Returns the document as it ended up — with `error` set when a step
- * failed — and rejects only when `signal` stops it. `stopBefore: 'writing'`
+ * written, by as many writers as it asks for; the abstract is written once
+ * every writer has finished. Returns the document as it ended up — with
+ * `error` set when a step failed — and rejects only when `signal` stops it.
+ * `stopBefore: 'writing'`
  * ends the run once the sources and the outline are there, for the researcher
  * to look at them before anything is written.
  */
@@ -244,7 +264,14 @@ export async function rewrite(doc: Doc, index: number, redo: string, deps: Deps,
   if (!sec || sec.state === 'author') return doc;
   const current = sec.text.trim();
   const extra = { redo: (typeof redo === 'string' ? redo : '').trim() || undefined, current: current || undefined };
-  return settle(c, await writeSection(c, doc, index, extra, sec));
+  const desk: Desk = { doc, writers: new Map() };
+  try {
+    await writeSection(c, desk, index, 1, extra, sec);
+  } catch (e) {
+    if (isAbort(e, c.signal)) putBack(c, desk);
+    throw e;
+  }
+  return settle(c, desk.doc);
 }
 
 /**
@@ -369,61 +396,196 @@ async function outlineStep(c: Ctx, d: Doc): Promise<Doc> {
 }
 
 /**
- * Every section not yet written, in order. A heading with no words of its own
- * and subsections under it is done without a call — there is nothing to write.
- * One with no words and nothing under it is written all the same, at a
- * floor of `MIN_WORDS` (see `writeSection`).
- * A section left `writing` by a run that never finished (the app closed) is
- * written again, since nothing can still be writing it.
+ * Every section not yet written, by as many writers as the document asks for
+ * (`agentsOf`), each taking the next part in outline order as soon as it is
+ * free. A heading with no words of its own and subsections under it is done
+ * without a call — there is nothing to write. One with no words and nothing
+ * under it is written all the same, at a floor of `MIN_WORDS` (see
+ * `writeSection`). A section left `writing` by a run that never finished (the
+ * app closed) is written again, since nothing can still be writing it.
+ *
+ * A part that fails starts nothing new, but the parts the other writers have
+ * in hand are finished and kept: they are paid for, and none of them was
+ * waiting on the one that failed. A stop waits for every writer to let go,
+ * then puts all their parts back at once — one save, one view — and rejects
+ * once.
  */
 async function writingStep(c: Ctx, doc: Doc): Promise<Doc> {
-  let d = doc;
-  for (let i = 0; i < d.sections.length; i++) {
-    const s = d.sections[i];
-    if (s.state === 'done' || s.state === 'author') continue;
-    if (s.words <= 0 && (d.sections[i + 1]?.level ?? 0) > s.level) {
-      d = keep(c, withSection(c, d, i, { ...withoutError(s), state: 'done' }), { stage: d.stage, index: i });
-      continue;
+  const desk: Desk = { doc, writers: new Map() };
+  const agents = agentsOf(doc);
+  // Said only when it is so: one writer writes each part after the one before.
+  const extra: Extra = agents > 1 ? { parallel: true } : {};
+  let next = 0;
+  let halted = false;
+  let stopped: unknown;
+  let broke: { error: unknown } | undefined;
+
+  /** The next part that needs a writer, in outline order; -1 when none is left or nothing new may start. */
+  const claim = (): number => {
+    while (!halted && next < desk.doc.sections.length) {
+      const i = next++;
+      const s = desk.doc.sections[i];
+      if (s.state === 'done' || s.state === 'author') continue;
+      if (s.words <= 0 && (desk.doc.sections[i + 1]?.level ?? 0) > s.level) {
+        desk.doc = withSection(c, desk.doc, i, { ...withoutError(s), state: 'done' });
+        desk.shown = undefined;
+        keepDesk(c, desk, i);
+        continue;
+      }
+      return i;
     }
-    d = await writeSection(c, d, i, {}, { ...withoutError(s), state: 'waiting' });
-    if (d.error) return d;
+    return -1;
+  };
+
+  // A writer never rejects: what stopped it is kept here and dealt with once
+  // they have all let go, so a stop is put back and thrown once, not once a writer.
+  const writer = async (agent: number): Promise<void> => {
+    try {
+      for (let i = claim(); i !== -1; i = claim()) {
+        const restore: Section = { ...withoutError(desk.doc.sections[i]), state: 'waiting' };
+        if (!(await writeSection(c, desk, i, agent, extra, restore))) halted = true;
+      }
+    } catch (e) {
+      halted = true;
+      if (!isAbort(e, c.signal)) broke ??= { error: e };
+      else if (stopped === undefined) stopped = abortError(e, c.signal);
+    }
+  };
+
+  await Promise.all(Array.from({ length: agents }, (_, k) => writer(k + 1)));
+  if (stopped !== undefined) {
+    putBack(c, desk);
+    throw stopped;
   }
-  return keep(c, touch(c, d, { stage: 'abstract' }), { stage: 'abstract' });
+  if (broke) throw broke.error;
+  if (desk.doc.error !== undefined) return desk.doc;
+  return keep(c, touch(c, desk.doc, { stage: 'abstract' }), { stage: 'abstract' });
+}
+
+// ── the writers ───────────────────────────────────────────────────────────
+
+/** What a section's request carries besides the section: a rewrite's instruction and text, and whether others write at once. */
+interface Extra { redo?: string; current?: string; parallel?: boolean }
+
+/** A part being written: by which writer, how it is shown meanwhile, what a stop puts back, and its text so far. */
+interface Writer {
+  /** Which writer, from 1. */
+  agent: number;
+  index: number;
+  /** The part as the panel sees it while it is written: `writing`, with the words it was asked for. */
+  shown: Section;
+  /** What it goes back to when the run is stopped. */
+  restore: Section;
+  /** Its text as it streams in, not yet cleaned. */
+  live: string;
 }
 
 /**
- * One section, streamed, continued when it ran out of room, cleaned, and kept.
+ * What the writers share: the one document they all write into, and the parts
+ * being written right now, by index.
+ *
+ * `doc` is what is saved. A part being written stays in it as it was, and is
+ * `writing` only in what the panel is shown (`shownOf`), so no saved copy says
+ * a part is being written by a run that may be gone. Every change to `doc` is
+ * made to it as it is at that moment and runs to its end before another
+ * begins, so two writers finishing in the same tick both land.
+ */
+interface Desk {
+  doc: Doc;
+  writers: Map<number, Writer>;
+  /**
+   * `doc` with every part being written shown as writing. Built once a change
+   * and not once a streamed word, so the panel is handed the same document
+   * while only the text streaming in changes. Cleared whenever `doc` or
+   * `writers` changes.
+   */
+  shown?: Doc;
+}
+
+function shownOf(desk: Desk): Doc {
+  if (!desk.writers.size) return desk.doc;
+  desk.shown ??= { ...desk.doc, sections: desk.doc.sections.map((s, j) => desk.writers.get(j)?.shown ?? s) };
+  return desk.shown;
+}
+
+/** Where the writers are, for the panel; `index` stands when none is at work. */
+function progressOf(desk: Desk, stage: Stage, index: number): Progress {
+  const writers = [...desk.writers.values()]
+    .sort((a, b) => a.index - b.index)
+    .map((w) => ({ agent: w.agent, index: w.index, live: w.live }));
+  const first = writers[0];
+  return first ? { stage: 'writing', index: first.index, live: first.live, writers } : { stage, index, writers };
+}
+
+/** The desk's document saved, and the panel shown it. */
+function keepDesk(c: Ctx, desk: Desk, index: number): void {
+  c.deps.save(desk.doc);
+  show(c, shownOf(desk), progressOf(desk, desk.doc.stage, index));
+}
+
+/**
+ * Where a part is in the document now, by its id: at the index its writer was
+ * given, unless another part has that id there. Nothing reorders the sections
+ * while a run holds them, so this is the index; but a part is put back by what
+ * it is, not by where it was.
+ */
+function placeOf(d: Doc, i: number, id: string): number {
+  return d.sections[i]?.id === id ? i : d.sections.findIndex((s) => s.id === id);
+}
+
+/** Every part still being written put back as it was, saved once and shown once: what a stop leaves. */
+function putBack(c: Ctx, desk: Desk): void {
+  const writers = [...desk.writers.values()].sort((a, b) => a.index - b.index);
+  if (!writers.length) return;
+  const back = new Map(writers.map((w) => [placeOf(desk.doc, w.index, w.restore.id), w.restore]));
+  desk.writers.clear();
+  desk.shown = undefined;
+  desk.doc = touch(c, desk.doc, { sections: desk.doc.sections.map((s, j) => back.get(j) ?? s) });
+  c.deps.save(desk.doc);
+  show(c, desk.doc, progressOf(desk, 'writing', writers[0].index));
+}
+
+/**
+ * One section, streamed, continued when it ran out of room, cleaned, and put
+ * into the desk's document by writer `agent`. Resolves to whether it was
+ * written; when it was not, the section and the document say why.
  *
  * `restore` is what the section goes back to when the run is stopped: waiting
  * for a run, and exactly what it was for a rewrite, so stopping a rewrite never
- * costs the text that was there. On any other failure the text that was there
- * stays too, and the section says why it failed.
+ * costs the text that was there. A stop rejects with the `AbortError` and
+ * leaves the part among the desk's writers, for the caller to put back with
+ * the others (`putBack`). On any other failure the text that was there stays,
+ * and the section says why it failed.
  */
-async function writeSection(c: Ctx, d: Doc, i: number, extra: { redo?: string; current?: string }, restore: Section): Promise<Doc> {
+async function writeSection(c: Ctx, desk: Desk, i: number, agent: number, extra: Extra, restore: Section): Promise<boolean> {
   stopIfAborted(c.signal);
-  const before = d.sections[i];
+  const before = desk.doc.sections[i];
   // What the model is asked to write. Only the request gets the floor; the
   // outline keeps the number the researcher left there.
-  const hasChildren = (d.sections[i + 1]?.level ?? 0) > before.level;
+  const hasChildren = (desk.doc.sections[i + 1]?.level ?? 0) > before.level;
   const asked = before.words > 0 || hasChildren ? before : { ...before, words: MIN_WORDS };
-  const busy = withSection(c, d, i, { ...withoutError(asked), state: 'writing' });
-  show(c, busy, { stage: 'writing', index: i, live: '' });
-  const maxTokens = tokensFor(asked.words, d.lang);
+  const previous = previousOf(desk, i);
+  const w: Writer = { agent, index: i, shown: { ...withoutError(asked), state: 'writing' }, restore, live: '' };
+  desk.writers.set(i, w);
+  desk.shown = undefined;
+  const busy = shownOf(desk);
+  const say = (live: string) => {
+    w.live = live;
+    show(c, shownOf(desk), progressOf(desk, 'writing', i));
+  };
+  say('');
+  const maxTokens = tokensFor(asked.words, busy.lang);
   let text = '';
+  let error: string | undefined;
   try {
     // A restart is the transport asking again from nothing after a broken
     // stream. What was shown of the first attempt goes, or the panel would
-    // print the answer twice, the broken copy above the whole one.
+    // print the answer twice, the broken copy above the whole one. Only this
+    // writer's text goes: the others' streams were not broken.
     let live = '';
-    const first = await ask(c, busy, sectionPrompt(busy, i, { previous: previousOf(d, i), ...extra }), maxTokens, {
-      onText: (delta) => {
-        live += delta;
-        show(c, busy, { stage: 'writing', index: i, live });
-      },
-      onRestart: () => {
-        live = '';
-        show(c, busy, { stage: 'writing', index: i, live });
-      },
+    const first = await ask(c, busy, sectionPrompt(busy, i, { previous, ...extra }), maxTokens, {
+      onText: (delta) => say((live += delta)),
+      onRestart: () => say((live = '')),
     });
     text = first.text ?? '';
     let stop = first.stopReason;
@@ -432,36 +594,33 @@ async function writeSection(c: Ctx, d: Doc, i: number, extra: { redo?: string; c
       let more = '';
       // Only the continuation starts again: the text before it was kept. A
       // rewrite's instruction and current text go with it, or the second half
-      // is written to the old brief.
+      // is written to the old brief; so does the word that others write at once.
       const next = await ask(c, busy, continuePrompt(busy, i, base, extra), maxTokens, {
-        onText: (delta) => {
-          more += delta;
-          show(c, busy, { stage: 'writing', index: i, live: base + more });
-        },
-        onRestart: () => {
-          more = '';
-          show(c, busy, { stage: 'writing', index: i, live: base });
-        },
+        onText: (delta) => say(base + (more += delta)),
+        onRestart: () => say(base + (more = '')),
       });
       text = joined(base, next.text ?? '');
       stop = next.stopReason;
     }
   } catch (e) {
-    if (isAbort(e, c.signal)) {
-      keep(c, withSection(c, d, i, restore), { stage: 'writing', index: i });
-      throw abortError(e, c.signal);
-    }
-    return failSection(c, d, i, messageOf(e));
+    if (isAbort(e, c.signal)) throw abortError(e, c.signal);
+    error = messageOf(e);
   }
-  const clean = cleanSection(text, before.heading, new Set(citable(d.sources).map((s) => s.key)));
-  if (!clean) return failSection(c, d, i, EMPTY_SECTION);
-  return keep(c, withSection(c, d, i, { ...withoutError(before), text: clean, state: 'done' }), { stage: d.stage, index: i });
-}
-
-function failSection(c: Ctx, d: Doc, i: number, message: string): Doc {
-  const sec = d.sections[i];
-  const next = withSection(c, d, i, { ...sec, state: 'failed', error: message });
-  return keep(c, { ...next, error: message }, { stage: d.stage, index: i });
+  // Into the document as it is now, which may hold parts other writers
+  // finished while this one was being written.
+  const clean = error === undefined ? cleanSection(text, before.heading, new Set(citable(desk.doc.sources).map((s) => s.key))) : '';
+  desk.writers.delete(i);
+  desk.shown = undefined;
+  const at = placeOf(desk.doc, i, before.id);
+  const sec = desk.doc.sections[at];
+  if (clean) {
+    desk.doc = withSection(c, desk.doc, at, { ...withoutError(sec), text: clean, state: 'done' });
+  } else {
+    const message = error ?? EMPTY_SECTION;
+    desk.doc = { ...withSection(c, desk.doc, at, { ...sec, state: 'failed', error: message }), error: message };
+  }
+  keepDesk(c, desk, i);
+  return clean !== '';
 }
 
 /**
@@ -581,10 +740,17 @@ function stopIfAborted(signal?: AbortSignal): void {
 
 // ── sections, in and out ──────────────────────────────────────────────────
 
-/** The end of the nearest section before `i` that has any text, starting at a word. */
-function previousOf(d: Doc, i: number): string | undefined {
+/**
+ * The end of the nearest section before `i` that has any text, starting at a
+ * word — past headings with none of their own. None when the part before is
+ * being written right now: it has no end yet, and the end of the part before
+ * that, handed on as "the part before", would have this one write the bridge
+ * the other writer is writing.
+ */
+function previousOf(desk: Desk, i: number): string | undefined {
   for (let j = i - 1; j >= 0; j--) {
-    const t = d.sections[j].text.trim();
+    if (desk.writers.has(j)) return undefined;
+    const t = desk.doc.sections[j].text.trim();
     if (!t) continue;
     if (t.length <= PREVIOUS_CHARS) return t;
     const tail = t.slice(-PREVIOUS_CHARS);

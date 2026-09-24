@@ -957,5 +957,13 @@ const twice = (s, lang = 'ar', first = '', later = '', sources = FN) =>
   ok('2500 random records × 6 styles × 4 languages, and in footnotes first, later and paired notes: no "undefined", no empty or doubled punctuation', bad === 0, sample);
 }
 
+// A title with the Unicode hyphens most fonts cannot draw prints a plain one.
+{
+  const doc = { style: 'apa', lang: 'en', sections: [{ id: 'h', level: 1, heading: 'x', brief: '', words: 1, sources: [], text: 'a [@s1]', state: 'done' }],
+    sources: [{ key: 's1', title: 'Utilization of e\u2011government services', authors: [{ family: 'Carter', given: 'L.' }], year: 2005, type: 'article', origin: 'openalex', verified: true, use: true }] };
+  const entry = referenceList(citeContext(doc))[0].entries[0].runs.map((r) => r.text).join('');
+  ok('a non-breaking hyphen in a title prints as a hyphen', entry.includes('e-government') && !/[\u2010\u2011]/.test(entry), entry);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

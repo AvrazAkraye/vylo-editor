@@ -71,6 +71,10 @@ const ABSENT = [
   // it. Its guards (.docx only, zip bytes only, 32 MB) narrow what it can
   // write; they do not make it a tool.
   'export_write_docx',
+  // Opens the system print dialog on the window, for a Research document's
+  // PDF. It writes nothing itself, but a model that could open dialogs on the
+  // person's screen would be reaching outside the app, which no tool does.
+  'print_page',
   // The file operations and the git writes. These have been absent from the
   // schema since G1 and M-whatever respectively, and until now they were absent
   // by nobody's decision — no test said they had to be. `create_file`'s own doc

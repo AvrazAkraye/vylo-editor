@@ -12,6 +12,7 @@ import {
   abstractPrompt, bylineOf, citable, continuePrompt, detect, docLangOf, hijriYear, kindOf, localDigits,
   newDoc, outlinePrompt, planPrompt, readProfile, screenPrompt, sectionPrompt, sourceLine, statementOf, styleIn, systemFor,
   targetSources, targetWords, tokensFor, yearsOf,
+  LIMITS, LOGO_KEY, LOGO_LIBRARY, UNIVERSITIES, DATA_BUDGET, agentsOf, clampTo, dataBlock, logoFor, pagesFor, readLogos, withLogo,
 } from '../.test-build/research.js';
 import { fold } from '../.test-build/settings.js';
 
@@ -84,7 +85,7 @@ for (const k of KINDS) {
   }
   ok('no trigger belongs to two kinds', shared.length === 0, shared);
 }
-ok('the kinds are the seven skills', KINDS.map((k) => k.id).join() === 'working-paper,article,review,proposal,graduation,masters,phd');
+ok('the kinds are the eight skills', KINDS.map((k) => k.id).join() === 'working-paper,article,conference,review,proposal,graduation,masters,phd');
 ok('an unknown kind falls back rather than throwing', kindOf('nope').id === 'working-paper');
 ok('theses have chapters and papers do not',
    kindOf('masters').chapters && kindOf('phd').chapters && !kindOf('working-paper').chapters && !kindOf('article').chapters);
@@ -321,6 +322,83 @@ const SEPT = Date.UTC(2026, 8, 23);
   ok('and asks for the markers to keep, as JSON', p.includes('{ "keep": ['));
   ok('and says why a shared word is not enough', /merely share a word/.test(p));
 }
+
+// ── the researcher's own numbers ──────────────────────────────────────────
+{
+  ok('a number typed is a number inside its limits', clampTo('12,000', LIMITS.words) === 12000);
+  ok('in Arabic-Indic digits too', clampTo('٨٠٠٠', LIMITS.words) === 8000);
+  ok('too few words is brought up to the least', clampTo(10, LIMITS.words) === LIMITS.words.min);
+  ok('too many is brought down', clampTo(10_000_000, LIMITS.words) === LIMITS.words.max);
+  ok('nothing typed is not a number', clampTo('', LIMITS.words) === null && clampTo('abc', LIMITS.words) === null);
+  ok('the words set win over the kind’s length', targetWords({ kind: 'masters', length: 'short', words: 30000 }) === 30000);
+  ok('no words set is the kind’s length', targetWords({ kind: 'masters', length: 'long' }) === 40000);
+  ok('sources set win, and zero is a choice', targetSources({ kind: 'phd', length: 'standard', sourcesWanted: 0 }) === 0
+     && targetSources({ kind: 'phd', length: 'standard', sourcesWanted: 35 }) === 35);
+  ok('writers are one to eight', agentsOf({}) === 1 && agentsOf({ agents: 4 }) === 4 && agentsOf({ agents: 40 }) === 8 && agentsOf({ agents: 0 }) === 1);
+  ok('pages are counted the way the Word file sets them', pagesFor(2500, 'ar') === 10 && pagesFor(3000, 'en') === 10 && pagesFor(10, 'ar') === 1);
+}
+
+// ── the researcher's data files ───────────────────────────────────────────
+{
+  const file = (id, text, extra = {}) => ({ id, name: `${id}.csv`, kind: 'table', text, bytes: text.length, truncated: false, ...extra });
+  ok('no files is nothing', dataBlock([], 1000) === '' && dataBlock(undefined, 1000) === '');
+  const two = dataBlock([file('a', 'x'.repeat(100)), file('b', 'y'.repeat(5000))], 1000);
+  ok('a small file is never cut to make room for a large one', two.includes('x'.repeat(100)) && !two.includes('--- a.csv (only'));
+  ok('a large one is cut, and says so', two.includes('--- b.csv (only its beginning is shown here)'));
+  ok('the whole fits the budget', two.length < 1400);
+  ok('a file already cut when read says so even when it fits', dataBlock([file('c', 'z', { truncated: true })], 1000).includes('only its beginning'));
+  ok('the model is told the data is the only data', /only data this document may report/.test(dataBlock([file('a', '1,2')], 100)));
+  const withFiles = { ...doc, files: [file('survey', 'q1\t4.2\nq2\t3.9')] };
+  ok('the plan, the outline and each part see the files',
+     planPrompt(withFiles).includes('q1\t4.2') && outlinePrompt(withFiles).includes('q1\t4.2') && sectionPrompt(withFiles, 1).includes('q1\t4.2'));
+  ok('the outline is told to plan results around them', outlinePrompt(withFiles).includes('around the data files'));
+  ok('each request carries no more than its budget',
+     sectionPrompt({ ...doc, files: [file('big', 'w'.repeat(200_000))] }, 1).length < DATA_BUDGET.section + 12_000);
+}
+
+// ── several writers at once ───────────────────────────────────────────────
+ok('a part written beside others is told so', sectionPrompt(doc, 1, { parallel: true }).includes('at the same time'));
+ok('a part written alone is not', !sectionPrompt(doc, 1).includes('at the same time'));
+
+// ── universities and their logos ──────────────────────────────────────────
+{
+  const PNG = 'data:image/png;base64,AAAA';
+  const JPG = 'data:image/jpeg;base64,BBBB';
+  ok('the logos are kept under a versioned key', LOGO_KEY === 'vylo.research.logo.v1');
+  ok('a logo saved by the first version stays with the university the profile named', logoFor(readLogos(PNG, 'جامعة دهوك'), 'جامعه دهوك') === PNG);
+  ok('with no university named, it is the one for covers that name none', logoFor(readLogos(PNG), '') === PNG);
+  const kept = withLogo(withLogo({}, '', PNG), 'جامعة دهوك', JPG);
+  ok('a university has its own logo', logoFor(kept, 'جامعة دهوك') === JPG);
+  ok('the name is matched through the fold', logoFor(kept, 'جامعه دهوك') === JPG);
+  ok('another university gets no logo, not somebody else’s', logoFor(kept, 'جامعة الموصل') === '');
+  ok('a cover naming no university gets the general one', logoFor(kept, '  ') === PNG);
+  ok('a logo is taken away', logoFor(withLogo(kept, 'جامعة دهوك', ''), 'جامعة دهوك') === '' && logoFor(withLogo(kept, 'جامعة دهوك', ''), '') === PNG);
+  ok('they survive storage', logoFor(readLogos(JSON.stringify(kept)), 'جامعة دهوك') === JPG);
+  {
+    let lib = {};
+    for (let i = 0; i < LOGO_LIBRARY.count + 3; i++) lib = withLogo(lib, `U${i}`, PNG);
+    ok('the library keeps the newest logos up to its count', Object.keys(lib).length === LOGO_LIBRARY.count && logoFor(lib, `U${LOGO_LIBRARY.count + 2}`) === PNG && logoFor(lib, 'U0') === '');
+    const big = 'data:image/png;base64,' + 'A'.repeat(700_000);
+    let heavy = withLogo(withLogo({}, 'A', big), 'B', big);
+    heavy = withLogo(heavy, 'C', big);
+    ok('and up to its weight, dropping the oldest', !logoFor(heavy, 'A') && logoFor(heavy, 'B') === big && logoFor(heavy, 'C') === big);
+    ok('setting one again makes it the newest', Object.values(withLogo(withLogo(withLogo({}, 'A', PNG), 'B', PNG), 'A', JPG)).pop() === JPG);
+    const one = withLogo({}, 'X', 'data:image/png;base64,' + 'A'.repeat(2_000_000));
+    ok('the one just set is never the one dropped', Object.keys(one).length === 1);
+  }
+  ok('storage that is not ours is nothing', JSON.stringify(readLogos('{nope')) === '{}' && JSON.stringify(readLogos(JSON.stringify({ a: 'javascript:x' }))) === '{}');
+  ok('the university list has Iraq’s and the Kurdistan Region’s, in Arabic, Kurdish and English',
+     UNIVERSITIES.includes('جامعة بغداد') && UNIVERSITIES.includes('زانکۆی دهۆک') && UNIVERSITIES.includes('University of Duhok')
+     && new Set(UNIVERSITIES).size === UNIVERSITIES.length);
+}
+
+// ── the conference paper ──────────────────────────────────────────────────
+ok('بحث مؤتمر is a conference paper', kind('بحث مؤتمر عن الطاقة المتجددة') === 'conference');
+ok('and so is a paper presented to a conference', kind('بحث مقدم إلى مؤتمر كلية القانون') === 'conference');
+ok('a working paper presented to a conference is still a working paper', kind('ورقة عمل مقدمة إلى مؤتمر') === 'working-paper');
+ok('Kurdish and English name it too', kind('توێژینەوەی کۆنفرانس') === 'conference' && kind('a conference paper on water') === 'conference');
+ok('its statement names the conference',
+   statementOf({ kind: 'conference', lang: 'ar', meta: { ...EMPTY_META, venue: 'المؤتمر العلمي الدولي الثالث' } }) === 'بحث مقدم إلى المؤتمر العلمي الدولي الثالث');
 
 // ── every skill name reaches all three languages ──────────────────────────
 // They are passed to t() from a table, which the catalogue scanner cannot see.

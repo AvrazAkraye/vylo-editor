@@ -142,7 +142,7 @@ try {
      same(wire, ['list_tree', 'read_file', 'find_symbol', 'search', 'write_file', 'edit_file', 'run_command', 'remember']),
      wire);
   ok('and it is the same list the module exports', same(wire, TOOLS.map((t) => t.name)), wire);
-  for (const absent of ['apply_write', 'pty_open', 'pty_write', 'pty_close', 'mcp_call', 'export_write', 'export_write_docx', 'delete_path', 'git_commit']) {
+  for (const absent of ['apply_write', 'pty_open', 'pty_write', 'pty_close', 'mcp_call', 'export_write', 'export_write_docx', 'print_page', 'delete_path', 'git_commit']) {
     ok(`${absent} never reaches the wire`, !wire.includes(absent));
   }
 

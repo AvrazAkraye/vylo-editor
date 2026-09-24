@@ -11,6 +11,10 @@
 // larger than the model allows, and the agent loop's sentences when it fails,
 // so errors.ts gives the same advice.
 //
+// Third: a PDF the researcher attached goes as content blocks on the wire that
+// carries them, and is refused before any request on the wire that does not —
+// a transcription of a file the model never saw would be stored as data.
+//
 // The gateway is a function. `fetch` is handed a queue of real `Response`
 // objects with real streamed bodies, and each test reads back the requests that
 // were actually sent.
@@ -238,6 +242,58 @@ const ASK = { system: 'You are an academic writer.', user: 'اكتب المقد�
   const out = await generate({ ...OAI, model: 'gpt-5' }, { ...ASK });
   ok('"stop" is end_turn', out.stopReason === 'end_turn', out.stopReason);
   ok('one request, one answer', sent.length === 1);
+}
+
+// ── a PDF: content blocks, and the wire that cannot carry one ─────────────
+// A transcription is stored as the researcher's data. On a wire with no
+// document block the model would transcribe a file it never saw, so the
+// request is refused before it is made — not sent with a note in its place.
+const PDF_BLOCKS = [
+  { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0xLjcKJeLjz9MK' } },
+  { type: 'text', text: 'Transcribe the attached file.' },
+];
+const NO_PDF = 'This provider cannot read a PDF. Save the PDF as text or as a Word file, and attach that.';
+{
+  const sent = gateway([sse(turn(['| Group | Mean |']))]);
+  const out = await generate(GW, { ...ASK, user: PDF_BLOCKS });
+  ok('on the Anthropic wire the blocks are the user message, exactly as given',
+     JSON.stringify(sent[0].body.messages) === JSON.stringify([{ role: 'user', content: PDF_BLOCKS }]), sent[0].body.messages);
+  ok('the system prompt still travels beside them', sent[0].body.system === ASK.system, sent[0].body.system);
+  ok('and the answer is the text, as with a string', out.text === '| Group | Mean |', out.text);
+}
+{
+  const sent = gateway([refusal(529, 'Overloaded'), sse(turn(['ok']))]);
+  await generate(GW, { ...ASK, user: PDF_BLOCKS });
+  ok('a retry sends the same blocks again', sent.length === 2 && JSON.stringify(sent[1].body) === JSON.stringify(sent[0].body), sent.length);
+}
+{
+  const sent = gateway([sse(oaiTurn(['never']))]);
+  const r = recorder();
+  const e = await caught(generate(OAI, { ...ASK, user: PDF_BLOCKS, ...r.hooks }));
+  ok('the OpenAI wire refuses a PDF before any request', sent.length === 0, sent.length);
+  ok('with the sentence that says what to attach instead', e?.message === NO_PDF, e?.message);
+  ok('as a plain Error, not a stop', e instanceof Error && e.name === 'Error', e?.name);
+  ok('and nothing was retried', r.retries().length === 0, r.log);
+}
+{
+  // The same refusal whatever order the blocks come in, and alone.
+  const sent = gateway([sse(oaiTurn(['never'])), sse(oaiTurn(['never']))]);
+  const a = await caught(generate(OAI, { ...ASK, user: [...PDF_BLOCKS].reverse() }));
+  const b = await caught(generate(OAI, { ...ASK, user: [PDF_BLOCKS[0]] }));
+  ok('a PDF after the text, or on its own, is refused just the same',
+     sent.length === 0 && a?.message === NO_PDF && b?.message === NO_PDF, [sent.length, a?.message, b?.message]);
+}
+{
+  const sent = gateway([sse(oaiTurn(['ok']))]);
+  await generate(OAI, { ...ASK, user: [{ type: 'text', text: 'The first part.' }, { type: 'text', text: '' }, { type: 'text', text: 'The second part.' }] });
+  const m = sent[0].body.messages;
+  ok('text-only blocks on the OpenAI wire become one plain string, a blank line between',
+     m.length === 2 && m[1].role === 'user' && m[1].content === 'The first part.\n\nThe second part.', m);
+}
+{
+  const sent = gateway([sse(oaiTurn(['ok']))]);
+  await generate(OAI, { ...ASK });
+  ok('a string user message on the OpenAI wire is unchanged', sent[0].body.messages[1]?.content === ASK.user, sent[0].body.messages);
 }
 
 // ── thinking is never the text ────────────────────────────────────────────

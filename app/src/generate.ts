@@ -57,6 +57,18 @@
  *
  * The errors are the agent loop's own sentences, so `errors.ts` gives the
  * same advice about a rejected key here as it does in the chat.
+ *
+ * ## A PDF is a block, and only one dialect has one
+ *
+ * The user message is usually a string. To read a PDF the researcher attached
+ * it is content blocks instead — the file as a `document` block and the words
+ * about it as `text` — which the Anthropic wire carries as they are. The
+ * OpenAI dialect has no document block, and `openai.ts` translates one into a
+ * sentence saying it was left out: right for a chat, where the person reads
+ * the answer, and wrong here, where the answer is stored as the researcher's
+ * data. A transcription of a file the model never saw is not a transcription.
+ * So a PDF on that wire is refused before anything is sent, and text-only
+ * blocks are joined into the plain string every provider accepts.
  */
 
 import { SSEDecoder, TurnAssembler } from './sse';
@@ -191,6 +203,30 @@ async function drain(
 }
 
 /**
+ * One user message: a string, or content blocks — a PDF and the words about it.
+ * The document block is the agent loop's `DocumentBlock`, spelled out so this
+ * file borrows no types from the loop it exists to stay apart from.
+ */
+type UserContent = string | Array<
+  | { type: 'text'; text: string }
+  | { type: 'document'; source: { type: 'base64'; media_type: 'application/pdf'; data: string } }
+>;
+
+/** What the OpenAI dialect says to a PDF, before any request is made. */
+const NO_PDF = 'This provider cannot read a PDF. Save the PDF as text or as a Word file, and attach that.';
+
+/**
+ * The user message as the wire carries it: blocks as given on the Anthropic
+ * wire; on the other, a refusal for a PDF and one string for text blocks,
+ * separated by a blank line as two paragraphs would be.
+ */
+function userFor(wire: Wire, user: UserContent): UserContent {
+  if (typeof user === 'string' || wire === 'anthropic') return user;
+  if (user.some((b) => b.type === 'document')) throw new Error(NO_PDF);
+  return user.map((b) => (b.type === 'text' ? b.text : '')).filter((t) => t !== '').join('\n\n');
+}
+
+/**
  * `length` is the OpenAI dialect's `max_tokens`. `openai.ts` already translates
  * it on that wire; this catches an Anthropic-shaped proxy in front of an
  * OpenAI-shaped model that relays the word unchanged. One word, whichever wire.
@@ -208,12 +244,16 @@ const stopReasonOf = (r: string | null): string | null => (r === 'length' ? 'max
  * answer again. `onRetry` reports the attempt about to be made, of how many,
  * and how long it will wait first.
  *
+ * `user` may be content blocks, to hand the model a PDF; on the OpenAI wire a
+ * PDF is refused before any request, with a sentence that says what to attach
+ * instead.
+ *
  * Throws an `AbortError` when `signal` fires, and otherwise an `Error` whose
  * message is the agent loop's for the same failure.
  */
 export async function generate(gw: Target, o: {
   system: string;
-  user: string;
+  user: UserContent;
   maxTokens?: number;
   efforts?: EffortBook;
   onText?: (delta: string) => void;
@@ -226,6 +266,8 @@ export async function generate(gw: Target, o: {
   const url = endpointFor({ baseUrl: gw.baseUrl, wire });
   const headers = headersFor({ wire, key: gw.apiKey });
   const onText = (t: string) => o.onText?.(t);
+  // Before the loop: a request that can never succeed is not sent, not even once.
+  const user = userFor(wire, o.user);
 
   // What the model has already told us about itself wins over the table.
   let learned: Learned = learnedFor(gw.model);
@@ -257,7 +299,7 @@ export async function generate(gw: Target, o: {
       model: gw.model,
       max_tokens: sentTokens,
       system: o.system,
-      messages: [{ role: 'user' as const, content: o.user }],
+      messages: [{ role: 'user' as const, content: user }],
       stream: true,
       // Spread, so a model that takes no effort gets no field at all — Haiku
       // answers the field with a 400.
