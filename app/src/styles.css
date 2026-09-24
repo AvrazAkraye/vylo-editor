@@ -5474,11 +5474,24 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   display:inline-block; inline-size:2px; block-size:1em; margin-inline-start:2px;
   vertical-align:text-bottom; background:var(--brand); animation:p 1s steps(1) infinite;
 }
+/* The line over a part being written: what its writer is doing, and for how long. */
+.rsch-part-status{
+  display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2) var(--sp-4);
+  margin:0 0 var(--sp-4); font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums;
+}
+.rsch-part-status b{ color:var(--brand); font-weight:600; }
+.rsch-part-status.is-thinking b{
+  background:linear-gradient(90deg, var(--brand) 30%, var(--ink) 50%, var(--brand) 70%);
+  background-size:200% 100%; -webkit-background-clip:text; background-clip:text; color:transparent;
+  animation:rsch-shimmer 2s linear infinite;
+}
+.rsch-glyph{ display:inline-block; color:var(--brand); font-size:1.1em; animation:rsch-spin 2.4s linear infinite; }
+.rsch-part-status.is-writing .rsch-glyph{ animation-duration:1.2s; }
 .rsch-reader-head{ position:relative; }
 .rsch-head-bar{ position:absolute; inset-block-end:-1px; inset-inline:0; block-size:2px; }
 .rsch-head-bar > i{ display:block; block-size:100%; background:var(--brand); transition:inline-size .6s ease; }
 @media (prefers-reduced-motion: reduce){
-  .rsch-bar > i::after, .rsch-spinner, .rsch-skeleton i, .rsch-caret, .rsch-log li.is-new{ animation:none; }
+  .rsch-bar > i::after, .rsch-spinner, .rsch-skeleton i, .rsch-caret, .rsch-log li.is-new, .rsch-glyph, .rsch-part-status.is-thinking b{ animation:none; }
   .rsch-bar.is-early > i{ animation:none; inset-inline-start:0; }
 }
 .rsch-toc button.is-live{ color:var(--brand); font-weight:600; }

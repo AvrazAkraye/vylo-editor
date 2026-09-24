@@ -412,6 +412,30 @@ const DONE = globalThis.DONE;
     out.sections[0].error === EMPTY_SECTION && out.error === EMPTY_SECTION);
 }
 
+// ── a pause finishes the parts in hand and starts no more ─────────────────
+{
+  const doc = makeDoc({ kind: 'proposal', lang: 'en', stage: 'writing', agents: 2,
+    sections: [sec('One'), sec('Two'), sec('Three'), sec('Four'), sec('Five')] });
+  let pause = false;
+  // The pause is asked for while the first two parts are being written.
+  const h = harness((o, n) => { if (n === 1) pause = true; return `The text of ${headingOf(o)}.`; });
+  const out = await run(doc, h.deps, { paused: () => pause });
+  const done = out.sections.filter((x) => x.state === 'done').map((x) => x.heading);
+  ok('a pause lets the writers finish the parts they have', done.join() === 'One,Two', done.join());
+  ok('and starts no new one', h.calls.length === 2 && out.sections.slice(2).every((x) => x.state === 'waiting'));
+  ok('the document stays in writing, with no error, for a resume', out.stage === 'writing' && out.error === undefined);
+  pause = false;
+  const h2 = harness((o) => (what(o) === 'abstract' ? '{"abstract":"A.","keywords":["a"]}' : `The text of ${headingOf(o)}.`));
+  const after = await run(out, h2.deps, { paused: () => pause });
+  ok('a resume writes only what is left, and finishes', after.sections.every((x) => x.state === 'done')
+    && h2.calls.filter((o) => what(o) === 'section').length === 3 && after.stage !== 'writing', after.stage);
+}
+{
+  const h = harness((o) => (what(o) === 'plan' ? PLAN : '?'));
+  const out = await run(makeDoc({ stage: 'new' }), h.deps, { paused: () => true });
+  ok('paused while planning, the run ends after the plan', out.stage === 'sources' && h.searches.length === 0 && h.calls.length === 1, out.stage);
+}
+
 // ── a stream the transport starts again ───────────────────────────────────
 {
   const doc = makeDoc({ kind: 'proposal', stage: 'writing', sections: [sec('المقدمة')] });

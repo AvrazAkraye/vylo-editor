@@ -108,6 +108,12 @@ interface Job {
   from?: { at: number; done: number };
   /** What the run has done so far, oldest first, for the activity list. */
   log: LogEntry[];
+  /** When each part being written was handed to its writer, by section index — for its own clock. */
+  began: Map<number, number>;
+  /** Pause asked for: the writers finish the parts they have, and nothing new starts. */
+  pausing: boolean;
+  /** Only a whole run can be paused; a rewrite or an abstract is one request. */
+  pausable: boolean;
 }
 
 /**
@@ -198,7 +204,7 @@ function start(doc: Doc, gw: Target, efforts: EffortBook, work: Work, onFail: (e
   // A file still being read would land after the run took its copy, and be lost.
   if (jobs.has(doc.id) || readsOf(doc.id).length) return;
   const ctl = new AbortController();
-  const job: Job = { ctl, progress: { stage: doc.stage }, started: Date.now(), log: [] };
+  const job: Job = { ctl, progress: { stage: doc.stage }, started: Date.now(), log: [], began: new Map(), pausing: false, pausable: work.how === 'run' };
   let before = doc;
   const log = (e: LogEntry) => { job.log.push(e); if (job.log.length > MAX_LOG) job.log.shift(); };
   jobs.set(doc.id, job);
@@ -226,11 +232,13 @@ function start(doc: Doc, gw: Target, efforts: EffortBook, work: Work, onFail: (e
     }
     if (p.note && p.note.code !== was.note?.code) log({ at, what: 'note', note: p.note });
     before = d;
+    const now = [...(p.writers ?? []).map((x) => x.index), ...(p.index !== undefined && !p.writers ? [p.index] : [])];
+    for (const i of now) if (!job.began.has(i)) job.began.set(i, at);
     job.progress = p;
     if (p.stage === 'writing' && !job.from) job.from = { at: Date.now(), done: d.sections.filter((s) => s.state === 'done').length };
     notifySoon();
   };
-  const o = { signal: ctl.signal, onChange };
+  const o = { signal: ctl.signal, onChange, paused: () => job.pausing };
   const going = work.how === 'rewrite' ? rewrite(doc, work.index, work.redo, deps, o)
     : work.how === 'abstract' ? redoAbstract(doc, deps, o)
     : run(doc, deps, { ...o, stopBefore: work.stopBefore });
@@ -247,6 +255,14 @@ function start(doc: Doc, gw: Target, efforts: EffortBook, work: Work, onFail: (e
 
 function stop(id: string) {
   jobs.get(id)?.ctl.abort();
+}
+
+/** Ask a run to pause: the parts being written are finished and kept, and it ends there. */
+function pause(id: string) {
+  const job = jobs.get(id);
+  if (!job || job.pausing) return;
+  job.pausing = true;
+  notify();
 }
 
 /**
@@ -920,6 +936,42 @@ function useTick(on: boolean) {
 }
 
 /**
+ * What a writer is doing before its first words arrive. The model is thinking
+ * — at a high effort that can be a minute — and a line that changes says it
+ * is working, where a still one looks stuck. Written out as calls so the
+ * catalogue scanner finds every one.
+ */
+function thinkingVerb(ms: number, t: (s: string) => string): string {
+  const n = Math.floor(ms / 4000) % 5;
+  if (n === 1) return t('Reading the sources');
+  if (n === 2) return t('Planning the part');
+  if (n === 3) return t('Weighing the arguments');
+  if (n === 4) return t('Choosing the citations');
+  return t('Thinking');
+}
+
+/**
+ * The line above a part being written: a turning mark, what the writer is
+ * doing — thinking, then writing — its own clock, and its words against the
+ * outline's target for it.
+ */
+function PartStatus({ t, job, index, live, want }: { t: (s: string) => string; job: Job; index: number; live: string; want: number }) {
+  useTick(true);
+  const since = Date.now() - (job.began.get(index) ?? Date.now());
+  const n = live ? wordCount(live) : 0;
+  return (
+    <p className={`rsch-part-status ${live ? 'is-writing' : 'is-thinking'}`} role="status">
+      <span className="rsch-glyph" aria-hidden="true">✻</span>
+      <b>{live ? t('Writing the part') : thinkingVerb(since, t)}…</b>
+      <span>{clock(since)}</span>
+      {live
+        ? <span>{want ? fill(t('{n} of {of} words'), { n: n.toLocaleString(), of: want.toLocaleString() }) : fill(t('{n} words'), { n: n.toLocaleString() })}</span>
+        : <span>{t('the words appear here as they are written')}</span>}
+    </p>
+  );
+}
+
+/**
  * How far a run has come, from 0 to 100. The stages before writing are short
  * and each takes a fixed share; writing is most of the bar and moves with the
  * words — the ones finished and the ones being written this second — against
@@ -999,7 +1051,7 @@ function RunStatus({ t, doc, job, rows = 5 }: { t: (s: string) => string; doc: D
                 <span className="rsch-dot is-live" aria-hidden="true" />
                 <b>{fill(t('Writer {n}'), { n: w.agent })}</b>
                 <span className="rsch-writer-what" dir="auto">{sec.heading}</span>
-                <span className="rsch-writer-n">{n ? fill(t('{n} words'), { n: n.toLocaleString() }) : t('Starting…')}</span>
+                <span className="rsch-writer-n">{n ? fill(t('{n} words'), { n: n.toLocaleString() }) : `${thinkingVerb(Date.now() - (job.began.get(w.index) ?? Date.now()), t)}…`}</span>
                 {/* The part's own bar: its words against what the outline gave it. */}
                 <span className="rsch-writer-bar" aria-hidden="true"><i style={{ inlineSize: `${Math.min(100, sec.words ? (100 * n) / sec.words : 0)}%` }} /></span>
               </li>
@@ -1566,6 +1618,8 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
   const canWrite = doc.sections.some((s) => s.state === 'waiting' || s.state === 'failed');
   const paused = !busy && doc.stage === 'writing' && doc.sections.length > 0 && done === 0 && canWrite;
   const somethingWritten = done > 0;
+  // Stopped part-way through writing — paused, or closed — with parts left to write.
+  const halfway = !busy && doc.stage === 'writing' && done > 0 && canWrite;
 
   const change = (next: Partial<Doc>) => keep({ ...doc, ...next, updated: Date.now() });
 
@@ -1677,6 +1731,8 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
         )}
         {busy && <RunStatus t={t} doc={doc} job={job} />}
         {!busy && paused && <p>{t('Check the sources and the outline, then write.')}</p>}
+        {!busy && halfway && !doc.error && <p>{fill(t('Paused — {done} of {n} written. Resume when you are ready.'), { done, n: doc.sections.length })}</p>}
+        {busy && job.pausing && <p className="rsch-note">{t('Pausing — the writers are finishing the parts they have.')}</p>}
         {!busy && doc.error && <p className="rsch-bad">{errorText(doc.error, t)}</p>}
         {doc.sections.length > 0 && (
           <p className="rsch-count">
@@ -1694,7 +1750,20 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
 
       <div className="rsch-acts">
         {busy
-          ? <button className="ghost" onClick={() => stop(doc.id)}><Icon name="stop" size={12} />{t('Stop')}</button>
+          ? (
+            <>
+              {job.pausable && (
+                <button className="ghost" disabled={job.pausing} onClick={() => pause(doc.id)}
+                        title={t('The parts being written are finished and kept; nothing new starts.')}>
+                  <Icon name="pause" size={12} />{job.pausing ? t('Pausing…') : t('Pause')}
+                </button>
+              )}
+              <button className="ghost" onClick={() => stop(doc.id)}
+                      title={t('Stops at once. The parts being written now are not kept.')}>
+                <Icon name="stop" size={12} />{t('Stop now')}
+              </button>
+            </>
+          )
           : doc.stage !== 'done' && (
             <button className="sb-cta-go" disabled={!ready || loading}
                     title={loading ? t('Wait until your files have been read.') : undefined}
@@ -1705,7 +1774,7 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
                       stopBefore: doc.pause && EARLY.includes(doc.stage) ? 'writing' : undefined,
                     })}>
               <Icon name="play" size={12} />
-              {paused ? t('Write the document') : doc.stage === 'new' ? t('Start') : t('Continue')}
+              {paused ? t('Write the document') : doc.stage === 'new' ? t('Start') : halfway ? t('Resume') : t('Continue')}
             </button>
           )}
         {!inFull && (
@@ -2775,9 +2844,15 @@ function Reader({ doc, t, at, nonce, mode, onClose, begin }: {
                     </div>
                   </div>
                 ) : live.get(i) ? (
-                  <p className="rsch-streaming">{live.get(i)}<span className="rsch-caret" aria-hidden="true" /></p>
+                  <>
+                    {job && <PartStatus t={t} job={job} index={i} live={live.get(i) ?? ''} want={s.words} />}
+                    <p className="rsch-streaming">{live.get(i)}<span className="rsch-caret" aria-hidden="true" /></p>
+                  </>
                 ) : live.has(i) ? (
-                  <div className="rsch-skeleton" aria-label={t('Starting…')}><i /><i /><i /></div>
+                  <>
+                    {job && <PartStatus t={t} job={job} index={i} live="" want={s.words} />}
+                    <div className="rsch-skeleton" aria-hidden="true"><i /><i /><i /></div>
+                  </>
                 ) : s.text ? (
                   drawn.bodies.get(s.id)
                 ) : s.state === 'author' ? (

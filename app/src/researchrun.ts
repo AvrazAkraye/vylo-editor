@@ -159,12 +159,23 @@ export interface Progress {
 
 type Note = NonNullable<Progress['note']>;
 
-interface Hooks { signal?: AbortSignal; onChange?: (doc: Doc, p: Progress) => void }
+interface Hooks {
+  signal?: AbortSignal;
+  onChange?: (doc: Doc, p: Progress) => void;
+  /**
+   * Asked before each new step and each new part: true ends the run there,
+   * with nothing lost. Unlike `signal`, which abandons the parts in hand, a
+   * pause lets every writer finish the part it has, and the document is left
+   * where the next run carries on from.
+   */
+  paused?: () => boolean;
+}
 
 interface Ctx {
   deps: Deps;
   signal?: AbortSignal;
   onChange?: (doc: Doc, p: Progress) => void;
+  paused?: () => boolean;
   /** The last note, carried on every later progress of the run: fewer sources matter to every section, not only to the moment the search ended. */
   note?: Note;
 }
@@ -232,22 +243,24 @@ export const EMPTY_SECTION = 'The model returned no text for this part.';
  * to look at them before anything is written.
  */
 export async function run(doc: Doc, deps: Deps, o: Hooks & { stopBefore?: 'writing' } = {}): Promise<Doc> {
-  const c: Ctx = { deps, signal: o.signal, onChange: o.onChange };
+  const c: Ctx = { deps, signal: o.signal, onChange: o.onChange, paused: o.paused };
+  const held = () => !!c.paused?.();
   let d = doc;
   if (d.error !== undefined) d = keep(c, touch(c, withoutError(d), {}), { stage: d.stage });
   if (d.stage === 'new') d = keep(c, touch(c, d, { stage: 'planning' }), { stage: 'planning' });
   if (d.stage === 'planning') d = await planStep(c, d);
-  if (d.error) return d;
+  if (d.error || held()) return d;
   if (d.stage === 'sources') d = await sourcesStep(c, d);
+  if (held()) return d;
   // Every part removed before writing — the researcher clearing the outline
   // to plan their own — is an outline to plan again, not a document to finish
   // with nothing in it.
   if (d.stage === 'writing' && !d.sections.length) d = keep(c, touch(c, d, { stage: 'outline' }), { stage: 'outline' });
   if (d.stage === 'outline') d = await outlineStep(c, d);
-  if (d.error) return d;
+  if (d.error || held()) return d;
   if (d.stage === 'writing' && o.stopBefore === 'writing') return d;
   if (d.stage === 'writing') d = await writingStep(c, d);
-  if (d.error) return d;
+  if (d.error || held()) return d;
   if (d.stage === 'abstract') d = await abstractStep(c, d);
   return d;
 }
@@ -422,7 +435,7 @@ async function writingStep(c: Ctx, doc: Doc): Promise<Doc> {
 
   /** The next part that needs a writer, in outline order; -1 when none is left or nothing new may start. */
   const claim = (): number => {
-    while (!halted && next < desk.doc.sections.length) {
+    while (!halted && !c.paused?.() && next < desk.doc.sections.length) {
       const i = next++;
       const s = desk.doc.sections[i];
       if (s.state === 'done' || s.state === 'author') continue;
@@ -459,6 +472,10 @@ async function writingStep(c: Ctx, doc: Doc): Promise<Doc> {
   }
   if (broke) throw broke.error;
   if (desk.doc.error !== undefined) return desk.doc;
+  // Paused with parts still to write: the document stays in writing, with
+  // every part the writers had in hand finished, for the next run to go on.
+  const left = desk.doc.sections.some((s) => s.state !== 'done' && s.state !== 'author');
+  if (left && c.paused?.()) return desk.doc;
   return keep(c, touch(c, desk.doc, { stage: 'abstract' }), { stage: 'abstract' });
 }
 
