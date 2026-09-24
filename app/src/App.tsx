@@ -163,6 +163,7 @@ import { watch as watchDoc } from './docs';
 import { SkillsPanel } from './SkillsPanel';
 import { UsagePanel } from './UsagePanel';
 import { WhatsAppPanel } from './WhatsAppPanel';
+import { ResearchPanel } from './ResearchPanel';
 import { KEY as WA_KEY, read as readWa } from './whatsapp';
 import { callerFor } from './whatsappwire';
 import { runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
@@ -4391,6 +4392,14 @@ export function App() {
             {shown === 'whatsapp' && (
               <WhatsAppPanel t={t} onSendToChat={fromWhatsApp}
                     onProviders={() => { setSettingsAt('account'); setShowSettings(true); }} />
+            )}
+            {/* The route the composer sends to, so a document is written by the
+                model and key the person already chose — never the account
+                token, which authenticates nothing at /v1/messages. */}
+            {shown === 'research' && (
+              <ResearchPanel t={t} lang={lang} gw={wired} efforts={efforts} plan={plan}
+                    onProviders={() => { setSettingsAt('account'); setShowSettings(true); }}
+                    onError={(m) => push({ kind: 'error', text: m })} />
             )}
             {shown === 'plugins' && (
               <PluginsPanel root={root} t={t}

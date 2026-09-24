@@ -66,7 +66,7 @@ export function AskHost({ t }: { t: (s: string) => string }) {
                   /* An empty rename is a cancel with extra steps, so it cannot
                      be pressed rather than being accepted and then rejected
                      somewhere the person cannot see. */
-                  disabled={isText && !draft.trim()}>
+                  disabled={isText && !ask.optional && !draft.trim()}>
             {ask.confirmLabel ?? (isText ? t('Save') : t('Confirm'))}
           </button>
         </div>

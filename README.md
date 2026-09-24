@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.104.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.105.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -51,8 +51,10 @@ Model calls go to the Vylo gateway at `capi.vylo-tech.com`, never to Anthropic
 directly. What leaves the machine is your prompt, the file content the agent
 chose to read, and — with inline completion on — the code either side of your
 cursor. Nothing else: there is no backend of ours, no telemetry and no sync.
-Every network call the app makes goes to the gateway, and the webview's
-`connect-src` allows no remote host but `vylo-tech.com`.
+Every request the app makes is listed in [SAFETY.md](SAFETY.md), with the file
+that makes it: the gateway, a model provider or WhatsApp instance you add
+yourself, and — for a Research document you start — two public catalogues of
+scholarship, OpenAlex and Crossref.
 
 ## What makes it different
 
@@ -91,6 +93,20 @@ when a key is missing from a catalogue, and a second fails when a `t('…')`
 string in the UI has no catalogue entry at all. Layout stays left-to-right in
 every language — a deliberate decision, matching the Vylo OTP dashboard — while
 Arabic-script text shapes right-to-left within each line.
+
+**Research, written the way Iraqi and Kurdish universities ask for it.** Turn
+on the Research module and say what you need — *ورقة عمل عن…*, *رسالة ماجستير
+في…*, *نامەی ماستەر لەسەر…*, *a PhD dissertation on…* — and the phrase switches
+on that kind of document: a working paper, a research article, a literature
+review, a research proposal, a graduation project, a master's thesis or a PhD
+dissertation, each with the structure it is examined against (المقدمة، المباحث
+والمطالب، الخاتمة). It is planned, outlined and written section by section, and
+saved as a Word file with the cover page, footnotes that say *مصدر سابق* the
+second time, Arabic-Indic numerals and a قائمة المصادر grouped by kind. The
+references are real: found in OpenAlex and Crossref, or added by DOI, and the
+model may cite only those, through markers the app turns into citations itself
+— it is never asked to write one. Where the document needs the researcher's own
+data, it leaves a marked gap instead of inventing any.
 
 **Native, and small.** 8 MB installed and a 4 MB download, because it is a
 Tauri app with a Rust tool layer rather than an Electron shell. One codebase

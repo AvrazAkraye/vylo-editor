@@ -37,6 +37,8 @@ export interface TextAsk {
   value: string;
   placeholder?: string;
   confirmLabel?: string;
+  /** An empty answer is an answer: the confirm button stays live with nothing typed. */
+  optional?: boolean;
 }
 
 export interface ConfirmAsk {

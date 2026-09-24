@@ -65,6 +65,12 @@ const ABSENT = [
   // apply_write's reason: it takes an absolute path and does not contain it,
   // which is safe only while nothing the model produces can reach it.
   'export_write',
+  // Writes a Word document from Research wherever the OS save panel said.
+  // Absent for export_write's reason: it takes an absolute path and does not
+  // contain it, which is safe only while nothing the model produces can reach
+  // it. Its guards (.docx only, zip bytes only, 32 MB) narrow what it can
+  // write; they do not make it a tool.
+  'export_write_docx',
   // The file operations and the git writes. These have been absent from the
   // schema since G1 and M-whatever respectively, and until now they were absent
   // by nobody's decision — no test said they had to be. `create_file`'s own doc

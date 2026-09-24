@@ -4962,3 +4962,375 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   margin:var(--sp-2) var(--sp-4) 0; font-size:var(--fs-1); color:var(--mute);
 }
 .us-note svg{ flex:none; margin-block-start:2px; }
+
+/* ── Research: working papers, theses, dissertations ─────────────────────────
+   Two places. The sidebar is where a document is asked for and watched; the
+   reader, over the window, is where it is read — a thesis cannot be reviewed
+   in a column three hundred pixels wide, and the review is what makes saving
+   it the researcher's decision. */
+.rsch{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block-end:var(--sp-8); }
+
+/* The request. A card, because it is the one thing on the panel that starts
+   something, and the skill chip under it is part of the same sentence. */
+.rsch-ask{
+  display:flex; flex-direction:column; gap:var(--sp-4);
+  margin:var(--sp-3) var(--sp-6) var(--sp-2); padding:var(--sp-5);
+  border:1px solid var(--rule); border-radius:var(--r-3);
+  background:var(--panel); box-shadow:var(--shadow);
+}
+.rsch-ask-label{ font-size:var(--fs-3); font-weight:600; color:var(--ink); }
+.rsch-request{
+  inline-size:100%; min-block-size:84px; resize:vertical;
+  padding:var(--sp-4) var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-5); line-height:1.6;
+}
+.rsch-request::placeholder{ color:var(--mute); opacity:.7; }
+.rsch-request:focus{ outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--panel); }
+
+/* Which skill the words switched on. Brand-washed once one is, so the moment
+   a typed phrase is recognised is visible without reading the chip. */
+.rsch-skill{
+  display:flex; align-items:center; gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-4); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--mute); font-size:var(--fs-2); line-height:1.45;
+}
+.rsch-skill svg{ flex:none; }
+.rsch-skill.on{ background:var(--brand-wash); color:var(--brand); font-weight:500; }
+
+/* One choice to a row. Two to a row cut the longest names in half at a
+   sidebar's width — "الهوامش (الأسلوب العربي)", "قياسي — نحو 7,000 كلمة" —
+   and a choice you cannot read is one you cannot check. */
+.rsch-opts{ display:grid; grid-template-columns:1fr; gap:var(--sp-3); }
+.rsch-opts select,
+.rsch-f select{
+  inline-size:100%; min-inline-size:0; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-3); cursor:pointer;
+}
+.rsch-opts select:hover, .rsch-f select:hover{ border-color:var(--rule-2); }
+
+.rsch-more{
+  align-self:flex-start; display:inline-flex; align-items:center; gap:var(--sp-2);
+  padding:var(--sp-1) 0; border:0; background:transparent; cursor:pointer;
+  color:var(--mute); font:inherit; font-size:var(--fs-2); font-weight:500;
+}
+.rsch-more:hover{ color:var(--ink); }
+.rsch-more svg{ transition:transform .15s ease; }
+.rsch-more[aria-expanded="true"] svg{ transform:rotate(90deg); }
+/* Closed, the chevron points along the line, which is the other way in
+   Arabic and Kurdish; open, it points down in both. */
+:root[dir="rtl"] .rsch-more svg{ transform:rotate(180deg); }
+:root[dir="rtl"] .rsch-more[aria-expanded="true"] svg{ transform:rotate(90deg); }
+
+/* Two columns of short fields; a long one spans both. */
+.rsch-form{ display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4); }
+.rsch-wide{ grid-column:1 / -1; }
+.rsch-f{
+  display:grid; gap:var(--sp-2); align-content:start; min-inline-size:0;
+  font-size:var(--fs-2); font-weight:500; color:var(--mute);
+}
+.rsch-f input,
+.rsch-f textarea{
+  inline-size:100%; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-3); line-height:1.5;
+}
+.rsch-f textarea{ resize:vertical; }
+.rsch-f input:focus, .rsch-f textarea:focus, .rsch-f select:focus{
+  outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--panel);
+}
+.rsch-f input:disabled, .rsch-f textarea:disabled{ opacity:var(--dim); }
+.rsch-check{ display:flex; align-items:flex-start; gap:var(--sp-3); font-size:var(--fs-3); color:var(--ink); cursor:pointer; }
+.rsch-check input{ margin-block-start:3px; }
+.rsch-go{ inline-size:100%; padding-block:var(--sp-4); }
+
+.rsch-lede{ margin:0; padding-inline:var(--sp-7); font-size:var(--fs-2); color:var(--mute); line-height:1.55; }
+.rsch-honest{ margin-block-start:var(--sp-5); }
+.rsch-warn{
+  margin:var(--sp-3) var(--sp-6) 0; padding:var(--sp-3) var(--sp-4);
+  border-inline-start:2px solid var(--warn); background:var(--warn-wash);
+  border-start-start-radius:0; border-end-start-radius:0;
+  border-start-end-radius:var(--r-2); border-end-end-radius:var(--r-2);
+  color:var(--warn); font-size:var(--fs-2); line-height:1.5;
+}
+.rsch-bad{ margin:0; font-size:var(--fs-2); color:var(--err); line-height:1.5; }
+
+/* The skills: what each kind is, and the words that ask for it. The phrases
+   are the point of the card — they are what to type. */
+.rsch-skills{ list-style:none; margin:var(--sp-3) 0 0; padding:0 var(--sp-6); display:grid; gap:var(--sp-3); }
+.rsch-card{
+  inline-size:100%; display:grid; gap:var(--sp-2); text-align:start;
+  padding:var(--sp-4) var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel); color:inherit; font:inherit; cursor:pointer;
+  transition:border-color .15s ease, background .15s ease;
+}
+.rsch-card:hover{ border-color:var(--rule-2); background:var(--panel-2); }
+.rsch-card.on{ border-color:var(--brand); background:var(--brand-wash); }
+.rsch-card b{ font-size:var(--fs-4); font-weight:600; color:var(--ink); }
+.rsch-card > span{ font-size:var(--fs-2); color:var(--mute); line-height:1.5; }
+.rsch-says{ display:flex; flex-wrap:wrap; gap:var(--sp-2); margin-block-start:var(--sp-1); }
+.rsch-says code{
+  padding:1px var(--sp-3); border-radius:var(--r-1);
+  background:var(--panel-3); color:var(--ink);
+  font-family:var(--sans); font-size:var(--fs-2);
+}
+
+/* Documents, newest first. */
+.rsch-docs{ list-style:none; margin:0; padding:0 var(--sp-3); display:flex; flex-direction:column; gap:1px; }
+.rsch-doc{
+  inline-size:100%; display:flex; align-items:center; gap:var(--sp-4);
+  padding:var(--sp-3) var(--sp-4); border:0; border-radius:var(--r-2);
+  background:transparent; color:inherit; font:inherit; text-align:start; cursor:pointer;
+}
+.rsch-doc:hover{ background:var(--panel-3); }
+.rsch-doc-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.rsch-doc-what b{ font-size:var(--fs-3); font-weight:500; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rsch-doc-what span{ font-size:var(--fs-1); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* State as a dot, in the colours the rest of the window already means: the
+   brand for going, green for done, red for failed, amber for the researcher's. */
+.rsch-dot{ flex:none; inline-size:8px; block-size:8px; border-radius:50%; background:var(--rule-2); }
+.rsch-dot.is-live{ background:var(--brand); animation:p 1.2s ease-in-out infinite; }
+.rsch-dot.is-done{ background:var(--ok); }
+.rsch-dot.is-bad{ background:var(--err); }
+.rsch-dot.is-yours{ background:var(--warn); }
+
+/* ── one document ── */
+.rsch-docview{ display:flex; flex-direction:column; gap:var(--sp-4); }
+.rsch-top{ display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-3) var(--sp-5) 0; }
+/* Back points the way you came, which is the other way in Arabic and Kurdish. */
+.rsch-back svg{ transform:scaleX(-1); }
+:root[dir="rtl"] .rsch-back svg{ transform:none; }
+.rsch-title{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.rsch-title b{ font-size:var(--fs-4); font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rsch-title span{ font-size:var(--fs-1); color:var(--mute); }
+
+.rsch-steps{
+  list-style:none; margin:0; padding:0 var(--sp-7);
+  display:flex; flex-wrap:wrap; gap:var(--sp-2) var(--sp-5);
+  font-size:var(--fs-1); color:var(--mute);
+}
+.rsch-steps li{ display:inline-flex; align-items:center; gap:var(--sp-2); }
+.rsch-steps i{ inline-size:6px; block-size:6px; border-radius:50%; background:var(--rule-2); }
+.rsch-steps li.is-done{ color:var(--ink); }
+.rsch-steps li.is-done i{ background:var(--ok); }
+.rsch-steps li.is-live{ color:var(--brand); font-weight:600; }
+.rsch-steps li.is-live i{ background:var(--brand); animation:p 1.2s ease-in-out infinite; }
+
+.rsch-status{ display:flex; flex-direction:column; gap:var(--sp-2); padding-inline:var(--sp-7); }
+.rsch-status > p{ margin:0; font-size:var(--fs-3); color:var(--ink); line-height:1.5; }
+.rsch-status > .rsch-bad{ font-size:var(--fs-2); color:var(--err); }
+.rsch-note{ color:var(--mute); }
+.rsch-status > .rsch-count{ font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
+/* The last words of the section being written, so a long wait visibly moves.
+   Three lines and faded at the top: it is a pulse, not something to read. */
+.rsch-status > .rsch-live{
+  max-block-size:4.8em; overflow:hidden; padding:var(--sp-3) var(--sp-4);
+  border-radius:var(--r-2); background:var(--panel-2);
+  font-size:var(--fs-2); color:var(--mute); line-height:1.6;
+  -webkit-mask-image:linear-gradient(to bottom, transparent, #000 40%);
+  mask-image:linear-gradient(to bottom, transparent, #000 40%);
+}
+
+.rsch-acts{ display:flex; flex-wrap:wrap; gap:var(--sp-3); padding-inline:var(--sp-7); }
+.rsch-acts .ghost, .rsch-acts .sb-cta-go{ display:inline-flex; align-items:center; gap:var(--sp-2); }
+.rsch-saved{ margin:0; padding-inline:var(--sp-7); font-size:var(--fs-2); color:var(--ok); overflow-wrap:anywhere; }
+
+.rsch-tabs{
+  display:flex; gap:2px; margin:var(--sp-2) var(--sp-6) 0; padding:2px;
+  border-radius:var(--r-2); background:var(--panel-2);
+}
+.rsch-tabs button{
+  flex:1; padding:var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-3); cursor:pointer;
+}
+.rsch-tabs button:hover{ color:var(--ink); }
+.rsch-tabs button.on{ background:var(--panel); color:var(--ink); font-weight:600; box-shadow:var(--shadow); }
+
+/* The outline: indented by level, actions on hover so the list stays a list. */
+.rsch-outline{ list-style:none; margin:0; padding:0 var(--sp-3); display:flex; flex-direction:column; gap:1px; }
+.rsch-sec{ display:flex; flex-wrap:wrap; align-items:center; border-radius:var(--r-2); }
+.rsch-sec:hover{ background:var(--panel-3); }
+.rsch-sec.is-live{ background:var(--brand-wash); }
+.rsch-sec.rsch-lv2{ padding-inline-start:var(--sp-6); }
+.rsch-sec.rsch-lv3{ padding-inline-start:var(--sp-10); }
+.rsch-sec.rsch-lv4{ padding-inline-start:calc(var(--sp-10) + var(--sp-6)); }
+.rsch-sec-main{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-3);
+  padding:var(--sp-3) var(--sp-4); border:0; background:transparent;
+  color:inherit; font:inherit; text-align:start; cursor:pointer;
+}
+.rsch-sec-name{ flex:1; min-inline-size:0; font-size:var(--fs-3); color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rsch-sec.rsch-lv1 .rsch-sec-name{ font-weight:600; }
+.rsch-sec-n{ flex:none; font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+.rsch-sec-acts{ display:flex; gap:1px; padding-inline-end:var(--sp-2); opacity:0; transition:opacity .12s ease; }
+.rsch-sec:hover .rsch-sec-acts, .rsch-sec:focus-within .rsch-sec-acts{ opacity:1; }
+.rsch-sec-acts .sb-act.on{ color:var(--warn); }
+.rsch-sec > .rsch-bad{ flex-basis:100%; padding:0 var(--sp-4) var(--sp-3); }
+
+/* Sources. */
+.rsch-sources{ display:flex; flex-direction:column; gap:var(--sp-4); padding-inline:var(--sp-6); }
+.rsch-sources > .rsch-lede{ padding-inline:0; }
+.rsch-sources > .rsch-form{ padding:var(--sp-4); border:1px solid var(--rule); border-radius:var(--r-2); }
+.rsch-row{ display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; }
+.rsch-row .rsch-doi{
+  flex:1; min-inline-size:0; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--ink);
+  font:inherit; font-family:var(--mono); font-size:var(--fs-3);
+}
+.rsch-row .rsch-doi:focus{ outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+.rsch-srcs{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+.rsch-srcs li.off{ opacity:.55; }
+.rsch-src{
+  display:flex; align-items:flex-start; gap:var(--sp-4); padding:var(--sp-3) var(--sp-4);
+  border-radius:var(--r-2); cursor:pointer;
+}
+.rsch-src:hover{ background:var(--panel-3); }
+.rsch-src input{ margin-block-start:3px; flex:none; }
+.rsch-src-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:2px; }
+.rsch-src-what b{ font-size:var(--fs-3); font-weight:500; color:var(--ink); line-height:1.45; }
+.rsch-src-what > span{ font-size:var(--fs-2); color:var(--mute); line-height:1.45; }
+.rsch-tags{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2); }
+.rsch-tags em{
+  font-style:normal; font-size:var(--fs-1); padding:0 var(--sp-2); border-radius:var(--r-1);
+  background:var(--panel-3); color:var(--mute);
+}
+.rsch-tags em.is-cited{ background:var(--ok-wash); color:var(--ok); }
+.rsch-tags em.is-bad{ background:var(--err-wash); color:var(--err); }
+.rsch-tags code{ font-family:var(--mono); font-size:var(--fs-1); color:var(--mute); overflow-wrap:anywhere; }
+
+.rsch-docview > .rsch-form{ padding-inline:var(--sp-6); }
+.rsch-docview > .rsch-form .rsch-lede{ padding-inline:0; }
+.rsch-statement{ margin:0; font-size:var(--fs-2); color:var(--mute); font-style:italic; line-height:1.6; }
+
+/* ── the reader ── */
+.rsch-reader-back{
+  /* Under the app's own dialogs (60), which open over it: a Rewrite asked for
+     from the reader has to be seen to be answered. */
+  position:fixed; inset:0; z-index:55; display:flex; align-items:center; justify-content:center;
+  background:var(--scrim); backdrop-filter:blur(2px);
+}
+.rsch-reader{
+  inline-size:min(1160px, 94vw); block-size:min(92vh, 1200px);
+  display:flex; flex-direction:column; overflow:hidden;
+  background:var(--panel); border:1px solid var(--rule-2); border-radius:var(--r-4); box-shadow:var(--shadow);
+  animation:rise .18s ease-out;
+}
+.rsch-reader-head{
+  display:flex; align-items:center; gap:var(--sp-5);
+  padding:var(--sp-5) var(--sp-7); border-block-end:1px solid var(--rule);
+}
+.rsch-reader-head b{ font-size:var(--fs-5); font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-inline-size:0; }
+.rsch-reader-head span{ flex:1; font-size:var(--fs-2); color:var(--mute); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.rsch-reader-main{ flex:1; min-block-size:0; display:flex; }
+.rsch-toc{
+  flex:none; inline-size:250px; overflow-y:auto; padding:var(--sp-5) var(--sp-3);
+  border-inline-end:1px solid var(--rule); background:var(--panel-2);
+  display:flex; flex-direction:column; gap:1px;
+}
+.rsch-toc button{
+  padding:var(--sp-2) var(--sp-4); border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-2);
+  text-align:start; line-height:1.45; cursor:pointer;
+}
+.rsch-toc button:hover{ background:var(--panel-3); color:var(--ink); }
+.rsch-toc button.rsch-lv1{ color:var(--ink); font-weight:600; margin-block-start:var(--sp-3); }
+.rsch-toc button.rsch-lv2{ padding-inline-start:var(--sp-7); }
+.rsch-toc button.rsch-lv3{ padding-inline-start:var(--sp-10); }
+.rsch-toc button.rsch-lv4{ padding-inline-start:calc(var(--sp-10) + var(--sp-6)); }
+
+/* The page: a measure a document is read at, and the line height Arabic
+   script needs for its marks not to touch the line above. */
+.rsch-page{ flex:1; min-inline-size:0; overflow-y:auto; padding:var(--sp-10) var(--sp-10) 80px; }
+.rsch-page > *{ max-inline-size:760px; margin-inline:auto; }
+.rsch-page{ font-size:15px; line-height:1.95; color:var(--ink); }
+.rsch-page h1{ font-size:24px; line-height:1.4; margin:var(--sp-8) 0; }
+.rsch-page h2{ font-size:19px; line-height:1.45; margin:var(--sp-10) 0 var(--sp-5); }
+.rsch-page h3{ font-size:16.5px; margin:var(--sp-8) 0 var(--sp-4); }
+.rsch-page h4, .rsch-page h5, .rsch-page h6{ font-size:15px; margin:var(--sp-6) 0 var(--sp-3); }
+.rsch-page p{ margin:0 0 var(--sp-5); text-align:justify; }
+.rsch-page ul, .rsch-page ol{ margin:0 0 var(--sp-5); padding-inline-start:1.6em; }
+/* The cover, as the Word file draws it: the institution on the reading side
+   with the logo across from it, the title, who presented and who supervised,
+   and the two years under a double rule. */
+.rsch-cover{ text-align:center; padding-block-end:var(--sp-10); border-block-end:1px solid var(--rule); }
+.rsch-cover p{ margin:0 0 var(--sp-2); text-align:center; }
+.rsch-cover .rsch-statement{ margin-block:var(--sp-6); font-size:var(--fs-5); }
+.rsch-cover.is-full{ display:flex; flex-direction:column; gap:var(--sp-2); min-block-size:560px; }
+.rsch-cover-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:var(--sp-8); margin-block-end:var(--sp-10); }
+.rsch-cover-top p{ text-align:start; font-weight:700; }
+.rsch-cover-top img{ inline-size:110px; block-size:auto; object-fit:contain; }
+.rsch-cover h1{ margin-block:var(--sp-8) var(--sp-10); }
+.rsch-cover .rsch-by{ font-size:var(--fs-4); color:var(--mute); margin-block-start:var(--sp-6); }
+.rsch-cover .rsch-who{ font-size:19px; font-weight:700; }
+.rsch-cover .rsch-who-title{ font-weight:700; }
+.rsch-cover-foot{
+  display:flex; justify-content:space-between; margin-block-start:auto; padding-block-start:var(--sp-3);
+  border-block-start:3px double var(--ink); font-weight:700;
+}
+
+/* Footnotes: a superscript number where the source is cited, and the notes
+   under the part, numbered from one as each page of the Word file numbers its
+   own. */
+.rsch-fn{ font-size:.7em; line-height:0; color:var(--brand); padding-inline:1px; }
+.rsch-notes{
+  list-style:none; margin:var(--sp-4) 0 var(--sp-8); padding:0;
+  font-size:13px; line-height:1.7; color:var(--ink);
+}
+/* The short rule Word draws above a page's footnotes. */
+.rsch-notes::before{
+  content:''; display:block; inline-size:35%; margin-block-end:var(--sp-3);
+  border-block-start:1px solid var(--rule-2);
+}
+.rsch-notes li{ margin-block-end:var(--sp-2); text-align:justify; }
+.rsch-fn-n{ color:var(--mute); }
+/* Numbered lists in the body, in the numerals the document uses. Not the
+   notes or the source list, which print their numbers as text already. */
+.rsch-page[data-digits="eastern"] .rsch-part ol:not(.rsch-notes){ list-style-type:arabic-indic; }
+
+.rsch-logo{ display:flex; align-items:center; gap:var(--sp-3); flex-wrap:wrap; }
+.rsch-logo img{ inline-size:44px; block-size:44px; object-fit:contain; border-radius:var(--r-1); background:var(--panel-2); }
+.rsch-logo-none{
+  display:inline-flex; align-items:center; justify-content:center; inline-size:44px; block-size:44px;
+  border:1px dashed var(--rule-2); border-radius:var(--r-1); color:var(--mute);
+}
+.rsch-tags em.is-check{ background:var(--warn-wash); color:var(--warn); }
+.rsch-front{ padding-block:var(--sp-4); border-block-end:1px solid var(--rule); }
+.rsch-part{ position:relative; }
+.rsch-part.is-live{ border-inline-start:2px solid var(--brand); padding-inline-start:var(--sp-6); }
+.rsch-part-head{ display:flex; align-items:baseline; gap:var(--sp-4); }
+.rsch-part-head > :first-child{ flex:1; }
+/* Part headings are centred in Arabic and Kurdish, as Iraqi and Kurdish
+   universities set them and as the Word file does; in English only a chapter
+   is. The points numbered أولاً… inside a part stay on the reading side. */
+.rsch-page[dir="rtl"] .rsch-part-head > :first-child,
+.rsch-page[dir="ltr"] .rsch-part-head > h2{ text-align:center; }
+.rsch-part-acts{ display:flex; gap:1px; opacity:0; transition:opacity .12s ease; }
+.rsch-part:hover .rsch-part-acts, .rsch-part:focus-within .rsch-part-acts{ opacity:1; }
+.rsch-streaming{ white-space:pre-wrap; color:var(--mute); }
+.rsch-pending{ color:var(--mute); font-style:italic; }
+/* A gap the researcher fills: highlighted as it will be in Word. */
+.rsch-hole{ background:color-mix(in srgb, var(--tag-amber) 30%, transparent); color:inherit; padding:0 2px; border-radius:2px; }
+.rsch-link{ font-family:var(--mono); font-size:.86em; overflow-wrap:anywhere; }
+.rsch-table{ overflow-x:auto; margin:0 0 var(--sp-6); }
+.rsch-table table{ border-collapse:collapse; inline-size:100%; font-size:14px; line-height:1.6; }
+.rsch-table th, .rsch-table td{ border:1px solid var(--rule-2); padding:var(--sp-3) var(--sp-4); text-align:start; vertical-align:top; }
+.rsch-table th{ background:var(--panel-2); font-weight:600; }
+.rsch-edit{ display:flex; flex-direction:column; gap:var(--sp-3); margin-block-end:var(--sp-6); }
+.rsch-edit textarea{
+  inline-size:100%; padding:var(--sp-5); border:1px solid var(--brand); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink); font:inherit; font-size:14px; line-height:1.8; resize:vertical;
+}
+.rsch-edit .rsch-lede{ padding-inline:0; }
+/* References hang: the first line out, the rest in, so authors can be scanned. */
+.rsch-refs ol{ list-style:none; padding:0; margin:0; }
+.rsch-refs li{ padding-inline-start:2.2em; text-indent:-2.2em; margin-block-end:var(--sp-4); line-height:1.75; }
+.rsch-n{ color:var(--mute); }
+
+@media (max-width: 760px){
+  .rsch-toc{ display:none; }
+  .rsch-page{ padding:var(--sp-7); }
+}

@@ -1896,6 +1896,75 @@ fn export_write(path: String, text: String) -> Result<(), String> {
     fs::write(&p, text).map_err(|e| format!("{path}: {e}"))
 }
 
+/// The largest Word document `export_write_docx` will write. A dissertation of
+/// seventy thousand words with its tables comes to a few hundred kilobytes of
+/// zipped XML, so thirty-two megabytes never stops a real document; it is a
+/// ceiling on what a runaway builder can put on somebody's disk.
+const MAX_DOCX_BYTES: usize = 32 * 1024 * 1024;
+
+/// Write a Word document the user has just chosen to save, from Research.
+///
+/// `export_write` with bytes instead of text, and the same argument for why an
+/// uncontained absolute path is not a hole: it is **absent from the tool
+/// schema** (`test/modes.test.mjs` names it), so no tool call reaches it however
+/// the model is prompted. The path comes from the OS save panel, and the bytes
+/// from `researchdocx.ts`, which builds them from exactly the document the
+/// person pressing Save has been reading and editing. The model wrote some of
+/// that text, and a person read it and asked for it to be saved; the model
+/// never chooses where, or whether.
+///
+/// What comes over IPC is base64, because a string is what `invoke` carries
+/// well. Four refusals follow from what the file is supposed to be, and each is
+/// cheaper than the write it prevents:
+///
+/// - a directory, for `export_write`'s reason;
+/// - a name that does not end in `.docx`, so a bug upstream cannot put a zip
+///   where a `.zshrc` or a `.txt` was;
+/// - bytes that do not open with `PK\x03\x04`, the local-file header every
+///   `.docx` starts with — anything else is not a Word document, whatever the
+///   name says;
+/// - more than `MAX_DOCX_BYTES` decoded. The encoded length is checked first,
+///   so an enormous string is turned away before a byte of it is decoded.
+///
+/// It creates no directories, for `apply_write`'s reason: the save panel only
+/// offers places that exist.
+#[tauri::command]
+fn export_write_docx(path: String, data: String) -> Result<(), String> {
+    write_docx(&path, &data, MAX_DOCX_BYTES)
+}
+
+/// `export_write_docx` with its ceiling as an argument, so the tests can pin
+/// the size check with a few bytes rather than thirty-two megabytes of them.
+fn write_docx(path: &str, data: &str, max: usize) -> Result<(), String> {
+    let p = PathBuf::from(path);
+    if p.is_dir() {
+        return Err(format!("{path}: is a directory"));
+    }
+    let docx = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("docx"));
+    if !docx {
+        return Err(format!("{path}: is not a .docx file"));
+    }
+    // Every three bytes are four characters, so a longer string cannot decode
+    // to `max` bytes or fewer. Refused here, before decoding allocates for it.
+    if data.len() > max.div_ceil(3) * 4 {
+        return Err(format!("{path}: the document is larger than {} MB", max / (1024 * 1024)));
+    }
+    let bytes = BASE64
+        .decode(data.as_bytes())
+        .map_err(|e| format!("{path}: the document did not arrive intact ({e})"))?;
+    // The length check above allows up to two bytes of slack.
+    if bytes.len() > max {
+        return Err(format!("{path}: the document is larger than {} MB", max / (1024 * 1024)));
+    }
+    if !bytes.starts_with(b"PK\x03\x04") {
+        return Err(format!("{path}: is not a Word document"));
+    }
+    fs::write(&p, bytes).map_err(|e| format!("{path}: {e}"))
+}
+
 /// Bind the global shortcut to `accel`, or unbind it when `accel` is null.
 ///
 /// Called from Settings as the field changes, so a new chord takes effect
@@ -1978,7 +2047,7 @@ pub fn run() {
             store_sizes, store_empty,
             capture_screenshot,
             set_global_shortcut,
-            export_write,
+            export_write, export_write_docx,
             watch::watch_start, watch::watch_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close, pty::pty_cwd, pty::pty_running, pty::shell_commands, pty::shell_history, pty::complete_path
         ])
@@ -2377,6 +2446,113 @@ mod tests {
         let err = export_write(dir.to_string_lossy().into(), "x".into())
             .expect_err("a directory is not a file to write");
         assert!(err.contains("is a directory"), "{err}");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Research saves a Word document the same way, and a Word document is a
+    /// narrower thing than text: this pins that the bytes arrive unchanged, and
+    /// that each refusal fires and leaves nothing behind — a wrong name, bytes
+    /// that are not a zip, a string that is not base64, and one too big to be
+    /// worth decoding.
+    ///
+    /// Its own prefix, for the reason the test above gives.
+    #[test]
+    fn export_write_docx_writes_a_zip_and_refuses_what_is_not_one() {
+        let dir = std::env::temp_dir().join(format!("vylo_exportdocx_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let at = |name: &str| dir.join(name).to_string_lossy().to_string();
+
+        // Not a real document, but what the guard looks at: the zip header,
+        // then bytes that are not text, so a lossy round trip would show.
+        let mut doc = b"PK\x03\x04".to_vec();
+        doc.extend((0u8..=255).cycle().take(4096));
+        let data = BASE64.encode(&doc);
+
+        export_write_docx(at("thesis.docx"), data.clone()).expect("should write");
+        assert_eq!(fs::read(dir.join("thesis.docx")).unwrap(), doc, "the bytes on disk are the bytes sent");
+
+        // The extension is a name, and a name's case is the person's. (Not
+        // "Thesis.DOCX": on a case-insensitive disk that is the file above.)
+        export_write_docx(at("Paper.DOCX"), data.clone()).expect("upper case is still .docx");
+        assert_eq!(fs::read(dir.join("Paper.DOCX")).unwrap(), doc);
+
+        // Arabic and Kurdish titles are what `fileNameFor` keeps, so a name
+        // in either script must reach the disk as it was chosen.
+        export_write_docx(at("أثر الذكاء الاصطناعي.docx"), data.clone()).expect("a non-Latin name");
+        assert_eq!(fs::read(dir.join("أثر الذكاء الاصطناعي.docx")).unwrap(), doc);
+
+        // A second save to the same place replaces the first: the save panel
+        // has already asked the person whether to.
+        let mut other = b"PK\x03\x04".to_vec();
+        other.extend_from_slice(b"second");
+        export_write_docx(at("thesis.docx"), BASE64.encode(&other)).expect("should overwrite");
+        assert_eq!(fs::read(dir.join("thesis.docx")).unwrap(), other);
+
+        // What is refused leaves no file. Checked by listing the folder, so a
+        // refusal that wrote first and complained after would show here.
+        let before: std::collections::BTreeSet<_> =
+            fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        let refused = |path: String, data: String, why: &str| {
+            let err = export_write_docx(path.clone(), data).expect_err(&format!("{path} should be refused"));
+            assert!(err.contains(why), "{path}: expected {why:?}, got {err:?}");
+        };
+
+        refused(dir.to_string_lossy().into(), data.clone(), "is a directory");
+        // A directory whose name ends in .docx is still a directory.
+        fs::create_dir_all(dir.join("folder.docx")).unwrap();
+        refused(at("folder.docx"), data.clone(), "is a directory");
+
+        for name in [".zshrc", "profile.zsh", "notes.txt", "thesis", "thesis.docx.txt", "thesis.doc", "thesis.docm", "docx", ".docx"] {
+            refused(at(name), data.clone(), "is not a .docx file");
+        }
+
+        refused(at("text.docx"), BASE64.encode(b"# not a zip\n"), "is not a Word document");
+        refused(at("pdf.docx"), BASE64.encode(b"%PDF-1.7\n"), "is not a Word document");
+        // A zip's end-of-directory record is PK too, but not a file that starts
+        // with one: the whole header, not its first two letters.
+        refused(at("pk.docx"), BASE64.encode(b"PK\x05\x06rest"), "is not a Word document");
+        refused(at("empty.docx"), String::new(), "is not a Word document");
+
+        refused(at("junk.docx"), "not base64 at all!".into(), "did not arrive intact");
+        // The URL-safe alphabet is a different encoding, not a tolerable one.
+        assert!(data.contains('+'), "the fixture must hold a character the two alphabets disagree on");
+        refused(at("url.docx"), data.replace('+', "-"), "did not arrive intact");
+        refused(at("wrapped.docx"), format!("{}\n{}", &data[..76], &data[76..]), "did not arrive intact");
+
+        // Too big is refused on the string's length, before decoding: this one
+        // is also not base64, so a refusal that decoded first would say that.
+        let huge = "!".repeat((MAX_DOCX_BYTES / 3 + 1) * 4 + 1);
+        refused(at("huge.docx"), huge, "larger than 32 MB");
+
+        // The ceiling itself, with a small one. Exactly at it is written; over
+        // it is refused — both by length before decoding, and by the decoded
+        // size when the encoded length leaves room for a byte or two more.
+        let at_cap = BASE64.encode(b"PK\x03\x04123456");
+        write_docx(&at("cap.docx"), &at_cap, 10).expect("exactly the ceiling is allowed");
+        assert_eq!(fs::read(dir.join("cap.docx")).unwrap(), b"PK\x03\x04123456");
+        let _ = fs::remove_file(dir.join("cap.docx"));
+        let slack = BASE64.encode(b"PK\x03\x041234567");
+        assert_eq!(slack.len(), 10usize.div_ceil(3) * 4, "passes the length check, so the decoded one decides");
+        let err = write_docx(&at("slack.docx"), &slack, 10).expect_err("eleven bytes is over ten");
+        assert!(err.contains("larger than"), "{err}");
+        let long = BASE64.encode(b"PK\x03\x04123456789012");
+        let err = write_docx(&at("long.docx"), &long, 10).expect_err("sixteen bytes is over ten");
+        assert!(err.contains("larger than"), "{err}");
+
+        let after: std::collections::BTreeSet<_> =
+            fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        let mut expected = before.clone();
+        expected.insert("folder.docx".into());
+        assert_eq!(after, expected, "a refusal wrote nothing");
+
+        // No directories are made: the save panel only offers places that exist.
+        let missing = dir.join("no such folder").join("thesis.docx");
+        let err = export_write_docx(missing.to_string_lossy().into(), data)
+            .expect_err("a missing parent is an error, not something to create");
+        assert!(!err.is_empty());
+        assert!(!dir.join("no such folder").exists(), "the parent was not created");
 
         let _ = fs::remove_dir_all(&dir);
     }
