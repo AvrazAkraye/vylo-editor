@@ -75,6 +75,12 @@ const ABSENT = [
   // Research's Save as PDF. Like export_write_docx, an absolute path is safe
   // here only while nothing the model produces can reach it.
   'save_pdf',
+  // Writes a rendered MP4 from the Video module wherever the OS save panel
+  // said. Absent for export_write_docx's reason: it takes an absolute path and
+  // does not contain it, which is safe only while nothing the model produces
+  // can reach it. Its guards (.mp4 only, ftyp bytes only, 1 GiB) narrow what
+  // it can write; they do not make it a tool.
+  'export_write_video',
   // Selects a file in Finder or Explorer. It opens and writes nothing, but a
   // model that could put windows on the person's screen would be reaching
   // outside the app, which no tool does.

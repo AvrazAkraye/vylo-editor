@@ -92,6 +92,9 @@ const ICONS: Record<string, Stroke[]> = {
   // Research. An open book rather than a mortarboard: the module writes
   // documents, and a cap would promise a degree.
   book: [{ d: 'M12 6.8c-1.6-1.3-3.9-2-6.5-2H4.5v12.9h1c2.6 0 4.9.7 6.5 2 1.6-1.3 3.9-2 6.5-2h1V4.8h-1c-2.6 0-4.9.7-6.5 2zM12 6.8v12.9' }],
+  // Video. A strip of film rather than a camera: the module makes a finished
+  // film from a sentence, and `camera` already means a screenshot here.
+  film: [{ d: 'M5.5 4.5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1zM8 4.5v15M16 4.5v15M4.5 9h3.5M4.5 15h3.5M16 9h3.5M16 15h3.5' }],
   pencil: [{ d: 'M4.6 19.4l.7-3.5a2 2 0 0 1 .55-1.02L15.9 4.7a2.2 2.2 0 0 1 3.4 2.77l-.28.33-10.03 10.03a2 2 0 0 1-1.02.55zM14.4 6.2l3.4 3.4' }],
 };
 

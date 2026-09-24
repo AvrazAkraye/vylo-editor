@@ -51,7 +51,7 @@
 import type { IconName } from './Icon';
 
 export type ModuleId =
-  | 'dashboard' | 'routines' | 'skills' | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'prompts' | 'browser' | 'plugins' | 'usage' | 'whatsapp' | 'research' | 'memory';
+  | 'dashboard' | 'routines' | 'skills' | 'files' | 'search' | 'outline' | 'changes' | 'chats' | 'todo' | 'prompts' | 'browser' | 'plugins' | 'usage' | 'whatsapp' | 'research' | 'video' | 'memory';
 
 export interface Module {
   id: ModuleId;
@@ -86,6 +86,7 @@ export const MODULES: readonly Module[] = [
   { id: 'usage', label: 'Usage', icon: 'flame', about: 'What your plan, this conversation and this project have spent.' },
   { id: 'whatsapp', label: 'WhatsApp', icon: 'send', about: 'Read and answer WhatsApp, through an instance you connect.' },
   { id: 'research', label: 'Research', icon: 'book', about: 'Working papers, theses and dissertations, written section by section with real references and saved as Word.' },
+  { id: 'video', label: 'Video', icon: 'film', about: 'Short videos from a sentence: a storyboard you edit, openly licensed pictures, and an MP4 you export.' },
   { id: 'memory', label: 'Memory', icon: 'memory', about: 'What the agent has been told to remember.' },
 ];
 

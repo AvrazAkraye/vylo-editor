@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.109.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.110.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -113,6 +113,16 @@ added by DOI, and the model may cite only those, through markers the app turns
 into citations itself — it is never asked to write one. Where the document
 needs the researcher's own data, it leaves a marked gap instead of inventing
 any.
+
+**Video, made with AI and drawn by the app.** Turn on the Video module and
+describe the video — *a 30-second vertical promo for our clinic, in Arabic*. The
+model writes a storyboard of scenes (a title, kinetic words, points, a counting
+number, a chart, a quote, a picture, steps, a close), the app finds openly
+licensed pictures for it on Openverse and Wikimedia Commons, credits kept, and
+the scenes are drawn by the app's own Remotion templates in six styles, in
+Arabic, Kurdish or English, landscape, vertical or square. Edit any scene, redo
+one with an instruction, watch it in the preview, and export an MP4 rendered in
+the app itself. The model never writes code; it writes the storyboard.
 
 **Native, and small.** 8 MB installed and a 4 MB download, because it is a
 Tauri app with a Rust tool layer rather than an Electron shell. One codebase
