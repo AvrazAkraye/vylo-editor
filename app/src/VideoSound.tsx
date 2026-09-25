@@ -7,10 +7,11 @@ import type { Provider } from './providers';
 import { generate, type Target } from './generate';
 import type { EffortBook } from './effort';
 import { TTS_KEY, langOf as systemLangOf, voiceFor as systemVoiceFor } from './whatsapptts';
-import type { Track, Video, VideoAudio } from './videotypes';
+import type { MusicSpec, Track, Video, VideoAudio } from './videotypes';
 import { durationInFrames, isRtl } from './video';
 import { FPS } from './videotypes';
 import { kindName } from './VideoStoryboard';
+import { KEY_NAMES, MUSIC_MOODS, arrange, composeMusic, moodForStyle, moodTempo, musicCues, type Mood as SynthMood } from './videosynth';
 import {
   MOODS, MusicError, VOICES, audioSeconds, dataUrlBytes, encodeWav, fetchTrackBytes, fingerprint, fitScenesToVoice,
   isAbort, linesOver, moodFor, musicVolumeOf, narrationPrompt, parseNarration, searchMusic, speakLine, speakerFor,
@@ -80,6 +81,66 @@ const voicePick = new Map<string, string>();
 const notes = new Map<string, string>();
 /** Fetched tracks, by URL: listening first and then choosing fetches once. */
 const fetched = new Map<string, Promise<Uint8Array>>();
+
+/** A piece being composed, or composed, for a video (videosynth.ts). */
+interface Take {
+  spec: MusicSpec;
+  /** The video's length it was composed for, in seconds, and its cuts. */
+  film: number;
+  cues: number[];
+  state: 'busy' | 'done' | 'error';
+  fraction: number;
+  track?: Track;
+  error?: unknown;
+  ctl?: AbortController;
+  /** Put straight into the video when done: composing again to fit. */
+  fit?: boolean;
+}
+
+/** The composer's knobs for each video, before and after composing. */
+interface Knobs { mood: SynthMood; tempo?: number; energy: number; key?: number }
+
+const takes = new Map<string, Take>();
+const knobs = new Map<string, Knobs>();
+
+/**
+ * Composes in the background, like the voice: a tab switch does not stop
+ * it. `put` receives the track when it is ready and should be used.
+ */
+function startCompose(id: string, spec: MusicSpec, film: number, cues: number[], put?: (track: Track) => void) {
+  takes.get(id)?.ctl?.abort();
+  const ctl = new AbortController();
+  const take: Take = { spec, film, cues, state: 'busy', fraction: 0, ctl, fit: Boolean(put) };
+  takes.set(id, take);
+  ping();
+  let shown = 0;
+  composeMusic(spec, film, {
+    cues, signal: ctl.signal,
+    onProgress: (f) => { take.fraction = f; if (Date.now() - shown > 120) { shown = Date.now(); ping(); } },
+  }).then(
+    (track) => {
+      if (takes.get(id) !== take) return;
+      Object.assign(take, { state: 'done', track, ctl: undefined });
+      put?.(track);
+      ping();
+    },
+    (e: unknown) => {
+      if (takes.get(id) !== take) return;
+      if (isAbort(e)) takes.delete(id);
+      else Object.assign(take, { state: 'error', error: e, ctl: undefined });
+      ping();
+    },
+  );
+}
+
+/** A new seed: the spec keeps it, so the piece can be composed again exactly. */
+const freshSeed = () => Math.floor(Math.random() * 1_000_000_000);
+
+/** A composed track's mood, named in the interface's language. */
+function moodLabel(t: T, mood: SynthMood | undefined): string {
+  return t(MUSIC_MOODS.find((m) => m.id === mood)?.label ?? 'Uplifting');
+}
+
 const listeners = new Set<() => void>();
 
 function ping() {
@@ -390,8 +451,24 @@ function MusicCard({ t, video, audio, setAudio, onError }: {
     if (!track) return;
     const key = `track:${fingerprint(track.src)}`;
     if (playing === key) { stopAll(); return; }
-    const url = blobUrlOf(key, () => dataUrlBytes(track.src), 'audio/mpeg');
+    const url = blobUrlOf(key, () => dataUrlBytes(track.src), track.src.startsWith('data:audio/wav') ? 'audio/wav' : 'audio/mpeg');
     if (url) void playUrl(key, url);
+  };
+
+  // Composed music follows the video's length; when the video has changed since, it can be composed again to fit.
+  const composed = track?.generated;
+  const refit = takes.get(id);
+  const refitting = refit?.state === 'busy' && refit.fit;
+  const offBy = composed && film > 0 && track?.seconds !== undefined ? Math.abs(track.seconds - film) : 0;
+  const fitAgain = () => {
+    if (!composed) return;
+    const cur = latest.get(id) ?? video;
+    const now = cur.scenes.length ? durationInFrames(cur) / FPS : cur.seconds;
+    startCompose(id, composed, now, musicCues(cur), (next) => {
+      lastTrack.set(id, next);
+      const v = latest.get(id) ?? cur;
+      if (v.audio?.music?.generated) setAudio({ music: next });
+    });
   };
 
   const volume = vol ?? musicVolumeOf(audio);
@@ -407,15 +484,16 @@ function MusicCard({ t, video, audio, setAudio, onError }: {
   const trackKey = track ? `track:${fingerprint(track.src)}` : '';
 
   return (
-    <Card icon={NOTE} title={t('Music')} about={t('Openly licensed music under the whole video')}
+    <Card icon={NOTE} title={t('Music')}
+          about={track && !composed ? t('Openly licensed music under the whole video') : t('Music under the whole video: composed here, or openly licensed')}
           control={<Switch on={on} label={t('Music')} onChange={turn} />}>
       {track && (
         <div className="vid-sound-body">
           <div className="vid-sound-track">
             <PlayButton t={t} on={playing === trackKey} onClick={hearTrack} />
             <span className="vid-sound-meta">
-              <b dir="auto">{track.title}</b>
-              <span dir="auto">{track.credit}</span>
+              <b dir="auto">{composed ? fill(t('{mood} — composed for this video'), { mood: moodLabel(t, composed.mood) }) : track.title}</b>
+              <span dir="auto">{composed ? t('Original music composed in Vylo Editor') : track.credit}</span>
             </span>
             <span className="vid-sound-len">{mmss(track.seconds)}</span>
             <button type="button" className="ghost vid-sound-small" aria-expanded={picking} onClick={() => {
@@ -430,6 +508,16 @@ function MusicCard({ t, video, audio, setAudio, onError }: {
                    onChange={(e) => setVolume(Number(e.target.value) / 100)} aria-valuetext={`${Math.round(volume * 100)}%`} />
             <output>{Math.round(volume * 100)}%</output>
           </label>
+          {composed && (offBy > 0.25 || refitting) && (
+            <div className="vid-warn vid-in vid-synth-fit" role="status">
+              <span>{refitting
+                ? fill(t('Composing… {n}%'), { n: Math.round((refit?.fraction ?? 0) * 100) })
+                : fill(t('This music was composed for {m} s; the video is now {n} s.'), { m: track.seconds ?? 0, n: Math.round(film * 10) / 10 })}</span>
+              <button type="button" className="ghost vid-sound-small" disabled={refitting} onClick={fitAgain}>
+                {refitting ? <span className="vid-spinner" aria-hidden="true" /> : <Icon name="sparkle" size={12} />}{t('Compose again to fit')}
+              </button>
+            </div>
+          )}
           <p className="vid-note">
             {loops
               ? fill(t('Shorter than the video, so it loops, the joins blended, to fill {n} seconds. It fades in at the start and out at the end.'), { n: Math.round(film) })
@@ -440,7 +528,12 @@ function MusicCard({ t, video, audio, setAudio, onError }: {
       )}
 
       {on && (picking || !track) && (
+        <ComposeCard t={t} video={video} audio={audio} setAudio={setAudio} onUsed={() => setPicking(false)} />
+      )}
+
+      {on && (picking || !track) && (
         <div className="vid-sound-body vid-sound-pick">
+          <p className="vid-synth-or">{t('Or find openly licensed music')}</p>
           <div className="vid-chips vid-sound-moods" role="group" aria-label={t('Mood')}>
             {MOODS.map((m) => (
               <button key={m.id} type="button" className={`vid-chip vid-sound-mood${search?.mood === m.id ? ' on' : ''}`}
@@ -492,6 +585,143 @@ function MusicCard({ t, video, audio, setAudio, onError }: {
         </div>
       )}
     </Card>
+  );
+}
+
+// ── composing ─────────────────────────────────────────────────────────────
+
+/** What a take is, in one line — its key or maqam, its rhythm, its tempo — kept per take. */
+const lines = new WeakMap<Take, { key: number; scale: string; iqa?: string; bpm: number }>();
+
+function takeLine(t: T, take: Take): string {
+  let s = lines.get(take);
+  if (!s) {
+    const sc = arrange(take.spec, take.film, take.cues);
+    s = { key: sc.key, scale: sc.scale, iqa: sc.iqa, bpm: sc.bpm };
+    lines.set(take, s);
+  }
+  const key = KEY_NAMES[s.key] ?? '';
+  const maqam: Partial<Record<string, string>> = { hijaz: 'Hijaz', bayati: 'Bayati', nahawand: 'Nahawand', kurd: 'Kurd' };
+  const iqa: Partial<Record<string, string>> = { maqsum: 'Maqsum', baladi: 'Baladi', saidi: 'Saidi' };
+  const name = maqam[s.scale];
+  const rhythm = s.iqa ? iqa[s.iqa] : undefined;
+  return [
+    name ? fill(t('Maqam {maqam} on {key}'), { maqam: t(name), key }) : fill(t(s.scale === 'major' ? '{key} major' : '{key} minor'), { key }),
+    ...(rhythm ? [t(rhythm)] : []),
+    fill(t('{n} BPM'), { n: Math.round(s.bpm) }),
+  ].join(' · ');
+}
+
+/**
+ * Composing music for the video in the app (videosynth.ts): a mood, a tempo,
+ * how busy, a key or the mood's own. The piece follows the video — its
+ * length, and a lift at every scene change — and is heard before it is used.
+ */
+function ComposeCard({ t, video, audio, setAudio, onUsed }: {
+  t: T; video: Video; audio: VideoAudio; setAudio: (n: Partial<VideoAudio>) => void; onUsed: () => void;
+}) {
+  const id = video.id;
+  const film = video.scenes.length ? durationInFrames(video) / FPS : video.seconds;
+  const now = audio.music?.generated;
+  const k: Knobs = knobs.get(id) ?? { mood: now?.mood ?? moodForStyle(video.style), tempo: now?.tempo, energy: now?.energy ?? 0.6, key: now?.key };
+  const turn = (next: Partial<Knobs>) => { knobs.set(id, { ...k, ...next }); ping(); };
+  const take = takes.get(id);
+  const busy = take?.state === 'busy';
+  const made = take?.state === 'done' ? take.track : undefined;
+  const inUse = Boolean(made && audio.music?.src === made.src);
+  const tempo = k.tempo ?? moodTempo(k.mood);
+  const energy = Math.round(k.energy * 100);
+
+  const compose = (seed: number) => {
+    stopAll();
+    const spec: MusicSpec = { mood: k.mood, seed, energy: k.energy, ...(k.tempo !== undefined ? { tempo: k.tempo } : {}), ...(k.key !== undefined ? { key: k.key } : {}) };
+    startCompose(id, spec, film, musicCues(latest.get(id) ?? video));
+  };
+  const hearKey = made ? `synth:${fingerprint(made.src)}` : '';
+  const hear = () => {
+    if (!made) return;
+    if (playing === hearKey) { stopAll(); return; }
+    const url = blobUrlOf(hearKey, () => dataUrlBytes(made.src), 'audio/wav');
+    if (url) void playUrl(hearKey, url);
+  };
+  const use = () => {
+    if (!made) return;
+    lastTrack.set(id, made);
+    setAudio({ music: made });
+    onUsed();
+  };
+
+  return (
+    <div className="vid-sound-body vid-synth">
+      <div className="vid-synth-head">
+        <b>{t('Compose music')}</b>
+        <span>{t('Written and played on this computer, to fit this video')}</span>
+      </div>
+      <div className="vid-chips vid-synth-moods" role="group" aria-label={t('Mood')}>
+        {MUSIC_MOODS.map((m) => (
+          <button key={m.id} type="button" className={`vid-chip vid-sound-mood${k.mood === m.id ? ' on' : ''}`} aria-pressed={k.mood === m.id}
+                  onClick={() => turn({ mood: m.id, tempo: undefined })}>
+            {t(m.label)}
+          </button>
+        ))}
+      </div>
+      <div className="vid-synth-knobs">
+        <label className="vid-synth-knob">
+          <span>{t('Tempo')}</span>
+          <input type="range" min={60} max={170} step={1} value={tempo} onChange={(e) => turn({ tempo: Number(e.target.value) })}
+                 aria-valuetext={fill(t('{n} BPM'), { n: tempo })} />
+          <output>{k.tempo === undefined ? fill(t('Auto · {n} BPM'), { n: tempo }) : fill(t('{n} BPM'), { n: tempo })}</output>
+        </label>
+        <label className="vid-synth-knob">
+          <span>{t('Energy')}</span>
+          <input type="range" min={0} max={100} step={5} value={energy} onChange={(e) => turn({ energy: Number(e.target.value) / 100 })} aria-valuetext={`${energy}%`} />
+          <output>{energy}%</output>
+        </label>
+        <label className="vid-synth-knob">
+          <span>{t('Musical key')}</span>
+          <select value={k.key === undefined ? '' : String(k.key)} onChange={(e) => turn({ key: e.target.value === '' ? undefined : Number(e.target.value) })}>
+            <option value="">{t('Auto')}</option>
+            {KEY_NAMES.map((name, i) => <option key={name} value={i} dir="ltr">{name}</option>)}
+          </select>
+        </label>
+      </div>
+      <div className="vid-synth-acts">
+        <button type="button" className="sb-cta-go" disabled={busy} onClick={() => compose(take?.spec.seed ?? now?.seed ?? freshSeed())}>
+          <Icon name="sparkle" size={13} />{t('Compose')}
+        </button>
+        <button type="button" className="ghost" disabled={busy || !take} onClick={() => compose(freshSeed())}>
+          <Icon name="swap" size={13} />{t('Another take')}
+        </button>
+      </div>
+
+      {busy && take && !take.fit && (
+        <div className="vid-status vid-sound-run" role="status">
+          <p className="vid-status-line">
+            <span className="vid-glyph" aria-hidden="true">✻</span>
+            <b>{fill(t('Composing… {n}%'), { n: Math.round(take.fraction * 100) })}</b>
+            <button type="button" className="ghost vid-sound-small" onClick={() => take.ctl?.abort()}><Icon name="stop" size={11} />{t('Stop')}</button>
+          </p>
+          <div className="vid-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(take.fraction * 100)} aria-label={t('Progress')}>
+            <i style={{ inlineSize: `${Math.max(4, take.fraction * 100)}%` }} />
+          </div>
+        </div>
+      )}
+      {made && take && (
+        <div className="vid-synth-take">
+          <PlayButton t={t} on={playing === hearKey} onClick={hear} />
+          <span className="vid-sound-meta">
+            <b dir="auto">{fill(t('{mood} — composed for this video'), { mood: moodLabel(t, take.spec.mood) })}</b>
+            <span dir="auto">{takeLine(t, take)}</span>
+          </span>
+          <span className="vid-sound-len">{mmss(made.seconds)}</span>
+          <button type="button" className="ghost vid-sound-small" disabled={inUse} onClick={use}>
+            {inUse ? <Icon name="check" size={12} /> : null}{inUse ? t('In use') : t('Use it')}
+          </button>
+        </div>
+      )}
+      {take?.state === 'error' && <p className="vid-bad">{explain(take.error, t('compose the music'))}</p>}
+      <p className="vid-note">{t('Original music, made on this computer for this video and yours to use: no licence, no credit needed. It follows the video — its length, and a lift at every scene change.')}</p>
+    </div>
   );
 }
 

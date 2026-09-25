@@ -156,9 +156,28 @@ export interface Brief {
 }
 
 /** A piece of music under the video: openly licensed, fetched, credited. */
+/**
+ * Music the app composes itself, from this and nothing else: no model writes
+ * a note of it and nothing is downloaded, so it belongs to the video and needs
+ * no credit. The same spec always composes the same piece; a new `seed`, a new
+ * piece in the same mood.
+ */
+export interface MusicSpec {
+  mood: 'uplifting' | 'calm' | 'cinematic' | 'corporate' | 'electronic' | 'lofi' | 'epic' | 'oriental';
+  /** Beats per minute, 60–170; the mood's own when absent. */
+  tempo?: number;
+  /** 0 to 1: how busy and how loud the arrangement is. */
+  energy?: number;
+  /** The key's root, 0 = C … 11 = B; the mood's own when absent. */
+  key?: number;
+  seed: number;
+}
+
 export interface Track {
   /** A data: URL of the audio. */
   src: string;
+  /** Set when the app composed it (videosynth.ts): how, so it can be composed again or changed. */
+  generated?: MusicSpec;
   title: string;
   credit: string;
   source: string;
@@ -180,6 +199,19 @@ export interface VideoAudio {
   voiceName?: string;
   /** Burn the narration in as captions. */
   captions?: boolean;
+}
+
+/** One turn of the conversation in a video's Chat tab. */
+export interface ChatTurn {
+  role: 'you' | 'model';
+  text: string;
+  at: number;
+  /** What the model's turn changed, in plain words, one line each — shown under its reply. */
+  changes?: string[];
+  /** What it asked for and did not get — an op skipped, music that could not be composed — one line each, shown apart. */
+  skipped?: string[];
+  /** The model's turn could not be understood or applied. */
+  failed?: boolean;
 }
 
 /** Where a video is in its life. */
@@ -219,5 +251,7 @@ export interface Video {
   lookup?: boolean;
   /** Music and narration. */
   audio?: VideoAudio;
+  /** The conversation in the Chat tab, oldest first; the latest turns go with each new message. */
+  chat?: ChatTurn[];
   error?: string;
 }

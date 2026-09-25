@@ -6165,6 +6165,29 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   .vid-sound-switch i, .vid-sound-switch i::after, .vid-sound-play, .vid-sound-row, .vid-sound-line{ transition:none; }
 }
 
+/* ── Video: composing music in the app (VideoSound.tsx, videosynth.ts) ──
+   A body inside the Music card, above the Openverse search: moods, three
+   knobs, Compose and Another take, and the take to hear and use. */
+.vid-synth-head{ display:flex; flex-direction:column; gap:1px; }
+.vid-synth-head b{ font-size:var(--fs-3); font-weight:600; color:var(--ink); }
+.vid-synth-head span{ font-size:var(--fs-1); color:var(--mute); line-height:1.45; }
+.vid-synth-moods{ margin:0; }
+.vid-synth-knobs{ display:grid; grid-template-columns:auto 1fr auto; gap:var(--sp-3) var(--sp-4); }
+.vid-synth-knob{ grid-column:1 / -1; display:grid; grid-template-columns:subgrid; align-items:center; font-size:var(--fs-2); color:var(--mute); }
+.vid-synth-knob input[type="range"]{ inline-size:100%; margin:0; accent-color:var(--brand); }
+.vid-synth-knob output{ text-align:end; color:var(--ink); font-variant-numeric:tabular-nums; white-space:nowrap; }
+.vid-synth-knob select{
+  grid-column:2 / -1; min-inline-size:0; padding:var(--sp-2) var(--sp-3); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink); font:inherit; font-size:var(--fs-2);
+}
+.vid-synth-knob select:focus{ outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+.vid-synth-acts{ display:flex; flex-wrap:wrap; gap:var(--sp-3); }
+.vid-synth-acts button{ display:inline-flex; align-items:center; gap:var(--sp-2); }
+.vid-synth-take{ display:flex; align-items:center; gap:var(--sp-4); min-inline-size:0; padding:var(--sp-3) var(--sp-4); border-radius:var(--r-2); background:var(--brand-wash); }
+.vid-synth-fit{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin:0; }
+.vid-synth-fit span{ flex:1 1 16ch; }
+.vid-synth-or{ margin:0; font-size:var(--fs-2); font-weight:600; color:var(--ink); }
+
 /* ── Video: editing by hand — the timeline, undo, keys, templates, the logo's colours (editor agent) ── */
 
 /* A click anywhere in the video's view puts its keys to work; the view itself draws no ring. */
@@ -6503,3 +6526,123 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .vid-sb-switch b{ font-size:var(--fs-2); font-weight:500; color:var(--ink); }
 .vid-sb-switch small{ font-size:var(--fs-1); color:var(--mute); line-height:1.4; }
 @media (max-width: 560px){ .vid-sb-sides{ grid-template-columns:1fr; } }
+
+/* ── Video: the Chat tab (VideoChat.tsx) ──
+   Talking to the video: the person's words at the inline end in the brand's
+   wash, the model's at the start beside its mark, and under every answer the
+   list of what it changed — a tick for what was done, a warning for what was
+   skipped. The box is the composer's card, small; Send turns into Stop while
+   an answer is coming. Logical properties throughout, so the conversation
+   turns round in Arabic and Kurdish; every line is `dir="auto"`, so a message
+   in English inside an Arabic interface still reads left to right. */
+.vid-chat{ display:flex; flex-direction:column; gap:var(--sp-4); padding-inline:var(--sp-6); }
+.vid-chat-note{
+  display:flex; align-items:center; gap:var(--sp-3); margin:0; padding:var(--sp-3) var(--sp-4);
+  border-radius:var(--r-2); background:var(--warn-wash); color:var(--warn); font-size:var(--fs-2); line-height:1.5;
+}
+.vid-chat-note svg{ flex:none; }
+
+.vid-chat-log{
+  list-style:none; margin:0; padding:var(--sp-2) 0; display:flex; flex-direction:column; gap:var(--sp-5);
+  max-block-size:min(58vh, 620px); overflow-y:auto; overscroll-behavior:contain;
+  /* Turns scrolled past fade out under the tabs rather than being cut off there. */
+  -webkit-mask-image:linear-gradient(180deg, transparent 0, #000 var(--sp-6));
+  mask-image:linear-gradient(180deg, transparent 0, #000 var(--sp-6));
+}
+.vid-full .vid-chat-log{ max-block-size:min(70vh, 900px); }
+.vid-chat-empty{
+  display:flex; flex-direction:column; align-items:center; gap:var(--sp-3); padding:var(--sp-8) var(--sp-6);
+  text-align:center; border:1px dashed var(--rule-2); border-radius:var(--r-3);
+  background:linear-gradient(160deg, var(--brand-wash), transparent 72%);
+}
+.vid-chat-empty-mark{
+  display:grid; place-items:center; inline-size:36px; block-size:36px; border-radius:50%;
+  background:var(--brand-wash); color:var(--brand); box-shadow:0 0 0 6px color-mix(in srgb, var(--brand) 8%, transparent);
+}
+.vid-chat-empty b{ font-size:var(--fs-5); font-weight:600; color:var(--ink); }
+.vid-chat-empty-what{ max-inline-size:46ch; font-size:var(--fs-2); color:var(--mute); line-height:1.6; }
+
+.vid-chat-turn{ display:flex; align-items:flex-start; gap:var(--sp-3); min-inline-size:0; animation:rise .18s ease-out; }
+.vid-chat-turn.is-you{ justify-content:flex-end; }
+.vid-chat-text{ margin:0; font-size:var(--fs-4); line-height:1.65; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; }
+.vid-chat-text.is-quiet{ color:var(--mute); }
+.vid-chat-turn.is-you .vid-chat-text{
+  max-inline-size:86%; padding:var(--sp-3) var(--sp-5);
+  border-radius:var(--r-3); border-end-end-radius:var(--r-1);
+  background:var(--brand-wash);
+}
+.vid-chat-turn.is-pending .vid-chat-text{ opacity:.72; }
+.vid-chat-turn.is-stuck .vid-chat-text{ opacity:.6; box-shadow:inset 0 0 0 1px var(--rule-2); }
+.vid-chat-mark{
+  flex:none; display:grid; place-items:center; inline-size:24px; block-size:24px; margin-block-start:1px;
+  border-radius:50%; background:var(--brand-wash); color:var(--brand);
+}
+.vid-chat-turn.is-failed .vid-chat-mark{ background:var(--warn-wash); color:var(--warn); }
+.vid-chat-turn.is-working .vid-chat-mark{ background:transparent; }
+.vid-chat-body{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:var(--sp-3); padding-block-start:2px; }
+
+.vid-chat-changes{
+  list-style:none; margin:0; padding:var(--sp-3) var(--sp-4); display:flex; flex-direction:column; gap:var(--sp-2);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel);
+}
+.vid-chat-changes li{ display:flex; align-items:flex-start; gap:var(--sp-3); font-size:var(--fs-2); line-height:1.5; color:var(--ink-2); }
+.vid-chat-changes li svg{ flex:none; margin-block-start:3px; color:var(--ok); }
+.vid-chat-changes li.is-skipped{ color:var(--mute); }
+.vid-chat-changes li.is-skipped svg{ color:var(--warn); }
+.vid-chat-again{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+.vid-chat-again .ghost.bordered{ inline-size:auto; width:auto; padding-block:var(--sp-2); font-size:var(--fs-3); }
+.vid-chat-again .ghost{ font-size:var(--fs-3); }
+
+.vid-chat-status{
+  flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:var(--sp-1); padding:var(--sp-3) var(--sp-4);
+  border:1px solid color-mix(in srgb, var(--brand) 30%, var(--rule)); border-radius:var(--r-2);
+  background:linear-gradient(135deg, var(--brand-wash), var(--panel) 70%);
+}
+.vid-chat-status b{
+  font-size:var(--fs-3); font-weight:600;
+  background:linear-gradient(90deg, var(--brand) 30%, var(--ink) 50%, var(--brand) 70%);
+  background-size:200% 100%; -webkit-background-clip:text; background-clip:text; color:transparent;
+  animation:vid-shimmer 2.2s linear infinite;
+}
+.vid-chat-clock{ display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-4); font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+
+.vid-chat-chips{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+.vid-chat-chip{
+  padding:var(--sp-2) var(--sp-4); border:1px solid var(--rule); border-radius:999px;
+  background:var(--panel); color:var(--ink-2); font:inherit; font-size:var(--fs-2); line-height:1.4; cursor:pointer;
+  transition:border-color .12s ease, color .12s ease, background .12s ease;
+}
+.vid-chat-chip:hover:not(:disabled){ border-color:var(--brand); color:var(--brand); background:var(--brand-wash); }
+.vid-chat-chip:disabled{ opacity:var(--dim); cursor:default; }
+
+.vid-chat-compose{
+  display:flex; align-items:flex-end; gap:var(--sp-2); padding:var(--sp-2); padding-inline-start:var(--sp-5);
+  border:1px solid var(--rule-2); border-radius:var(--r-3); background:var(--bg);
+  transition:border-color .12s ease, box-shadow .12s ease;
+}
+.vid-chat-compose:focus-within{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+.vid-chat-compose.is-off{ background:var(--panel-2); }
+.vid-chat-compose textarea{
+  flex:1; min-inline-size:0; min-block-size:24px; max-block-size:168px; padding-block:var(--sp-3); padding-inline:0;
+  border:0; background:transparent; color:var(--ink); font:inherit; font-size:var(--fs-5); line-height:1.5;
+  resize:none; overflow-y:auto;
+}
+.vid-chat-compose textarea:focus-visible{ outline:none; }
+.vid-chat-compose textarea::placeholder{ color:var(--mute); opacity:.8; }
+.vid-chat-send{
+  flex:none; display:grid; place-items:center; inline-size:32px; block-size:32px; padding:0;
+  border:0; border-radius:var(--r-2); background:var(--fill); color:var(--on-fill); cursor:pointer;
+  transition:transform .12s ease, background .12s ease, color .12s ease;
+}
+.vid-chat-send:hover:not(:disabled){ transform:translateY(-1px); }
+.vid-chat-send:disabled{ background:var(--panel-2); color:var(--mute); box-shadow:inset 0 0 0 1px var(--rule); cursor:default; }
+.vid-chat-send.is-stop{ background:var(--panel-2); color:var(--ink); box-shadow:inset 0 0 0 1px var(--rule-2); }
+.vid-chat-send.is-stop:hover{ color:var(--err); box-shadow:inset 0 0 0 1px var(--err); transform:none; }
+/* The paper plane points the way the words run. */
+:root[dir="rtl"] .vid-chat-send:not(.is-stop) svg{ transform:scaleX(-1); }
+.vid-chat-hint{ margin:calc(-1 * var(--sp-2)) 0 0; font-size:var(--fs-1); color:var(--mute); text-align:center; }
+
+@media (prefers-reduced-motion: reduce){
+  .vid-chat-turn, .vid-chat-status b{ animation:none; }
+  .vid-chat-send{ transition:none; }
+}

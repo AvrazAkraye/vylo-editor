@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.111.0.
+version 0.112.0.
 
 ---
 
@@ -190,7 +190,7 @@ to your own speech provider, one for fonts and one to Remotion:
 | `app/src/inline.ts` | `POST {gateway}/v1/messages` | ⌘K rewrite, apply-from-chat |
 | `app/src/complete.ts` | `POST {gateway}/v1/complete` | inline (ghost-text) completion |
 | `app/src/gateway.ts` | `POST {gateway}/v1/messages` | checking a key you just pasted |
-| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration; for a presentation: writing its slides and speaker notes, and writing one slide again |
+| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again |
 | `app/src/account.ts` | `POST {gateway}/app/api/auth/login` | signing in — `/auth/register` and `/auth/logout` are the same shape |
 | `app/src/account.ts` | `GET {gateway}/app/api/me` | the plan balance: on launch, when a turn ends, otherwise every five minutes |
 | `app/src/account.ts` | `POST {gateway}/app/api/keys` | minting this app's own key, once, at the end of a sign-in |
@@ -281,7 +281,14 @@ closing card. A narration is written by your chosen model, one line a scene, and
 spoken only when you press **Make the voice**: each line is sent, as text, to a
 speech provider you added in Settings — an OpenAI-shaped `/v1/audio/speech`
 address — with that provider's own key and to no other address. There is no
-Kurdish voice at any provider today, and the panel says so.
+Kurdish voice at any provider today, and the panel says so. Music composed in
+the **Sound** tab — or asked for in the **Chat** tab — is written and played on
+this machine by `app/src/videosynth.ts`, and sends nothing anywhere. In the
+**Chat** tab the model answers with a list of changes from a fixed set — edit a
+scene's words, add, remove or move a scene, the style, the length, the music —
+which `app/src/videochatops.ts` checks and applies; like the storyboard, it is
+never code, and a figure, date or name it gives that is not in the request, the
+facts you left on or your own messages is refused.
 
 **Each film or poster you export sends Remotion one telemetry event.** The film
 — an MP4, or a WebM where the window can encode one — is rendered in the page by
@@ -909,7 +916,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.111.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.112.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -934,6 +941,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.111.0. Every statement above was read out of the code. If
+*Last checked against 0.112.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*
