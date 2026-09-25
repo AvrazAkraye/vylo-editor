@@ -250,5 +250,25 @@ ok('no format is null', recordingType(() => false) === null && recordingType(() 
   ok('an OpenAI-shaped provider answers in one round trip', w2 === 'make it shorter' && said[0].url === 'https://api.example/v1/audio/transcriptions' && said[0].init.body.get('model') === 'gpt-4o-transcribe');
 }
 
+// ── a logo from the web ───────────────────────────────────────────────────
+{
+  const d = deckOf();
+  const a = applyOps(d, [{ op: 'use_logo', subject: 'University of Duhok', site: 'uod.ac/about' }], newId);
+  ok('use_logo asks the panel to look the logo up, with the site as an origin', a.wants.logo?.subject === 'University of Duhok' && a.wants.logo?.site === 'https://uod.ac', a.wants);
+  ok('…and changes nothing itself: the logo lands only once it is found', !('logo' in a.next) && a.changes.some((c) => c.what === 'logo' && c.subject === 'University of Duhok'));
+  const b = applyOps(deckOf({ meta: { ...d.meta, university: 'University of Zakho' } }), [{ op: 'add_logo' }], newId);
+  ok('an alias, and no subject: the university under the title', b.wants.logo?.subject === 'University of Zakho', b.wants);
+  const c = applyOps(d, [{ op: 'use_logo' }], newId);
+  ok('no subject and no university: skipped, nothing looked up', !c.wants.logo && c.changes.some((x) => x.what === 'skipped' && x.why === 'invalid'));
+  const e = applyOps(d, [{ op: 'use_logo', subject: 'X', site: 'javascript:alert(1)' }], newId);
+  ok('a site that is not a web address is dropped', e.wants.logo?.subject === 'X' && !('site' in e.wants.logo));
+  const withLogo = deckOf({ logo: 'data:image/png;base64,QQ==', logoRatio: 2 });
+  const r = applyOps(withLogo, [{ op: 'remove_logo' }], newId);
+  ok('remove_logo takes the logo and its shape off', 'logo' in r.next && r.next.logo === undefined && r.next.logoRatio === undefined && r.changes.some((x) => x.what === 'logo-removed'));
+  ok('…and on a deck with none it is nothing', applyOps(d, [{ op: 'remove_logo' }], newId).changes.length === 0);
+  const p = chatPrompt(d, [], 'add the uod logo');
+  ok('the prompt offers use_logo and says never to refuse a logo', /"op":"use_logo"/.test(p.user + p.system) && /never answer that you cannot search the web/.test(p.user + p.system));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

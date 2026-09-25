@@ -177,7 +177,7 @@
 | `app/src/scholar.ts` | `GET https://api.openalex.org/works/doi:{doi}`، `GET https://api.crossref.org/works/{doi}` | الاستعلام عن معرّف DOI أضفتَه إلى مستند بحثي |
 | `app/src/videomedia.ts` | `GET https://api.openverse.org/v1/images/`، ثم الصورة المختارة من العنوان الذي يعطيه Openverse لها | البحث عن صورة لمشهد في فيديو بدأتَه، أو حين تطلب صوراً أخرى |
 | `app/src/videomedia.ts` | `GET https://commons.wikimedia.org/w/api.php`، ثم الصورة المختارة من `upload.wikimedia.org` | الأمر نفسه، حين يرفض Openverse أو يتعطّل أو لا يجد شيئاً |
-| `app/src/videoresearch.ts` | `GET https://www.wikidata.org/w/api.php`، `GET https://{ar,ckb,en,ku}.wikipedia.org/api/rest_v1/page/summary/…`، ثم `commons.wikimedia.org` و`api.openverse.org` لصوره الفوتوغرافية وشعاره | الاستعلام عن موضوع فيديو بدأتَه، قبل تخطيط مشاهده — ما لم تُطفئ **ابحث عن الموضوع على الويب أولاً** — أو حين تطلب الاستعلام عنه مجدداً |
+| `app/src/videoresearch.ts` | `GET https://www.wikidata.org/w/api.php`، `GET https://{ar,ckb,en,ku}.wikipedia.org/api/rest_v1/page/summary/…`، ثم `commons.wikimedia.org` و`api.openverse.org` لصوره الفوتوغرافية وشعاره | الاستعلام عن موضوع فيديو بدأتَه، قبل تخطيط مشاهده — ما لم تُطفئ **ابحث عن الموضوع على الويب أولاً** — أو حين تطلب الاستعلام عنه مجدداً؛ وللعرض التقديمي شعاره فقط (`findLogo`): اسم الجهة، حين تطلب شعارها من محادثة الشرائح |
 | `app/src/videomix.ts` | `GET https://api.openverse.org/v1/audio/`، ثم المقطع المختار من `cdn.freesound.org` أو `*.storage.jamendo.com` أو `upload.wikimedia.org` | البحث عن موسيقى لفيديو، حين تطلبها في تبويب الصوت الخاص به |
 | `app/src/videomix.ts` | `POST {speech provider}/v1/audio/speech` | صنع التعليق الصوتي لفيديو، حين تضغط **اصنع الصوت** — إلى مزوّد أضفتَه أنت، بمفتاح ذلك المزوّد نفسه |
 | `app/src/videotheme.ts` | `GET https://fonts.gstatic.com/…`، تُصدره `@remotion/google-fonts` | خطوط نمط الفيديو، أول مرة يُعرض فيها أو يُصدَّر في الجلسة |
@@ -242,7 +242,7 @@ Commons وOpenverse طلباً لصوره الفوتوغرافية وشعاره.
 فيها أبداً دون أن تطلب. وحين لا يوجد في Wikimedia شعار حرّ — وهذا المعتاد مع
 الجامعات — يُقرأ الموقع الإلكتروني للجهة نفسها، أي العنوان الذي يذكره Wikidata لها،
 عبر https بحثاً عن الشعار في ترويسته (`siteLogo`)، ويُقترح بالطريقة نفسها ويُنسب إلى
-الجهة بوصفه شعارها هي: شعاراً يُستعمل باسمها، لا صورةً مرخّصة ترخيصاً مفتوحاً. وحين يُخاطَب نموذج الفيديو بصيغة Anthropic، قد يحمل طلب
+الجهة بوصفه شعارها هي: شعاراً يُستعمل باسمها، لا صورةً مرخّصة ترخيصاً مفتوحاً. وتسأل محادثة الشرائح المكانين أنفسهما عن شعار حين تطلبه منها (`findLogo`) — اسم الجهة فقط، وشعارها فقط: لا حقائق ولا صور — وتضع ما تجده على العرض خطوةً واحدة يمكنك التراجع عنها. وحين يُخاطَب نموذج الفيديو بصيغة Anthropic، قد يحمل طلب
 التخطيط أيضاً أداة البحث على الويب الخاصة بـ Anthropic نفسها: فيجري البحث حينها
 لدى Anthropic، عبر المسار نفسه، والبوابة التي ترفضها يُحفظ رفضها طوال الجلسة ولا
 تُسأل ثانيةً. و**ابحث عن الموضوع على الويب أولاً**، تحت مربع الطلب، مُفعَّل

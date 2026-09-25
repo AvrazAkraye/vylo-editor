@@ -72,7 +72,7 @@ const SOURCE_CHARS = 20_000;
 /** The operations the model may ask for. Anything else is skipped. */
 export const OPS = [
   'edit_slide', 'add_slide', 'remove_slide', 'move_slide', 'duplicate_slide', 'set_notes', 'set_theme', 'set_title',
-  'set_brand', 'set_cover', 'set_language', 'set_digits', 'show_slide', 'present', 'offer_save',
+  'set_brand', 'use_logo', 'remove_logo', 'set_cover', 'set_language', 'set_digits', 'show_slide', 'present', 'offer_save',
 ] as const;
 export type OpName = (typeof OPS)[number];
 
@@ -170,7 +170,7 @@ function settingsOf(d: Deck): string[] {
     `- What it is: ${kindWord(d.kind)}. ${ARC[d.kind] ?? ARC.general}`,
     `- Language of every word: ${LANGUAGE_NAME[d.lang] ?? 'English'}.${d.lang !== 'en' ? ` Numbers are written ${d.digits === 'western' ? '123' : '١٢٣'} (set_digits changes it).` : ''}`,
     `- Look: ${d.theme} — ${TONE[d.theme] ?? TONE.modern}.`,
-    `- Colours: ${brand || 'the look\'s own'}; ${d.logo ? 'a logo on the title slide, the closing slide and the corner of the others' : 'no logo'}.`,
+    `- Colours: ${brand || 'the look\'s own'}; ${d.logo ? 'a logo on the title slide, the closing slide and the corner of the others (use_logo replaces it, remove_logo takes it off)' : 'no logo (use_logo finds one on the web)'}.`,
     `- Under the title slide's title (set_cover): ${names || 'no names yet'}.`,
     `- ${d.from ? `Made from the Research document "${capped(scrub(d.from.title), 120)}", which is below.` : 'Made from the request alone: there is no document behind it.'}`,
   ];
@@ -210,6 +210,8 @@ const CATALOGUE = [
   `- {"op":"set_theme","theme":"bold"} — the look: ${THEMES.map((th) => `"${th}" (${TONE[th]})`).join(', ')}.`,
   '- {"op":"set_title","title":"…"} — the presentation\'s name, in the list and along the foot of each slide. To change the words on the title slide, edit slide 1.',
   '- {"op":"set_brand","primary":"#1A4D8F","accent":"#F2A900"} — the colour behind the title slides and the accent; colours are #rrggbb, null gives back the look\'s own.',
+  '- {"op":"use_logo","subject":"University of Duhok"} — find that organisation\'s logo on the web — Wikidata and Wikimedia Commons, else its own website — and put it on the title slide, the closing slide and the corner of the others. "subject" is its full name, spelled out ("UoD" is "University of Duhok"); without it the university under the title is looked up. "site":"https://…" names its website when the person gave it. Whenever the person asks for a logo, use this — never answer that you cannot search the web or add one. The app says whether one was found.',
+  '- {"op":"remove_logo"} — take the logo off every slide.',
   '- {"op":"set_cover","presenter":"…","supervisor":"…","university":"…","college":"…","date":"…"} — the names printed under the title slide\'s title; any of them; "" clears one. Only names the person gives.',
   '- {"op":"set_language","lang":"ckb"} — "ar" (Arabic), "ckb" (Kurdish, Sorani), "kmr" (Kurdish, Badini) or "en" (English). ONLY together with an edit_slide for EVERY slide that has words (not the reference list), rewriting all of its words — and its notes — in the new language, following that language\'s spelling. Without them it is refused.',
   '- {"op":"set_digits","digits":"eastern"} — for Arabic and Kurdish: "eastern" writes numbers ١٢٣, "western" writes 123.',
@@ -217,7 +219,7 @@ const CATALOGUE = [
   '- {"op":"present","slide":1} — start presenting full screen from that slide (from the first without "slide"): for "start the presentation", "present from the method".',
   '- {"op":"offer_save","format":"pptx"} — when the person asks to save, export or download: "pptx" (PowerPoint) or "pdf". The app puts a button under your reply, which they press. You cannot save a file yourself.',
   '',
-  'Almost anything the person asks can be done with these ops. Only these cannot, and then say so in "reply" and name the tab: a logo or a picture from the person\'s own computer (Presentation tab), and writing a new deck from nothing (Presentation → Write the slides again).',
+  'Almost anything the person asks can be done with these ops. Only these cannot, and then say so in "reply" and name the tab: a logo or a picture from the person\'s own computer (Presentation tab — a logo on the web is use_logo), and writing a new deck from nothing (Presentation → Write the slides again).',
 ].join('\n');
 
 /** One compact answer of the right shape — with no figures, because the example is what a model copies. */
@@ -416,6 +418,9 @@ export type Change =
   | { what: 'theme'; theme: Theme }
   | { what: 'title'; title: string }
   | { what: 'brand' }
+  | { what: 'logo'; subject: string }
+  | { what: 'logo-failed'; subject: string }
+  | { what: 'logo-removed' }
   | { what: 'cover' }
   | { what: 'language'; lang: DeckLang }
   | { what: 'digits'; digits: 'eastern' | 'western' }
@@ -435,6 +440,8 @@ export interface Applied {
     present?: string;
     /** Put these save buttons under the reply; the person presses them. */
     offer?: ('pptx' | 'pdf')[];
+    /** Find this organisation's logo on the web (videoresearch.ts `findLogo`) and put it on the deck. */
+    logo?: { subject: string; site?: string };
   };
 }
 
@@ -449,6 +456,8 @@ const OP_ALIASES: Readonly<Record<string, OpName>> = {
   theme: 'set_theme', set_look: 'set_theme', look: 'set_theme', set_style: 'set_theme', style: 'set_theme',
   rename: 'set_title', title: 'set_title',
   brand: 'set_brand', set_colours: 'set_brand', set_colors: 'set_brand', colours: 'set_brand', colors: 'set_brand',
+  add_logo: 'use_logo', set_logo: 'use_logo', logo: 'use_logo', find_logo: 'use_logo', get_logo: 'use_logo', insert_logo: 'use_logo',
+  search_logo: 'use_logo', look_up_logo: 'use_logo', delete_logo: 'remove_logo', clear_logo: 'remove_logo', no_logo: 'remove_logo', hide_logo: 'remove_logo',
   cover: 'set_cover', set_names: 'set_cover', title_slide: 'set_cover', set_presenter: 'set_cover',
   set_lang: 'set_language', language: 'set_language', translate: 'set_language',
   digits: 'set_digits', numbers: 'set_digits', set_numbers: 'set_digits',
@@ -604,6 +613,9 @@ export function applyOps(deck: Deck, ops: unknown, newId: () => string, said = '
   let brand = deck.brand;
   let meta = deck.meta;
   let digits = deck.digits;
+  let logo = deck.logo;
+  let logoRatio = deck.logoRatio;
+  let wantsLogo: { subject: string; site?: string } | undefined;
   let select: string | undefined;
   let present: string | undefined;
   const offer: ('pptx' | 'pdf')[] = [];
@@ -842,6 +854,33 @@ export function applyOps(deck: Deck, ops: unknown, newId: () => string, said = '
         if (!changes.some((c) => c.what === 'brand')) changes.push({ what: 'brand' });
         break;
       }
+      case 'use_logo': {
+        // Only an address the web could have: https (or http, asked for over https), with a dot in its name.
+        const raw = str(o.site ?? o.url ?? o.website).trim();
+        let site: string | undefined;
+        if (raw) {
+          try {
+            const u = new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw}`);
+            if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.includes('.') && !/\s/.test(raw)) site = u.origin;
+          } catch { /* no site: the one the lookup finds, or none */ }
+        }
+        const named = str(o.subject ?? o.name ?? o.organisation ?? o.organization ?? o.query ?? o.of).replace(/\s+/g, ' ').trim().slice(0, 120);
+        const subject = named || meta?.university?.trim() || meta?.college?.trim() || '';
+        if (!subject && !site) { skip(op, 'invalid'); break; }
+        wantsLogo = { subject, ...(site ? { site } : {}) };
+        changes.splice(0, changes.length, ...changes.filter((c) => c.what !== 'logo' && c.what !== 'logo-removed'));
+        changes.push({ what: 'logo', subject: subject || new URL(site!).hostname.replace(/^www\./, '') });
+        break;
+      }
+      case 'remove_logo': {
+        wantsLogo = undefined;
+        changes.splice(0, changes.length, ...changes.filter((c) => c.what !== 'logo'));
+        if (!logo) break;
+        logo = undefined;
+        logoRatio = undefined;
+        changes.push({ what: 'logo-removed' });
+        break;
+      }
       case 'set_cover': {
         const names: Record<keyof DeckMeta, unknown> = {
           presenter: o.presenter ?? o.author ?? o.name ?? o.by,
@@ -931,6 +970,7 @@ export function applyOps(deck: Deck, ops: unknown, newId: () => string, said = '
   if (brand !== deck.brand) next.brand = brand;
   if (meta !== deck.meta) next.meta = meta;
   if (digits !== deck.digits) next.digits = digits;
+  if (logo !== deck.logo) { next.logo = logo; next.logoRatio = logoRatio; }
 
   // The same change said twice is said once.
   const seen = new Set<string>();
@@ -947,6 +987,7 @@ export function applyOps(deck: Deck, ops: unknown, newId: () => string, said = '
       ...(select && slides.some((s) => s.id === select) ? { select } : {}),
       ...(present && slides.some((s) => s.id === present) ? { present } : {}),
       ...(offer.length ? { offer } : {}),
+      ...(wantsLogo ? { logo: wantsLogo } : {}),
     },
   };
 }

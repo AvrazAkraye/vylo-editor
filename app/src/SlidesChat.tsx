@@ -10,6 +10,7 @@ import { MAX_OPS, applyOps, chatPrompt, keptChat, parseChat, MAX_SLIDES, type Ch
 import { Recorder, SpeechError, speechBackend, speechFileName, transcribe } from './slidesvoice';
 import { Dictation, OFF as DICTATION_OFF, browserOpen, recognitionLang, speechAvailable, type State as DictationState } from './dictate';
 import { langName, slideKindName, themeName } from './slidesnames';
+import { findLogo } from './videoresearch';
 
 /**
  * Talking to the slides: the Chat tab.
@@ -80,6 +81,8 @@ interface Run {
   started: number;
   chars: number;
   retry?: { attempt: number; of: number };
+  /** Looking for a logo on the web, after the model answered. */
+  logo?: boolean;
 }
 
 /** A message that could not be answered: said under it, with Try again. Not kept in the deck. */
@@ -178,16 +181,38 @@ async function send(id: string, message: string, spoken: boolean, d: Deps) {
       return;
     }
     if (order(now) !== order(d0)) throw new Error(MOVED);
-    const applied = applyOps(now, parsed.ops, newId, text);
-    const done = changeLines(applied.changes.filter((c) => c.what !== 'skipped'), d.t);
-    const not = applied.changes.filter((c) => c.what === 'skipped').map((c) => changeLine(c, d.t));
+    let applied = applyOps(now, parsed.ops, newId, text);
+    let base = now;
+    // The logo, found before anything is applied, so it lands in the same undo step.
+    if (applied.wants.logo) {
+      run.logo = true;
+      ping();
+      const want = applied.wants.logo;
+      const got = await findLogo(want.subject, { lang: now.lang, site: want.site, signal: ctl.signal });
+      // The deck may have changed while the web was asked: the ops go onto its newest copy.
+      const later = d.current();
+      if (!later) return;
+      if (order(later) !== order(d0)) throw new Error(MOVED);
+      base = later;
+      applied = applyOps(later, parsed.ops, newId, text);
+      if (got && /^data:image\/(png|jpeg);base64,/.test(got.logo.src)) {
+        const w = got.logo.width ?? 0, h = got.logo.height ?? 0;
+        applied.next.logo = got.logo.src;
+        applied.next.logoRatio = w > 0 && h > 0 ? w / h : undefined;
+      } else {
+        applied.changes = applied.changes.map((c) => (c.what === 'logo' ? { what: 'logo-failed', subject: c.subject } : c));
+      }
+    }
+    const undone = (c: Change) => c.what === 'skipped' || c.what === 'logo-failed';
+    const done = changeLines(applied.changes.filter((c) => !undone(c)), d.t);
+    const not = applied.changes.filter(undone).map((c) => changeLine(c, d.t));
     const model: DeckTurn = {
       role: 'model', text: parsed.reply, at: Date.now(),
       ...(done.length ? { changes: done } : {}), ...(not.length ? { skipped: not } : {}),
       ...(applied.wants.offer ? { offer: applied.wants.offer } : {}),
     };
-    d.onChange({ ...applied.next, chat: keptChat(now.chat, [you, model]) });
-    const slides = applied.next.slides ?? now.slides;
+    d.onChange({ ...applied.next, chat: keptChat(base.chat, [you, model]) });
+    const slides = applied.next.slides ?? base.slides;
     if (applied.wants.select) d.onSelect(applied.wants.select);
     if (applied.wants.present) d.onPresent(Math.max(0, slides.findIndex((s) => s.id === applied.wants.present)));
   } catch (e) {
@@ -221,6 +246,9 @@ export function changeLine(c: Change, t: T): string {
     case 'theme': return fill(t('Look: {theme}'), { theme: themeName(c.theme, t) });
     case 'title': return fill(t('Renamed to “{title}”'), { title: c.title });
     case 'brand': return t('Colours changed');
+    case 'logo': return fill(t('The logo of {name} is on the title slide, the closing slide and the corner of the others'), { name: c.subject });
+    case 'logo-failed': return fill(t('No logo of {name} could be found on the web — add one from the Presentation tab'), { name: c.subject });
+    case 'logo-removed': return t('The logo is off the slides');
     case 'cover': return t('The names on the title slide changed');
     case 'language': return fill(t('The words are now in {lang}'), { lang: langName(c.lang, t) });
     case 'digits': return c.digits === 'eastern' ? t('Numbers are written ١٢٣') : t('Numbers are written 123');
@@ -295,6 +323,7 @@ function suggestions(d: Deck, t: T): string[] {
     t('Add a slide about …'),
     t('Write speaker notes for every slide'),
     t('Change the look to bold'),
+    ...(d.logo ? [] : [t('Add the logo of my university')]),
     d.lang === 'ckb' ? t('Translate it to Arabic') : t('Translate it to Kurdish Sorani'),
     t('Start the presentation'),
     t('Save it as PowerPoint'),
@@ -490,7 +519,7 @@ export function SlidesChat({
 
   const elapsed = run ? Date.now() - run.started : 0;
   const lastModel = turns.map((x) => x.role).lastIndexOf('model');
-  const status = run ? (run.chars ? t('Writing the changes…') : `${thinkingVerb(elapsed, t)}…`) : '';
+  const status = run ? (run.logo ? t('Finding the logo on the web…') : run.chars ? t('Writing the changes…') : `${thinkingVerb(elapsed, t)}…`) : '';
 
   return (
     <div className="vid-chat sl-chat">

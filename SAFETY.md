@@ -198,7 +198,7 @@ to your own speech provider, one for fonts and one to Remotion:
 | `app/src/scholar.ts` | `GET https://api.openalex.org/works/doi:{doi}`, `GET https://api.crossref.org/works/{doi}` | looking up a DOI you added to a Research document |
 | `app/src/videomedia.ts` | `GET https://api.openverse.org/v1/images/`, then the picture chosen, from the address Openverse gives for it | finding a picture for a scene of a video you started, or when you ask for other pictures |
 | `app/src/videomedia.ts` | `GET https://commons.wikimedia.org/w/api.php`, then the picture chosen, from `upload.wikimedia.org` | the same, when Openverse refuses, fails or finds nothing |
-| `app/src/videoresearch.ts` | `GET https://www.wikidata.org/w/api.php`, `GET https://{ar,ckb,en,ku}.wikipedia.org/api/rest_v1/page/summary/…`, then `commons.wikimedia.org` and `api.openverse.org` for its photographs and logo | looking up the subject of a video you started, before its storyboard is planned — unless you switch **Look the subject up on the web first** off — or when you ask to look it up again |
+| `app/src/videoresearch.ts` | `GET https://www.wikidata.org/w/api.php`, `GET https://{ar,ckb,en,ku}.wikipedia.org/api/rest_v1/page/summary/…`, then `commons.wikimedia.org` and `api.openverse.org` for its photographs and logo | looking up the subject of a video you started, before its storyboard is planned — unless you switch **Look the subject up on the web first** off — or when you ask to look it up again; for a presentation, only its logo (`findLogo`): the name of the organisation, when you ask the Slides chat for its logo |
 | `app/src/videomix.ts` | `GET https://api.openverse.org/v1/audio/`, then the track chosen, from `cdn.freesound.org`, `*.storage.jamendo.com` or `upload.wikimedia.org` | finding music for a video, when you ask for it in its Sound tab |
 | `app/src/videomix.ts` | `POST {speech provider}/v1/audio/speech` | making a video's narration, when you press **Make the voice** — to a provider you added, with that provider's own key |
 | `app/src/videotheme.ts` | `GET https://fonts.gstatic.com/…`, made by `@remotion/google-fonts` | the fonts of a video's style, the first time it is shown or exported in a session |
@@ -271,7 +271,10 @@ Wikimedia has no free logo — the usual case for a university — the
 organisation's own website, the address Wikidata gives for it, is read over
 https for the logo in its header (`siteLogo`), offered the same way and
 credited as the organisation's own: a logo to use on its behalf, not an openly
-licensed picture. When the
+licensed picture. The Slides chat asks the same two places for a logo when you
+ask it for one (`findLogo`) — only the organisation's name, and only its logo:
+no facts and no photographs — and puts what it finds on the deck as one step
+you can undo. When the
 video's model is reached over the Anthropic wire, the planning request may also
 carry Anthropic's own web-search tool: the search then happens at Anthropic,
 through the same route, and a gateway that refuses it is remembered for the

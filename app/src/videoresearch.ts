@@ -1588,3 +1588,50 @@ export function mergeBrief(known: Brief | undefined, found: Brief | null | undef
     at: found.at,
   };
 }
+
+/**
+ * Only the logo of what `name` names — for the Slides chat, which wants no
+ * facts or photographs: its Wikidata item's logo on Wikimedia Commons, else
+ * the one on its own website (`site`, or the item's). `null` when neither
+ * has one. Like the rest, it never throws for what the web did or did not
+ * answer; only a stop throws.
+ */
+export async function findLogo(
+  name: string,
+  o: { lang: VideoLang; site?: string; get?: Get; signal?: AbortSignal; encode?: Encode },
+): Promise<{ logo: Picture; found: string } | null> {
+  const get = o.get ?? defaultGet;
+  const signal = o.signal;
+  const subject = String(name ?? '').trim();
+  try {
+    let website = o.site;
+    let found = subject;
+    if (subject) {
+      const hits = fromSearch(await getJson(get, searchUrl(subject), signal)).slice(0, 6);
+      const detail = hits.length ? await getJson(get, entitiesUrl(hits.map((h) => h.id), 'labels|descriptions|aliases|sitelinks'), signal) : null;
+      const id = hits.length ? chooseEntity({ name: subject }, hits, detail, o.lang) : null;
+      const e = id ? entitiesOf(await getJson(get, entitiesUrl([id], 'labels|claims|sitelinks'), signal))[id] : undefined;
+      if (e) {
+        const read = readEntity(e, {}, o.lang);
+        found = read.name || subject;
+        website ??= read.website;
+        const files = read.logoFiles.length ? fromCommonsFiles(await getJson(get, commonsFilesUrl(read.logoFiles), signal)) : new Map<string, Candidate>();
+        for (const f of read.logoFiles) {
+          const c = files.get(fileKey(f));
+          if (!c) continue;
+          try {
+            return { logo: await fetchPicture(c, found, { get, signal, maxSide: LOGO_SIDE, encode: o.encode ?? encodePng }), found };
+          } catch (err) {
+            if (signal?.aborted || isAbort(err)) throw abortError(signal);
+          }
+        }
+      }
+    }
+    if (signal?.aborted) throw abortError(signal);
+    const logo = website ? await siteLogo(website, [found].filter(Boolean), { get, signal, encode: o.encode }) : null;
+    return logo ? { logo, found } : null;
+  } catch (e) {
+    if (signal?.aborted || isAbort(e)) throw abortError(signal);
+    return null;
+  }
+}

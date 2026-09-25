@@ -15,7 +15,7 @@
 // read; requests go to a fake `Get` and the canvas step is a fake `encode`, so
 // nothing here touches a socket or needs a browser.
 import {
-  HOSTS, LABELS, WEB_SEARCH_TOOL, chooseEntity, siteLogo, siteLogoCandidates, withSiteLogo, mergeBrief, commonsCategoryUrl, commonsFilesUrl, commonsTitleUrl, entitiesUrl, factsBlock,
+  HOSTS, LABELS, WEB_SEARCH_TOOL, chooseEntity, findLogo, siteLogo, siteLogoCandidates, withSiteLogo, mergeBrief, commonsCategoryUrl, commonsFilesUrl, commonsTitleUrl, entitiesUrl, factsBlock,
   findSubjects, fold, forgetRefusals, formatTime, fromCommonsFiles, fromSearch, fromSummary, guessSubjects, parseResearch,
   parseSubjects, pictureTitle, placeBriefPictures, portraitOf, readEntity, researchPrompt, researchVideo, sameName,
   searchLanguage, searchUrl, subjectsPrompt, summaryUrl, summaryWikis, webFacts, webSearchRefused, wantsLookup,
@@ -512,6 +512,43 @@ ok('every request went over https to Wikidata, Wikipedia, Commons, Openverse or 
   ok('a brief with no free logo gets its website\'s', !!withLogo.logo && withLogo.website === 'http://uod.ac');
   const had = { ...brief, logo: { src: 'data:image/png;base64,QQ==', credit: 'free', source: 'https://commons.wikimedia.org/x', query: 'x' } };
   ok('a brief that has a free logo keeps it, and nothing is asked', (await withSiteLogo(had, { get: async () => { throw new Error('asked'); } })) === had);
+}
+
+// ── only the logo, for the Slides chat ────────────────────────────────────
+{
+  // Oxford: its Wikidata item names a Commons logo, and nothing else is fetched.
+  const oxford = { type: 'item', id: 'Q34433', labels: { en: { language: 'en', value: 'University of Oxford' } }, descriptions: { en: { language: 'en', value: 'collegiate research university in Oxford, England' } }, sitelinks: {},
+    claims: { P154: [{ mainsnak: { snaktype: 'value', property: 'P154', datavalue: { value: 'University of Oxford.svg', type: 'string' } }, rank: 'normal' }] } };
+  const f = fake([
+    ['wbsearchentities', reply(200, { search: [{ id: 'Q34433', label: 'University of Oxford', description: 'collegiate research university in Oxford, England', match: { type: 'label', text: 'University of Oxford' } }] })],
+    ['wbgetentities', reply(200, { entities: { Q34433: oxford } })],
+    ['titles=', reply(200, FX.filesOxford)],
+    [(u) => u.includes('.svg.png'), png],
+  ]);
+  const got = await findLogo('University of Oxford', { lang: 'en', get: f.get, encode: encodeLogo });
+  ok('findLogo: a Commons logo, as a PNG, for the name the item goes by', got && /^data:image\/png/.test(got.logo.src) && got.found === 'University of Oxford' && /Public domain/.test(got.logo.credit));
+  ok('…and no photograph, summary or Openverse is asked for', !f.urls().some((u) => /openverse|rest_v1|\.jpg/.test(u)), f.urls());
+
+  // Duhok: no logo on Wikidata, so the one on its own website (the item's P856).
+  const page = '<header><img src="/img/uod-logo-blue.png" alt="University of Duhok logo"></header>';
+  // The website's own answers are kept out of `fake`, whose every request HOSTS must name.
+  const wiki = fake(uodRoutes());
+  const asked = [];
+  const g = {
+    get: async (u, s) => {
+      if (!u.startsWith('https://uod.ac/')) return wiki.get(u, s);
+      asked.push(u);
+      return u === 'https://uod.ac/' ? reply(200, page, { 'content-type': 'text/html' }) : u.endsWith('uod-logo-blue.png') ? png() : reply(404, '');
+    },
+  };
+  const uod = await findLogo('University of Duhok', { lang: 'ckb', get: g.get, encode: encodeLogo });
+  ok('findLogo: no Commons logo, so the organisation\'s own website\'s', uod && /^data:image\/png/.test(uod.logo.src) && /the organisation's own website/.test(uod.logo.credit) && asked[0] === 'https://uod.ac/', asked);
+  const site = await findLogo('', { lang: 'en', site: 'https://uod.ac', get: g.get, encode: encodeLogo });
+  ok('…a website alone is enough', site && /uod\.ac/.test(site.logo.source));
+  ok('nothing found is null, not a throw', (await findLogo('Zzqx Nowhere', { lang: 'en', get: async () => reply(500, '') })) === null);
+  const ctl = new AbortController();
+  ctl.abort();
+  ok('a stop throws an AbortError', (await failure(findLogo('University of Duhok', { lang: 'en', get: g.get, signal: ctl.signal })))?.name === 'AbortError');
 }
 
 // ── what was known and what was just found ────────────────────────────────

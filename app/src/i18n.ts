@@ -30,6 +30,11 @@ type Dict = Record<string, string>;
 
 const ar: Dict = {
   // Slides: the Chat tab (SlidesChat.tsx, slideschat.ts).
+  'The logo of {name} is on the title slide, the closing slide and the corner of the others': 'شعار {name} على شريحة العنوان وشريحة الختام وفي زاوية الشرائح الأخرى',
+  'No logo of {name} could be found on the web — add one from the Presentation tab': 'تعذّر العثور على شعار {name} على الإنترنت — أضِف شعارًا من تبويب العرض التقديمي',
+  'The logo is off the slides': 'أُزيل الشعار من الشرائح',
+  'Finding the logo on the web…': 'البحث عن الشعار على الإنترنت…',
+  'Add the logo of my university': 'أضِف شعار جامعتي',
   'The slides changed while the model was answering, so nothing was applied. Send the message again.': 'تغيّرت الشرائح أثناء ردّ النموذج، لذا لم يُطبَّق شيء. أرسل الرسالة مرة أخرى.',
   'Slide {n} is now: {kind}': 'أصبحت الشريحة {n}: {kind}',
   'Slide {n}: new words': 'الشريحة {n}: كلمات جديدة',
@@ -2143,6 +2148,11 @@ const ar: Dict = {
 
 const ckb: Dict = {
   // Slides: the Chat tab (SlidesChat.tsx, slideschat.ts).
+  'The logo of {name} is on the title slide, the closing slide and the corner of the others': 'لۆگۆی {name} لەسەر سلایدی ناونیشان و سلایدی کۆتایی و لە گۆشەی سلایدەکانی ترە',
+  'No logo of {name} could be found on the web — add one from the Presentation tab': 'هیچ لۆگۆیەکی {name} لە ئینتەرنێت نەدۆزرایەوە — لە تابی پێشکەشکردن لۆگۆیەک زیاد بکە',
+  'The logo is off the slides': 'لۆگۆکە لە سلایدەکان لابرا',
+  'Finding the logo on the web…': 'گەڕان بەدوای لۆگۆکە لە ئینتەرنێت…',
+  'Add the logo of my university': 'لۆگۆی زانکۆکەم زیاد بکە',
   'The slides changed while the model was answering, so nothing was applied. Send the message again.': 'سلایدەکان گۆڕان لە کاتێکدا مۆدێلەکە وەڵامی دەدایەوە، بۆیە هیچ شتێک جێبەجێ نەکرا. نامەکە دووبارە بنێرەوە.',
   'Slide {n} is now: {kind}': 'سلایدی {n} ئێستا: {kind}',
   'Slide {n}: new words': 'سلایدی {n}: وشەی نوێ',
@@ -4261,6 +4271,11 @@ const ckb: Dict = {
 
 const kmr: Dict = {
   // Slides: the Chat tab (SlidesChat.tsx, slideschat.ts).
+  'The logo of {name} is on the title slide, the closing slide and the corner of the others': 'لۆگۆیا {name} ل سەر سلایدا ناڤونیشانی و سلایدا دووماهیێ و د گۆشەیا سلایدێن دیتر دایە',
+  'No logo of {name} could be found on the web — add one from the Presentation tab': 'چ لۆگۆیێن {name} ل ئینتەرنێتێ نەهاتنە دیتن — ژ تابا پێشکێشکرنێ لۆگۆیەکێ زێدە بکە',
+  'The logo is off the slides': 'لۆگۆ ژ سلایدان هاتە لادان',
+  'Finding the logo on the web…': 'لێگەڕیان ل دویڤ لۆگۆیێ ل ئینتەرنێتێ…',
+  'Add the logo of my university': 'لۆگۆیا زانکۆیا من زێدە بکە',
   'The slides changed while the model was answering, so nothing was applied. Send the message again.': 'سلاید هاتنە گوهۆڕین دەمێ مۆدێلی بەرسڤ ددا، لەوما چ تشت نەهاتە جێبەجێکرن. نامێ دووبارە بهنێرە.',
   'Slide {n} is now: {kind}': 'سلایدا {n} نوکە: {kind}',
   'Slide {n}: new words': 'سلایدا {n}: پەیڤێن نوی',
