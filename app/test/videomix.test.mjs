@@ -154,6 +154,8 @@ const fakeGet = (route) => async (...args) => { calls.push(args); return route(a
   const tr = trackOf(cand, url, 'electronic music', 45.51);
   ok('the kept track: its src, credit, licence, source and measured seconds', tr.src === url && tr.credit === cand.credit && tr.license === cand.license && tr.source === cand.source && tr.seconds === 45.5 && tr.query === 'electronic music');
   ok('musicCredit', musicCredit({ audio: { music: tr } }) === cand.credit && musicCredit({}) === undefined);
+  // Music the app composed is the video's own: nothing to credit, so the credits card leaves it out.
+  ok('composed music has no credit line', musicCredit({ audio: { music: { ...tr, generated: { mood: 'calm', seed: 3 } } } }) === undefined);
 }
 ok('music volume: the default when unset, held to 0..1', musicVolumeOf(undefined) === DEFAULT_MUSIC_VOLUME && musicVolumeOf({ musicVolume: 3 }) === 1 && musicVolumeOf({ musicVolume: -1 }) === 0 && musicVolumeOf({ musicVolume: 0.25 }) === 0.25);
 

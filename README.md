@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.111.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.112.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -123,10 +123,13 @@ drop. The model then writes a storyboard from those facts: sixteen kinds of
 scene, among them a title, kinetic words, a counting number, a chart, a
 timeline, a comparison, people, a photo montage, a logo reveal and a QR code.
 The app's own Remotion templates draw it in six styles, in Arabic, Kurdish or
-English, landscape, vertical or square, with openly licensed pictures and
-music, an optional narrated voice and captions, all credited. Edit it on a
-timeline with undo, start from one of ten templates, take the brand colours
-from your logo, and **Download MP4** — or WebM, 4K, all three shapes at once, a
+English, landscape, vertical or square, with openly licensed pictures, music
+composed for it in the app — eight moods, among them an oriental one on the
+maqamat with darbuka and oud — or found openly licensed, an optional narrated
+voice and captions. Then **chat with the video** — "make it shorter", "translate
+it to Sorani", "compose calmer music" — and it changes, one undoable step a
+message. Edit it on a timeline with undo, start from one of ten templates, take
+the brand colours from your logo, and **Download MP4** — or WebM, 4K, all three shapes at once, a
 poster, subtitles — rendered in the app itself. The model never writes code; it
 writes the storyboard.
 

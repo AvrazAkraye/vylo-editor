@@ -23,6 +23,7 @@ import { STYLE_SWATCH } from './VideoScenes';
 import { PICTURED, Storyboard, WatermarkSwitch, kindAbout, kindName } from './VideoStoryboard';
 import { VideoFacts } from './VideoFacts';
 import { VideoSound } from './VideoSound';
+import { VideoChat } from './VideoChat';
 import { RowDownload, VideoDownloads, forgetDownloads, useDownloading } from './VideoDownloads';
 import { UndoRedo, VideoTimeline, selectScene, useVideoKeys } from './VideoTimeline';
 import { videoHistory } from './videohistory';
@@ -1123,7 +1124,7 @@ function VideoRow({ t, video, onOpen }: { t: T; video: Video; onOpen: () => void
 
 // ── one video ─────────────────────────────────────────────────────────────
 
-type Tab = 'scenes' | 'look' | 'sound' | 'facts' | 'details';
+type Tab = 'scenes' | 'chat' | 'look' | 'sound' | 'facts' | 'details';
 
 /**
  * A change the person made by hand: kept, and remembered for undo
@@ -1326,10 +1327,10 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
       {video.scenes.length > 0 && (
         <>
           <div className="vid-tabs" role="tablist">
-            {(['scenes', 'look', 'sound', 'facts', 'details'] as const).map((x) => (
+            {(['scenes', 'chat', 'look', 'sound', 'facts', 'details'] as const).map((x) => (
               <button key={x} role="tab" aria-selected={tab === x} className={tab === x ? 'on' : ''} onClick={() => setTab(x)}>
                 {x === 'scenes' ? fill(t('Scenes ({n})'), { n: video.scenes.length })
-                  : x === 'look' ? t('Look') : x === 'sound' ? t('Sound') : x === 'facts' ? t('Found on the web') : t('Details')}
+                  : x === 'chat' ? t('Chat') : x === 'look' ? t('Look') : x === 'sound' ? t('Sound') : x === 'facts' ? t('Found on the web') : t('Details')}
               </button>
             ))}
           </div>
@@ -1338,16 +1339,17 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
             <Storyboard t={t} video={video} redoingId={job?.how === 'scene' ? job.sceneId : undefined} locked={busy || !ready}
                         onScenes={(scenes) => change({ scenes })} onRedo={(id) => void redo(id)} onSeek={seekScene} onAdd={add} onError={onError} />
           )}
+          {tab === 'chat' && (
+            <VideoChat t={t} video={video} onChange={change} locked={busy} ready={ready} target={target}
+                       efforts={bookFor(video, target, efforts)} onFindPictures={() => begin(video, { how: 'pictures' })} onError={onError}
+                       current={() => known.get(video.id) ?? video} />
+          )}
           {tab === 'look' && (
             <div className="vid-look">
               <label className="vid-f vid-pad">
                 <span>{t('Title of the video')}</span>
                 <input value={video.title} dir="auto" onChange={(e) => change({ title: e.target.value })} />
               </label>
-              <div className="vid-group vid-pad">
-                <span className="vid-group-label">{t('Shape')}</span>
-                <FormatPicker t={t} value={video.format} onChange={(format) => change({ format })} />
-              </div>
               <div className="vid-group vid-pad">
                 <span className="vid-group-label">{t('Style')}</span>
                 <StylePicker t={t} value={video.style} onChange={(style) => change({ style })} />

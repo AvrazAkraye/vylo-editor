@@ -457,8 +457,13 @@ export function trackOf(c: TrackCandidate, src: string, query: string, seconds?:
   };
 }
 
-/** The music's credit line, for the credits card and the list under the preview. */
+/**
+ * The music's credit line, for the credits card and the list under the
+ * preview. Music the app composed (videosynth.ts, `generated`) is the
+ * video's own and is credited to no one, so it has none.
+ */
 export function musicCredit(v: Pick<Video, 'audio'>): string | undefined {
+  if (v.audio?.music?.generated) return undefined;
   return v.audio?.music?.credit?.trim() || undefined;
 }
 

@@ -6,9 +6,11 @@ import { TRANSITION_FRAMES, sceneFrames } from './video';
  *
  * ## What is remembered
  *
- * The parts of a video a person changes by hand — the scenes, the brand, the
- * style, the shape, the title, the credits card. Not the sound, the facts or
- * the model's settings: those have their own tabs and their own ways back.
+ * The parts of a video a person changes by hand, or asks the Chat tab to — the
+ * scenes, the brand, the style, the shape, the title, the credits card, the
+ * sound, the language of the words and the length asked for (a translation or
+ * a new length from the chat is one step, and one undo takes all of it back).
+ * Not the facts or the model's settings: those have their own ways back.
  *
  * Typing is one step, not one step a letter. A change is given a *group* from
  * what it touched (`scene:<id>:title`, `brand:name`, `style`), and a change in
@@ -34,7 +36,7 @@ import { TRANSITION_FRAMES, sceneFrames } from './video';
 // ── snapshots ─────────────────────────────────────────────────────────────
 
 /** The fields undo gives back. */
-export const TRACKED = ['scenes', 'brand', 'style', 'format', 'title', 'credits'] as const;
+export const TRACKED = ['scenes', 'brand', 'style', 'format', 'title', 'credits', 'audio', 'watermark', 'lang', 'seconds'] as const;
 export type Tracked = Pick<Video, (typeof TRACKED)[number]>;
 
 /** Typing in one field within this long of the last keystroke is the same step. */
@@ -56,7 +58,10 @@ export interface History {
 export const emptyHistory = (): History => ({ past: [], future: [], seen: null, group: null, at: 0 });
 
 export function snapshotOf(v: Tracked): Tracked {
-  return { scenes: v.scenes, brand: v.brand, style: v.style, format: v.format, title: v.title, credits: v.credits };
+  return {
+    scenes: v.scenes, brand: v.brand, style: v.style, format: v.format, title: v.title, credits: v.credits,
+    audio: v.audio, watermark: v.watermark, lang: v.lang, seconds: v.seconds,
+  };
 }
 
 /** The same video, field by field — by identity, which is what an unchanged field keeps. */
