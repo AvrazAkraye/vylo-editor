@@ -5,14 +5,18 @@ import { explain } from './errors';
 import type { EffortBook } from './effort';
 import { generate, type Target } from './generate';
 import type { Brief, ChatTurn, Format, Style, Track, Transition, Video, VideoLang } from './videotypes';
-import { kindName } from './VideoStoryboard';
+import { kindName, lookFieldName, lookValueName } from './VideoStoryboard';
 import { composeMusic, musicCues } from './videosynth';
-import { audioSeconds, fitScenesToVoice, isAbort, speakLine, speakerFor, toDataUrl, voiceForScenes } from './videomix';
+import {
+  MusicError, audioSeconds, fetchTrackBytes, fitScenesToVoice, isAbort, searchMusic, speakLine, speakerFor, toDataUrl, trackOf, voiceForScenes,
+} from './videomix';
 import { TTS_KEY } from './whatsapptts';
 import type { Provider } from './providers';
 import { RowDownload } from './VideoDownloads';
 import { mergeBrief, researchVideo, siteLogo, withSiteLogo } from './videoresearch';
-import { MAX_OPS, MAX_SCENES, applyOps, chatPrompt, keptChat, parseChat, playedSeconds, type Change, type LookedUp } from './videochatops';
+import {
+  MAX_OPS, MAX_SCENES, afterUndo, applyOps, chatPrompt, keptChat, parseChat, playedSeconds, type Change, type LookedUp,
+} from './videochatops';
 
 /**
  * Talking to the video: the Chat tab.
@@ -61,6 +65,12 @@ interface Props {
   current?: () => Video;
   /** The person's providers, where a speech service for the voice is found. */
   providers?: readonly Provider[];
+  /**
+   * One step back in the video's history — the panel's own undo, the one the
+   * Undo button presses. "Undo" in the chat calls it once a step; each
+   * earlier answer was one step. Without it, the chat says it cannot.
+   */
+  onUndo?: () => void;
 }
 
 // ── state that outlives the tab ───────────────────────────────────────────
@@ -135,6 +145,19 @@ interface Deps {
   onChange: (next: Partial<Video>) => void;
   onFindPictures: () => void;
   current: () => Video | undefined;
+  onUndo?: () => void;
+}
+
+/** A music problem as a sentence — the Sound tab's words for the same troubles. */
+function sayMusic(t: T, e: unknown, doing: string): string {
+  if (e instanceof MusicError) {
+    if (e.trouble === 'busy') return t('Openverse is asking for a pause. Try again in a minute.');
+    if (e.trouble === 'offline') return t('Openverse could not be reached. Check the connection and try again.');
+    if (e.trouble === 'too-big') return t('That track is too big to keep in the video. Choose a shorter one.');
+    if (e.trouble === 'not-audio') return t('That track could not be read as MP3. Choose another.');
+  }
+  if ((e as { name?: string })?.name === 'TimeoutError') return t('It took too long to answer. Try again.');
+  return explain(e, doing);
 }
 
 /**
@@ -210,9 +233,33 @@ async function send(id: string, message: string, d: Deps) {
       d.onChange({ chat: keptChat(now()?.chat, [you, { role: 'model', text: '', at: Date.now(), failed: true }]) });
       return;
     }
-    if (order(now()) !== order(v0)) throw new Error(MOVED);
+    // The scenes as the model saw them; an undo below may change them, and then this is what it left.
+    let shape = order(v0);
+    if (order(now()) !== shape) throw new Error(MOVED);
 
-    let applied = applyOps(withBrief(now()!), parsed.ops, newId, text);
+    let ops: unknown[] = parsed.ops;
+    let applied = applyOps(withBrief(now()!), ops, newId, text);
+    // "Undo" first: the panel's own undo, one step a time — an earlier answer
+    // is one step — and the rest of the answer onto what it leaves. Ops that
+    // name a scene are dropped when the undo changed which scenes there are:
+    // their numbers were read off the storyboard before it.
+    const undone: Change[] = [];
+    if (applied.wants.undo) {
+      let done = 0;
+      if (d.onUndo) {
+        for (; done < applied.wants.undo; done++) {
+          const before = now();
+          d.onUndo();
+          if (now() === before) break;
+        }
+      }
+      undone.push(done ? { what: 'undo', steps: done } : { what: 'undo-failed' });
+      const rest = afterUndo(ops, order(now()) === shape);
+      if (rest.dropped) undone.push({ what: 'skipped', op: 'undo', why: 'after-undo' });
+      ops = rest.ops;
+      shape = order(now());
+      applied = applyOps(withBrief(now()!), ops, newId, text);
+    }
     let track: Track | undefined;
     let musicError = '';
     if (applied.wants.music) {
@@ -226,10 +273,41 @@ async function send(id: string, message: string, d: Deps) {
         musicError = explain(e, d.t('compose music for the video'));
       }
       // The video may have changed while the music was made: the ops go onto its newest copy.
-      if (order(now()) !== order(v0)) throw new Error(MOVED);
+      if (order(now()) !== shape) throw new Error(MOVED);
       const spec = applied.wants.music;
-      applied = applyOps(withBrief(now()!), parsed.ops, newId, text);
+      applied = applyOps(withBrief(now()!), ops, newId, text);
       applied.wants.music = spec;
+    }
+    // Recorded music, found on Openverse: the first track that can be fetched, in the same step.
+    let found: Track | undefined;
+    let findError = '';
+    if (applied.wants.findMusic) {
+      run.stage = 'music';
+      ping();
+      const spec = applied.wants.findMusic;
+      const planned = { ...withBrief(now()!), ...applied.next };
+      try {
+        const list = await searchMusic(spec.queries, { seconds: playedSeconds(planned), signal: ctl.signal });
+        let last: unknown = null;
+        for (const c of list.slice(0, 4)) {
+          try {
+            const bytes = await fetchTrackBytes(c, { signal: ctl.signal });
+            const secs = await audioSeconds(bytes).catch(() => c.seconds);
+            found = trackOf(c, toDataUrl(bytes, 'audio/mpeg'), spec.query, secs);
+            break;
+          } catch (e) {
+            if (ctl.signal.aborted || isAbort(e)) throw e;
+            last = e;
+          }
+        }
+        if (!found) findError = last ? sayMusic(d.t, last, d.t('find music')) : d.t('Nothing found. Try other words.');
+      } catch (e) {
+        if (ctl.signal.aborted || isAbort(e)) throw e;
+        findError = sayMusic(d.t, e, d.t('find music'));
+      }
+      if (order(now()) !== shape) throw new Error(MOVED);
+      applied = applyOps(withBrief(now()!), ops, newId, text);
+      applied.wants.findMusic = spec;
     }
     // The logo, found before anything is applied, so it lands in the same undo step.
     let logoSrc: string | null = null;
@@ -252,11 +330,11 @@ async function send(id: string, message: string, d: Deps) {
       } catch (e) {
         if (ctl.signal.aborted || isAbort(e)) throw e;
       }
-      if (order(now()) !== order(v0)) throw new Error(MOVED);
+      if (order(now()) !== shape) throw new Error(MOVED);
     }
     const cur = now()!;
     const next: Partial<Video> = { ...applied.next };
-    let changes: Change[] = [...looked.map((l): Change => ({ what: 'looked', subject: l.subject, found: l.found.length > 0 })), ...applied.changes];
+    let changes: Change[] = [...looked.map((l): Change => ({ what: 'looked', subject: l.subject, found: l.found.length > 0 })), ...undone, ...applied.changes];
     if (brief && brief !== cur.brief) { next.brief = brief; next.lookup = true; }
     if (applied.wants.logo) {
       if (logoSrc) next.brand = { ...(next.brand ?? cur.brand ?? {}), logo: logoSrc };
@@ -266,6 +344,11 @@ async function send(id: string, message: string, d: Deps) {
       if (track) next.audio = { ...(next.audio ?? cur.audio ?? {}), music: track };
       else changes = changes.map((c) => (c.what === 'music' ? { what: 'music-failed', mood: c.mood, error: musicError } : c));
     }
+    if (applied.wants.findMusic) {
+      if (found) next.audio = { ...(next.audio ?? cur.audio ?? {}), music: found };
+      changes = changes.map((c): Change => (c.what !== 'found-music' ? c
+        : found ? { ...c, title: found.title } : { what: 'find-failed', query: c.query, error: findError }));
+    }
     // The voice: every narration line spoken by the person's own speech
     // service, into the same step. The lines are the ones this answer leaves.
     if (applied.wants.voice) {
@@ -274,6 +357,8 @@ async function send(id: string, message: string, d: Deps) {
       try { stored = localStorage.getItem(TTS_KEY); } catch { /* private mode */ }
       const speaker = speakerFor(d.providers, stored, film.audio?.voiceName);
       const lines = film.scenes.filter((x) => x.narration?.trim());
+      // A voice chosen in this answer speaks every line again, not only the changed ones.
+      const renamed = (film.audio?.voiceName ?? '') !== (cur.audio?.voiceName ?? '');
       if (!speaker) changes.push({ what: 'voice-failed', error: d.t('No speech service is set up — add one in Settings, then ask again.') });
       else if (!lines.length) changes.push({ what: 'voice-failed', error: d.t('No scene has a narration line to speak yet.') });
       else {
@@ -285,7 +370,7 @@ async function send(id: string, message: string, d: Deps) {
           let made = 0;
           for (const x of lines) {
             const said = x.narration!.trim();
-            if (voice[x.id]?.text !== said) {
+            if (renamed || voice[x.id]?.text !== said) {
               const bytes = await speakLine(speaker, said, { signal: ctl.signal });
               voice[x.id] = { text: said, src: toDataUrl(bytes, 'audio/mpeg'), seconds: await audioSeconds(bytes) };
               made++;
@@ -303,7 +388,7 @@ async function send(id: string, message: string, d: Deps) {
           changes.push({ what: 'voice-failed', error: explain(e, d.t('make the voice')) });
         }
       }
-      if (order(now()) !== order(v0)) throw new Error(MOVED);
+      if (order(now()) !== shape) throw new Error(MOVED);
     }
     if (applied.wants.download) changes.push({ what: 'download' });
     const done = changeLines(changes.filter((c) => !failed(c)), d.t);
@@ -338,6 +423,7 @@ function stop(id: string) {
 // ── words ─────────────────────────────────────────────────────────────────
 
 const failed = (c: Change) => c.what === 'skipped' || c.what === 'music-failed' || c.what === 'logo-failed' || c.what === 'voice-failed'
+  || c.what === 'undo-failed' || c.what === 'find-failed'
   || (c.what === 'looked' && !c.found);
 
 function formatName(f: Format, t: T): string {
@@ -426,6 +512,22 @@ export function changeLine(c: Change, t: T): string {
     case 'captions': return c.on ? t('Captions on') : t('Captions off');
     case 'watermark': return c.on ? t('Brand in the corner on') : t('Brand in the corner off');
     case 'credits': return c.on ? t('Credits card on') : t('Credits card off');
+    case 'look': {
+      const what = lookFieldName(c.field, t);
+      const value = lookValueName(c.field, c.value, t, c.scene !== undefined);
+      if (c.scene === undefined) return fill(t('{what}: {value}'), { what, value });
+      return c.scene === null ? fill(t('Every scene — {what}: {value}'), { what, value }) : fill(t('Scene {n} — {what}: {value}'), { n: c.scene, what, value });
+    }
+    case 'look-reset':
+      return c.scene === undefined ? t('The look is the style’s own again')
+        : c.scene === null ? t('Every scene follows the video’s look again') : fill(t('Scene {n} follows the video’s look again'), { n: c.scene });
+    case 'picture-removed': return c.scene === null ? t('Pictures removed') : fill(t('Scene {n}: picture removed'), { n: c.scene });
+    case 'swapped': return fill(t('Scenes {a} and {b} swapped places'), { a: c.a, b: c.b });
+    case 'undo': return c.steps === 1 ? t('Undid the last change') : fill(t('Undid the last {n} changes'), { n: c.steps });
+    case 'undo-failed': return t('There was nothing to undo');
+    case 'voice-name': return fill(t('Voice: {name}'), { name: c.name });
+    case 'found-music': return c.title ? fill(t('Music from the web: “{title}” — credited at the end'), { title: c.title }) : fill(t('Looking for music: {q}'), { q: c.query });
+    case 'find-failed': return fill(t('No music was found for “{q}”: {error}'), { q: c.query, error: c.error });
     case 'skipped':
       switch (c.why) {
         case 'unknown': return fill(t('Skipped “{op}”: not something the app can do'), { op: c.op });
@@ -440,7 +542,12 @@ export function changeLine(c: Change, t: T): string {
           return c.scene
             ? fill(t('Skipped: scene {n} would show a number nobody gave — write the number in your message'), { n: c.scene })
             : t('Skipped a new scene with a number nobody gave — write the number in your message');
-        default: return t('Skipped a change that could not be read');
+        case 'limit': return fill(t('Skipped: {what} is already as far as it goes'), { what: lookFieldName(c.field ?? 'logoScale', t) });
+        case 'video-only': return fill(t('Skipped: {what} is set for the whole video, not one scene'), { what: lookFieldName(c.field ?? 'font', t) });
+        case 'after-undo': return t('Skipped the changes to scenes: the undo changed the scenes they named. Ask for them again.');
+        default: return c.field
+          ? fill(t('Skipped: “{what}” could not be read'), { what: lookFieldName(c.field, t) })
+          : t('Skipped a change that could not be read');
       }
   }
 }
@@ -490,8 +597,10 @@ function thinkingVerb(ms: number, t: T): string {
 function suggestions(v: Video, t: T): string[] {
   return [
     t('Make it shorter'),
+    t('Make the logo bigger'),
     t('Make the title punchier'),
     t('Change the style to bold'),
+    t('Centre the words on a dark background'),
     t('Add a scene about …'),
     t('Compose calmer music'),
     v.lang === 'ckb' ? t('Translate it to Arabic') : t('Translate it to Kurdish Sorani'),
@@ -501,7 +610,7 @@ function suggestions(v: Video, t: T): string[] {
 
 // ── the tab ───────────────────────────────────────────────────────────────
 
-export function VideoChat({ t, video, onChange, locked, ready, target, efforts, onFindPictures, onError: _onError, current, providers = [] }: Props): JSX.Element {
+export function VideoChat({ t, video, onChange, locked, ready, target, efforts, onFindPictures, onError: _onError, current, providers = [], onUndo }: Props): JSX.Element {
   useRuns();
   latest.set(video.id, video);
   const id = video.id;
@@ -540,7 +649,7 @@ export function VideoChat({ t, video, onChange, locked, ready, target, efforts, 
     if (el) el.scrollTop = el.scrollHeight;
   }, [turns.length, !!run, !!trouble]);
 
-  const deps = (): Deps => ({ t, target, efforts, providers, onChange, onFindPictures, current: () => current?.() ?? latest.get(id) });
+  const deps = (): Deps => ({ t, target, efforts, providers, onChange, onFindPictures, onUndo, current: () => current?.() ?? latest.get(id) });
   const go = (message: string) => {
     if (!can || runs.has(id) || !message.trim()) return;
     write('');

@@ -6649,3 +6649,72 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 
 /* A download the chat offers: the list row's own button, under the answer. */
 .vid-chat-offer{ display:flex; align-items:center; gap:var(--sp-3); margin-block-start:var(--sp-3); font-size:var(--fs-2); font-weight:600; color:var(--ink); }
+
+/* ── Video: the look, by hand (VideoPanel.tsx's Look tab, a scene card's Look) ──
+   The same parts of the look the Chat tab sets: sliders for sizes and pace,
+   three alignments, two colours, the typefaces, the backdrop, the watermark's
+   corner. Rows of label-and-control on one grid, so the controls line up. The
+   alignment glyphs and the corner frame are drawn in the video's own
+   direction (a `dir` on the control), not the interface's. */
+.vid-look-box{
+  display:flex; flex-direction:column; gap:var(--sp-5);
+  padding:var(--sp-5) var(--sp-6); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel);
+}
+.vid-look-box.is-scene{ padding:var(--sp-4) var(--sp-5); background:var(--bg); }
+.vid-look-slider, .vid-look-line{
+  display:grid; grid-template-columns:8.5em minmax(0, 1fr) auto; align-items:center; gap:var(--sp-4);
+  font-size:var(--fs-3); color:var(--mute);
+}
+.vid-look-line{ grid-template-columns:8.5em minmax(0, 1fr); }
+.vid-look-line > .vid-seg, .vid-look-line > .vid-look-corners{ justify-self:start; }
+.vid-look-slider input{ inline-size:100%; min-inline-size:0; margin:0; accent-color:var(--brand); cursor:pointer; }
+.vid-look-slider input:disabled{ opacity:var(--dim); cursor:default; }
+.vid-look-slider output{ min-inline-size:3.2em; text-align:end; color:var(--ink); font-variant-numeric:tabular-nums; }
+.vid-look-slider.is-set output{ color:var(--brand); font-weight:600; }
+.vid-look-align button{ display:grid; place-items:center; padding:var(--sp-2) var(--sp-5); }
+.vid-look-align[dir="rtl"] svg{ transform:scaleX(-1); }
+.vid-look-pair{ display:flex; flex-direction:column; gap:var(--sp-4); }
+.vid-look-swatch{ display:flex; align-items:center; gap:var(--sp-3); min-inline-size:0; }
+.vid-look-swatch input[type="color"]{
+  flex:none; inline-size:44px; block-size:24px; padding:2px; border:1px solid var(--rule); border-radius:var(--r-1);
+  background:var(--panel-2); cursor:pointer;
+}
+.vid-look-swatch input[type="color"]:disabled{ opacity:var(--dim); cursor:default; }
+.vid-look-swatch code{ font-family:var(--mono); font-size:var(--fs-2); color:var(--ink); }
+.vid-look-swatch small{ font-size:var(--fs-2); color:var(--mute); }
+.vid-look-stack{ display:flex; flex-direction:column; gap:var(--sp-3); font-size:var(--fs-3); color:var(--mute); }
+.vid-look-fonts{ display:grid; grid-template-columns:repeat(auto-fill, minmax(96px, 1fr)); gap:var(--sp-2); }
+.vid-look-fonts button{
+  min-inline-size:0; padding:var(--sp-3) var(--sp-4); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink); font-size:var(--fs-4); line-height:1.25; cursor:pointer;
+  text-wrap:balance; overflow-wrap:anywhere;
+  transition:border-color .12s ease, background .12s ease, color .12s ease;
+}
+.vid-look-fonts button:hover{ border-color:var(--rule-2); }
+.vid-look-fonts button.on{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--brand-wash); color:var(--brand); font-weight:600; }
+.vid-look-corners{
+  display:grid; grid-template-columns:1fr 1fr; grid-template-rows:1fr 1fr; gap:2px;
+  inline-size:76px; block-size:46px; padding:3px; border:1.5px solid var(--rule-2); border-radius:var(--r-1); background:var(--panel-2);
+}
+.vid-look-corners button{
+  display:flex; padding:2px; border:0; border-radius:3px; background:transparent; cursor:pointer;
+}
+.vid-look-corners button:hover{ background:var(--panel); }
+.vid-look-corners button i{ display:block; inline-size:14px; block-size:8px; border-radius:2px; background:var(--rule-2); transition:background .12s ease; }
+.vid-look-corners button:hover i{ background:var(--mute); }
+.vid-look-corners button.on i{ background:var(--brand); }
+.vid-look-corners .is-top-start{ align-items:flex-start; justify-content:flex-start; }
+.vid-look-corners .is-top-end{ align-items:flex-start; justify-content:flex-end; }
+.vid-look-corners .is-bottom-start{ align-items:flex-end; justify-content:flex-start; }
+.vid-look-corners .is-bottom-end{ align-items:flex-end; justify-content:flex-end; }
+.vid-look-foot{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:var(--sp-3) var(--sp-4);
+  padding-block-start:var(--sp-4); border-block-start:1px solid var(--rule);
+}
+.vid-look-foot small{ flex:1 1 16ch; font-size:var(--fs-2); color:var(--mute); line-height:1.45; }
+.vid-look-foot > button{ display:inline-flex; align-items:center; gap:var(--sp-2); margin-inline-start:auto; }
+.vid-look-scenes{ display:inline-flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); font-size:var(--fs-3); color:var(--mute); }
+.vid-look-scene{ display:flex; flex-direction:column; gap:var(--sp-3); margin-block-start:var(--sp-4); }
+@media (prefers-reduced-motion: reduce){
+  .vid-look-fonts button, .vid-look-corners button i{ transition:none; }
+}

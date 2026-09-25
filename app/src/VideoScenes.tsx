@@ -12,6 +12,11 @@
  * The same component is shown by `@remotion/player` in the panel and rendered
  * to MP4 by `@remotion/web-renderer`, which paints the DOM onto a canvas with
  * its own subset of CSS — see videoscenebits.tsx for the rules this keeps.
+ *
+ * The video's look (videolook.ts) is applied per scene here: each scene gets
+ * its effective look, its theme with the scene's colours over the video's,
+ * its clock at the look's pace, and a box that keeps clear of the corner
+ * mark and of the brand a scene asked to show.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -27,17 +32,21 @@ import { Thumbnail } from '@remotion/player';
 import { FORMATS, FPS } from './videotypes';
 import type { Scene, Transition, Video } from './videotypes';
 import { TRANSITION_FRAMES, durationInFrames, isRtl, sceneFrames } from './video';
-import { SWATCHES, alpha, boxOf, fontKeyOf, fontsReady, loadFonts, numeralsOf, themeOf } from './videotheme';
+import { SWATCHES, alpha, boxOf, fontKeyOf, fontsReady, loadFonts, numeralsOf, sceneTheme, themeOf } from './videotheme';
 import type { Theme } from './videotheme';
 import { SceneBody } from './videoscenemore';
-import { watermarkOn } from './videoscenebits';
+import { watermarkOn, watermarkSpot } from './videoscenebits';
 import type { SceneInfo } from './videoscenebits';
+import { lookFor } from './videolook';
 
 /** Background, text and accent of each style, for the panel's style picker. */
 export const STYLE_SWATCH = SWATCHES;
 
-/** Resolves when the style's fonts for the video's script are loaded (the export waits for this). */
-export function loadVideoFonts(v: Pick<Video, 'lang' | 'style'>): Promise<void> {
+/**
+ * Resolves when the video's fonts for its script are loaded — its style's
+ * pair, or the one its `look.font` chose (the export waits for this).
+ */
+export function loadVideoFonts(v: Pick<Video, 'lang' | 'style' | 'look'>): Promise<void> {
   return loadFonts(v);
 }
 
@@ -45,7 +54,7 @@ export function loadVideoFonts(v: Pick<Video, 'lang' | 'style'>): Promise<void> 
  * Loads the fonts and re-renders once they are ready; holds the web
  * renderer's frame until then, so no frame is drawn in a fallback face.
  */
-function useVideoFonts(v: Pick<Video, 'lang' | 'style'>): boolean {
+function useVideoFonts(v: Pick<Video, 'lang' | 'style' | 'look'>): boolean {
   const key = fontKeyOf(v);
   const [readyKey, setReadyKey] = useState<string | null>(() => (fontsReady(v) ? key : null));
   const { delayRender, continueRender } = useDelayRender();
@@ -118,25 +127,54 @@ function startsOf(scenes: Scene[]): number[] {
   return out;
 }
 
+/**
+ * Kinds that place the brand themselves when a scene's look asks for it: the
+ * three that always show it, and the two whose words sit beside or over
+ * pictures (a picture scene with its picture does too, with its caption).
+ */
+const OWN_MARK = new Set<Scene['kind']>(['title', 'logo', 'outro', 'split', 'gallery']);
+
+/** The brand's height in the band above a scene that asked for it, per format, in units, before `logoScale`. */
+const MARK_BAND = { landscape: 64, portrait: 76, square: 60 } as const;
+
 function infoFor(v: Video, index: number, width: number, height: number, starts: number[], total: number, ready: boolean): SceneInfo {
   const scene = v.scenes[index];
+  const look = lookFor(v, scene);
   let box = boxOf(width, height);
-  // A vertical frame keeps a band at the top of its safe area for the watermark, so a heading never runs into it.
-  if (box.format === 'portrait' && scene && !SHOWS_BRAND.has(scene.kind) && watermarkOn(v)) {
-    const band = WATERMARK_BAND * box.u;
-    box = { ...box, top: box.top + band, h: box.h - band };
+  // Scenes under the corner mark keep a band clear for it: always in a vertical frame, and in the
+  // others as far as a larger mark reaches past the margin.
+  if (scene && !showsBrand(v, scene) && watermarkOn(v)) {
+    const spot = watermarkSpot(v, box);
+    if (spot.band > 0) {
+      box = spot.edge === 'top'
+        ? { ...box, top: box.top + spot.band, h: box.h - spot.band }
+        : { ...box, bottom: box.bottom + spot.band, h: box.h - spot.band };
+    }
+  }
+  // The brand at the head of a scene that asked for it, where the kind has no place of its own for it.
+  let mark: SceneInfo['mark'] = null;
+  const brand = !!(v.brand?.logo || v.brand?.name?.trim());
+  const ownPlace = !scene || OWN_MARK.has(scene.kind) || (scene.kind === 'image' && !!scene.picture?.src) || (scene.kind === 'qr' && !!v.brand?.logo);
+  if (look.logo === true && brand && !ownPlace) {
+    const h = Math.min(MARK_BAND[box.format] * box.u * look.logoScale, box.h * 0.2);
+    const gap = 36 * box.u;
+    mark = { top: box.top, height: h };
+    box = { ...box, top: box.top + h + gap, h: box.h - h - gap };
   }
   return {
     video: v,
-    theme: themeOf(v, index),
+    theme: sceneTheme(v, index),
     box,
-    frames: scene ? sceneFrames(scene) : FPS,
+    // The scene's own clock: its frames at the look's pace (videoscenebits.tsx `useSceneFrame`).
+    frames: (scene ? sceneFrames(scene) : FPS) * look.motion,
     index,
     count: v.scenes.length,
     start: starts[index] ?? 0,
     total,
     ready,
     digits: numeralsOf(v),
+    look,
+    mark,
   };
 }
 
@@ -248,8 +286,10 @@ function StoryProgress({ video, starts }: { video: Video; starts: number[] }) {
  */
 const SHOWS_BRAND = new Set<Scene['kind']>(['title', 'logo', 'outro', 'gallery']);
 
-/** The band a vertical frame keeps for the watermark at the top of its safe area, in units. */
-const WATERMARK_BAND = 84;
+/** Whether a scene shows the brand itself — by its kind, or because its look asks for it — so the corner mark steps aside. */
+function showsBrand(v: Video, s: Scene): boolean {
+  return SHOWS_BRAND.has(s.kind) || lookFor(v, s).logo === true;
+}
 
 /** Scenes whose whole frame is a picture, where the mark is always light. */
 function onPicture(s: Scene | undefined): boolean {
@@ -278,40 +318,37 @@ function Watermark({ video, starts }: { video: Video; starts: number[] }) {
   for (let i = 0; i < video.scenes.length; i++) {
     const p = presence(video, starts, i, frame);
     if (p <= 0) continue;
-    if (!SHOWS_BRAND.has(video.scenes[i].kind)) weight += p;
+    if (!showsBrand(video, video.scenes[i])) weight += p;
     if (p > best) { best = p; lead = i; }
   }
   // Settles in over a few frames after its first appearance, like the rest of the film.
   const opacity = Math.min(1, weight) * interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   if (opacity <= 0.001) return null;
   const leadScene = video.scenes[lead];
-  const inverted = th.style === 'bold' && lead % 2 === 1;
-  const light = onPicture(leadScene) || th.dark || inverted;
-  const ink = onPicture(leadScene) ? '#FFFFFF' : inverted ? themeOf(video, lead).fg : th.fg;
+  // Ink for the scene under it: bold's accent scenes and a scene with its own background have their own.
+  const leadTh = sceneTheme(video, lead);
+  const own = leadTh.inverted || leadTh.groundSet;
+  const light = onPicture(leadScene) || (leadTh.groundSet ? leadTh.dark : th.dark || leadTh.inverted);
+  const ink = onPicture(leadScene) ? '#FFFFFF' : own ? leadTh.fg : th.fg;
   const logo = video.brand?.logo;
   const name = video.brand?.name?.trim() ?? '';
-  const h = (box.format === 'landscape' ? 50 : box.format === 'portrait' ? 60 : 46) * u;
-  // Inside the elegant frame's lines, level with the minimal style's counter, otherwise centred in the top margin.
-  const inset = Math.min(box.x, box.top) * 0.45;
-  const top = box.format === 'portrait'
-    ? box.top + 4 * u
-    : th.style === 'elegant' ? inset + 26 * u
-      : th.style === 'minimal' ? box.top * 0.55 - 22 * u * 1.9 - (h - 22 * u * 1.3) / 2
-        : box.top / 2 - h / 2;
-  const side = th.style === 'elegant' && box.format !== 'portrait' ? inset + 34 * u : box.x;
-  const place: React.CSSProperties = { position: 'absolute', top, [th.rtl ? 'left' : 'right']: side, height: h, display: 'flex', alignItems: 'center', opacity: opacity * (light ? 0.92 : 0.85) };
+  // The corner and size the look chose; the style's own spot and size otherwise.
+  const spot = watermarkSpot(video, box);
+  const h = spot.height;
+  const k = h / ((box.format === 'landscape' ? 50 : box.format === 'portrait' ? 60 : 46) * u);
+  const place: React.CSSProperties = { position: 'absolute', top: spot.top, [spot.right ? 'right' : 'left']: spot.side, height: h, display: 'flex', alignItems: 'center', opacity: opacity * (light ? 0.92 : 0.85) };
   if (logo) {
     return (
       <div style={place}>
-        <Img src={logo} style={{ height: h, width: 'auto', maxWidth: 260 * u, objectFit: 'contain' }} />
+        <Img src={logo} style={{ height: h, width: 'auto', maxWidth: 260 * u * k, objectFit: 'contain' }} />
       </div>
     );
   }
-  const size = (box.format === 'landscape' ? 24 : 26) * u;
+  const size = (box.format === 'landscape' ? 24 : 26) * u * k;
   const latin = !/[\u0600-\u06FF]/.test(name);
   return (
-    <div style={{ ...place, gap: 12 * u, flexDirection: 'row', direction: th.rtl ? 'rtl' : 'ltr' }}>
-      <div style={{ width: 10 * u, height: 10 * u, borderRadius: th.radius ? '50%' : 0, background: onPicture(leadScene) ? '#FFFFFF' : th.accent }} />
+    <div style={{ ...place, gap: 12 * u * k, flexDirection: 'row', direction: th.rtl ? 'rtl' : 'ltr' }}>
+      <div style={{ width: 10 * u * k, height: 10 * u * k, borderRadius: th.radius ? '50%' : 0, background: onPicture(leadScene) ? '#FFFFFF' : th.accent }} />
       <div style={{ fontFamily: th.body.family, fontWeight: th.body.strong, fontSize: size, lineHeight: `${size * 1.3}px`, color: ink, whiteSpace: 'nowrap', letterSpacing: latin ? '0.14em' : undefined, textTransform: latin ? 'uppercase' : undefined, direction: latin ? 'ltr' : 'rtl', textShadow: onPicture(leadScene) ? `0 ${u}px ${8 * u}px rgba(0, 0, 0, 0.5)` : undefined }}>{name}</div>
     </div>
   );

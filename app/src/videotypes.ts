@@ -66,6 +66,53 @@ interface SceneBase {
   picture?: Picture;
   /** What a voice says during this scene, when the video is narrated. In the video's language. */
   narration?: string;
+  /** This scene's look over the video's: set in the storyboard or by asking in the Chat tab. */
+  look?: SceneLook;
+}
+
+/**
+ * How the whole video looks beyond its style — set in the Look tab, or by
+ * asking in the Chat tab ("make the logo bigger", "black background", "centre
+ * the words"). Every field is optional; one that is absent is the style's own.
+ * The numbers are multipliers of what the style draws, clamped by video.ts.
+ */
+export interface LookSettings {
+  /** The logo's size, 0.5 to 3; 1 is the style's. */
+  logoScale?: number;
+  /** Every on-screen word, 0.7 to 1.5; 1 is as the style fits it. Words still never overflow. */
+  textScale?: number;
+  /** Where words sit across the frame: the reading side, the centre, or the other side. */
+  align?: 'start' | 'center' | 'end';
+  /** #rrggbb — the background, instead of the style's. */
+  background?: string;
+  /** #rrggbb — the words, instead of the style's. Checked for contrast against the background when drawn. */
+  text?: string;
+  /** A typeface from `FONT_CHOICES` (videotheme.ts), by id — each pair has every Kurdish letter. */
+  font?: string;
+  /** How fast things move and arrive, 0.5 (slow) to 2 (quick); 1 is the style's. */
+  motion?: number;
+  /** The background: the style's moving one, a still one, or a flat colour. */
+  backdrop?: 'moving' | 'still' | 'plain';
+  /** The corner the brand watermark sits in. */
+  watermarkCorner?: 'top-start' | 'top-end' | 'bottom-start' | 'bottom-end';
+  /** The watermark's size, 0.5 to 2. */
+  watermarkScale?: number;
+}
+
+/** One scene's look over the video's. Absent fields follow the video. */
+export interface SceneLook {
+  textScale?: number;
+  align?: 'start' | 'center' | 'end';
+  /** #rrggbb */
+  background?: string;
+  /** #rrggbb */
+  text?: string;
+  /** Show the brand's logo on this scene — the title, logo and close show it anyway; false hides it there too. */
+  logo?: boolean;
+  /** The logo's size on this scene, 0.5 to 3, over the video's. */
+  logoScale?: number;
+  /** A picture: 'cover' fills the frame, 'contain' shows all of it. */
+  fit?: 'cover' | 'contain';
 }
 
 /** A headline and a line under it. The opening scene, usually. */
@@ -255,5 +302,7 @@ export interface Video {
   audio?: VideoAudio;
   /** The conversation in the Chat tab, oldest first; the latest turns go with each new message. */
   chat?: ChatTurn[];
+  /** How it looks beyond its style. */
+  look?: LookSettings;
   error?: string;
 }

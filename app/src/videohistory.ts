@@ -36,7 +36,7 @@ import { TRANSITION_FRAMES, sceneFrames } from './video';
 // ── snapshots ─────────────────────────────────────────────────────────────
 
 /** The fields undo gives back. */
-export const TRACKED = ['scenes', 'brand', 'style', 'format', 'title', 'credits', 'audio', 'watermark', 'lang', 'seconds'] as const;
+export const TRACKED = ['scenes', 'brand', 'style', 'format', 'title', 'credits', 'audio', 'watermark', 'look', 'lang', 'seconds'] as const;
 export type Tracked = Pick<Video, (typeof TRACKED)[number]>;
 
 /** Typing in one field within this long of the last keystroke is the same step. */
@@ -60,7 +60,7 @@ export const emptyHistory = (): History => ({ past: [], future: [], seen: null, 
 export function snapshotOf(v: Tracked): Tracked {
   return {
     scenes: v.scenes, brand: v.brand, style: v.style, format: v.format, title: v.title, credits: v.credits,
-    audio: v.audio, watermark: v.watermark, lang: v.lang, seconds: v.seconds,
+    audio: v.audio, watermark: v.watermark, lang: v.lang, seconds: v.seconds, look: v.look,
   };
 }
 

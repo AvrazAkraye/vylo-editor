@@ -9,18 +9,25 @@
  * by hand-flipped text; pictures only through `<Img>` with `object-fit`.
  * Soft round light is an SVG radial gradient, and the QR code is one SVG path
  * in a placed wrapper, sized by its own width and height only.
+ *
+ * They follow the scene's look as the first ten do (videoscenekinds.tsx):
+ * scaled words still fitted, a set alignment where there are words to move.
+ * `SceneBody` also draws the brand at the head of a scene that asked for it
+ * (`look.logo`), in the band `VideoScenes.tsx` kept clear above the words.
  */
 
 import type { CSSProperties, ReactNode } from 'react';
-import { AbsoluteFill, Easing, Img, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, Img, useVideoConfig } from 'remotion';
 import type { CompareScene, Format, GalleryScene, LogoScene, PeopleScene, Picture, QrScene, Scene, TimelineScene } from './videotypes';
 import { alpha, contrast, localDigits, mix } from './videotheme';
 import type { Numerals, Theme, TypeFace } from './videotheme';
 import {
-  Backdrop, Blob, Lines, Logo, Photo, Rule, SceneProvider, enterAt, glowOf, onPhoto, progress, revealOf, revealStyle, ShineText, staggerFor, textStyle, useEnter, useNaturalSize, useScene,
+  Backdrop, Blob, BrandMark, Lines, Logo, Photo, Rule, SceneProvider, enterAt, flexOf, glowOf, onPhoto, progress, revealOf, revealStyle, ShineText, staggerFor, textStyle,
+  useEnter, useNaturalSize, useScene, useSceneFrame,
 } from './videoscenebits';
 import type { SceneInfo } from './videoscenebits';
-import { Stage, firstKindView, fit, per } from './videoscenekinds';
+import { Stage, firstKindView, fit, fitScaled, markHeight, per } from './videoscenekinds';
+import type { Align } from './videolook';
 import { qrModules, qrPath } from './videoqr';
 
 // ---------------------------------------------------------------------------
@@ -116,7 +123,7 @@ const MONTAGE: Readonly<Record<Theme['style'], { margin: number; gap: number }>>
  */
 function EmptyTile({ th, i, r }: { th: Theme; i: number; r: Rect }) {
   const { box, frames, digits } = useScene();
-  const frame = useCurrentFrame();
+  const frame = useSceneFrame();
   const u = box.u;
   const s = Math.min(r.w, r.h);
   const t = frame / Math.max(1, frames);
@@ -136,8 +143,8 @@ function EmptyTile({ th, i, r }: { th: Theme; i: number; r: Rect }) {
 }
 
 function GalleryView({ scene }: { scene: GalleryScene }) {
-  const { theme: th0, box, frames, index } = useScene();
-  const frame = useCurrentFrame();
+  const { theme: th0, box, frames, index, look: sceneLook } = useScene();
+  const frame = useSceneFrame();
   const u = box.u;
   const W = box.width;
   const H = box.height;
@@ -152,7 +159,11 @@ function GalleryView({ scene }: { scene: GalleryScene }) {
   const r = radiusOf(th0, u, 28);
   const st = Math.max(3, Math.min(8, frames * 0.1));
   const heading = (scene.heading ?? '').trim();
-  const headFit = heading ? fit(heading, th.display, { max: per({ landscape: 100, portrait: 96, square: 78 }), min: 40 * u, width: box.w * (box.format === 'landscape' ? 0.62 : 0.92), height: box.h * 0.3, lines: 3 }) : null;
+  const headFit = heading ? fitScaled(heading, th.display, { max: per({ landscape: 100, portrait: 96, square: 78 }), min: 40 * u, width: box.w * (box.format === 'landscape' ? 0.62 : 0.92), height: box.h * 0.3, lines: 3 }) : null;
+  // The heading sits at the foot on the start side with its bar; the look may centre it (no bar) or set it to the end (mirrored).
+  const align: Align = th0.alignSet ? th0.align : 'start';
+  // The brand, when asked for, stands above the heading, inside the same shade.
+  const mark = sceneLook.logo === true ? markHeight() : 0;
   const headH = headFit ? headFit.lines.length * headFit.size * th.display.leading : 0;
   const barP = useEnter(10 + n * st);
   // The montage settles in, then keeps breathing a little closer.
@@ -180,9 +191,12 @@ function GalleryView({ scene }: { scene: GalleryScene }) {
     return { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', transform: `scale(${(1.14 - 0.14 * p).toFixed(4)})` };
   };
   const headTop = H - box.bottom - headH;
+  const markTop = headFit ? headTop - mark - 28 * u : H - box.bottom - mark;
+  const shadeTop = Math.max(0, Math.min(headTop, mark ? markTop : headTop) - 260 * u);
+  const edge: CSSProperties = align === 'center' ? { left: 0, width: W, justifyContent: 'center' } : { [(align === 'end') !== th0.rtl ? 'right' : 'left']: box.x };
   return (
     <AbsoluteFill style={{ direction: th0.rtl ? 'rtl' : 'ltr', background: th0.bg, overflow: 'hidden' }}>
-      <Backdrop plain />
+      <Backdrop bare />
       <div style={{ position: 'absolute', left: 0, top: 0, width: W, height: H, transform: `scale(${drift.toFixed(4)})` }}>
         {tiles.map((t, i) => (
           <div key={i} style={tileStyle(i)}>
@@ -192,14 +206,19 @@ function GalleryView({ scene }: { scene: GalleryScene }) {
           </div>
         ))}
       </div>
+      {headFit || mark ? (
+        <div style={{ position: 'absolute', left: 0, top: shadeTop, width: W, height: H - shadeTop, background: `linear-gradient(180deg, rgba(8, 8, 12, 0) 0%, rgba(8, 8, 12, 0.55) 45%, rgba(8, 8, 12, 0.78) 100%)` }} />
+      ) : null}
+      {mark ? (
+        <div style={{ position: 'absolute', top: markTop, height: mark, display: 'flex', ...edge }}>
+          <BrandMark height={mark} maxWidth={box.w * 0.5} theme={th} delay={8} />
+        </div>
+      ) : null}
       {headFit ? (
-        <>
-          <div style={{ position: 'absolute', left: 0, top: Math.max(0, headTop - 260 * u), width: W, height: H - Math.max(0, headTop - 260 * u), background: `linear-gradient(180deg, rgba(8, 8, 12, 0) 0%, rgba(8, 8, 12, 0.55) 45%, rgba(8, 8, 12, 0.78) 100%)` }} />
-          <div style={{ position: 'absolute', [th0.rtl ? 'right' : 'left']: box.x, top: headTop, display: 'flex', flexDirection: 'row', alignItems: 'stretch', gap: 28 * u }}>
-            <div style={{ width: Math.max(4, 9 * u), height: headH, background: th0.accent, transform: `scaleY(${Math.min(1, barP)})`, borderRadius: th0.radius ? 5 * u : 0, boxShadow: th0.style === 'neon' ? `0 0 ${18 * u}px ${th0.accent}` : undefined }} />
-            <Lines fit={headFit} face={th.display} color={th.fg} delay={10 + n * st} stagger={th.motion.stagger * 1.5} shadow={glowOf(th0, u)} />
-          </div>
-        </>
+        <div style={{ position: 'absolute', top: headTop, display: 'flex', flexDirection: align === 'end' ? 'row-reverse' : 'row', alignItems: 'stretch', gap: 28 * u, ...edge }}>
+          {align === 'center' ? null : <div style={{ width: Math.max(4, 9 * u), height: headH, background: th0.accent, transform: `scaleY(${Math.min(1, barP)})`, borderRadius: th0.radius ? 5 * u : 0, boxShadow: th0.style === 'neon' ? `0 0 ${18 * u}px ${th0.accent}` : undefined }} />}
+          <Lines fit={headFit} face={th.display} color={th.fg} delay={10 + n * st} stagger={th.motion.stagger * 1.5} shadow={glowOf(th0, u)} align={align} />
+        </div>
       ) : null}
     </AbsoluteFill>
   );
@@ -226,15 +245,17 @@ function TimelineDot(p: { th: Theme; size: number; on: number }) {
 
 function TimelineView({ scene }: { scene: TimelineScene }) {
   const { theme: th, box, frames, digits } = useScene();
-  const frame = useCurrentFrame();
+  const frame = useSceneFrame();
   const { fps } = useVideoConfig();
   const u = box.u;
   const events = scene.events.filter((e) => (e.when ?? '').trim() || (e.text ?? '').trim()).slice(0, 5);
   const n = Math.max(1, events.length);
   const across = box.format === 'landscape' && n > 1;
   const heading = (scene.heading ?? '').trim();
-  const headFit = heading ? fit(heading, th.display, { max: per({ landscape: 84, portrait: 100, square: 70 }), min: 40 * u, width: box.w, height: box.h * 0.22, lines: 2 }) : null;
+  const headFit = heading ? fitScaled(heading, th.display, { max: per({ landscape: 84, portrait: 100, square: 70 }), min: 40 * u, width: box.w, height: box.h * 0.22, lines: 2 }) : null;
   const headH = headFit ? headFit.lines.length * headFit.size * th.display.leading : 0;
+  // The heading: centred over a line across when the style centres; wherever the look sets it.
+  const headAlign: Align = th.alignSet ? th.align : across && th.align === 'center' ? 'center' : 'start';
   const d0 = 6 + (headFit ? headFit.lines.length * th.motion.stagger : 0);
   const span = Math.max(24, frames * 0.5 - d0);
   const lineP = progress(frame, d0, d0 + span, Easing.inOut(Easing.cubic));
@@ -246,7 +267,7 @@ function TimelineView({ scene }: { scene: TimelineScene }) {
   const glow = th.style === 'neon' ? `0 0 ${16 * u}px ${th.accent}` : undefined;
   const headBlock = headFit ? (
     <>
-      <Lines fit={headFit} face={th.display} color={th.fg} delay={2} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={across && th.align === 'center' ? 'center' : 'start'} style={{ alignSelf: across && th.align === 'center' ? 'center' : 'flex-start' }} />
+      <Lines fit={headFit} face={th.display} color={th.fg} delay={2} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={headAlign} style={{ alignSelf: flexOf(headAlign) }} />
       <div style={{ height: per({ landscape: 90, portrait: 80, square: 50 }) }} />
     </>
   ) : null;
@@ -254,8 +275,8 @@ function TimelineView({ scene }: { scene: TimelineScene }) {
 
   if (across) {
     const col = box.w / n;
-    const whenSize = Math.min(...whens.map((w) => fit(w, th.display, { max: 104 * u, min: 30 * u, width: col * 0.86, height: 160 * u, lines: 1 }).size));
-    const textSize = Math.min(...events.map((e) => fit(e.text, th.body, { max: 44 * u, min: 22 * u, width: col * 0.84, height: areaH * 0.34, lines: 3, bold: true }).size));
+    const whenSize = Math.min(...whens.map((w) => fitScaled(w, th.display, { max: 104 * u, min: 30 * u, width: col * 0.86, height: 160 * u, lines: 1 }).size));
+    const textSize = Math.min(...events.map((e) => fitScaled(e.text, th.body, { max: 44 * u, min: 22 * u, width: col * 0.84, height: areaH * 0.34, lines: 3, bold: true }).size));
     const dot = 34 * u;
     const whenH = whenSize * 1.25;
     const lineTop = whenH + 40 * u + dot / 2 - line / 2;
@@ -296,8 +317,8 @@ function TimelineView({ scene }: { scene: TimelineScene }) {
   const rowH = Math.min(areaH / n, (box.format === 'portrait' ? 280 : 220) * u);
   const dot = per({ landscape: 30, portrait: 36, square: 30 });
   const textW = box.w - dot - 44 * u;
-  const whenSize = Math.min(...whens.map((w) => fit(w, th.display, { max: per({ landscape: 64, portrait: 76, square: 64 }), min: 28 * u, width: textW, height: rowH * 0.46, lines: 1 }).size));
-  const textSize = Math.min(...events.map((e) => fit(e.text, th.body, { max: per({ landscape: 40, portrait: 46, square: 40 }), min: 22 * u, width: textW, height: rowH * 0.46, lines: 2, bold: true }).size));
+  const whenSize = Math.min(...whens.map((w) => fitScaled(w, th.display, { max: per({ landscape: 64, portrait: 76, square: 64 }), min: 28 * u, width: textW, height: rowH * 0.46, lines: 1 }).size));
+  const textSize = Math.min(...events.map((e) => fitScaled(e.text, th.body, { max: per({ landscape: 40, portrait: 46, square: 40 }), min: 22 * u, width: textW, height: rowH * 0.46, lines: 2, bold: true }).size));
   const listH = rowH * n;
   const top = rowH / 2;
   return (
@@ -333,7 +354,7 @@ const VERSUS: Readonly<Record<string, string>> = { en: 'VS' };
 function ComparePanel(p: { th: Theme; side: { title: string; points: string[] }; favoured: boolean; w: number; h: number; delay: number; from: 'start' | 'end' | 'top' | 'bottom'; pointSize: number; titleSize: number; pad: number }) {
   const { th, side, favoured } = p;
   const { box } = useScene();
-  const frame = useCurrentFrame();
+  const frame = useSceneFrame();
   const { fps } = useVideoConfig();
   const u = box.u;
   const e = enterAt(frame - p.delay, fps, th);
@@ -383,13 +404,13 @@ function ComparePanel(p: { th: Theme; side: { title: string; points: string[] };
 }
 
 function CompareView({ scene }: { scene: CompareScene }) {
-  const { theme: th, box, video } = useScene();
-  const frame = useCurrentFrame();
+  const { theme: th, box, video, look } = useScene();
+  const frame = useSceneFrame();
   const { fps } = useVideoConfig();
   const u = box.u;
   const stacked = box.format === 'portrait';
   const heading = (scene.heading ?? '').trim();
-  const headFit = heading ? fit(heading, th.display, { max: per({ landscape: 84, portrait: 96, square: 64 }), min: 36 * u, width: box.w, height: box.h * 0.2, lines: 2 }) : null;
+  const headFit = heading ? fitScaled(heading, th.display, { max: per({ landscape: 84, portrait: 96, square: 64 }), min: 36 * u, width: box.w, height: box.h * 0.2, lines: 2 }) : null;
   const headH = headFit ? headFit.lines.length * headFit.size * th.display.leading : 0;
   const below = headFit ? per({ landscape: 64, portrait: 64, square: 44 }) : 0;
   const gap = per({ landscape: 100, portrait: 84, square: 64 });
@@ -399,16 +420,19 @@ function CompareView({ scene }: { scene: CompareScene }) {
   const sides = [scene.left ?? { title: '', points: [] }, scene.right ?? { title: '', points: [] }];
   const pad = per({ landscape: 56, portrait: 52, square: 40 });
   const maxPoints = Math.max(1, ...sides.map((s) => s.points.length));
-  const titleMax = per({ landscape: 76, portrait: 80, square: 54 });
-  const titleSize = Math.min(...sides.map((s) => (s.title ? fit(s.title, th.display, { max: titleMax, min: 30 * u, width: pw - 2 * pad, height: titleMax * th.display.leading * 2.1, lines: 2 }).size : titleMax)));
+  // Larger words raise the maxima (the panels still hold them); smaller ones scale the sizes the panels chose.
+  const up = Math.max(1, look.textScale);
+  const down = Math.min(1, look.textScale);
+  const titleMax = per({ landscape: 76, portrait: 80, square: 54 }) * up;
+  const titleSize = down * Math.min(...sides.map((s) => (s.title ? fit(s.title, th.display, { max: titleMax, min: 30 * u, width: pw - 2 * pad, height: titleMax * th.display.leading * 2.1, lines: 2 }).size : titleMax)));
   const titleLines = Math.max(1, ...sides.map((s) => (s.title ? fit(s.title, th.display, { max: titleSize, min: titleSize, width: pw - 2 * pad, height: 9999, lines: 2 }).lines.length : 0)));
   const ruleH = 22 * u + Math.max(2, 5 * u) + 30 * u;
   const titleBlock = titleLines * titleSize * th.display.leading + ruleH;
-  const pointMax = per({ landscape: 46, portrait: 48, square: 36 });
+  const pointMax = per({ landscape: 46, portrait: 48, square: 36 }) * up;
   // The largest size at which the fuller side's points, one line each, fit under its title.
   const room = phMax - 2 * pad - titleBlock;
   const sizeCap = Math.max(20 * u, Math.min(pointMax, room / (maxPoints * th.body.leading + (maxPoints - 1) * 0.55)));
-  const pointSize = Math.min(sizeCap, ...sides.flatMap((s) => s.points).map((pt) => fit(pt, th.body, { max: sizeCap, min: 20 * u, width: pw - 2 * pad - 60 * u, height: sizeCap * th.body.leading * 1.05, lines: 2, bold: true }).size));
+  const pointSize = down * Math.min(sizeCap, ...sides.flatMap((s) => s.points).map((pt) => fit(pt, th.body, { max: sizeCap, min: 20 * u, width: pw - 2 * pad - 60 * u, height: sizeCap * th.body.leading * 1.05, lines: 2, bold: true }).size));
   // Each panel as tall as the fuller side needs — not the whole frame, which would leave them hollow.
   const contentOf = (side: { title: string; points: string[] }) => (side.title ? titleBlock : 0)
     + side.points.reduce((sum, pt, i) => sum + fit(pt, th.body, { max: pointSize, min: pointSize, width: pw - 2 * pad - 60 * u, height: 9999, lines: 2, bold: true }).lines.length * pointSize * th.body.leading + (i ? pointSize * 0.55 : 0), 0);
@@ -425,7 +449,7 @@ function CompareView({ scene }: { scene: CompareScene }) {
   const reach = stacked ? 0 : 50 * u;
   return (
     <Stage box={{ justifyContent: 'center', alignItems: 'stretch' }}>
-      {headFit ? <Lines fit={headFit} face={th.display} color={th.fg} delay={2} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={th.align === 'center' ? 'center' : 'start'} style={{ alignSelf: th.align === 'center' ? 'center' : 'flex-start' }} /> : null}
+      {headFit ? <Lines fit={headFit} face={th.display} color={th.fg} delay={2} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={th.align} style={{ alignSelf: flexOf(th.align) }} /> : null}
       {headFit ? <div style={{ height: below }} /> : null}
       <div style={{ position: 'relative', width: box.w, height: blockH, display: 'flex', flexDirection: stacked ? 'column' : 'row', justifyContent: 'space-between' }}>
         <ComparePanel th={th} side={sides[0]} favoured={false} w={pw} h={ph} delay={d0} from={stacked ? 'top' : 'start'} pointSize={pointSize} titleSize={titleSize} pad={pad} />
@@ -501,7 +525,7 @@ function faceCrop(pic: Picture, s: number, zoom: number): CSSProperties {
 
 function Portrait(p: { person: PeopleScene['people'][number]; size: number; delay: number; seed: number }) {
   const { theme: th, box, frames } = useScene();
-  const frame = useCurrentFrame();
+  const frame = useSceneFrame();
   const { fps } = useVideoConfig();
   const u = box.u;
   const s = p.size;
@@ -557,18 +581,19 @@ function Portrait(p: { person: PeopleScene['people'][number]; size: number; dela
  * turns a lone letter into an ornament; names take its body face instead.
  */
 function nameFace(th: Theme): TypeFace {
-  return th.style === 'neon' && th.rtl ? { ...th.body, weight: th.body.strong, leading: th.display.leading } : th.display;
+  return th.displayOnly ? { ...th.body, weight: th.body.strong, leading: th.display.leading } : th.display;
 }
 
 function PersonText(p: { person: PeopleScene['people'][number]; width: number; nameMax: number; delay: number; align: 'start' | 'center' }) {
-  const { theme: th0, box } = useScene();
+  const { theme: th0, box, look } = useScene();
   const th = { ...th0, display: nameFace(th0) };
   const u = box.u;
-  // One line when it can be one at a good size; two when the name is long.
-  const one = fit(p.person.name, th.display, { max: p.nameMax, min: 26 * u, width: p.width, height: p.nameMax * th.display.leading * 1.1, lines: 1 });
-  const nameFit = one.size >= p.nameMax * 0.72 ? one : fit(p.person.name, th.display, { max: p.nameMax, min: 26 * u, width: p.width, height: p.nameMax * th.display.leading * 2.1, lines: 2 });
+  // One line when it can be one at a good size; two when the name is long. The look's text scale sets the good size.
+  const nameMax = p.nameMax * look.textScale;
+  const one = fitScaled(p.person.name, th.display, { max: p.nameMax, min: 26 * u, width: p.width, height: nameMax * th.display.leading * 1.1, lines: 1 });
+  const nameFit = one.size >= nameMax * 0.72 ? one : fitScaled(p.person.name, th.display, { max: p.nameMax, min: 26 * u, width: p.width, height: nameMax * th.display.leading * 2.1, lines: 2 });
   const role = (p.person.role ?? '').trim();
-  const roleSize = Math.max(20 * u, Math.min(nameFit.size * 0.52, 34 * u));
+  const roleSize = Math.max(20 * u, Math.min(nameFit.size * 0.52, 34 * u * look.textScale));
   const roleFit = role ? fit(role, th.body, { max: roleSize, min: 18 * u, width: p.width, height: roleSize * 3.4, lines: 2, bold: true }) : null;
   const e = useEnter(p.delay);
   const latin = !th.rtl;
@@ -592,16 +617,15 @@ function PeopleView({ scene }: { scene: PeopleScene }) {
   const people = scene.people.filter((p) => (p.name ?? '').trim()).slice(0, 4);
   const n = Math.max(1, people.length);
   const heading = (scene.heading ?? '').trim();
-  const headFit = heading ? fit(heading, th.display, { max: per({ landscape: 80, portrait: 96, square: 64 }), min: 36 * u, width: box.w, height: box.h * 0.2, lines: 2 }) : null;
+  const headFit = heading ? fitScaled(heading, th.display, { max: per({ landscape: 80, portrait: 96, square: 64 }), min: 36 * u, width: box.w, height: box.h * 0.2, lines: 2 }) : null;
   const headH = headFit ? headFit.lines.length * headFit.size * th.display.leading : 0;
   const below = headFit ? per({ landscape: 70, portrait: 80, square: 44 }) : 0;
   const areaH = box.h - headH - below;
   const st = staggerFor(th, frames, n, 0.4, 6);
   const d0 = 4 + (headFit ? headFit.lines.length * th.motion.stagger : 0);
-  const center = th.align === 'center';
   const head = headFit ? (
     <>
-      <Lines fit={headFit} face={th.display} color={th.fg} delay={2} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={center ? 'center' : 'start'} style={{ alignSelf: center ? 'center' : 'flex-start' }} />
+      <Lines fit={headFit} face={th.display} color={th.fg} delay={2} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={th.align} style={{ alignSelf: flexOf(th.align) }} />
       <div style={{ height: below }} />
     </>
   ) : null;
@@ -698,12 +722,13 @@ function Brackets(p: { w: number; h: number; color: string; p: number; thick: nu
 }
 
 function LogoView({ scene }: { scene: LogoScene }) {
-  const { theme: th, box, frames, video } = useScene();
-  const frame = useCurrentFrame();
+  const { theme: th, box, frames, video, look } = useScene();
+  const frame = useSceneFrame();
   const u = box.u;
   const W = box.width;
   const H = box.height;
-  const logo = video.brand?.logo;
+  // `look.logo === false` reveals the brand's name instead of its logo.
+  const logo = look.logo === false ? undefined : video.brand?.logo;
   const natural = useNaturalSize(logo);
   const name = (video.brand?.name ?? '').trim() || (video.title ?? '').trim();
   const tagline = (scene.tagline ?? '').trim();
@@ -713,15 +738,24 @@ function LogoView({ scene }: { scene: LogoScene }) {
   const tagP = useEnter(30);
   const ruleP = progress(frame, 26, 50, Easing.out(Easing.cubic));
   const breathe = 1 + 0.03 * progress(frame, 30, frames, Easing.inOut(Easing.sin));
+  const padX = 70 * u;
+  const padY = 56 * u;
+  const tagFit = tagline ? fitScaled(tagline, th.body, { max: per({ landscape: 46, portrait: 46, square: 38 }), min: 24 * u, width: box.w * 0.8, height: 140 * u * look.textScale, lines: 2 }) : null;
+  // Room for the mark and its brackets once the tagline has its own — a bigger logo never pushes the tagline out.
+  const tagRoom = tagFit ? 84 * u + 34 * u + Math.max(3, 5 * u) + tagFit.lines.length * tagFit.size * th.body.leading : 0;
+  const roomH = box.h - 2 * padY - tagRoom;
+  const roomW = box.w - 2 * padX;
   // The logo as large as the frame allows in its own proportions: a tall mark by its height, a long one by its width.
-  const maxH = per({ landscape: 320, portrait: 340, square: 280 });
-  const maxW = box.w * (box.format === 'portrait' ? 0.86 : 0.7);
+  const k = look.logoScale;
+  const baseH = per({ landscape: 320, portrait: 340, square: 280 });
+  const baseW = box.w * (box.format === 'portrait' ? 0.86 : 0.7);
+  const maxH = Math.min(baseH * k, Math.max(baseH, roomH));
+  const maxW = Math.min(baseW * k, Math.max(baseW, roomW));
   const aspect = natural ? natural.w / Math.max(1, natural.h) : 1;
   const logoH = Math.min(maxH, maxW / aspect);
   const logoW = logoH * aspect;
   // The wordmark, when there is no logo: the name as large as it fits, on one or two lines.
-  const wordFit = !logo ? fit(name, th.display, { max: per({ landscape: 190, portrait: 150, square: 140 }), min: 50 * u, width: box.w * 0.9, height: box.h * 0.42, lines: 2 }) : null;
-  const tagFit = tagline ? fit(tagline, th.body, { max: per({ landscape: 46, portrait: 46, square: 38 }), min: 24 * u, width: box.w * 0.8, height: 140 * u, lines: 2 }) : null;
+  const wordFit = !logo ? fit(name, th.display, { max: per({ landscape: 190, portrait: 150, square: 140 }) * k, min: 50 * u * Math.min(1, k), width: box.w * 0.9, height: Math.min(box.h * 0.42 * Math.max(1, k), Math.max(box.h * 0.42, roomH)), lines: 2 }) : null;
   const markW = logo ? logoW : wordFit?.width ?? 0;
   const markH = logo ? logoH : wordFit ? wordFit.lines.length * wordFit.size * th.display.leading : 0;
   const glowSize = Math.max(W, H) * 0.9;
@@ -729,8 +763,6 @@ function LogoView({ scene }: { scene: LogoScene }) {
   const glintT = progress(frame, 34, 64, Easing.inOut(Easing.cubic));
   const glintX = th.rtl ? markW * (1.1 - 1.4 * glintT) : markW * (-0.3 + 1.4 * glintT);
   const glint = glintT > 0 && glintT < 1 ? Math.sin(glintT * Math.PI) : 0;
-  const padX = 70 * u;
-  const padY = 56 * u;
   return (
     <AbsoluteFill style={{ direction: th.rtl ? 'rtl' : 'ltr', background: th.bg, overflow: 'hidden' }}>
       <Backdrop intensity={0.7} />
@@ -780,10 +812,13 @@ function moduleInk(th: Theme): string {
 }
 
 function QrCard(p: { url: string; size: number; delay: number }) {
-  const { theme: th, box, video } = useScene();
-  const frame = useCurrentFrame();
+  const { theme: th, box, video, look } = useScene();
+  const frame = useSceneFrame();
   const u = box.u;
-  const logo = video.brand?.logo;
+  // The logo in the middle: off when the scene hides the brand, and never larger than the style's —
+  // the code rebuilds what the logo hides, and a bigger hole would stop phones reading it.
+  const logo = look.logo === false ? undefined : video.brand?.logo;
+  const logoK = Math.min(1, look.logoScale);
   const m = qrModules(p.url, !!logo);
   const pop = progress(frame, p.delay, p.delay + 16, Easing.out(Easing.back(1.4)));
   const scan = progress(frame, p.delay + 6, p.delay + 34, Easing.inOut(Easing.cubic));
@@ -800,7 +835,7 @@ function QrCard(p: { url: string; size: number; delay: number }) {
   const cell = Math.max(2, Math.floor(p.size / (m.size + 8)));
   const codePx = cell * m.size;
   const card = codePx + cell * 8;
-  const hole = logo ? Math.round(m.size * 0.22) | 1 : 0;
+  const hole = logo ? Math.round(m.size * 0.22 * logoK) | 1 : 0;
   const from = Math.floor((m.size - hole) / 2);
   const d = qrPath(m, logo ? { from, to: from + hole } : undefined);
   const scanY = cell * 4 + codePx * scan;
@@ -828,7 +863,7 @@ function QrCard(p: { url: string; size: number; delay: number }) {
 }
 
 function QrView({ scene }: { scene: QrScene }) {
-  const { theme: th, box } = useScene();
+  const { theme: th, box, look } = useScene();
   const u = box.u;
   const wide = box.format === 'landscape';
   const url = (scene.url ?? '').trim();
@@ -836,14 +871,15 @@ function QrView({ scene }: { scene: QrScene }) {
   const heading = (scene.heading ?? '').trim();
   const qrSize = per({ landscape: 560, portrait: 640, square: 480 });
   const textW = wide ? box.w - qrSize - 160 * u : box.w;
-  const headFit = heading ? fit(heading, th.display, { max: per({ landscape: 96, portrait: 92, square: 64 }), min: 36 * u, width: textW, height: wide ? box.h * 0.5 : box.h * 0.2, lines: 3 }) : null;
+  const headFit = heading ? fitScaled(heading, th.display, { max: per({ landscape: 96, portrait: 92, square: 64 }), min: 36 * u, width: textW, height: wide ? box.h * 0.5 : box.h * 0.2, lines: 3 }) : null;
   const urlSize = per({ landscape: 40, portrait: 42, square: 32 });
-  const urlFit = shownUrl ? fit(shownUrl, th.body, { max: urlSize, min: 20 * u, width: textW, height: urlSize * 1.6, lines: 1, bold: true }) : null;
+  const urlFit = shownUrl ? fitScaled(shownUrl, th.body, { max: urlSize, min: 20 * u, width: textW, height: urlSize * 1.6 * look.textScale, lines: 1, bold: true }) : null;
   const urlP = useEnter(16);
-  const center = !wide;
+  // Words beside the code in a wide frame (on the end side when the look says so), centred over it otherwise.
+  const align: Align = th.alignSet ? th.align : wide ? 'start' : 'center';
   const words = (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: center ? 'center' : 'flex-start', width: textW }}>
-      {headFit ? <Lines fit={headFit} face={th.display} color={th.fg} delay={2} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={center ? 'center' : 'start'} /> : null}
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: flexOf(align), width: textW }}>
+      {headFit ? <Lines fit={headFit} face={th.display} color={th.fg} delay={2} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={align} /> : null}
       {urlFit ? (
         <div style={{ marginTop: (wide ? 44 : 30) * u, display: 'flex', alignItems: 'center', gap: 16 * u, ...revealStyle('rise', urlP, 20 * u) }}>
           <div style={{ width: 14 * u, height: 14 * u, borderRadius: th.radius ? '50%' : 0, background: th.accent, boxShadow: th.style === 'neon' ? `0 0 ${14 * u}px ${th.accent}` : undefined }} />
@@ -854,7 +890,7 @@ function QrView({ scene }: { scene: QrScene }) {
   );
   if (wide) {
     return (
-      <Stage box={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Stage box={{ flexDirection: align === 'end' ? 'row-reverse' : 'row', alignItems: 'center', justifyContent: 'space-between' }}>
         {words}
         <QrCard url={url} size={qrSize} delay={6} />
       </Stage>
@@ -871,6 +907,43 @@ function QrView({ scene }: { scene: QrScene }) {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * Where a scene's heading sits across the frame, which the brand band above
+ * it follows: the look's alignment when it sets one, else the kind's own
+ * habit (a list reads from the start whatever the style; a number and a
+ * sentence said in rhythm are centred) — the same choices the views make.
+ */
+function headingAlign(scene: Scene, th: Theme, format: Format): Align {
+  if (th.alignSet) return th.align;
+  const wide = format === 'landscape';
+  switch (scene.kind) {
+    case 'kinetic': return th.align === 'center' || !wide ? 'center' : 'start';
+    case 'stat':
+    case 'image': return 'center';
+    case 'qr': return wide ? 'start' : 'center';
+    case 'quote':
+    case 'compare':
+    case 'people': return th.align;
+    case 'steps': return wide && scene.steps.filter((s) => s.trim()).length > 1 ? th.align : 'start';
+    case 'timeline': return wide && scene.events.length > 1 && th.align === 'center' ? 'center' : 'start';
+    default: return 'start';
+  }
+}
+
+/**
+ * The brand at the head of a scene that asked for it (`look.logo`), in the
+ * band VideoScenes.tsx kept above the scene's box — over the scene's heading:
+ * on the side it starts from, or centred when it is centred.
+ */
+function BandMark({ top, height, scene }: { top: number; height: number; scene: Scene }) {
+  const { theme: th, box } = useScene();
+  return (
+    <div style={{ position: 'absolute', left: box.x, top, width: box.w, height, display: 'flex', flexDirection: 'row', justifyContent: flexOf(headingAlign(scene, th, box.format)), direction: th.rtl ? 'rtl' : 'ltr' }}>
+      <BrandMark height={height} maxWidth={box.w * 0.6} theme={th} delay={0} />
+    </div>
+  );
+}
+
 /** Draws one scene of any kind, given its context. */
 export function SceneBody({ info }: { info: SceneInfo }) {
   const scene: Scene | undefined = info.video.scenes[info.index];
@@ -886,5 +959,10 @@ export function SceneBody({ info }: { info: SceneInfo }) {
       default: body = firstKindView(scene);
     }
   }
-  return <SceneProvider value={info}>{body ?? <Stage><div /></Stage>}</SceneProvider>;
+  return (
+    <SceneProvider value={info}>
+      {body ?? <Stage><div /></Stage>}
+      {info.mark && scene ? <BandMark top={info.mark.top} height={info.mark.height} scene={scene} /> : null}
+    </SceneProvider>
+  );
 }

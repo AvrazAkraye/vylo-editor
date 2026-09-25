@@ -35,7 +35,10 @@
  * Arabic and Kurdish with the direction set explicitly, never letter-spaced
  * (the web renderer draws each word where the DOM laid it, and spacing
  * Arabic letters apart breaks their joins), and above the part of a vertical
- * frame where phone apps draw their own buttons.
+ * frame where phone apps draw their own buttons. They follow the scene's look:
+ * its typeface, its words' size (`textScale`, still fitted to two lines), its
+ * background's light or dark panel, and they rise above the corner mark when
+ * the look put it at the foot of the frame.
  */
 
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -44,8 +47,9 @@ import { flushSync } from 'react-dom';
 import { Html5Audio, Internals, useCurrentFrame, useDelayRender, useRemotionEnvironment, useVideoConfig } from 'remotion';
 import type { Format, Video } from './videotypes';
 import { isRtl } from './video';
-import { boxOf, contrast, fitText, fontsReady, themeOf } from './videotheme';
-import { dirOf } from './videoscenebits';
+import { boxOf, contrast, fitText, fontsReady, sceneTheme } from './videotheme';
+import { dirOf, watermarkOn, watermarkSpot } from './videoscenebits';
+import { lookFor } from './videolook';
 import { captionAt, captionPages, encodeWav, frameSamples, mixVideo, planKey, soundPlan, type SoundPlan } from './videomix';
 
 /** Whether a plan has anything to hear (captions alone are silent). */
@@ -203,7 +207,8 @@ function Captions({ video, plan }: { video: Video; plan: SoundPlan }): JSX.Eleme
   const now = captionAt(plan.lines, frame, fps, (text) => captionPages(text, spec.words, spec.chars));
   if (!now) return null;
   const line = plan.lines[now.lineIndex];
-  const th = themeOf(video, line.index);
+  const th = sceneTheme(video, line.index);
+  const k = lookFor(video, video.scenes[line.index]).textScale;
   const u = box.u;
   const ready = fontsReady(video);
   const rtl = isRtl(video.lang);
@@ -215,10 +220,10 @@ function Captions({ video, plan }: { video: Video; plan: SoundPlan }): JSX.Eleme
   const fit = fitText(text, {
     face,
     bold: true,
-    maxSize: spec.size * u,
-    minSize: spec.min * u,
+    maxSize: spec.size * u * k,
+    minSize: spec.min * u * Math.min(1, k),
     maxWidth: box.w * spec.width - 2 * padX,
-    maxHeight: spec.size * u * face.leading * 2,
+    maxHeight: spec.size * u * k * face.leading * 2,
     maxLines: 2,
     ready,
   });
@@ -244,9 +249,12 @@ function Captions({ video, plan }: { video: Video; plan: SoundPlan }): JSX.Eleme
     textAlign: 'center',
     direction: dir,
   };
-  let k = 0;
+  // Above a corner mark set at the foot of the frame, which the scenes keep a band clear for.
+  const spot = watermarkOn(video) ? watermarkSpot(video, box) : null;
+  const lift = spot && spot.edge === 'bottom' ? spot.band : 0;
+  let n = 0;
   return (
-    <div style={{ position: 'absolute', left: 0, right: 0, bottom: box.bottom, display: 'flex', justifyContent: 'center', opacity }}>
+    <div style={{ position: 'absolute', left: 0, right: 0, bottom: box.bottom + lift, display: 'flex', justifyContent: 'center', opacity }}>
       <div
         dir={dir}
         style={{
@@ -263,8 +271,8 @@ function Captions({ video, plan }: { video: Video; plan: SoundPlan }): JSX.Eleme
         {fit.lines.map((l, i) => (
           <div key={i} dir={dir} style={lineStyle}>
             {l.split(' ').map((w, j, all) => {
-              const n = k++;
-              const color = n >= now.shown ? unseen : n === now.shown - 1 ? hot : ink;
+              const at = n++;
+              const color = at >= now.shown ? unseen : at === now.shown - 1 ? hot : ink;
               return (
                 <span key={j} style={{ color }}>{w}{j < all.length - 1 ? ' ' : ''}</span>
               );

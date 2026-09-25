@@ -10,8 +10,9 @@ import { MODELS, modelName } from './models';
 import { EFFORTS, effortLabel, effortOf, effortsFor, type Effort, type EffortBook } from './effort';
 import { generate, type Target } from './generate';
 import {
-  FPS, SCENE_KINDS, type Brand, type Format, type Scene, type SceneKind, type Style, type Video, type VideoLang,
+  FPS, SCENE_KINDS, type Brand, type Format, type LookSettings, type Scene, type SceneKind, type Style, type Video, type VideoLang,
 } from './videotypes';
+import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalLook } from './videolook';
 import {
   LENGTHS, TRANSITION_FRAMES, blankScene, durationInFrames, formatIn, isRtl, newVideo, parsePlan, parseScene,
   planPrompt, sceneFrames, scenePrompt, secondsIn, styleIn, videoLangOf,
@@ -20,7 +21,9 @@ import { deleteVideo, loadVideos, saveVideo } from './videostore';
 import { creditsOf, fillPictures, needsPictures, picturesOf, withPicturesOf } from './videomedia';
 import { factsBlock, placeBriefPictures, researchVideo, wantsLookup, withSiteLogo, type Ask } from './videoresearch';
 import { STYLE_SWATCH } from './VideoScenes';
-import { PICTURED, Storyboard, WatermarkSwitch, kindAbout, kindName } from './VideoStoryboard';
+import {
+  AlignPicker, LookColour, LookSlider, PICTURED, Storyboard, WatermarkSwitch, cornerName, fontName, kindAbout, kindName, lookValueName,
+} from './VideoStoryboard';
 import { VideoFacts } from './VideoFacts';
 import { VideoSound } from './VideoSound';
 import { VideoChat } from './VideoChat';
@@ -249,7 +252,9 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
       if (!next) throw new Error(UNREADABLE_SCENE);
       // The picture stays when the scene still wants the same one.
       const same = old.picture && PICTURED.has(next.kind) && (!next.imageQuery || next.imageQuery === old.imageQuery || next.imageQuery === old.picture.query);
-      const kept: Scene = next.picture || !same ? next : { ...next, picture: old.picture };
+      const pictured: Scene = next.picture || !same ? next : { ...next, picture: old.picture };
+      // The scene's own look (its size, alignment, colours) is the person's, not the model's: it stays.
+      const kept: Scene = old.look && !pictured.look ? { ...pictured, look: old.look } : pictured;
       update(id, (x) => ({ ...x, scenes: x.scenes.map((s) => (s.id === old.id ? kept : s)) }));
       job.sceneId = kept.id;
       await picturesFor(id, job, kept.id);
@@ -1145,6 +1150,111 @@ function edit(id: string, next: Partial<Video>) {
   if (after && after !== before) videoHistory.record(id, before, after);
 }
 
+/**
+ * The Look tab's own controls: the parts of the look the Chat tab sets ("make
+ * the logo bigger", "black background"), by hand — sizes, where the words
+ * sit, colours, the typeface, the backdrop, the watermark. Values are checked
+ * by videolook.ts, as the renderer draws them; every change is one
+ * `change({ look })`, so undo takes it back. A scene's own look is set on its
+ * card in Scenes, and is said here when there is one.
+ */
+function LookFields({ t, video, onLook, onScenes }: {
+  t: T;
+  video: Video;
+  onLook: (look: LookSettings | undefined) => void;
+  onScenes: (scenes: Scene[]) => void;
+}) {
+  const own = normalLook(video.look ?? {});
+  const eff = lookFor(video);
+  const sw = STYLE_SWATCH[video.style] ?? STYLE_SWATCH.modern;
+  const rtl = isRtl(video.lang);
+  const set = (patch: Partial<LookSettings>) => {
+    const next = normalLook({ ...own, ...patch });
+    onLook(Object.keys(next).length ? next : undefined);
+  };
+  const styles = t('the style’s');
+  const ownScenes = video.scenes.filter((s) => s.look && Object.keys(s.look).length).length;
+  const limit = (k: keyof typeof LOOK_LIMITS) => ({ min: LOOK_LIMITS[k].min, max: LOOK_LIMITS[k].max });
+  const face = (f: (typeof FONT_CHOICES)[number]) => (rtl ? `"${f.arabic}", "${f.latin}"` : `"${f.latin}", "${f.arabic}"`);
+  return (
+    <div className="vid-group vid-pad">
+      <span className="vid-group-label">{t('Adjust the look')}</span>
+      <div className="vid-look-box">
+        <LookSlider t={t} label={t('Logo size')} value={eff.logoScale} {...limit('logoScale')} onChange={(n) => set({ logoScale: n })} />
+        <LookSlider t={t} label={t('Text size')} value={eff.textScale} {...limit('textScale')} onChange={(n) => set({ textScale: n })} />
+        <LookSlider t={t} label={t('Motion')} value={eff.motion} {...limit('motion')} onChange={(n) => set({ motion: n })} />
+        <div className="vid-look-line">
+          <span>{t('Alignment')}</span>
+          <AlignPicker t={t} value={own.align} rtl={rtl} onChange={(align) => set({ align })} />
+        </div>
+        <div className="vid-look-pair">
+          <LookColour t={t} label={t('Background')} value={own.background} fallback={sw.bg} own={styles} onChange={(background) => set({ background })} />
+          <LookColour t={t} label={t('Text colour')} value={own.text} fallback={sw.fg} own={styles} onChange={(text) => set({ text })} />
+        </div>
+        <div className="vid-look-stack">
+          <span>{t('Font')}</span>
+          <div className="vid-look-fonts" role="radiogroup" aria-label={t('Font')}>
+            <button type="button" role="radio" aria-checked={!own.font} className={own.font ? '' : 'on'} onClick={() => set({ font: undefined })}>
+              {t('The style’s own')}
+            </button>
+            {FONT_CHOICES.map((f) => (
+              <button key={f.id} type="button" role="radio" aria-checked={own.font === f.id} className={own.font === f.id ? 'on' : ''}
+                      onClick={() => set({ font: f.id })} style={{ fontFamily: `${face(f)}, var(--sans)` }}>
+                {fontName(f.id, t)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="vid-look-line">
+          <span>{t('Backdrop')}</span>
+          <span className="vid-seg" role="radiogroup" aria-label={t('Backdrop')}>
+            {(['moving', 'still', 'plain'] as const).map((b) => (
+              <button key={b} type="button" role="radio" aria-checked={eff.backdrop === b} className={eff.backdrop === b ? 'on' : ''}
+                      onClick={() => set({ backdrop: b === 'moving' ? undefined : b })}>
+                {lookValueName('backdrop', b, t)}
+              </button>
+            ))}
+          </span>
+        </div>
+        <div className="vid-look-line">
+          <span>{t('Watermark corner')}</span>
+          {/* In the video's own direction: the reading side of an Arabic video is its right. */}
+          <span className="vid-look-corners" role="radiogroup" aria-label={t('Watermark corner')} dir={rtl ? 'rtl' : 'ltr'}>
+            {(['top-start', 'top-end', 'bottom-start', 'bottom-end'] as const).map((c) => (
+              <button key={c} type="button" role="radio" aria-checked={eff.watermarkCorner === c} className={`${CORNER_CLASS[c]}${eff.watermarkCorner === c ? ' on' : ''}`}
+                      title={cornerName(c, t)} aria-label={cornerName(c, t)}
+                      onClick={() => set({ watermarkCorner: c === lookFor(null).watermarkCorner ? undefined : c })}>
+                <i aria-hidden="true" />
+              </button>
+            ))}
+          </span>
+        </div>
+        <LookSlider t={t} label={t('Watermark size')} value={eff.watermarkScale} {...limit('watermarkScale')} onChange={(n) => set({ watermarkScale: n })} />
+        <div className="vid-look-foot">
+          {ownScenes > 0 && (
+            <span className="vid-look-scenes">
+              {ownScenes === 1 ? t('One scene has a look of its own') : fill(t('{n} scenes have a look of their own'), { n: ownScenes })}
+              <button type="button" className="ghost" onClick={() => onScenes(video.scenes.map((s) => {
+                if (!s.look) return s;
+                const { look: _l, ...rest } = s;
+                return rest as Scene;
+              }))}>
+                {t('Reset them too')}
+              </button>
+            </span>
+          )}
+          <button type="button" className="ghost bordered" disabled={!Object.keys(own).length} onClick={() => onLook(undefined)}>
+            {t('Reset the look')}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** The corner buttons' classes, written out so the stylesheet's rules can be found from here. */
+const CORNER_CLASS = { 'top-start': 'is-top-start', 'top-end': 'is-top-end', 'bottom-start': 'is-bottom-start', 'bottom-end': 'is-bottom-end' } as const;
+
 function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSeek, onBack, begin, onError }: {
   t: T;
   video: Video;
@@ -1347,7 +1457,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
           {tab === 'chat' && (
             <VideoChat t={t} video={video} onChange={change} locked={busy} ready={ready} target={target} providers={routes.providers}
                        efforts={bookFor(video, target, efforts)} onFindPictures={() => begin(video, { how: 'pictures' })} onError={onError}
-                       current={() => known.get(video.id) ?? video} />
+                       current={() => known.get(video.id) ?? video} onUndo={undo} />
           )}
           {tab === 'look' && (
             <div className="vid-look">
@@ -1359,6 +1469,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
                 <span className="vid-group-label">{t('Style')}</span>
                 <StylePicker t={t} value={video.style} onChange={(style) => change({ style })} />
               </div>
+              <LookFields t={t} video={video} onLook={(look) => change({ look })} onScenes={(scenes) => change({ scenes })} />
               <div className="vid-group vid-pad">
                 <span className="vid-group-label">{t('Brand')}</span>
                 <BrandFields t={t} value={video.brand} style={video.style} onChange={(brand) => change({ brand })} />

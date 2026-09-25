@@ -3,10 +3,11 @@ import { Icon } from './Icon';
 import { fill } from './i18n';
 import { explain } from './errors';
 import { SCENE_KINDS, type Picture, type Scene, type SceneKind, type Transition, type Video } from './videotypes';
-import type { CompareScene, GalleryScene, PeopleScene, TimelineScene } from './videotypes';
+import type { CompareScene, GalleryScene, LookSettings, PeopleScene, SceneLook, TimelineScene } from './videotypes';
 import { searchPictures, fetchPicture, type Candidate } from './videomedia';
-import { SceneThumb } from './VideoScenes';
-import { pictureSlots, qrText, withPicture } from './video';
+import { STYLE_SWATCH, SceneThumb } from './VideoScenes';
+import { isRtl, pictureSlots, qrText, withPicture } from './video';
+import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalSceneLook } from './videolook';
 
 /**
  * The storyboard, as the person edits it: one card a scene.
@@ -425,6 +426,252 @@ export function WatermarkSwitch({ t, video, onChange, disabled }: {
   );
 }
 
+// ── the look, by hand ─────────────────────────────────────────────────────
+//
+// The same parts of the look the Chat tab sets ("make the logo bigger"),
+// here as controls: the Look tab uses them for the whole video
+// (VideoPanel.tsx), each scene card for its own look. Values go through
+// videolook.ts's `normalLook` / `normalSceneLook`, the checks the renderer
+// draws with, and every change is one edit the panel remembers for undo.
+
+/** A part of the video's look or of one scene's. */
+export type LookField = keyof LookSettings | keyof SceneLook;
+type Align = NonNullable<LookSettings['align']>;
+type Corner = NonNullable<LookSettings['watermarkCorner']>;
+
+/** A part of the look, named as the Look tab shows it and the chat says it. */
+export function lookFieldName(f: LookField, t: T): string {
+  if (f === 'logoScale') return t('Logo size');
+  if (f === 'textScale') return t('Text size');
+  if (f === 'align') return t('Alignment');
+  if (f === 'background') return t('Background');
+  if (f === 'text') return t('Text colour');
+  if (f === 'font') return t('Font');
+  if (f === 'motion') return t('Motion');
+  if (f === 'backdrop') return t('Backdrop');
+  if (f === 'watermarkCorner') return t('Watermark corner');
+  if (f === 'watermarkScale') return t('Watermark size');
+  if (f === 'logo') return t('Logo');
+  return t('Picture fit');
+}
+
+export function alignName(a: Align, t: T): string {
+  if (a === 'center') return t('Centre');
+  if (a === 'end') return t('Far side');
+  return t('Reading side');
+}
+
+export function cornerName(c: Corner, t: T): string {
+  if (c === 'top-start') return t('Top corner, reading side');
+  if (c === 'bottom-start') return t('Bottom corner, reading side');
+  if (c === 'bottom-end') return t('Bottom corner, far side');
+  return t('Top corner, far side');
+}
+
+/** A typeface's name, written out as calls so the catalogue scanner sees each one; a choice added later shows its own label. */
+export function fontName(id: string, t: T): string {
+  if (id === 'geometric') return t('Geometric');
+  if (id === 'condensed') return t('Condensed');
+  if (id === 'classic') return t('Classic serif');
+  if (id === 'wide') return t('Wide');
+  if (id === 'swiss') return t('Swiss');
+  if (id === 'soft') return t('Soft serif');
+  if (id === 'book') return t('Book serif');
+  if (id === 'poster') return t('Poster lettering');
+  if (id === 'calligraphy') return t('Calligraphy');
+  if (id === 'rounded') return t('Rounded');
+  return FONT_CHOICES.find((f) => f.id === id)?.label ?? id;
+}
+
+const times = (n: number, t: T) => fill(t('{n}×'), { n: Math.round(n * 100) / 100 });
+
+/** A value of the look as the person reads it. `null` is "as the style has it" for the video, "as the video" for a scene. */
+export function lookValueName(f: LookField, value: string | number | boolean | null, t: T, scene = false): string {
+  if (value === null) return scene ? t('as the whole video') : t('the style’s own');
+  if (typeof value === 'number') return times(value, t);
+  if (typeof value === 'boolean') return value ? t('Shown') : t('Hidden');
+  if (f === 'align') return alignName(value as Align, t);
+  if (f === 'font') return fontName(value, t);
+  if (f === 'watermarkCorner') return cornerName(value as Corner, t);
+  if (f === 'backdrop') return value === 'still' ? t('Still') : value === 'plain' ? t('Plain colour') : t('Moving');
+  if (f === 'fit') return value === 'contain' ? t('Show all of it') : t('Fill the frame');
+  return value.toUpperCase();
+}
+
+/** A size or a speed: a slider and its value, 1× being the style's own. */
+export function LookSlider({ t, label, value, min, max, step = 0.05, onChange, disabled }: {
+  t: T;
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  onChange: (n: number) => void;
+  disabled?: boolean;
+}) {
+  const shown = times(value, t);
+  return (
+    <label className={`vid-look-slider${value === 1 ? '' : ' is-set'}`}>
+      <span>{label}</span>
+      <input type="range" min={min} max={max} step={step} value={value} disabled={disabled} aria-valuetext={shown}
+             onChange={(e) => onChange(Math.round(Number(e.target.value) * 100) / 100)} />
+      {/* A number and its ×, kept in that order in a right-to-left interface too. */}
+      <output dir="ltr">{shown}</output>
+    </label>
+  );
+}
+
+/** Three short lines, set where the words would sit. */
+function AlignGlyph({ at }: { at: Align }) {
+  const x = (w: number) => (at === 'start' ? 2 : at === 'end' ? 14 - w : 8 - w / 2);
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+      <path d={`M${x(12)} 4h12M${x(8)} 8h8M${x(10)} 12h10`} />
+    </svg>
+  );
+}
+
+/**
+ * Where the words sit: the reading side, the centre, the far side — drawn in
+ * the video's own direction, so the reading side of an Arabic video is on
+ * the right whatever the interface's language. Pressing the one that is on
+ * gives back the style's (or, on a scene, the video's) own.
+ */
+export function AlignPicker({ t, value, rtl, onChange, disabled }: {
+  t: T;
+  value: Align | undefined;
+  /** The video's words run right to left. */
+  rtl: boolean;
+  onChange: (a: Align | undefined) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <span className="vid-seg vid-look-align" role="radiogroup" aria-label={t('Alignment')} dir={rtl ? 'rtl' : 'ltr'}>
+      {(['start', 'center', 'end'] as const).map((a) => (
+        <button key={a} type="button" role="radio" aria-checked={value === a} className={value === a ? 'on' : ''} disabled={disabled}
+                title={alignName(a, t)} aria-label={alignName(a, t)} onClick={() => onChange(value === a ? undefined : a)}>
+          <AlignGlyph at={a} />
+        </button>
+      ))}
+    </span>
+  );
+}
+
+/** A colour of the look, with a way back to the style's (or the video's) own. */
+export function LookColour({ t, label, value, fallback, onChange, disabled, own }: {
+  t: T;
+  label: string;
+  value: string | undefined;
+  /** What is drawn when none is set, for the swatch. */
+  fallback: string;
+  onChange: (hex: string | undefined) => void;
+  disabled?: boolean;
+  /** What "none set" is called: "the style’s", "the video’s". */
+  own: string;
+}) {
+  return (
+    <div className="vid-look-line">
+      <span>{label}</span>
+      <span className="vid-look-swatch">
+        <input type="color" value={(value ?? fallback).toLowerCase()} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.value)} />
+        {value
+          ? (
+            <>
+              <code dir="ltr">{value.toUpperCase()}</code>
+              <button type="button" className="sb-act" disabled={disabled} onClick={() => onChange(undefined)}
+                      title={fill(t('Back to {what}'), { what: own })} aria-label={fill(t('Back to {what}'), { what: own })}><Icon name="close" size={11} /></button>
+            </>
+          )
+          : <small>{own}</small>}
+      </span>
+    </div>
+  );
+}
+
+/** Scene kinds with a picture a fit applies to. */
+const FITTED: ReadonlySet<SceneKind> = new Set<SceneKind>(['title', 'image', 'split', 'gallery']);
+/** Scene kinds that show the brand's logo without being asked. */
+const LOGO_KINDS: ReadonlySet<SceneKind> = new Set<SceneKind>(['title', 'logo', 'outro']);
+
+/**
+ * One scene's own look, folded under its fields: the words' size and side,
+ * the colours, the logo, and how its picture fills the frame. What is not
+ * set here follows the video's look (the Look tab).
+ */
+function SceneLookFields({ t, video, scene, onChange, disabled }: {
+  t: T;
+  video: Video;
+  scene: Scene;
+  onChange: (patch: Partial<Scene>) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const own = normalSceneLook(scene.look ?? {});
+  const eff = lookFor(video, scene);
+  const sw = STYLE_SWATCH[video.style] ?? STYLE_SWATCH.modern;
+  const count = Object.keys(own).length;
+  const set = (patch: Partial<SceneLook>) => {
+    const next = normalSceneLook({ ...own, ...patch });
+    onChange({ look: Object.keys(next).length ? next : undefined });
+  };
+  const shown = own.logo ?? LOGO_KINDS.has(scene.kind);
+  const videoOwn = t('the video’s');
+  return (
+    <div className="vid-look-scene">
+      <button type="button" className="vid-more" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Icon name="chevron" size={11} />
+        {count ? fill(t('Look · {n} set'), { n: count }) : t('Look')}
+      </button>
+      {open && (
+        <div className="vid-look-box is-scene">
+          <LookSlider t={t} label={t('Text size')} value={eff.textScale} min={LOOK_LIMITS.textScale.min} max={LOOK_LIMITS.textScale.max}
+                      disabled={disabled} onChange={(n) => set({ textScale: n })} />
+          <div className="vid-look-line">
+            <span>{t('Alignment')}</span>
+            <AlignPicker t={t} value={own.align} rtl={isRtl(video.lang)} disabled={disabled} onChange={(align) => set({ align })} />
+          </div>
+          <div className="vid-look-pair">
+            <LookColour t={t} label={t('Background')} value={own.background} fallback={eff.background ?? sw.bg} own={videoOwn}
+                        disabled={disabled} onChange={(background) => set({ background })} />
+            <LookColour t={t} label={t('Text colour')} value={own.text} fallback={eff.text ?? sw.fg} own={videoOwn}
+                        disabled={disabled} onChange={(text) => set({ text })} />
+          </div>
+          <label className="vid-sb-switch">
+            <input type="checkbox" checked={shown} disabled={disabled} onChange={(e) => set({ logo: e.target.checked })} />
+            <span>
+              <b>{t('Show the logo on this scene')}</b>
+              <small>{t('The title, the logo reveal and the close show it anyway; unticked hides it there too.')}</small>
+            </span>
+          </label>
+          {shown && (
+            <LookSlider t={t} label={t('Logo size')} value={eff.logoScale} min={LOOK_LIMITS.logoScale.min} max={LOOK_LIMITS.logoScale.max}
+                        disabled={disabled} onChange={(n) => set({ logoScale: n })} />
+          )}
+          {FITTED.has(scene.kind) && (
+            <div className="vid-look-line">
+              <span>{t('Picture fit')}</span>
+              <span className="vid-seg" role="radiogroup" aria-label={t('Picture fit')}>
+                {(['cover', 'contain'] as const).map((f) => (
+                  <button key={f} type="button" role="radio" aria-checked={eff.fit === f} className={eff.fit === f ? 'on' : ''} disabled={disabled}
+                          onClick={() => set({ fit: f === 'cover' ? undefined : f })}>
+                    {lookValueName('fit', f, t)}
+                  </button>
+                ))}
+              </span>
+            </div>
+          )}
+          <div className="vid-look-foot">
+            <small>{t('What is not set here follows the video’s look, in the Look tab.')}</small>
+            <button type="button" className="ghost" disabled={disabled || !count} onClick={() => onChange({ look: undefined })}>
+              {t('Reset this scene’s look')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** One scene's own fields, by kind. */
 function SceneFields({ t, scene, video, onChange, onError, disabled }: {
   t: T;
@@ -635,6 +882,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
                             onPick={(picture) => onChange({ picture, ...(picture ? { imageQuery: picture.query } : {}) })}
                             onClose={() => setPicking(false)} />
           )}
+          <SceneLookFields t={t} video={video} scene={scene} onChange={onChange} disabled={redoing} />
           <div className="vid-scene-foot">
             <button type="button" className="ghost" disabled={locked || redoing} onClick={onRedo}
                     title={t('Ask the model to write this scene again, with an instruction of yours.')}>

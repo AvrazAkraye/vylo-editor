@@ -22,14 +22,26 @@
  * line order comes from the browser's own bidi layout. Words are never split
  * into letters here, and Arabic is never letter-spaced — both would break the
  * joins between letters.
+ *
+ * ## The look
+ *
+ * A scene reads its look (videolook.ts `lookFor`) from `SceneInfo.look`.
+ * Its pace is a clock: `useSceneFrame()` is the frame times `look.motion`,
+ * and `SceneInfo.frames` is the scene's length on that clock, so everything
+ * timed in frames (an entrance, a stagger, a count) runs faster or slower
+ * while everything timed as a share of the scene (the close's fade, a Ken
+ * Burns move, "all points in by half-way") keeps its place in the scene. The
+ * film-wide background runs on the film's own frame, times the same pace.
  */
 
 import { createContext, useContext, useEffect, useId, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { AbsoluteFill, Easing, Img, interpolate, random, spring, useCurrentFrame, useDelayRender, useVideoConfig } from 'remotion';
 import type { Video } from './videotypes';
-import { alpha, contrast, localDigits, luminance, mix } from './videotheme';
+import { alpha, contrast, fitText, localDigits, luminance, mix } from './videotheme';
 import type { Box, Fit, Numerals, Theme, TypeFace } from './videotheme';
+import { lookFor } from './videolook';
+import type { Align, EffectiveLook, PictureFit } from './videolook';
 
 // ---------------------------------------------------------------------------
 // Scene context
@@ -38,7 +50,7 @@ export interface SceneInfo {
   video: Video;
   theme: Theme;
   box: Box;
-  /** This scene's length in frames. */
+  /** This scene's length on its own clock — its frames times the look's pace (`useSceneFrame`). */
   frames: number;
   index: number;
   count: number;
@@ -50,6 +62,10 @@ export interface SceneInfo {
   ready: boolean;
   /** The digits the video's numbers are drawn in (videotheme.ts `numeralsOf`). */
   digits: Numerals;
+  /** The look this scene is drawn with: the scene's own over the video's (videolook.ts `lookFor`). */
+  look: EffectiveLook;
+  /** Where the brand heads this scene when its look asks for it and the scene has no place of its own: a band above `box`, which starts below it. */
+  mark?: { top: number; height: number } | null;
 }
 
 const SceneContext = createContext<SceneInfo | null>(null);
@@ -66,12 +82,30 @@ export function useScene(): SceneInfo {
 // Motion
 
 /**
+ * The scene's frame on its own clock: Remotion's frame times the look's pace
+ * (`look.motion`, 1 unless set) — so at 2 everything in the scene arrives in
+ * half the frames, at 0.5 in twice as many. Every scene part times itself by
+ * this, never by `useCurrentFrame()`; `SceneInfo.frames` is on the same clock.
+ */
+export function useSceneFrame(): number {
+  const frame = useCurrentFrame();
+  const { look } = useScene();
+  return look.motion === 1 ? frame : frame * look.motion;
+}
+
+/** Flexbox's word for an alignment: the reading side, the middle, the other side (mirrored by the scene's direction). */
+export const flexOf = (a: Align | undefined): 'flex-start' | 'center' | 'flex-end' => (a === 'center' ? 'center' : a === 'end' ? 'flex-end' : 'flex-start');
+
+/** A line's `text-align` for an alignment. */
+export const textAlignOf = (a: Align | undefined): 'start' | 'center' | 'end' => (a === 'center' ? 'center' : a === 'end' ? 'end' : 'start');
+
+/**
  * 0 → 1 as an element arrives, `delay` frames into the scene, in the style's
  * own curve: springs for the lively styles (a little overshoot), eased curves
  * for elegant and minimal.
  */
 export function useEnter(delay: number, slower = 1): number {
-  const frame = useCurrentFrame();
+  const frame = useSceneFrame();
   const { fps } = useVideoConfig();
   const { theme } = useScene();
   return enterAt(frame - delay, fps, theme, slower);
@@ -186,7 +220,7 @@ export function sheenBands(theme: Theme, color: string, f: number): SheenBand[] 
  */
 export function ShineText(p: { text: string; style: CSSProperties; color: string; sheenAt?: number }) {
   const { theme } = useScene();
-  const frame = useCurrentFrame();
+  const frame = useSceneFrame();
   const bands = p.sheenAt === undefined ? [] : sheenBands(theme, p.color, frame - p.sheenAt);
   if (!bands.length) return <div style={p.style}>{p.text}</div>;
   const { transform, opacity, ...plain } = p.style;
@@ -208,7 +242,7 @@ interface LinesProps {
   delay: number;
   stagger: number;
   mode?: RevealMode;
-  align?: 'start' | 'center';
+  align?: Align;
   shadow?: string;
   /** Colour for one line (by index), e.g. to set the last line in the accent. */
   lineColor?: (i: number) => string | undefined;
@@ -228,7 +262,7 @@ export function Lines(p: LinesProps) {
   const mode = p.mode ?? revealOf(theme);
   const lh = p.face.leading;
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: p.align === 'center' ? 'center' : 'flex-start', ...p.style }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: flexOf(p.align), ...p.style }}>
       {p.fit.lines.map((line, i) => (
         <Line
           key={i}
@@ -251,7 +285,7 @@ export function Lines(p: LinesProps) {
   );
 }
 
-function Line(p: { text: string; size: number; face: TypeFace; bold?: boolean; color: string; lh: number; delay: number; mode: RevealMode; align?: 'start' | 'center'; shadow?: string; travel: number; slower?: number; sheen?: number }) {
+function Line(p: { text: string; size: number; face: TypeFace; bold?: boolean; color: string; lh: number; delay: number; mode: RevealMode; align?: Align; shadow?: string; travel: number; slower?: number; sheen?: number }) {
   const pr = useEnter(p.delay, p.slower);
   const text: CSSProperties = {
     fontFamily: p.face.family,
@@ -263,7 +297,7 @@ function Line(p: { text: string; size: number; face: TypeFace; bold?: boolean; c
     color: p.color,
     whiteSpace: 'nowrap',
     textShadow: p.shadow,
-    textAlign: p.align === 'center' ? 'center' : 'start',
+    textAlign: textAlignOf(p.align),
   };
   if (p.mode === 'mask') {
     const pad = p.size * 0.28;
@@ -352,14 +386,23 @@ export function Grain(p: { opacity: number; width: number; height: number; t: nu
 /**
  * The style's moving ground. Driven by the film's own frame (`start` + the
  * scene's frame), so the backgrounds of two scenes in a transition are the
- * same picture and only the scene's content appears to change.
+ * same picture and only the scene's content appears to change. `bare` leaves
+ * the style's shapes out (a montage covers them).
+ *
+ * The look's `backdrop`: 'moving' is this at the look's pace; 'still' is the
+ * same picture held at the film's first frame, on every scene; 'plain' is the
+ * background colour alone, flat.
  */
-export function Backdrop(p: { plain?: boolean; intensity?: number }) {
-  const { theme: th, box, start, index, count, total, video, digits } = useScene();
+export function Backdrop(p: { bare?: boolean; intensity?: number }) {
+  const { theme: th, box, start, index, count, total, video, digits, look } = useScene();
   const frame = useCurrentFrame();
-  const t = start + frame;
+  if (look.backdrop === 'plain') return <AbsoluteFill style={{ background: th.bg }} />;
+  // The film's own frame, for what tells the time (minimal's progress rule), and the backdrop's clock.
+  const now = start + frame;
+  const t = look.backdrop === 'still' ? 0 : look.motion === 1 ? now : now * look.motion;
   const { width: W, height: H, u } = box;
-  const k = p.intensity ?? 1;
+  // Over a background the person chose, the style's lights are quieter, so the colour they asked for is the one seen.
+  const k = (p.intensity ?? 1) * (th.groundSet ? 0.5 : 1);
   const s = (period: number, phase = 0) => Math.sin((t / period) * Math.PI * 2 + phase);
   const layers: ReactNode[] = [];
   const angle = 155 + s(900) * 18;
@@ -394,7 +437,7 @@ export function Backdrop(p: { plain?: boolean; intensity?: number }) {
       const num = localDigits(String(index + 1).padStart(2, '0'), digits);
       const ns = (box.format === 'portrait' ? 520 : 600) * u;
       layers.push(
-        <div key="num" style={{ position: 'absolute', [th.rtl ? 'left' : 'right']: -ns * 0.06, bottom: -ns * 0.2, fontFamily: "'Anton', 'Noto Kufi Arabic', sans-serif", fontWeight: 400, fontSize: ns, lineHeight: `${ns}px`, color: 'transparent', WebkitTextStroke: `${Math.max(1, 2.5 * u)}px ${alpha(th.fg, 0.12)}`, direction: 'ltr', whiteSpace: 'nowrap' }}>{num}</div>,
+        <div key="num" style={{ position: 'absolute', [th.rtl ? 'left' : 'right']: -ns * 0.06, bottom: -ns * 0.2, fontFamily: th.ownFont ? "'Anton', 'Noto Kufi Arabic', sans-serif" : th.display.family, fontWeight: th.ownFont ? 400 : th.display.weight, fontSize: ns, lineHeight: `${ns}px`, color: 'transparent', WebkitTextStroke: `${Math.max(1, 2.5 * u)}px ${alpha(th.fg, 0.12)}`, direction: 'ltr', whiteSpace: 'nowrap' }}>{num}</div>,
       );
       break;
     }
@@ -456,7 +499,7 @@ export function Backdrop(p: { plain?: boolean; intensity?: number }) {
       const y2 = H - box.bottom * 0.55;
       const small = 22 * u;
       const label: CSSProperties = { position: 'absolute', top: y1 - small * 1.9, fontFamily: th.body.family, fontWeight: th.body.strong, fontSize: small, lineHeight: `${small * 1.3}px`, color: th.muted, whiteSpace: 'nowrap' };
-      const played = Math.min(1, t / Math.max(1, total - 1));
+      const played = Math.min(1, now / Math.max(1, total - 1));
       // A vertical frame's story bar takes the place of the top rule.
       if (box.format !== 'portrait') layers.push(<div key="r1" style={{ position: 'absolute', left: box.x, top: y1, width: box.w, height: line, background: alpha(th.fg, 0.14) }} />);
       layers.push(<div key="r2" style={{ position: 'absolute', left: box.x, top: y2, width: box.w, height: line, background: alpha(th.fg, 0.14) }} />);
@@ -464,9 +507,11 @@ export function Backdrop(p: { plain?: boolean; intensity?: number }) {
       // shows its progress in the story bar along the top instead (VideoScenes.tsx).
       if (box.format !== 'portrait') {
         const counter = localDigits(`${String(index + 1).padStart(2, '0')} / ${String(count).padStart(2, '0')}`, digits);
+        // The counter reads from the start side — unless the watermark was moved into that corner.
+        const counterAtEnd = watermarkOn(video) && look.watermarkCorner === 'top-start';
         layers.push(
           <div key="r3" style={{ position: 'absolute', [th.rtl ? 'right' : 'left']: box.x, top: y2 - line, width: box.w * played, height: line * 3, background: th.accent }} />,
-          <div key="n" style={{ ...label, [th.rtl ? 'right' : 'left']: box.x, direction: 'ltr' }}>{counter}</div>,
+          <div key="n" style={{ ...label, [th.rtl !== counterAtEnd ? 'right' : 'left']: box.x, direction: 'ltr' }}>{counter}</div>,
         );
         // The brand's name on the other side — unless the watermark already puts the brand in that corner.
         if (video.brand?.name && !watermarkOn(video)) {
@@ -498,7 +543,7 @@ export function Backdrop(p: { plain?: boolean; intensity?: number }) {
 
   return (
     <AbsoluteFill style={{ ...ground, overflow: 'hidden' }}>
-      {p.plain ? null : layers}
+      {p.bare ? null : layers}
       {th.grain > 0 ? <Grain opacity={th.grain} width={W} height={H} t={t} dark={th.dark} /> : null}
     </AbsoluteFill>
   );
@@ -528,11 +573,31 @@ const MOVES: readonly { s: [number, number]; x: [number, number]; y: [number, nu
  * `seed` so neighbouring pictures never move alike, eased at both ends so it
  * starts and settles like a camera on a slider rather than a scroll. The
  * move runs across `frames` and a little past it, so it is still going
- * during the transition out. `strength` scales it (a face moves less).
+ * during the transition out. `strength` scales it (a face moves less), and
+ * so does the look's pace: a quicker film's camera travels further.
+ *
+ * `fit` (the scene's `look.fit` unless given): 'cover' fills the box, as
+ * always; 'contain' shows all of the picture, a little inside the box and
+ * breathing in, over a copy of itself that covers the box under a dark veil
+ * — the renderer has no blur, and the veiled copy carries the picture's
+ * colours to the edges instead of bars.
  */
-export function Photo(p: { src: string; seed: number; frames: number; style?: CSSProperties; strength?: number }) {
-  const frame = useCurrentFrame();
-  const k = p.strength ?? 1;
+export function Photo(p: { src: string; seed: number; frames: number; style?: CSSProperties; strength?: number; fit?: PictureFit }) {
+  const frame = useSceneFrame();
+  const { look, theme } = useScene();
+  const k = (p.strength ?? 1) * look.motion;
+  if ((p.fit ?? look.fit) === 'contain') {
+    const t = interpolate(frame, [0, Math.max(1, p.frames + 15)], [0, 1], { easing: Easing.bezier(0.33, 0, 0.6, 1), extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+    const veil = mix(theme.dark ? theme.bg : theme.fg, '#000000', 0.35);
+    const fill: CSSProperties = { position: 'absolute', left: 0, top: 0, width: '100%', height: '100%' };
+    return (
+      <div style={{ ...fill, overflow: 'hidden', ...p.style }}>
+        <Img src={p.src} style={{ ...fill, objectFit: 'cover', transform: 'scale(1.2)' }} />
+        <div style={{ ...fill, background: alpha(veil, 0.86) }} />
+        <Img src={p.src} style={{ ...fill, objectFit: 'contain', transform: `scale(${(0.93 + 0.04 * t * Math.min(1.5, k)).toFixed(4)})` }} />
+      </div>
+    );
+  }
   const m = MOVES[((p.seed % MOVES.length) + MOVES.length) % MOVES.length];
   const t = interpolate(frame, [0, Math.max(1, p.frames + 15)], [0, 1], { easing: Easing.bezier(0.33, 0, 0.6, 1), extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   const lerp = (r: [number, number]) => r[0] + (r[1] - r[0]) * t;
@@ -553,22 +618,24 @@ export function Photo(p: { src: string; seed: number; frames: number; style?: CS
  * style — a light scrim over a photograph looks washed out.
  */
 export function onPhoto(theme: Theme): Theme {
-  const ink = '#FFFFFF';
   const dark = '#0B0B0E';
+  // The look's words colour, when it reads on a darkened picture; white otherwise.
+  const set = theme.textSet && contrast(theme.textSet, dark) >= 4.5 ? theme.textSet : null;
+  const ink = set ?? '#FFFFFF';
   return {
     ...theme,
     fg: ink,
-    muted: 'rgba(255, 255, 255, 0.82)',
+    muted: set ? alpha(set, 0.82) : 'rgba(255, 255, 255, 0.82)',
     accentText: contrast(theme.accent, dark) >= 3 ? theme.accent : ink,
     dark: true,
   };
 }
 
 /** A darkening gradient over a picture, towards the side the words are on. */
-export function Scrim(p: { theme: Theme; to: 'bottom' | 'top' | 'start' | 'all'; strength?: number }) {
+export function Scrim(p: { theme: Theme; to: 'bottom' | 'top' | 'start' | 'end' | 'all'; strength?: number }) {
   const base = p.theme.dark ? mix(p.theme.bg, '#000000', 0.3) : mix(p.theme.fg, '#000000', 0.5);
   const k = p.strength ?? 1;
-  const dir = p.to === 'bottom' ? 180 : p.to === 'top' ? 0 : p.to === 'start' ? (p.theme.rtl ? 90 : 270) : 180;
+  const dir = p.to === 'bottom' ? 180 : p.to === 'top' ? 0 : p.to === 'start' ? (p.theme.rtl ? 90 : 270) : p.to === 'end' ? (p.theme.rtl ? 270 : 90) : 180;
   const bg = p.to === 'all'
     ? `linear-gradient(180deg, ${alpha(base, 0.55 * k)} 0%, ${alpha(base, 0.45 * k)} 50%, ${alpha(base, 0.75 * k)} 100%)`
     : `linear-gradient(${dir}deg, ${alpha(base, 0.05 * k)} 0%, ${alpha(base, 0.35 * k)} 45%, ${alpha(base, 0.9 * k)} 100%)`;
@@ -619,13 +686,47 @@ export function Logo(p: { src: string; height: number; maxWidth: number; style?:
   return <Img src={p.src} style={{ height: p.height, width: 'auto', maxWidth: p.maxWidth, objectFit: 'contain', ...p.style }} />;
 }
 
-/** A short accent line that grows from the start side. */
-export function Rule(p: { width: number; height: number; color: string; p: number; center?: boolean; style?: CSSProperties }) {
+/** A short accent line that grows from the start side (from the middle when centred, from the end when set to the end). */
+export function Rule(p: { width: number; height: number; color: string; p: number; center?: boolean; align?: Align; style?: CSSProperties }) {
   const { theme } = useScene();
   const w = Math.max(0, p.width * Math.min(1, p.p));
   return (
-    <div style={{ width: p.width, height: p.height, display: 'flex', justifyContent: p.center ? 'center' : 'flex-start', ...p.style }}>
+    <div style={{ width: p.width, height: p.height, display: 'flex', justifyContent: flexOf(p.align ?? (p.center ? 'center' : 'start')), ...p.style }}>
       <div style={{ width: w, height: p.height, background: p.color, borderRadius: theme.radius > 0 ? p.height / 2 : 0 }} />
+    </div>
+  );
+}
+
+/**
+ * The brand on a scene that does not usually carry it (a scene's
+ * `look.logo`): its logo at `height`, or — with no logo — its name as a small
+ * wordmark after an accent dot, fitted to `maxWidth` on one line. Latin names
+ * are spaced and set in capitals; Arabic-script ones never are.
+ */
+export function BrandMark(p: { height: number; maxWidth: number; theme: Theme; delay?: number; style?: CSSProperties }) {
+  const { video, box, ready } = useScene();
+  const pr = useEnter(p.delay ?? 0);
+  const th = p.theme;
+  const logo = video.brand?.logo;
+  const name = video.brand?.name?.trim() ?? '';
+  const arrive = revealStyle('rise', pr, 18 * box.u);
+  if (logo) {
+    return (
+      <div style={{ height: p.height, display: 'flex', alignItems: 'center', ...arrive, ...p.style }}>
+        <Logo src={logo} height={p.height} maxWidth={p.maxWidth} />
+      </div>
+    );
+  }
+  if (!name) return null;
+  const latin = !/[؀-ۿ]/.test(name);
+  const dot = p.height * 0.18;
+  const gap = p.height * 0.24;
+  const face: TypeFace = { ...th.body, weight: th.body.strong, tracking: latin ? 0.14 : 0, upper: latin };
+  const f = fitText(name, { face, maxSize: p.height * 0.5, minSize: p.height * 0.2, maxWidth: Math.max(1, p.maxWidth - dot - gap), maxHeight: p.height, maxLines: 1, ready });
+  return (
+    <div style={{ height: p.height, display: 'flex', flexDirection: 'row', alignItems: 'center', gap, direction: th.rtl ? 'rtl' : 'ltr', ...arrive, ...p.style }}>
+      <div style={{ width: dot, height: dot, borderRadius: th.radius ? '50%' : 0, background: th.accent, flexShrink: 0 }} />
+      <div style={{ fontFamily: th.body.family, fontWeight: th.body.strong, fontSize: f.size, lineHeight: `${f.size * 1.3}px`, color: th.fg, whiteSpace: 'nowrap', letterSpacing: latin ? '0.14em' : undefined, textTransform: latin ? 'uppercase' : undefined, direction: latin ? 'ltr' : 'rtl' }}>{f.lines[0] ?? name}</div>
     </div>
   );
 }
@@ -637,4 +738,60 @@ export function Rule(p: { width: number; height: number; color: string; p: numbe
  */
 export function watermarkOn(v: Pick<Video, 'watermark' | 'brand'>): boolean {
   return v.watermark !== false && !!(v.brand?.logo || v.brand?.name?.trim());
+}
+
+/** Where the corner mark sits (VideoScenes.tsx draws it), and the band a scene keeps clear for it. */
+export interface WatermarkSpot {
+  /** The mark's top edge and height, in pixels. */
+  top: number;
+  height: number;
+  /** Its distance from the frame's side, and which side: the right or the left. */
+  side: number;
+  right: boolean;
+  /** The frame edge it sits along. */
+  edge: 'top' | 'bottom';
+  /** How far into the safe area a scene keeps clear for it, along that edge, in pixels. */
+  band: number;
+}
+
+/**
+ * The corner mark's place in a frame, from the look's `watermarkCorner` and
+ * `watermarkScale`. A vertical frame puts it inside the safe area, just below
+ * the top band or just above the bottom one where phone apps draw, and every
+ * scene under it keeps a band clear. A wide or square frame puts it in the
+ * margin as the style always has — inside the elegant frame's lines, level
+ * with minimal's counter (below its rule at the foot) — and keeps a band
+ * clear only for as much as a larger mark reaches beyond where the style's
+ * own size sat. It never leaves the frame.
+ */
+export function watermarkSpot(v: Pick<Video, 'look' | 'style' | 'lang'>, box: Box): WatermarkSpot {
+  const look = lookFor(v);
+  const u = box.u;
+  const H = box.height;
+  const edge = look.watermarkCorner.startsWith('top') ? 'top' : 'bottom';
+  const right = look.watermarkCorner.endsWith('end') !== (v.lang !== 'en');
+  const base = (box.format === 'landscape' ? 50 : box.format === 'portrait' ? 60 : 46) * u;
+  const inset = Math.min(box.x, box.top) * 0.45;
+  const side = v.style === 'elegant' && box.format !== 'portrait' ? inset + 34 * u : box.x;
+  const at = (k: number): { top: number; height: number; reach: number } => {
+    let h = base * k;
+    if (box.format === 'portrait') {
+      const top = edge === 'top' ? box.top + 4 * u : H - box.bottom - 4 * u - h;
+      return { top, height: h, reach: 24 * u + h };
+    }
+    let y: number;
+    if (v.style === 'elegant') y = edge === 'top' ? inset + 26 * u : H - inset - 26 * u - h;
+    else if (v.style === 'minimal' && edge === 'top') y = box.top * 0.55 - 22 * u * 1.9 - (h - 22 * u * 1.3) / 2;
+    else if (v.style === 'minimal') {
+      // Under the rule and its progress line at the foot, never over them.
+      y = H - box.bottom * 0.55 + 3 * Math.max(1, 1.5 * u) + 8 * u;
+      h = Math.min(h, H - y - 10 * u);
+    } else y = edge === 'top' ? box.top / 2 - h / 2 : H - box.bottom / 2 - h / 2;
+    y = Math.max(6 * u, Math.min(H - 6 * u - h, y));
+    const reach = edge === 'top' ? y + h + 12 * u - box.top : H - box.bottom - (y - 12 * u);
+    return { top: y, height: h, reach: Math.max(0, reach) };
+  };
+  const now = at(look.watermarkScale);
+  const band = box.format === 'portrait' ? now.reach : Math.max(0, now.reach - at(1).reach);
+  return { top: now.top, height: now.height, side, right, edge, band };
 }

@@ -13,6 +13,15 @@
  * Kurdish letters ڕ ڵ ێ ۆ ە ڤ (checked against the fonts' cmaps — Cairo,
  * Tajawal, Almarai, Readex Pro, Changa, El Messiri, Lalezar and Markazi Text
  * do not, and would drop to a fallback face in the middle of a Sorani word).
+ * The same pairs, and four more, are what `look.font` switches between
+ * (`FONT_CHOICES`, videolook.ts, which says how each was checked).
+ *
+ * ## The look
+ *
+ * `themeOf` also applies the video's and the scene's look (videolook.ts):
+ * a background in place of the style's, words in a colour kept legible on
+ * it, another typeface pair, a set alignment. With no look it is the style
+ * exactly as it always was.
  *
  * ## Text fitting
  *
@@ -26,19 +35,28 @@
  */
 
 import { Easing } from 'remotion';
-import type { Brand, Format, Style, Video, VideoLang } from './videotypes';
+import type { Brand, Format, SceneLook, Style, Video, VideoLang } from './videotypes';
+import { FONT_CHOICES, LEGIBLE, contrast, legible, lookFor, luminance, mix, rgbOf } from './videolook';
+import type { Align } from './videolook';
 import { loadFont as loadAmiri } from '@remotion/google-fonts/Amiri';
 import { loadFont as loadAnton } from '@remotion/google-fonts/Anton';
 import { loadFont as loadArchivo } from '@remotion/google-fonts/Archivo';
+import { loadFont as loadArefRuqaa } from '@remotion/google-fonts/ArefRuqaa';
+import { loadFont as loadBeiruti } from '@remotion/google-fonts/Beiruti';
+import { loadFont as loadBricolageGrotesque } from '@remotion/google-fonts/BricolageGrotesque';
+import { loadFont as loadCormorantGaramond } from '@remotion/google-fonts/CormorantGaramond';
 import { loadFont as loadDMSans } from '@remotion/google-fonts/DMSans';
 import { loadFont as loadFraunces } from '@remotion/google-fonts/Fraunces';
 import { loadFont as loadIBMPlexSansArabic } from '@remotion/google-fonts/IBMPlexSansArabic';
 import { loadFont as loadInter } from '@remotion/google-fonts/Inter';
+import { loadFont as loadLora } from '@remotion/google-fonts/Lora';
 import { loadFont as loadMada } from '@remotion/google-fonts/Mada';
 import { loadFont as loadMarhey } from '@remotion/google-fonts/Marhey';
 import { loadFont as loadNotoKufiArabic } from '@remotion/google-fonts/NotoKufiArabic';
 import { loadFont as loadNotoNaskhArabic } from '@remotion/google-fonts/NotoNaskhArabic';
+import { loadFont as loadNunito } from '@remotion/google-fonts/Nunito';
 import { loadFont as loadPlayfairDisplay } from '@remotion/google-fonts/PlayfairDisplay';
+import { loadFont as loadPlaypenSansArabic } from '@remotion/google-fonts/PlaypenSansArabic';
 import { loadFont as loadReemKufi } from '@remotion/google-fonts/ReemKufi';
 import { loadFont as loadSpaceGrotesk } from '@remotion/google-fonts/SpaceGrotesk';
 import { loadFont as loadUnbounded } from '@remotion/google-fonts/Unbounded';
@@ -60,15 +78,22 @@ const FAMILIES = {
   amiri: fam('Amiri', loadAmiri),
   anton: fam('Anton', loadAnton),
   archivo: fam('Archivo', loadArchivo),
+  arefRuqaa: fam('Aref Ruqaa', loadArefRuqaa),
+  beiruti: fam('Beiruti', loadBeiruti),
+  bricolage: fam('Bricolage Grotesque', loadBricolageGrotesque),
+  cormorant: fam('Cormorant Garamond', loadCormorantGaramond),
   dmSans: fam('DM Sans', loadDMSans),
   fraunces: fam('Fraunces', loadFraunces),
   plexArabic: fam('IBM Plex Sans Arabic', loadIBMPlexSansArabic),
   inter: fam('Inter', loadInter),
+  lora: fam('Lora', loadLora),
   mada: fam('Mada', loadMada),
   marhey: fam('Marhey', loadMarhey),
   notoKufi: fam('Noto Kufi Arabic', loadNotoKufiArabic),
   notoNaskh: fam('Noto Naskh Arabic', loadNotoNaskhArabic),
+  nunito: fam('Nunito', loadNunito),
   playfair: fam('Playfair Display', loadPlayfairDisplay),
+  playpenArabic: fam('Playpen Sans Arabic', loadPlaypenSansArabic),
   reemKufi: fam('Reem Kufi', loadReemKufi),
   spaceGrotesk: fam('Space Grotesk', loadSpaceGrotesk),
   unbounded: fam('Unbounded', loadUnbounded),
@@ -81,6 +106,81 @@ type FamilyKey = keyof typeof FAMILIES;
 interface Face { key: FamilyKey; weight: number; strong: number }
 
 interface Pair { display: Face; body: Face }
+
+const face = (key: FamilyKey, weight: number, strong = weight): Face => ({ key, weight, strong });
+
+/** A typeface choice: its Latin and Arabic-script pairs, and how its Latin headlines are set. */
+interface FontDef {
+  latin: Pair;
+  arabic: Pair;
+  /** Latin display tracking, in em. Arabic is never tracked: it breaks the joins. */
+  tracking: number;
+  /** Latin display line height (Arabic always gets more room for its ascenders and dots). */
+  leading: number;
+  /** Arabic display line height, when the face needs more than the usual room. */
+  arabicLeading?: number;
+  /** The Arabic display face is for headlines only (Reem Kufi runs words together): quotations and names take the body face. */
+  displayOnly?: boolean;
+}
+
+/**
+ * The typefaces by `FONT_CHOICES` id. The first six are the six styles'
+ * own, with the tracking and leading those styles always had; the rest are
+ * the extra choices. Every Arabic family is one whose `arabic` subset has
+ * the Kurdish letters (videolook.ts says how that was checked).
+ */
+const FONTS: Readonly<Record<string, FontDef>> = {
+  geometric: {
+    latin: { display: face('spaceGrotesk', 700), body: face('inter', 400, 600) },
+    arabic: { display: face('vazirmatn', 800), body: face('vazirmatn', 400, 600) },
+    tracking: -0.025, leading: 1.02,
+  },
+  condensed: {
+    latin: { display: face('anton', 400), body: face('archivo', 500, 800) },
+    arabic: { display: face('notoKufi', 900), body: face('notoKufi', 500, 700) },
+    tracking: 0.005, leading: 0.98,
+  },
+  classic: {
+    latin: { display: face('playfair', 600), body: face('dmSans', 400, 500) },
+    arabic: { display: face('amiri', 700), body: face('notoNaskh', 400, 600) },
+    tracking: -0.005, leading: 1.08,
+  },
+  wide: {
+    latin: { display: face('unbounded', 700), body: face('spaceGrotesk', 400, 600) },
+    arabic: { display: face('reemKufi', 700), body: face('mada', 400, 600) },
+    tracking: 0, leading: 1.08, displayOnly: true,
+  },
+  swiss: {
+    latin: { display: face('inter', 700), body: face('inter', 400, 500) },
+    arabic: { display: face('plexArabic', 600), body: face('plexArabic', 400, 600) },
+    tracking: -0.035, leading: 1.04,
+  },
+  soft: {
+    latin: { display: face('fraunces', 700), body: face('dmSans', 400, 600) },
+    arabic: { display: face('marhey', 600), body: face('vazirmatn', 400, 600) },
+    tracking: -0.015, leading: 1.06,
+  },
+  book: {
+    latin: { display: face('lora', 700), body: face('lora', 400, 600) },
+    arabic: { display: face('notoNaskh', 700), body: face('notoNaskh', 400, 600) },
+    tracking: -0.01, leading: 1.1,
+  },
+  poster: {
+    latin: { display: face('bricolage', 800), body: face('bricolage', 400, 600) },
+    arabic: { display: face('beiruti', 900), body: face('beiruti', 400, 700) },
+    tracking: -0.03, leading: 1.0,
+  },
+  calligraphy: {
+    latin: { display: face('cormorant', 700), body: face('lora', 400, 600) },
+    arabic: { display: face('arefRuqaa', 700), body: face('notoNaskh', 400, 600) },
+    tracking: 0, leading: 1.04, arabicLeading: 1.5,
+  },
+  rounded: {
+    latin: { display: face('nunito', 800), body: face('nunito', 400, 700) },
+    arabic: { display: face('playpenArabic', 700), body: face('playpenArabic', 400, 600) },
+    tracking: -0.01, leading: 1.06,
+  },
+};
 
 // ---------------------------------------------------------------------------
 // Styles
@@ -109,30 +209,22 @@ interface StyleDef {
   accent: string;
   accent2: string;
   surface: string;
-  latin: Pair;
-  arabic: Pair;
-  /** Latin display tracking, in em. Arabic is never tracked: it breaks the joins. */
-  tracking: number;
+  /** The style's own typeface pair, a `FONTS` id. */
+  font: string;
   upper: boolean;
   motion: Motion;
   align: 'start' | 'center';
   radius: number;
   grain: number;
   deco: Deco;
-  /** Latin display line height (Arabic always gets more room for its ascenders and dots). */
-  leading: number;
 }
-
-const face = (key: FamilyKey, weight: number, strong = weight): Face => ({ key, weight, strong });
 
 const STYLES: Readonly<Record<Style, StyleDef>> = {
   modern: {
     dark: true,
     bg: '#0B1020', bg2: '#1B1446', fg: '#F4F6FF', muted: '#A9B0D6',
     accent: '#7C5CFF', accent2: '#22D3EE', surface: '#161C38',
-    latin: { display: face('spaceGrotesk', 700), body: face('inter', 400, 600) },
-    arabic: { display: face('vazirmatn', 800), body: face('vazirmatn', 400, 600) },
-    tracking: -0.025, upper: false, leading: 1.02,
+    font: 'geometric', upper: false,
     motion: { spring: { damping: 18, stiffness: 120, mass: 0.8 }, duration: 22, easing: Easing.bezier(0.2, 0.9, 0.2, 1), stagger: 4, travel: 60 },
     align: 'start', radius: 28, grain: 0.07, deco: 'mesh',
   },
@@ -140,9 +232,7 @@ const STYLES: Readonly<Record<Style, StyleDef>> = {
     dark: true,
     bg: '#0C0C0E', bg2: '#17171B', fg: '#FFFFFF', muted: '#B8B8C0',
     accent: '#FFD60A', accent2: '#FF3D2E', surface: '#1E1E24',
-    latin: { display: face('anton', 400), body: face('archivo', 500, 800) },
-    arabic: { display: face('notoKufi', 900), body: face('notoKufi', 500, 700) },
-    tracking: 0.005, upper: true, leading: 0.98,
+    font: 'condensed', upper: true,
     motion: { spring: { damping: 12, stiffness: 220, mass: 0.55 }, duration: 12, easing: Easing.bezier(0.3, 1.4, 0.4, 1), stagger: 3, travel: 110 },
     align: 'start', radius: 6, grain: 0, deco: 'slab',
   },
@@ -150,9 +240,7 @@ const STYLES: Readonly<Record<Style, StyleDef>> = {
     dark: true,
     bg: '#12100D', bg2: '#231D16', fg: '#F5EFE4', muted: '#BDB2A0',
     accent: '#C9A86A', accent2: '#8E7A55', surface: '#1E1914',
-    latin: { display: face('playfair', 600), body: face('dmSans', 400, 500) },
-    arabic: { display: face('amiri', 700), body: face('notoNaskh', 400, 600) },
-    tracking: -0.005, upper: false, leading: 1.08,
+    font: 'classic', upper: false,
     motion: { spring: null, duration: 34, easing: Easing.bezier(0.16, 1, 0.3, 1), stagger: 8, travel: 36 },
     align: 'center', radius: 2, grain: 0.06, deco: 'frame',
   },
@@ -160,9 +248,7 @@ const STYLES: Readonly<Record<Style, StyleDef>> = {
     dark: true,
     bg: '#07060F', bg2: '#140A2A', fg: '#F7F3FF', muted: '#A99FCF',
     accent: '#FF2E97', accent2: '#1FF2FF', surface: '#130F26',
-    latin: { display: face('unbounded', 700), body: face('spaceGrotesk', 400, 600) },
-    arabic: { display: face('reemKufi', 700), body: face('mada', 400, 600) },
-    tracking: 0, upper: false, leading: 1.08,
+    font: 'wide', upper: false,
     motion: { spring: { damping: 11, stiffness: 200, mass: 0.6 }, duration: 12, easing: Easing.bezier(0.3, 1.3, 0.4, 1), stagger: 3, travel: 80 },
     align: 'center', radius: 18, grain: 0.05, deco: 'glow',
   },
@@ -170,9 +256,7 @@ const STYLES: Readonly<Record<Style, StyleDef>> = {
     dark: false,
     bg: '#F6F5F1', bg2: '#ECEAE3', fg: '#111111', muted: '#6B6A66',
     accent: '#2E5BFF', accent2: '#111111', surface: '#FFFFFF',
-    latin: { display: face('inter', 700), body: face('inter', 400, 500) },
-    arabic: { display: face('plexArabic', 600), body: face('plexArabic', 400, 600) },
-    tracking: -0.035, upper: false, leading: 1.04,
+    font: 'swiss', upper: false,
     motion: { spring: null, duration: 24, easing: Easing.bezier(0.22, 1, 0.36, 1), stagger: 5, travel: 40 },
     align: 'start', radius: 0, grain: 0, deco: 'rule',
   },
@@ -180,9 +264,7 @@ const STYLES: Readonly<Record<Style, StyleDef>> = {
     dark: false,
     bg: '#FFF4E6', bg2: '#FFD9BF', fg: '#2B1A12', muted: '#7A5A48',
     accent: '#E0573A', accent2: '#F2A541', surface: '#FFFBF5',
-    latin: { display: face('fraunces', 700), body: face('dmSans', 400, 600) },
-    arabic: { display: face('marhey', 600), body: face('vazirmatn', 400, 600) },
-    tracking: -0.015, upper: false, leading: 1.06,
+    font: 'soft', upper: false,
     motion: { spring: { damping: 15, stiffness: 110, mass: 0.9 }, duration: 24, easing: Easing.bezier(0.25, 1.2, 0.4, 1), stagger: 5, travel: 50 },
     align: 'center', radius: 36, grain: 0.08, deco: 'sun',
   },
@@ -196,30 +278,44 @@ export const SWATCHES: Readonly<Record<Style, { bg: string; fg: string; accent: 
 const styleOf = (s: Style): StyleDef => STYLES[s] ?? STYLES.modern;
 const rtlLang = (l: VideoLang) => l !== 'en';
 
-/** The two families a video uses, per its language and style. */
-export function fontPair(lang: VideoLang, style: Style): Pair {
-  const d = styleOf(style);
+/** Re-exported for the Look tab and the chat: the typefaces `look.font` names, each with every Kurdish letter. */
+export { FONT_CHOICES };
+
+/** The typeface a video is set in: its `look.font` when that is a known choice, else its style's own. */
+function fontIdOf(v: Pick<Video, 'style' | 'look'>): string {
+  const chosen = lookFor(v).font;
+  return chosen && FONTS[chosen] ? chosen : styleOf(v.style).font;
+}
+
+const fontDefOf = (v: Pick<Video, 'style' | 'look'>): FontDef => FONTS[fontIdOf(v)] ?? FONTS.geometric;
+
+/** The two families a video uses, per its language, style and chosen typeface. */
+export function fontPair(lang: VideoLang, style: Style, font?: string): Pair {
+  const d = fontDefOf({ style, look: font ? { font } : undefined });
   return rtlLang(lang) ? d.arabic : d.latin;
 }
 
 const loaded = new Set<string>();
 const loading = new Map<string, Promise<void>>();
 
-export const fontKeyOf = (v: Pick<Video, 'lang' | 'style'>) => `${v.style}:${rtlLang(v.lang) ? 'arabic' : 'latin'}`;
+/** What a video's fonts are cached under: the typeface and the script, so two styles that share a pair share a load. */
+export const fontKeyOf = (v: Pick<Video, 'lang' | 'style' | 'look'>) => `${fontIdOf(v)}:${rtlLang(v.lang) ? 'arabic' : 'latin'}`;
 
-/** Whether the fonts for this language and style have finished loading. */
-export const fontsReady = (v: Pick<Video, 'lang' | 'style'>) => loaded.has(fontKeyOf(v));
+/** Whether the fonts for this language, style and typeface have finished loading. */
+export const fontsReady = (v: Pick<Video, 'lang' | 'style' | 'look'>) => loaded.has(fontKeyOf(v));
 
 /**
- * Loads the style's pair for the video's script: only the two or three
- * weights used, only the subsets needed (Arabic-script videos also take the
- * Latin subset of the same families, for a brand name or a web address).
+ * Loads the video's pair for its script — the style's own, or the one
+ * `look.font` chose: only the two or three weights used, only the subsets
+ * needed (Arabic-script videos also take the Latin subset of the same
+ * families, for a brand name or a web address). Every family in `FONTS` has
+ * those subsets in those weights; a missing one would make the loader throw.
  */
-export function loadFonts(v: Pick<Video, 'lang' | 'style'>): Promise<void> {
+export function loadFonts(v: Pick<Video, 'lang' | 'style' | 'look'>): Promise<void> {
   const key = fontKeyOf(v);
   const done = loading.get(key);
   if (done) return done;
-  const pair = fontPair(v.lang, v.style);
+  const pair = fontPair(v.lang, v.style, fontIdOf(v));
   const subsets = rtlLang(v.lang) ? ['arabic', 'latin'] : ['latin', 'latin-ext'];
   const weights = new Map<FamilyKey, Set<string>>();
   for (const f of [pair.display, pair.body]) {
@@ -243,18 +339,9 @@ export function loadFonts(v: Pick<Video, 'lang' | 'style'>): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Colour
+// Colour (the arithmetic is videolook.ts's, which the chat shares)
 
-const HEX = /^#([0-9a-f]{6})$/i;
-
-export function rgbOf(hex: string): [number, number, number] {
-  const m = HEX.exec(hex.trim());
-  if (!m) return [128, 128, 128];
-  const n = parseInt(m[1], 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
-
-const toHex = (c: number[]) => '#' + c.map((x) => Math.round(Math.max(0, Math.min(255, x))).toString(16).padStart(2, '0')).join('');
+export { contrast, luminance, mix, rgbOf };
 
 /** A colour at an opacity, as rgba(). */
 export function alpha(hex: string, a: number): string {
@@ -262,33 +349,11 @@ export function alpha(hex: string, a: number): string {
   return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, a)).toFixed(3)})`;
 }
 
-/** Between two colours: 0 is `a`, 1 is `b`. */
-export function mix(a: string, b: string, t: number): string {
-  const x = rgbOf(a);
-  const y = rgbOf(b);
-  return toHex(x.map((v, i) => v + (y[i] - v) * t));
-}
-
-export function luminance(hex: string): number {
-  const lin = (v: number) => {
-    const s = v / 255;
-    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
-  };
-  const [r, g, b] = rgbOf(hex).map(lin);
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-export function contrast(a: string, b: string): number {
-  const x = luminance(a);
-  const y = luminance(b);
-  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
-}
-
 /** Near-black or white, whichever reads on this colour. */
 export const inkOn = (bg: string, dark = '#0C0C0E', light = '#FFFFFF') =>
   contrast(bg, dark) >= contrast(bg, light) ? dark : light;
 
-const validHex = (s: string | undefined): s is string => typeof s === 'string' && HEX.test(s.trim());
+const validHex = (s: string | undefined): s is string => typeof s === 'string' && /^#[0-9a-f]{6}$/i.test(s.trim());
 
 // ---------------------------------------------------------------------------
 // Theme
@@ -324,12 +389,23 @@ export interface Theme {
   display: TypeFace;
   body: TypeFace;
   motion: Motion;
-  align: 'start' | 'center';
+  /** Where words sit: the look's alignment when one is set, else the style's own. */
+  align: Align;
+  /** The look set `align` — kinds that centre by habit follow it then. */
+  alignSet: boolean;
   radius: number;
   grain: number;
   deco: Deco;
   /** A scene that swaps to the accent as its background (the bold style alternates). */
   inverted: boolean;
+  /** The Arabic display face is for headlines only (Reem Kufi): quotations and names are set in the body face. */
+  displayOnly: boolean;
+  /** Drawn in the style's own typeface pair (no `look.font`, or the style's own). */
+  ownFont: boolean;
+  /** The words' colour the look asked for, before it was made legible — words over a picture use it when it reads there. */
+  textSet?: string;
+  /** The look replaced the style's background. */
+  groundSet: boolean;
 }
 
 const FALLBACK_LATIN = "'Helvetica Neue', Arial, sans-serif";
@@ -339,11 +415,24 @@ const FALLBACK_ARABIC = "'Geeza Pro', 'Noto Sans Arabic', Tahoma, sans-serif";
  * The theme for a video, with the brand's colours in place of the style's:
  * the brand's primary becomes the accent, its accent the second accent. A
  * scene index lets the bold style alternate between dark and accent grounds.
+ *
+ * The look (videolook.ts) comes last: the video's, with `sceneLook` over it
+ * when given. A background replaces the style's (with a quiet gradient of
+ * its own for the moving backdrop, and no accent-coloured alternation in
+ * bold); words take the look's colour, moved towards white or black until
+ * they read at 4.5:1 on that background — and when only the background is
+ * set, the style's words stay as they are if they still read, else turn
+ * near-black or white. An accent that would vanish into the new background
+ * gives way to the second accent for shapes. `look.font` swaps the families
+ * and their Latin tracking and leading; capitals stay the style's.
  */
-export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand'>, sceneIndex = 0, allowInvert = true): Theme {
+export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand' | 'look'>, sceneIndex = 0, allowInvert = true, sceneLook?: SceneLook): Theme {
   const d = styleOf(v.style);
   const rtl = rtlLang(v.lang);
-  const pair = rtl ? d.arabic : d.latin;
+  const look = lookFor(v, sceneLook ? { look: sceneLook } : undefined);
+  const fontId = fontIdOf(v);
+  const fd = FONTS[fontId] ?? FONTS.geometric;
+  const pair = rtl ? fd.arabic : fd.latin;
   const brand: Brand = v.brand ?? {};
   let accent = validHex(brand.primary) ? brand.primary.trim() : d.accent;
   let accent2 = validHex(brand.accent) ? brand.accent.trim() : validHex(brand.primary) ? mix(accent, d.dark ? '#FFFFFF' : '#000000', 0.35) : d.accent2;
@@ -352,30 +441,42 @@ export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand'>, sceneIndex =
   let fg = d.fg;
   let muted = d.muted;
   let surface = d.surface;
-  // A brand colour tints the dark grounds a little, so the film feels like the brand's.
-  if (validHex(brand.primary) && d.dark && v.style !== 'bold') {
+  const ground = look.background;
+  if (ground) {
+    // The asked-for colour, and for the moving backdrop a gradient to a slightly lifted (or deepened) shade touched by the accent.
+    const darkGround = luminance(ground) < 0.4;
+    bg = ground;
+    bg2 = mix(mix(ground, darkGround ? '#FFFFFF' : '#000000', 0.08), accent, 0.08);
+    surface = darkGround ? mix(ground, '#FFFFFF', 0.07) : mix(ground, '#FFFFFF', 0.6);
+  } else if (validHex(brand.primary) && d.dark && v.style !== 'bold') {
+    // A brand colour tints the dark grounds a little, so the film feels like the brand's.
     bg = mix(d.bg, accent, 0.06);
     bg2 = mix(d.bg2, accent, 0.18);
   }
-  const inverted = allowInvert && v.style === 'bold' && sceneIndex % 2 === 1;
+  // A background the person chose is kept on every scene: bold does not swap it for its accent.
+  const inverted = allowInvert && v.style === 'bold' && sceneIndex % 2 === 1 && !ground;
   if (inverted) {
-    const ground = accent;
-    const ink = inkOn(ground);
-    bg = ground;
-    bg2 = mix(ground, ink, 0.08);
+    const ink = inkOn(accent);
+    bg = accent;
+    bg2 = mix(accent, ink, 0.08);
     fg = ink;
     muted = alpha(ink, 0.72);
-    surface = mix(ground, ink, 0.1);
-    accent = ink;
+    surface = mix(accent, ink, 0.1);
     accent2 = ink === '#FFFFFF' ? '#0C0C0E' : '#FFFFFF';
+    accent = ink;
   }
+  if (ground || look.text) {
+    fg = look.text ? legible(look.text, bg) : contrast(fg, bg) >= LEGIBLE ? fg : legible(inkOn(bg), bg);
+    muted = !look.text && validHex(muted) && contrast(muted, bg) >= 3 ? muted : legible(mix(fg, bg, 0.3), bg, 3);
+  }
+  if (ground && contrast(accent, bg) < 1.5) accent = contrast(accent2, bg) >= 1.5 ? accent2 : fg;
   const fam = (f: Face) => `'${FAMILIES[f.key].family}', ${rtl ? FALLBACK_ARABIC : FALLBACK_LATIN}`;
   const accentText = contrast(accent, bg) >= 2.6 ? accent : fg;
   return {
     style: v.style,
     lang: v.lang,
     rtl,
-    dark: inverted ? luminance(bg) < 0.4 : d.dark,
+    dark: ground || inverted ? luminance(bg) < 0.4 : d.dark,
     bg, bg2, fg, muted, accent, accent2, accentText,
     onAccent: inkOn(accent),
     surface,
@@ -383,9 +484,9 @@ export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand'>, sceneIndex =
       family: fam(pair.display),
       weight: pair.display.weight,
       strong: pair.display.strong,
-      tracking: rtl ? 0 : d.tracking,
+      tracking: rtl ? 0 : fd.tracking,
       upper: !rtl && d.upper,
-      leading: rtl ? Math.max(1.3, d.leading + 0.3) : d.leading,
+      leading: rtl ? fd.arabicLeading ?? Math.max(1.3, fd.leading + 0.3) : fd.leading,
     },
     body: {
       family: fam(pair.body),
@@ -396,12 +497,22 @@ export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand'>, sceneIndex =
       leading: rtl ? 1.6 : 1.38,
     },
     motion: d.motion,
-    align: d.align,
+    align: look.align ?? d.align,
+    alignSet: !!look.align,
     radius: d.radius,
     grain: d.grain,
     deco: d.deco,
     inverted,
+    displayOnly: rtl && !!fd.displayOnly,
+    ownFont: fontId === d.font,
+    textSet: look.text,
+    groundSet: !!ground,
   };
+}
+
+/** The theme scene `index` of a video is drawn in: the video's look with that scene's over it. */
+export function sceneTheme(v: Pick<Video, 'lang' | 'style' | 'brand' | 'look' | 'scenes'>, index: number, allowInvert = true): Theme {
+  return themeOf(v, index, allowInvert, v.scenes?.[index]?.look);
 }
 
 // ---------------------------------------------------------------------------

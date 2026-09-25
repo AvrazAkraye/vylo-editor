@@ -35,19 +35,39 @@
  * ops before it did; a scene added in the same reply has no number and is
  * written whole in its `add_scene`.
  *
+ * ## The look is read by the app, not trusted to the model
+ *
+ * "Make the logo bigger", "خلفية سوداء", "centre it": `set_look` and
+ * `set_scene_look` take the look's own values or the words people use —
+ * "bigger" is ×1.3 of the value now, "black" and "ڕەش" are #000000, "left" is
+ * the reading side of an English video — and every value is then held to
+ * videolook.ts's ranges by `normalLook`, the check the renderer draws with.
+ * The prompt shows the look as it is, so a relative change starts from it.
+ *
+ * ## Nothing reasonable is refused
+ *
+ * The catalogue covers the whole video — words, scenes, pictures, the look,
+ * music (composed or found), the voice, undo — and the prompt says so: only a
+ * file from the person's own computer, and exporting without their click, are
+ * out of reach. Undo and recorded music are asked for here (`wants`) and done
+ * by the panel, which has the history and the network.
+ *
  * Pure: every rule here is tested without a model (test/videochat.test.mjs).
  */
 
-import type { Brand, ChatTurn, Format, MusicSpec, Scene, SceneKind, Style, Transition, Video, VideoAudio, VideoLang } from './videotypes';
+import type {
+  Brand, ChatTurn, Format, LookSettings, MusicSpec, Scene, SceneKind, SceneLook, Style, Transition, Video, VideoAudio, VideoLang,
+} from './videotypes';
 import { FORMATS, FPS } from './videotypes';
 import {
-  LANGUAGE, LANGUAGE_NAME, SCHEMA, TONE, WHERE, clean, durationInFrames, fitted, pictureJobs, quoted, readingSeconds,
-  sanitizeScene, sceneJson,
+  LANGUAGE, LANGUAGE_NAME, SCHEMA, TONE, WHERE, clean, durationInFrames, fitted, isRtl, pictureJobs, quoted, readingSeconds,
+  pictureSlots, sanitizeScene, sceneJson, withPicture,
 } from './video';
 import { duplicateScene, moveScene, snapSeconds } from './videohistory';
-import { cleanLine, musicVolumeOf } from './videomix';
+import { MOODS, VOICES, cleanLine, moodFor, musicVolumeOf } from './videomix';
 import { factsBlock, placeBriefPictures } from './videoresearch';
 import { jsonIn } from './researchrun';
+import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalLook, normalSceneLook } from './videolook';
 
 // ── limits ────────────────────────────────────────────────────────────────
 
@@ -69,10 +89,11 @@ const REPLY_CHARS = 1500;
 
 /** The operations the model may ask for. Anything else is skipped. */
 export const OPS = [
-  'edit_scene', 'add_scene', 'remove_scene', 'move_scene', 'duplicate_scene', 'set_seconds', 'set_transition',
-  'set_length', 'set_style', 'set_title', 'set_brand', 'set_language', 'find_pictures', 'compose_music',
+  'edit_scene', 'add_scene', 'remove_scene', 'move_scene', 'swap_scenes', 'duplicate_scene', 'set_seconds', 'set_transition',
+  'set_length', 'set_style', 'set_title', 'set_brand', 'set_language', 'find_pictures', 'remove_picture', 'set_picture_fit',
+  'set_look', 'set_scene_look', 'reset_look', 'compose_music', 'find_music',
   'music_volume', 'no_music', 'set_narration', 'narrate', 'captions', 'watermark', 'credits', 'use_logo',
-  'look_up', 'use_photos', 'set_format', 'make_voice', 'offer_download',
+  'look_up', 'use_photos', 'set_format', 'set_voice', 'make_voice', 'undo', 'offer_download',
 ] as const;
 export type OpName = (typeof OPS)[number];
 
@@ -144,6 +165,370 @@ function capped(s: string, cap: number): string {
 const DATA_URL = /data:[a-z]+\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*,[A-Za-z0-9+/=%_-]*/gi;
 const scrub = (s: string) => s.replace(DATA_URL, '(file)');
 
+// ── the look, in the words people and models use ─────────────────────────
+//
+// "Bigger", "gold", "خلفية سوداء", "centre it": the model is asked for the
+// look's own values, but whatever it sends is read here, by the app, so a
+// colour said in Arabic or a size said as a word still lands. Every value is
+// then held to videotypes.ts's ranges by `normalLook` (videolook.ts).
+
+/** A field of the video's look or of one scene's. */
+export type LookField = keyof LookSettings | keyof SceneLook;
+
+const hundredths = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * Text folded for looking words up: lower case, no diacritics, and the
+ * letters Arabic and Kurdish write two ways (ي ی, ك ک, ة ه, ە ه, ێ ی, ۆ و,
+ * ڕ ر, ڵ ل, the alefs) written one way, so "سوداء", "ڕەش" and "رهش" are found.
+ */
+function fold(s: string): string {
+  return asciiDigits(s)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ًͯ-ٰٟـ‌‍]/g, '')
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/[يىێ]/g, 'ی')
+    .replace(/ك/g, 'ک')
+    .replace(/[ةەہ]/g, 'ه')
+    .replace(/ۆ/g, 'و')
+    .replace(/ڕ/g, 'ر')
+    .replace(/ڵ/g, 'ل')
+    .replace(/[’'`"“”]/g, '')
+    .replace(/[\s_-]+/g, ' ')
+    .trim();
+}
+
+/** Words that mean "as the style has it": the field is taken away. */
+const RESET_WORDS = new Set(['default', 'reset', 'normal', 'auto', 'automatic', 'none', 'null', 'clear', 'original', 'standard',
+  'style', 'the style', 'styles', 'the styles', 'styles own', 'the styles own', 'as the style', 'video', 'the video', 'inherit', 'follow the video']);
+const isReset = (x: unknown) => x === null || (typeof x === 'string' && RESET_WORDS.has(fold(x)));
+
+/**
+ * Words for a change from the current value, and what each multiplies it by:
+ * "bigger" ×1.3, "much bigger" ×1.6, "a bit bigger" ×1.15, "smaller" ×0.75,
+ * "much smaller" ×0.6, "a bit smaller" ×0.87 — and the same for faster,
+ * louder, longer and their opposites, in English, Arabic and Kurdish.
+ */
+const FACTORS: ReadonlyMap<string, number> = (() => {
+  const m = new Map<string, number>();
+  const up = ['bigger', 'larger', 'more', 'increase', 'up', 'faster', 'quicker', 'louder', 'higher', 'longer', 'stronger', 'grow', 'enlarge',
+    'اكبر', 'اسرع', 'اعلی', 'اطول', 'گهورهتر', 'خیراتر', 'بهرزتر', 'درێژتر', 'مهزنتر', 'زیاتر'];
+  const down = ['smaller', 'less', 'decrease', 'down', 'slower', 'quieter', 'softer', 'lower', 'shorter', 'weaker', 'shrink',
+    'اصغر', 'ابطا', 'اهدا', 'اخفض', 'اقصر', 'بچووکتر', 'بچویکتر', 'هیواشتر', 'خاوتر', 'نزمتر', 'کورتتر', 'کهمتر'];
+  const much = ['much', 'a lot', 'way', 'far', 'lots', 'very much', 'زیاد', 'کثیرا', 'بکثیر', 'گهلهک', 'زور'];
+  const bit = ['a bit', 'a little', 'slightly', 'somewhat', 'a touch', 'a little bit', 'قلیلا', 'قلیل', 'کهمیک', 'هندهک', 'بچهک'];
+  for (const w of up.map(fold)) {
+    m.set(w, 1.3);
+    for (const p of much.map(fold)) { m.set(`${p} ${w}`, 1.6); m.set(`${w} ${p}`, 1.6); }
+    for (const p of bit.map(fold)) { m.set(`${p} ${w}`, 1.15); m.set(`${w} ${p}`, 1.15); }
+  }
+  for (const w of down.map(fold)) {
+    m.set(w, 0.75);
+    for (const p of much.map(fold)) { m.set(`${p} ${w}`, 0.6); m.set(`${w} ${p}`, 0.6); }
+    for (const p of bit.map(fold)) { m.set(`${p} ${w}`, 0.87); m.set(`${w} ${p}`, 0.87); }
+  }
+  for (const [w, f] of [['double', 2], ['twice', 2], ['twice as big', 2], ['half', 0.5], ['half as big', 0.5]] as const) m.set(w, f);
+  return m;
+})();
+
+/** What a relative change multiplies by — a word, "+30%", "-25%" or "×1.5" — or undefined when it is not one. */
+export function factorOf(x: unknown): number | undefined {
+  if (typeof x !== 'string') return undefined;
+  const said = FACTORS.get(fold(x));
+  if (said !== undefined) return said;
+  // Signs and marks as written, before folding takes the "-" for a space.
+  const s = asciiDigits(x).trim().toLowerCase().replace(/[\u2212\u2013]/g, '-').replace(/\u066A/g, '%');
+  const pct = /^([+-])\s*(\d+(?:[.,]\d+)?)\s*%$/.exec(s);
+  if (pct) {
+    const n = Number(pct[2].replace(',', '.')) / 100;
+    const f = pct[1] === '+' ? 1 + n : 1 - n;
+    return f > 0 ? f : undefined;
+  }
+  const times = /^(?:[x×*]\s*(\d+(?:[.,]\d+)?)|(\d+(?:[.,]\d+)?)\s*[x×])$/.exec(s);
+  if (times) {
+    const f = Number((times[1] ?? times[2]).replace(',', '.'));
+    return f > 0 ? f : undefined;
+  }
+  return undefined;
+}
+
+/** A value asked for: the new one (`null` gives back the style's or the video's), and whether it was said from the current one. */
+interface Asked<T> { value: T | null; relative?: boolean }
+
+/**
+ * A size, a speed or a volume asked for, from `current`: a plain number (1 is
+ * the style's; 150 or "150%" is 1.5), a relative word, or a word that
+ * resets it. Held to `lo`..`hi`, to two decimals. Undefined when unreadable.
+ */
+function amountOf(x: unknown, current: number, lo: number, hi: number): Asked<number> | undefined {
+  if (isReset(x)) return { value: null };
+  const f = factorOf(x);
+  if (f !== undefined) return { value: hundredths(clamp(current * f, lo, hi)), relative: true };
+  let n = NaN;
+  if (typeof x === 'number') n = x;
+  else if (typeof x === 'string') {
+    const s = asciiDigits(x).trim();
+    const m = /^(\d+(?:[.,]\d+)?)\s*(%)?$/.exec(s);
+    if (m) n = Number(m[1].replace(',', '.')) / (m[2] ? 100 : 1);
+  }
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  if (n > 10) n /= 100;
+  return { value: hundredths(clamp(n, lo, hi)) };
+}
+
+/** Colour names in English, Arabic, Sorani and Badini (both scripts), and the hex each is drawn with. */
+const COLOUR_NAMES: ReadonlyMap<string, string> = (() => {
+  const table: [string, string[]][] = [
+    ['#000000', ['black', 'jet black', 'اسود', 'سوداء', 'ڕەش', 'reş', 'res']],
+    ['#ffffff', ['white', 'pure white', 'ابیض', 'بیضاء', 'سپی', 'spî', 'spi']],
+    ['#faf9f6', ['off white', 'offwhite']],
+    ['#fffdd0', ['cream', 'کریمی', 'کرێمی']],
+    ['#fffff0', ['ivory', 'عاجی']],
+    ['#f5f5dc', ['beige', 'بیج']],
+    ['#e53935', ['red', 'احمر', 'حمراء', 'سوور', 'سۆر', 'sor']],
+    ['#8b0000', ['dark red', 'احمر داکن', 'احمر غامق', 'سووری تاریک']],
+    ['#800000', ['maroon', 'عنابی']],
+    ['#800020', ['burgundy', 'wine', 'خمری']],
+    ['#dc143c', ['crimson', 'قرمزی']],
+    ['#fb8c00', ['orange', 'برتقالی', 'برتقالیه', 'پرتەقاڵی', 'پرتەقالی', 'نارنجی', 'porteqalî', 'porteqali']],
+    ['#fdd835', ['yellow', 'اصفر', 'صفراء', 'زەرد', 'زەر', 'zer']],
+    ['#d4af37', ['gold', 'golden', 'ذهبی', 'ذهبیه', 'ئاڵتوونی', 'ئالتونی', 'زێڕین', 'زێڕی', 'زێرین', 'zêrîn', 'zerin']],
+    ['#ffbf00', ['amber', 'کهرمانی']],
+    ['#43a047', ['green', 'اخضر', 'خضراء', 'سەوز', 'کەسک', 'kesk']],
+    ['#1b5e20', ['dark green', 'forest green', 'اخضر داکن', 'اخضر غامق', 'سەوزی تاریک', 'سەوزی تۆخ']],
+    ['#cddc39', ['lime', 'lime green', 'لیمونی']],
+    ['#808000', ['olive', 'زیتی', 'زیتونی']],
+    ['#98ff98', ['mint', 'mint green', 'نعناعی']],
+    ['#008080', ['teal', 'ازرق مخضر']],
+    ['#40e0d0', ['turquoise', 'ترکوازی', 'فیروزی', 'فیروزەیی']],
+    ['#00bcd4', ['cyan', 'aqua']],
+    ['#1e88e5', ['blue', 'ازرق', 'زرقاء', 'شین', 'şîn', 'sin']],
+    ['#0d47a1', ['dark blue', 'deep blue', 'ازرق داکن', 'ازرق غامق', 'شینی تاریک', 'شینی تۆخ']],
+    ['#0a1f44', ['navy', 'navy blue', 'midnight blue', 'کحلی', 'کحلیه', 'سۆرمەیی']],
+    ['#90caf9', ['light blue', 'pale blue', 'baby blue', 'ازرق فاتح', 'شینی کاڵ']],
+    ['#87ceeb', ['sky blue', 'سماوی', 'سماویه', 'ئاسمانی']],
+    ['#4169e1', ['royal blue', 'ازرق ملکی']],
+    ['#3f51b5', ['indigo', 'نیلی']],
+    ['#8e24aa', ['purple', 'بنفسجی', 'بنفسجیه', 'ارجوانی', 'مۆر', 'mor']],
+    ['#7f00ff', ['violet', 'وەنەوشەیی']],
+    ['#b39ddb', ['lavender', 'lilac', 'لیلکی', 'خزامی']],
+    ['#d81b60', ['magenta', 'fuchsia', 'فوشیا']],
+    ['#f48fb1', ['pink', 'وردی', 'وردیه', 'زهری', 'زهریه', 'پەمەیی', 'پەمبەیی', 'pembe']],
+    ['#ff69b4', ['hot pink']],
+    ['#6d4c41', ['brown', 'بنی', 'بنیه', 'قاوەیی', 'قەهوەیی', 'qehweyî', 'qehweyi']],
+    ['#d2b48c', ['tan', 'camel']],
+    ['#c3b091', ['khaki', 'خاکی']],
+    ['#9e9e9e', ['grey', 'gray', 'رمادی', 'رمادیه', 'خۆڵەمێشی', 'بۆر', 'gewr', 'bor']],
+    ['#e0e0e0', ['light grey', 'light gray', 'رمادی فاتح', 'خۆڵەمێشی کاڵ']],
+    ['#424242', ['dark grey', 'dark gray', 'رمادی داکن', 'رمادی غامق', 'خۆڵەمێشی تاریک']],
+    ['#36454f', ['charcoal', 'فحمی']],
+    ['#c0c0c0', ['silver', 'فضی', 'فضیه', 'زیوی', 'zîvîn', 'zivin']],
+    ['#ff7f50', ['coral', 'مرجانی']],
+    ['#fa8072', ['salmon', 'سلمونی']],
+    ['#ffcba4', ['peach', 'خوخی']],
+    ['#111418', ['dark', 'very dark', 'داکن', 'غامق', 'تاریک', 'تۆخ']],
+    ['#f7f7f5', ['light', 'very light', 'bright', 'فاتح', 'کاڵ', 'ڕووناک']],
+  ];
+  const m = new Map<string, string>();
+  for (const [hex, names] of table) for (const n of names) m.set(fold(n), hex);
+  return m;
+})();
+
+/** Words said around a colour that are not the colour: "the", "colour", "لون", "ڕەنگی". */
+const COLOUR_FILLER = new Set(['the', 'a', 'an', 'colour', 'color', 'colored', 'coloured', 'shade', 'of', 'لون', 'ب', 'رهنگ', 'رهنگی', 'reng', 'renge', 'rengi']);
+
+const hexOf = (s: string): string | undefined => {
+  const t = s.trim().toLowerCase();
+  if (/^#?[0-9a-f]{6}$/.test(t)) return `#${t.replace('#', '')}`;
+  if (/^#[0-9a-f]{3}$/.test(t)) return `#${t[1]}${t[1]}${t[2]}${t[2]}${t[3]}${t[3]}`;
+  const rgb = /^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/.exec(t);
+  if (rgb) {
+    const ch = rgb.slice(1).map(Number);
+    if (ch.every((c) => c <= 255)) return `#${ch.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
+  }
+  return undefined;
+};
+
+/**
+ * A colour as the app draws it, #rrggbb in lower case, from #rgb, #rrggbb,
+ * rgb(), a common name in English, Arabic or Kurdish, or the brand's own
+ * ("brand", "the brand colour", "primary"; "accent"). `null` for a word that
+ * gives back the style's own; undefined for anything else — never a guess.
+ */
+export function colourOf(x: unknown, brand: Brand = {}): string | null | undefined {
+  if (isReset(x)) return null;
+  if (typeof x !== 'string') return undefined;
+  const hex = hexOf(x);
+  if (hex) return hex;
+  const s = fold(x);
+  if (/^(the )?(brand|brands|main|primary)( ?(s|main|primary))?( colou?r)?$|^(brand|main|primary) colou?r$/.test(s)) return brand.primary?.toLowerCase();
+  if (/^(the )?(brand )?(accent|secondary|second)( colou?r)?$/.test(s)) return brand.accent?.toLowerCase();
+  const direct = COLOUR_NAMES.get(s);
+  if (direct) return direct;
+  // "the colour black", "اللون الأسود", "ڕەنگی ڕەش": the words around it dropped, "ال" off each word.
+  const words = s.split(' ').map((w) => (w.length > 3 && w.startsWith('ال') ? w.slice(2) : w)).filter((w) => !COLOUR_FILLER.has(w));
+  const joined = words.join(' ');
+  const named = COLOUR_NAMES.get(joined);
+  if (named) return named;
+  // A Kurdish colour with its ezafe: "ڕەشی".
+  if (joined.endsWith('ی') && joined.length > 2) return COLOUR_NAMES.get(joined.slice(0, -1));
+  return undefined;
+}
+
+/** Where words sit, from "center", "left", "right", "start" — left and right read by the video's direction. */
+function alignOf(x: unknown, rtl: boolean): Asked<'start' | 'center' | 'end'> | undefined {
+  if (isReset(x)) return { value: null };
+  if (typeof x !== 'string') return undefined;
+  const s = fold(x).replace(/^(to the|to|at the|on the|in the|the) /, '').replace(/ (aligned|align|side|edge)$/, '');
+  if (/^(center|centre|centered|centred|middle|central|وسط|الوسط|منتصف|ناوهراست|ناڤهراست|navîn|navin)$/.test(s)) return { value: 'center' };
+  if (/^(start|beginning|reading|leading|reading side)$/.test(s)) return { value: 'start' };
+  if (/^(end|trailing|far|far side|other side|other)$/.test(s)) return { value: 'end' };
+  if (/^(left|یسار|الیسار|چهپ|çep|cep)$/.test(s)) return { value: rtl ? 'end' : 'start' };
+  if (/^(right|یمین|الیمین|راست|rast)$/.test(s)) return { value: rtl ? 'start' : 'end' };
+  return undefined;
+}
+
+function backdropOf(x: unknown): Asked<'moving' | 'still' | 'plain'> | undefined {
+  if (isReset(x)) return { value: null };
+  if (typeof x !== 'string') return undefined;
+  const s = fold(x);
+  if (/^(moving|animated|animation|motion|dynamic|live|alive|متحرک|متحرکه|جوولاو)$/.test(s)) return { value: 'moving' };
+  if (/^(still|static|calm|fixed|frozen|not moving|no movement|no motion|ثابت|ثابته|وهستاو|جیگیر)$/.test(s)) return { value: 'still' };
+  if (/^(plain|flat|solid|simple|one colou?r|solid colou?r|flat colou?r|single colou?r|none|ساده|سادی)$/.test(s)) return { value: 'plain' };
+  return undefined;
+}
+
+type Corner = NonNullable<LookSettings['watermarkCorner']>;
+
+/** A corner from "top-end", "bottom left", "the top": what is not said stays as it is. */
+function cornerOf(x: unknown, rtl: boolean, now: Corner | undefined): Asked<Corner> | undefined {
+  if (isReset(x)) return { value: null };
+  if (typeof x !== 'string') return undefined;
+  const s = fold(x);
+  const top = /\b(top|upper|above)\b|اعلی|فوق|سهرهوه|سهر/.test(s);
+  const bottom = /\b(bottom|lower|below)\b|اسفل|تحت|خوارهوه|خوار|بن/.test(s);
+  const left = /\bleft\b|یسار|چهپ/.test(s);
+  const right = /\bright\b|یمین|راست/.test(s);
+  const start = /\bstart\b/.test(s) || (left && !rtl) || (right && rtl);
+  const end = /\bend\b/.test(s) || (right && !rtl) || (left && rtl);
+  if (!top && !bottom && !start && !end) return undefined;
+  const [nowV, nowH] = (now ?? lookFor(null).watermarkCorner).split('-') as ['top' | 'bottom', 'start' | 'end'];
+  const v = top && !bottom ? 'top' : bottom && !top ? 'bottom' : nowV;
+  const h = start && !end ? 'start' : end && !start ? 'end' : nowH;
+  return { value: `${v}-${h}` as Corner };
+}
+
+function fitOf(x: unknown): Asked<'cover' | 'contain'> | undefined {
+  if (isReset(x)) return { value: null };
+  if (typeof x !== 'string') return undefined;
+  const s = fold(x);
+  if (/^(cover|fill|fill the frame|crop|cropped|full|full frame|zoom|zoomed|fill frame)$/.test(s)) return { value: 'cover' };
+  if (/^(contain|fit|whole|all|show all|show all of it|entire|uncropped|no crop|dont crop|not cropped|full picture|whole picture)$/.test(s)) return { value: 'contain' };
+  return undefined;
+}
+
+/** Whether to show the logo on a scene: on and off however said. */
+function shownOf(x: unknown): Asked<boolean> | undefined {
+  if (isReset(x)) return { value: null };
+  const on = onOff(x);
+  if (on !== null) return { value: on };
+  const s = typeof x === 'string' ? fold(x) : '';
+  if (['visible', 'shown', 'show it'].includes(s)) return { value: true };
+  if (['hidden', 'invisible', 'hide it', 'remove', 'removed'].includes(s)) return { value: false };
+  return undefined;
+}
+
+/** Families that are serifs, sans and display faces, for "a serif font" when the list names only families. */
+const FONT_KINDS: Readonly<Record<string, RegExp>> = {
+  serif: /serif(?!.*sans)|playfair|fraunces|amiri|naskh|markazi|lora|merriweather|garamond|baskerville|cormorant|crimson|el messiri|scheherazade/i,
+  sans: /sans|inter\b|archivo|grotesk|vazirmatn|mada|kufi|plex|rubik|noto sans|helvetica|arial/i,
+  display: /display|anton|unbounded|reem|lalezar|black|heavy|condensed|poster|bricolage/i,
+  script: /calligraph|ruqaa|cormorant|script/i,
+  rounded: /rounded|nunito|playpen/i,
+};
+
+/** What a font choice says about itself, as text to search: its id, label and families. */
+const fontText = (f: (typeof FONT_CHOICES)[number]) => `${f.id} ${f.label} ${JSON.stringify(f.latin ?? '')} ${JSON.stringify(f.arabic ?? '')}`;
+
+/**
+ * A typeface from `FONT_CHOICES`, by its id or its label, or by a kind —
+ * "serif", "sans", "display" — when one of the choices is of it. `null` for
+ * the style's own.
+ */
+export function fontOf(x: unknown): string | null | undefined {
+  if (isReset(x)) return null;
+  if (typeof x !== 'string') return undefined;
+  const s = fold(x).replace(/\b(font|typeface|type|face|a|an|the)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!s) return undefined;
+  const flat = (y: string) => fold(y).replace(/[\s()]+/g, '');
+  const exact = FONT_CHOICES.find((f) => flat(String(f.id)) === flat(s) || flat(String(f.label)) === flat(s));
+  if (exact) return String(exact.id);
+  const partial = FONT_CHOICES.find((f) => flat(fontText(f)).includes(flat(s)));
+  if (partial && s.length >= 3 && !/^(sans|serif)$/.test(s)) return String(partial.id);
+  // A kind only when every word says one — "a clean modern font" is a sans, "Comic Sans" is a font the app does not have.
+  const KIND_WORDS: [string, RegExp][] = [
+    ['sans', /^(sans|sanserif|clean|modern|simple|minimal|plain|neutral)$/],
+    ['serif', /^(serif|serifed|classic|classical|elegant|traditional|formal|bookish|book|luxury|luxurious|premium)$/],
+    ['script', /^(handwritten|handwriting|script|calligraphy|calligraphic|decorative|fancy|arabic)$/],
+    ['rounded', /^(rounded|round|friendly|playful|cute|kids|childrens|soft)$/],
+    ['display', /^(display|bold|heavy|strong|poster|headline|impact|impactful|condensed|tall|loud)$/],
+  ];
+  const words = s.split(' ').filter((w) => !/^(and|or|more|very|style|looking|something|please|with|in|kind|of|letters|lettering)$/.test(w));
+  if (!words.length || !words.every((w) => KIND_WORDS.some(([, re]) => re.test(w)))) return undefined;
+  const kind = /\bsans\b/.test(s) ? 'sans' : KIND_WORDS.find(([, re]) => re.test(words[0]))![0];
+  const pick = FONT_CHOICES.find((f) => FONT_KINDS[kind].test(fontText(f)) && (kind !== 'serif' || !/sans/i.test(String(f.label))));
+  return pick ? String(pick.id) : undefined;
+}
+
+/** A font's name as the person reads it, from its id. */
+export function fontLabel(id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  const f = FONT_CHOICES.find((x) => String(x.id) === id);
+  return f ? String(f.label) : undefined;
+}
+
+/**
+ * The voices the Sound tab offers (videomix.ts `VOICES`), and the words people
+ * use for one: "a male voice" is onyx, "a woman's" nova.
+ */
+const VOICE_WORDS: Readonly<Record<string, string>> = {
+  male: 'onyx', man: 'onyx', mans: 'onyx', men: 'onyx', deep: 'onyx', deeper: 'onyx', 'deep male': 'onyx', masculine: 'onyx', low: 'onyx',
+  female: 'nova', woman: 'nova', womans: 'nova', women: 'nova', feminine: 'nova', bright: 'nova', young: 'nova',
+  soft: 'shimmer', gentle: 'shimmer', warm: 'coral', friendly: 'coral', calm: 'sage', neutral: 'alloy', british: 'fable', storyteller: 'fable',
+  رجل: 'onyx', ذکر: 'onyx', رجالی: 'onyx', رجولی: 'onyx', امراه: 'nova', انثی: 'nova', نسائی: 'nova', بنت: 'nova',
+  پیاو: 'onyx', نیر: 'onyx', میر: 'onyx', ژن: 'nova', ئافرهت: 'nova', کچ: 'nova',
+};
+
+/** A voice the Sound tab offers, by name or by the kind of voice asked for. */
+function voiceOf(x: unknown): string | undefined {
+  if (typeof x !== 'string') return undefined;
+  const s = fold(x).replace(/\b(voice|a|an|the|one|speaker|narrator)\b/g, ' ').replace(/\s+/g, ' ').trim();
+  const named = VOICES.find((v) => v === s);
+  if (named) return named;
+  const word = VOICE_WORDS[s] ?? s.split(' ').map((w) => VOICE_WORDS[w]).find(Boolean);
+  return word && VOICES.includes(word) ? word : undefined;
+}
+
+/** Searches for recorded music (Openverse, videomix.ts) by the moods the chat knows. */
+function musicSearches(mood: MusicSpec['mood'] | 'acoustic'): readonly string[] {
+  const of = (id: string) => MOODS.find((m) => m.id === id)?.queries ?? [];
+  switch (mood) {
+    case 'uplifting': return of('inspiring');
+    case 'calm': return of('piano');
+    case 'cinematic': return of('cinematic');
+    case 'corporate': return of('corporate');
+    case 'electronic': return of('electronic');
+    case 'acoustic': return of('acoustic');
+    case 'lofi': return ['lofi music', 'chill music'];
+    case 'epic': return ['epic orchestral music', 'cinematic music'];
+    default: return ['arabic music', 'oriental music'];
+  }
+}
+
+/** The number of a scene an op names, read from any of the names models give it. */
+const lookTarget = (o: Record<string, unknown>) => o.scene ?? o.scenes ?? o.scene_number ?? o.sceneNumber;
+
 // ── what the model is told ────────────────────────────────────────────────
 
 /**
@@ -154,16 +539,16 @@ const scrub = (s: string) => s.replace(DATA_URL, '(file)');
 function systemOf(v: Video): string {
   return [
     'You are the editor of one short animated video — a promo, an explainer, an announcement — that already exists. The person who made it talks to you about it: they ask for changes, or ask something about it, and you answer.',
-    'You never write code, markup or anything to be run. You change the video only through a fixed list of operations ("ops") that the app checks and applies; an op that is not on the list, or not valid, is skipped and the person is told. The app draws every scene with its own templates: you never choose fonts, positions or animations.',
+    'You never write code, markup or anything to be run. You change the video only through a fixed list of operations ("ops") that the app checks and applies; an op that is not on the list, or not valid, is skipped and the person is told. The app draws every scene with its own templates, and the look ops set how they look — the logo\'s and the words\' size, where the words sit, the colours, the font, how fast things move, the backdrop, the watermark.',
     '',
     `The video's on-screen words are in ${LANGUAGE_NAME[v.lang] ?? 'English'}. ${LANGUAGE[v.lang] ?? LANGUAGE.en}`,
     'Brand names, product names and a website stay as they are written.',
     '',
     'How you work:',
-    '- Change what the person asked for, and nothing else. Every scene, word and setting they did not mention stays as it is.',
+    '- The person may ask for anything about the video, and almost everything has an op. Change what they asked for, and nothing else: every scene, word and setting they did not mention stays as it is.',
     '- Keep the video good: one idea per scene, short lines timed to be read (about three words a second, plus a second), no two scenes of the same kind in a row, a hook first and one clear call to action last.',
-    '- When a request is unclear, or could mean two very different things, ask one short question and change nothing.',
-    '- When a request cannot be done with the ops, say so plainly and change nothing.',
+    '- When their words are vague ("bigger", "make it pop", "more professional"), pick the most reasonable reading, do it, and say in "reply" what you did. Ask one short question only when two readings would change the video in very different ways.',
+    '- Never say something cannot be done unless it is on the short list of what cannot (at the end of the ops).',
     '- Your "reply" says only what your ops do. Never claim a change you did not make.',
     '',
     'Rules that are never broken:',
@@ -177,13 +562,33 @@ function systemOf(v: Video): string {
   ].join('\n');
 }
 
-/** A scene as the model reads it: its fields, and whether a picture is on it — never the picture itself. */
+/** A look as the model reads it: only what is set, as JSON, `{}` when nothing is. */
+const lookJson = (x: object | undefined) => JSON.stringify(x ?? {});
+
+/** A scene as the model reads it: its fields, whether a picture is on it — never the picture itself — and its own look. */
 function sceneLine(s: Scene, n: number): string {
   let note = '';
   if (PICTURED.has(s.kind)) note = s.picture ? ' — shows a picture' : s.imageQuery ? ' — its picture is still to be found' : '';
   else if (s.kind === 'gallery') note = ` — ${(s.pictures ?? []).filter((p) => p?.src).length} pictures in it`;
   else if (s.kind === 'people') note = ` — ${s.people.filter((p) => p.picture).length} of ${s.people.length} with a photo`;
-  return `${n}. ${sceneJson(s)}${note}`;
+  const own = s.look ? normalSceneLook(s.look) : {};
+  const look = Object.keys(own).length ? ` — its own look (set_scene_look): ${lookJson(own)}` : '';
+  return `${n}. ${sceneJson({ ...s, look: undefined } as Scene)}${note}${look}`;
+}
+
+/** The video's look now, field by field, with each one's range — what a relative change starts from. */
+function lookLines(v: Video): string[] {
+  const l = normalLook(v.look ?? {});
+  const rtl = isRtl(v.lang);
+  const own = 'the style\'s own';
+  const x = (n: number | undefined) => `${n ?? 1}×`;
+  const align = l.align === 'center' ? '"center"' : l.align === 'start' ? `"start" (the ${rtl ? 'right' : 'left'})` : l.align === 'end' ? `"end" (the ${rtl ? 'left' : 'right'})` : own;
+  const font = l.font ? `"${l.font}"${fontLabel(l.font) ? ` (${fontLabel(l.font)})` : ''}` : own;
+  return [
+    `- Look (set_look; 1× is what the style draws): logo ${x(l.logoScale)} (0.5 to 3); words ${x(l.textScale)} (0.7 to 1.5); motion ${x(l.motion)} (0.5 slow to 2 quick); words sit: ${align}; background: ${l.background ?? own}; words' colour: ${l.text ?? own}; font: ${font}; backdrop: "${l.backdrop ?? lookFor(null).backdrop}"; watermark corner: "${l.watermarkCorner ?? lookFor(null).watermarkCorner}", size ${x(l.watermarkScale)} (0.5 to 2).`,
+    `- Fonts for "font", by id: ${FONT_CHOICES.map((f) => `"${f.id}" (${f.label})`).join(', ')}. Each has every Arabic and Kurdish letter.`,
+    `- Voice of the narration (set_voice): ${v.audio?.voiceName ? `"${capped(scrub(v.audio.voiceName), 40)}"` : 'the speech service\'s default'}.`,
+  ];
 }
 
 /** The video's settings, one line each, as the ops can change them. */
@@ -210,8 +615,9 @@ function settingsOf(v: Video): string[] {
     `- The subject's logo: ${v.brief?.logo ? 'found on the web — use_logo puts it on the brand' : v.brief?.website ? `not found yet — use_logo reads it from ${capped(scrub(v.brief.website), 80)}` : 'not looked up — use_logo searches the web for it'}.`,
     `- The brand small in a corner of every scene (watermark): ${v.watermark !== false ? 'on' : 'off'}${!brand.name?.trim() && !brand.logo ? ' (shows nothing without a brand name or logo)' : ''}.`,
     `- A card crediting the pictures at the end: ${v.credits !== false ? 'on' : 'off'}.`,
-    `- Music: ${musicLine}${music ? `, at ${Math.round(musicVolumeOf(audio) * 100)}% volume` : ''}.`,
+    `- Music: ${musicLine}${music ? `, at ${Math.round(musicVolumeOf(audio) * 100)}% volume (music_volume ${musicVolumeOf(audio)})` : ''}.`,
     `- Narration (a voice reading each scene's "narration"): ${audio.narrate ? 'on' : 'off'}; ${lines} of ${(v.scenes ?? []).length} scenes have a line. Captions of it: ${audio.captions ? 'on' : 'off'}.`,
+    ...lookLines(v),
   ];
 }
 
@@ -228,36 +634,59 @@ function historyOf(turns: readonly ChatTurn[] | undefined): string[] {
   });
 }
 
-/** Every op, as the model is shown it: the shape, and what it does. */
-const CATALOGUE = [
-  'The ops — nothing else can be changed:',
-  '- {"op":"edit_scene","scene":2,"fields":{"title":"…"}} — change some fields of a scene; fields you leave out stay as they are. The fields are the ones its kind has (the kinds are below). A "kind" among the fields turns the scene into that kind: then give every field the new kind needs.',
-  '- {"op":"add_scene","after":3,"scene":{"kind":"kinetic","text":"…","seconds":3,"transition":"fade"}} — a new, whole scene after scene 3; "after":0 puts it first; without "after" it goes just before the closing scene.',
-  '- {"op":"remove_scene","scene":4}',
-  '- {"op":"move_scene","scene":5,"to":2} — "to" is the place it takes, 1 = first.',
-  '- {"op":"duplicate_scene","scene":3} — a copy of it, right after it.',
-  '- {"op":"set_seconds","scene":3,"seconds":4.5} — how long one scene stays on screen, 2 to 20; "scene":"all" for every scene.',
-  '- {"op":"set_transition","scene":3,"transition":"zoom"} — how it hands over to the next: "fade", "slide", "wipe", "zoom" or "none" (a hard cut); "scene":"all" for every scene.',
-  '- {"op":"set_length","seconds":20} — the whole video, 5 to 180 seconds. Every scene is scaled together, and none becomes shorter than its words take to read.',
-  `- {"op":"set_style","style":"bold"} — ${STYLES.map((s) => TONE[s]).join('; ')}.`,
-  '- {"op":"set_title","title":"…"} — the video\'s name in the list. To change the words that open the video, edit scene 1.',
-  '- {"op":"set_brand","name":"…","primary":"#1A4D8F","accent":"#F2A900"} — any of the three; colours are #rrggbb, null gives back the style\'s own. The logo is set with use_logo, not here.',
-  '- {"op":"use_logo"} — put the subject\'s logo on the brand: it shows on the first screen (the title scene) and at the close, and in a "logo" scene (add one with add_scene, "kind":"logo", to reveal it on its own). The app takes the logo found on the web, or reads it from the organisation\'s own website; "site":"https://…" names that website when the person gave it. Whenever the person asks for a logo, use this — never answer that you cannot search for or add one.',
-  '- {"op":"set_language","lang":"ckb"} — "ar" (Arabic), "ckb" (Kurdish, Sorani), "kmr" (Kurdish, Badini) or "en" (English). ONLY together with an edit_scene for EVERY scene that has words, rewriting all of its words — and its "narration", when it has one — in the new language, following that language\'s spelling. Without them it is refused.',
-  '- {"op":"find_pictures","scene":4,"query":"students in a university library"} — a new picture for an "image", "split" or "title" scene, searched with these English words (2 to 6 concrete words; a real place\'s, organisation\'s or landmark\'s name when the person asks for that one, like "University of Duhok campus"); without "scene", new pictures for every scene that shows one.',
-  '- {"op":"look_up","subject":"University of Duhok"} — look something up on the web — Wikipedia, Wikidata, Wikimedia Commons and the organisation\'s own website — for its facts, photographs and logo. Send it ALONE, with a "reply" saying what you are looking up, whenever doing what the person asks needs facts, a logo or photographs you do not have above; the app then sends you what was found and you answer again with the ops that do the task. Never answer that you cannot search the web: look it up.',
-  '- {"op":"use_photos","scene":3} — put photographs found on the web (by the lookup, listed above) into picture scenes: into scene 3, or without "scene" into every picture scene that has none.',
-  '- {"op":"set_format","format":"portrait"} — the frame: "landscape" (16:9, YouTube and screens), "portrait" (9:16, stories, reels, TikTok) or "square" (1:1, posts). Every scene lays itself out again.',
-  '- {"op":"make_voice"} — speak every narration line with the person\'s speech service, into the video. Give the lines (set_narration, and narrate on) in the same answer when scenes have none.',
-  '- {"op":"offer_download"} — when the person asks to download, save or export the video: the app puts a Download MP4 button under your reply, which they press. You cannot save a file yourself.',
-  `- {"op":"compose_music","mood":"calm","tempo":80,"energy":0.3} — the app composes new music of the video's length itself. "mood" is one of ${MUSIC_MOODS.join(', ')}; "tempo" (60 to 170 beats a minute) and "energy" (0 to 1: how busy and loud) are optional.`,
-  '- {"op":"music_volume","value":0.4} — 0 to 1.',
-  '- {"op":"no_music"} — the video without music.',
-  '- {"op":"set_narration","scene":2,"text":"…"} — what the voice says during that scene, in the video\'s language, at most about 2.5 words for each of its seconds; "" removes it.',
-  '- {"op":"narrate","on":true} — a voice reads the narration. {"op":"captions","on":true} — the narration on screen as captions. {"op":"watermark","on":false} — the brand small in a corner. {"op":"credits","on":true} — the card crediting the pictures.',
-  '',
-  'Almost anything the person asks can be done with these ops — look things up first when you need to. Only these cannot, and then say so in "reply" and name the tab: a picture, logo or sound file from the person\'s own computer (Look, Scenes, Sound), and choosing which voice speaks (Sound).',
-].join('\n');
+/**
+ * Every op, as the model is shown it: one line each, the shape and what it
+ * does — with a relative change worked out from this video's own logo size,
+ * and the rule that nothing reasonable is refused.
+ */
+function catalogueOf(v: Video): string {
+  const logo = normalLook(v.look ?? {}).logoScale ?? 1;
+  return [
+    'The ops (scene numbers as in the storyboard above; "scene":"all" where it says so):',
+    'Scenes and words',
+    '- {"op":"edit_scene","scene":2,"fields":{"title":"…"}} — change fields of a scene (its kind\'s fields, below); the rest stay. A "kind" among them turns it into that kind: then give every field it needs.',
+    '- {"op":"add_scene","after":3,"scene":{"kind":"kinetic","text":"…","seconds":3,"transition":"fade"}} — a whole new scene after scene 3; "after":0 puts it first; no "after", just before the close.',
+    '- {"op":"remove_scene","scene":4}',
+    '- {"op":"move_scene","scene":5,"to":2} — "to" is the place it takes, 1 = first.',
+    '- {"op":"swap_scenes","a":2,"b":3} — the two scenes change places.',
+    '- {"op":"duplicate_scene","scene":3} — a copy, right after it.',
+    '- {"op":"set_seconds","scene":3,"seconds":4.5} — time on screen, 2 to 20, or "longer"/"shorter"; "scene":"all" for every scene.',
+    '- {"op":"set_transition","scene":3,"transition":"zoom"} — into the next scene: "fade", "slide", "wipe", "zoom" or "none" (a cut); "scene":"all".',
+    '- {"op":"set_length","seconds":20} — the whole video, 5 to 180 s; every scene scales together, none below the time its words take to read.',
+    '- {"op":"set_title","title":"…"} — the video\'s name in the list; the opening words are scene 1\'s.',
+    '- {"op":"set_language","lang":"ckb"} — "ar", "ckb" (Sorani), "kmr" (Badini) or "en"; ONLY with an edit_scene for EVERY scene that has words, rewriting all of them (and each "narration") in it, in its spelling. Alone it is refused.',
+    'Pictures and the logo',
+    '- {"op":"find_pictures","scene":4,"query":"students in a university library"} — a new picture for an "image", "split" or "title" scene, searched with 2 to 6 concrete English words (a real place\'s or organisation\'s name when asked for that one); no "scene": new pictures for every scene that shows one.',
+    '- {"op":"remove_picture","scene":4} — the scene without its picture; "scene":"all" for every one; a "people" scene loses its photos; "picture":2 takes one picture out of a "gallery".',
+    '- {"op":"set_picture_fit","scene":4,"fit":"contain"} — "cover" fills the frame, "contain" shows all of the picture; "scene":"all".',
+    '- {"op":"look_up","subject":"University of Duhok"} — look something up on the web (Wikipedia, Wikidata, Wikimedia Commons, its own website) for facts, photographs and its logo. Send it ALONE, with a "reply" saying what you look up, whenever the task needs what you do not have above; the app sends you what it found and you answer again with the ops. Never answer that you cannot search the web: look it up.',
+    '- {"op":"use_photos","scene":3} — photographs the lookup found (above) into scene 3; no "scene": into every picture scene without one.',
+    '- {"op":"use_logo"} — the subject\'s logo on the brand: on the first screen and at the close, and in a "logo" scene. Found on the web, or read from its website ("site":"https://…" when the person names it). Whenever the person asks for a logo, use this — never answer that you cannot search for or add one.',
+    'The look (sizes are times what the style draws: 1 is the style\'s own; the values now are under "The video now")',
+    '- {"op":"set_look","logoScale":1.5,"textScale":1.2,"align":"center","background":"black","text":"#ffffff","font":"<id>","motion":0.8,"backdrop":"still","watermarkCorner":"top-end","watermarkScale":1.2} — any of these, for the whole video: logoScale 0.5 to 3, textScale 0.7 to 1.5, motion 0.5 (slow) to 2 (quick), watermarkScale 0.5 to 2; align "start" (the reading side), "center" or "end"; background and text a colour — #rgb, #rrggbb, a name ("black", "gold", "navy"), "brand" or "accent" for the brand\'s own; font an id from the list above; backdrop "moving", "still" or "plain"; watermarkCorner "top-start", "top-end", "bottom-start" or "bottom-end". null gives back the style\'s own.',
+    `- Relative changes are worked out from the value now: "bigger" is ×1.3, "much bigger" ×1.6, "a bit bigger" ×1.15, "smaller" ×0.75, "much smaller" ×0.6, "a bit smaller" ×0.87 (and "faster", "slower" the same). Send the word or the number: "make the logo bigger" is {"op":"set_look","logoScale":"bigger"} — the logo is ${logo}× now, so that is ${hundredths(clamp(logo * 1.3, 0.5, 3))}×.`,
+    '- {"op":"set_scene_look","scene":3,"textScale":1.2,"align":"center","background":"#101820","text":"white","logo":true,"logoScale":1.5,"fit":"contain"} — one scene\'s own look over the video\'s, same words and limits; "logo" shows or hides the brand\'s logo there; "scene":"all" for every scene; null makes a field follow the video again.',
+    '- {"op":"reset_look"} — the video\'s look back to the style\'s own; "scene":3 for one scene\'s own look, "scene":"all" for every scene\'s.',
+    `- {"op":"set_style","style":"bold"} — ${STYLES.map((s) => TONE[s]).join('; ')}.`,
+    '- {"op":"set_format","format":"portrait"} — "landscape" (16:9, YouTube, screens), "portrait" (9:16, reels, stories, TikTok) or "square" (1:1, posts); every scene lays itself out again.',
+    '- {"op":"set_brand","name":"…","primary":"#1A4D8F","accent":"gold"} — any of the three; colours as for set_look; null gives back the style\'s own.',
+    '- {"op":"watermark","on":false} — the brand small in a corner. {"op":"credits","on":true} — the card crediting the pictures.',
+    'Sound',
+    `- {"op":"compose_music","mood":"calm","tempo":80,"energy":0.3} — new music the app composes to the video's length; "mood" one of ${MUSIC_MOODS.join(', ')}; "tempo" 60 to 170 and "energy" 0 to 1 optional.`,
+    '- {"op":"find_music","query":"acoustic guitar"} — or "mood":"calm": the first good openly licensed recording from Openverse for these English words, under the video, credited at the end. For "real" or "recorded" music; compose_music otherwise.',
+    '- {"op":"music_volume","value":0.4} — 0 to 1, or "louder"/"quieter" from the volume now.',
+    '- {"op":"no_music"} — the video without music.',
+    '- {"op":"set_narration","scene":2,"text":"…"} — what the voice says in that scene, in the video\'s language, about 2.5 words a second at most; "" removes it.',
+    '- {"op":"narrate","on":true} — a voice reads the narration. {"op":"captions","on":true} — the narration on screen.',
+    `- {"op":"set_voice","name":"onyx"} — the voice that speaks: ${VOICES.join(', ')} (onyx, echo and ash sound male; nova, shimmer and coral female; sage calm; fable a storyteller). With make_voice in the same answer the lines are spoken in it.`,
+    '- {"op":"make_voice"} — speak every narration line with the person\'s speech service, into the video; give the lines (set_narration, narrate on) in the same answer when scenes have none.',
+    'Other',
+    '- {"op":"undo","steps":1} — take back the last change; each earlier answer of yours was one step, however many ops it had. Send it alone. To bring back something undone, make the change again.',
+    '- {"op":"offer_download"} — when the person asks to download, save or export: a Download MP4 button under your reply, which they press.',
+    '',
+    'The rule: the person may ask for anything about the video. When an op does it, use it. When their words are vague, pick the reasonable reading, do it and say what you did. Never say something cannot be done unless it is one of these, the only things that cannot: using a file from the person\'s own computer — a picture, a logo, a sound or a font (they add it themselves in Look, Scenes or Sound) — and exporting or saving the video without their click (offer_download puts the button there for them).',
+  ].join('\n');
+}
 
 /** One compact answer of the right shape — with no figures, because the example is what a model copies. */
 const EXAMPLE = '{"reply":"Done: the opening is shorter, the list is gone and the video now runs about 20 seconds.","ops":['
@@ -317,7 +746,7 @@ export function chatPrompt(v: Video, turns: readonly ChatTurn[] | undefined, mes
     'Scene numbers are the numbers in the storyboard above, and keep meaning those scenes for every op in this reply, even after an earlier op added, removed or moved scenes. A scene you add has no number: put everything it says in its add_scene.',
     `On-screen words you write are in ${lang}, unless the op is a set_language.`,
     '',
-    CATALOGUE,
+    catalogueOf(v),
     '',
     'The scene kinds, for "fields" and for a new scene — where these say "the request", read "the request, the facts, or what the person says in this conversation":',
     SCHEMA,
@@ -460,7 +889,10 @@ export type Skip =
   | 'too-many' // past MAX_OPS
   | 'full' // past MAX_SCENES
   | 'unfit' // the scene it would make holds nothing a scene of its kind can show
-  | 'unsourced'; // a number nobody gave
+  | 'unsourced' // a number nobody gave
+  | 'limit' // a relative change to a size or a speed that is already as far as it goes
+  | 'video-only' // a part of the look set for the whole video, asked of one scene
+  | 'after-undo'; // an op naming a scene, in an answer whose undo changed which scenes there are
 
 /**
  * What an answer changed, one record per change, for the panel to say in the
@@ -496,7 +928,18 @@ export type Change =
   | { what: 'download' }
   | { what: 'narration'; scene: number; removed?: boolean }
   | { what: 'narrate' | 'captions' | 'watermark' | 'credits'; on: boolean }
-  | { what: 'skipped'; op: string; why: Skip; scene?: number };
+  /** A part of the look: the whole video's when `scene` is absent, every scene's when it is null. `value` null gives back the style's (or the video's). */
+  | { what: 'look'; field: LookField; value: string | number | boolean | null; scene?: number | null }
+  | { what: 'look-reset'; scene?: number | null }
+  | { what: 'picture-removed'; scene: number | null }
+  | { what: 'swapped'; a: number; b: number }
+  | { what: 'undo'; steps: number }
+  | { what: 'undo-failed' }
+  | { what: 'voice-name'; name: string }
+  /** Recorded music asked for; the panel says what it found, or why it found none. */
+  | { what: 'found-music'; query: string; title?: string }
+  | { what: 'find-failed'; query: string; error: string }
+  | { what: 'skipped'; op: string; why: Skip; scene?: number; field?: LookField };
 
 export interface Applied {
   /** The fields that changed — everything in one object, so the panel records one undo step. */
@@ -515,6 +958,10 @@ export interface Applied {
     voice?: boolean;
     /** Put a Download MP4 button under the reply; the person presses it. */
     download?: boolean;
+    /** Take back this many steps of the video's history before the rest is applied (the panel's own undo). */
+    undo?: number;
+    /** Search Openverse with these words, in turn, and put the first track that can be fetched under the video (videomix.ts). */
+    findMusic?: { queries: string[]; query: string };
   };
 }
 
@@ -543,6 +990,69 @@ const OP_ALIASES: Readonly<Record<string, OpName>> = {
   remove_music: 'no_music', delete_music: 'no_music', mute_music: 'no_music', music_off: 'no_music',
   narration: 'set_narration', set_voiceover: 'set_narration',
   set_narrate: 'narrate', set_captions: 'captions', set_watermark: 'watermark', set_credits: 'credits',
+  // More of the same, as models write them.
+  modify_scene: 'edit_scene', update: 'edit_scene', change: 'edit_scene', rewrite: 'edit_scene', replace_scene: 'edit_scene', edit_text: 'edit_scene', change_text: 'edit_scene',
+  append_scene: 'add_scene', insert: 'add_scene', add_slide: 'add_scene',
+  cut_scene: 'remove_scene', drop: 'remove_scene', delete_slide: 'remove_scene',
+  reorder: 'move_scene', reorder_scenes: 'move_scene', reposition_scene: 'move_scene', move_scene_to: 'move_scene',
+  swap: 'swap_scenes', swap_scene: 'swap_scenes', switch_scenes: 'swap_scenes', exchange_scenes: 'swap_scenes', swap_places: 'swap_scenes',
+  repeat_scene: 'duplicate_scene',
+  set_time: 'set_seconds', duration: 'set_seconds', scene_duration: 'set_seconds', set_scene_duration: 'set_seconds', set_scene_length: 'set_seconds', change_duration: 'set_seconds',
+  set_transitions: 'set_transition', change_transition: 'set_transition', transitions: 'set_transition',
+  set_video_duration: 'set_length', set_total_duration: 'set_length', change_length: 'set_length', set_video_seconds: 'set_length',
+  change_style: 'set_style', set_theme: 'set_style', theme: 'set_style', change_theme: 'set_style',
+  set_name: 'set_title', change_title: 'set_title', title: 'set_title', rename_video: 'set_title',
+  set_brand_name: 'set_brand', set_brand_color: 'set_brand', set_brand_colour: 'set_brand', set_brand_colors: 'set_brand', set_brand_colours: 'set_brand', brand_colors: 'set_brand', brand_colours: 'set_brand',
+  change_language: 'set_language', translate_video: 'set_language', set_video_language: 'set_language',
+  find_image: 'find_pictures', find_images: 'find_pictures', new_image: 'find_pictures', change_image: 'find_pictures', replace_image: 'find_pictures',
+  search_image: 'find_pictures', search_images: 'find_pictures', refresh_pictures: 'find_pictures', new_pictures: 'find_pictures', change_photo: 'find_pictures', replace_photo: 'find_pictures',
+  remove_image: 'remove_picture', delete_picture: 'remove_picture', delete_image: 'remove_picture', no_picture: 'remove_picture', clear_picture: 'remove_picture',
+  remove_photo: 'remove_picture', delete_photo: 'remove_picture', remove_pictures: 'remove_picture', remove_images: 'remove_picture', remove_photos: 'remove_picture', hide_picture: 'remove_picture',
+  picture_fit: 'set_picture_fit', image_fit: 'set_picture_fit', set_image_fit: 'set_picture_fit', fit_picture: 'set_picture_fit', set_fit: 'set_picture_fit', fit: 'set_picture_fit',
+  look: 'set_look', change_look: 'set_look', update_look: 'set_look', adjust_look: 'set_look', set_appearance: 'set_look', appearance: 'set_look', set_design: 'set_look',
+  scene_look: 'set_scene_look', set_scene_style: 'set_scene_look', change_scene_look: 'set_scene_look', style_scene: 'set_scene_look', scene_style: 'set_scene_look',
+  clear_look: 'reset_look', default_look: 'reset_look', restore_look: 'reset_look', reset_scene_look: 'reset_look', reset_design: 'reset_look',
+  create_music: 'compose_music', change_music: 'compose_music', add_music: 'compose_music', compose: 'compose_music',
+  search_music: 'find_music', find_track: 'find_music', search_track: 'find_music', stock_music: 'find_music', get_music: 'find_music',
+  real_music: 'find_music', find_song: 'find_music', use_track: 'find_music', recorded_music: 'find_music', openverse_music: 'find_music',
+  set_volume: 'music_volume', change_volume: 'music_volume', music_level: 'music_volume', louder: 'music_volume', quieter: 'music_volume',
+  stop_music: 'no_music', without_music: 'no_music',
+  add_narration: 'set_narration', set_line: 'set_narration', narration_line: 'set_narration',
+  voice_name: 'set_voice', set_voice_name: 'set_voice', choose_voice: 'set_voice', change_voice: 'set_voice', select_voice: 'set_voice', set_speaker: 'set_voice', speaker: 'set_voice',
+  generate_voice: 'make_voice', make_voiceover: 'make_voice', record_voice: 'make_voice', speak_narration: 'make_voice',
+  undo_last: 'undo', revert: 'undo', undo_change: 'undo', undo_changes: 'undo', go_back: 'undo', rollback: 'undo', revert_last: 'undo', take_back: 'undo',
+  save: 'offer_download', render: 'offer_download', export_mp4: 'offer_download', download_video: 'offer_download',
+  search_info: 'look_up', google: 'look_up',
+  set_ratio: 'set_format', aspect_ratio: 'set_format', set_aspect_ratio: 'set_format', orientation: 'set_format', set_orientation: 'set_format',
+  enable_narration: 'narrate', disable_narration: 'narrate', narration_on: 'narrate', narration_off: 'narrate',
+  subtitles: 'captions', set_subtitles: 'captions', enable_captions: 'captions', disable_captions: 'captions', show_captions: 'captions', hide_captions: 'captions',
+  add_captions: 'captions', remove_captions: 'captions', captions_on: 'captions', captions_off: 'captions', add_subtitles: 'captions', remove_subtitles: 'captions',
+  show_watermark: 'watermark', hide_watermark: 'watermark', remove_watermark: 'watermark', add_watermark: 'watermark',
+  show_credits: 'credits', hide_credits: 'credits', remove_credits: 'credits', add_credits: 'credits',
+};
+
+/** Op names that carry their own on or off, so `{"op":"hide_captions"}` needs no "on". */
+const IMPLIED_ON: Readonly<Record<string, boolean>> = {
+  enable_narration: true, narration_on: true, disable_narration: false, narration_off: false,
+  enable_captions: true, show_captions: true, add_captions: true, captions_on: true, add_subtitles: true,
+  disable_captions: false, hide_captions: false, remove_captions: false, captions_off: false, remove_subtitles: false,
+  show_watermark: true, add_watermark: true, hide_watermark: false, remove_watermark: false,
+  show_credits: true, add_credits: true, hide_credits: false, remove_credits: false,
+};
+
+/** Op names for one part of the look, and the part: `{"op":"set_background","color":"black"}` is a set_look of its background. */
+const LOOK_SHORT: Readonly<Record<string, LookField>> = {
+  set_logo_size: 'logoScale', logo_size: 'logoScale', resize_logo: 'logoScale', scale_logo: 'logoScale', set_logo_scale: 'logoScale', logo_scale: 'logoScale', bigger_logo: 'logoScale',
+  set_text_size: 'textScale', text_size: 'textScale', font_size: 'textScale', set_font_size: 'textScale', resize_text: 'textScale', set_text_scale: 'textScale',
+  set_align: 'align', align: 'align', set_alignment: 'align', alignment: 'align', align_text: 'align',
+  set_background: 'background', background: 'background', set_background_color: 'background', set_background_colour: 'background', set_bg: 'background', background_color: 'background', background_colour: 'background',
+  set_text_color: 'text', set_text_colour: 'text', text_color: 'text', text_colour: 'text', set_font_color: 'text', set_font_colour: 'text',
+  set_font: 'font', font: 'font', change_font: 'font', set_typeface: 'font', typeface: 'font', set_font_family: 'font',
+  set_motion: 'motion', motion: 'motion', set_speed: 'motion', speed: 'motion', set_animation_speed: 'motion', animation_speed: 'motion', set_pace: 'motion', pace: 'motion',
+  set_backdrop: 'backdrop', backdrop: 'backdrop', set_background_style: 'backdrop', background_style: 'backdrop',
+  set_watermark_corner: 'watermarkCorner', move_watermark: 'watermarkCorner', watermark_corner: 'watermarkCorner', watermark_position: 'watermarkCorner', set_watermark_position: 'watermarkCorner',
+  set_watermark_size: 'watermarkScale', watermark_size: 'watermarkScale', set_watermark_scale: 'watermarkScale', resize_watermark: 'watermarkScale',
+  show_scene_logo: 'logo', hide_scene_logo: 'logo', scene_logo: 'logo',
 };
 
 const OP_SET = new Set<string>(OPS);
@@ -556,7 +1066,76 @@ function opName(o: Record<string, unknown>): string {
 function opOf(o: Record<string, unknown>): OpName | null {
   const n = opName(o);
   if (OP_SET.has(n)) return n as OpName;
+  if (LOOK_SHORT[n]) return 'set_look';
   return OP_ALIASES[n] ?? null;
+}
+
+const LOOK_FIELDS: readonly LookField[] = ['logoScale', 'textScale', 'align', 'background', 'text', 'font', 'motion', 'backdrop', 'watermarkCorner', 'watermarkScale', 'logo', 'fit'];
+/** Parts of the look only the whole video has. */
+const VIDEO_ONLY = new Set<LookField>(['font', 'motion', 'backdrop', 'watermarkCorner', 'watermarkScale']);
+/** Parts only a scene has: set for the video, they are set on every scene. */
+const SCENE_ONLY = new Set<LookField>(['logo', 'fit']);
+/** Scene kinds that show the brand's logo without being asked (videotypes.ts `SceneLook.logo`). */
+const LOGO_KINDS = new Set<SceneKind>(['title', 'logo', 'outro']);
+/** Scene kinds with a picture a fit applies to. */
+const FITTED = new Set<SceneKind>(['title', 'image', 'split', 'gallery']);
+
+/** The names a model gives each part of the look, the part's own first. */
+const LOOK_KEYS: Readonly<Record<LookField, readonly string[]>> = {
+  logoScale: ['logoScale', 'logo_scale', 'logoSize', 'logo_size'],
+  textScale: ['textScale', 'text_scale', 'textSize', 'text_size', 'fontSize', 'font_size', 'wordScale', 'word_size'],
+  align: ['align', 'alignment', 'textAlign', 'text_align', 'align_text'],
+  background: ['background', 'backgroundColor', 'background_color', 'backgroundColour', 'background_colour', 'bg', 'bgColor', 'bg_color'],
+  text: ['text', 'textColor', 'text_color', 'textColour', 'text_colour', 'color', 'colour', 'foreground', 'fg', 'ink', 'fontColor', 'font_color'],
+  font: ['font', 'fontFamily', 'font_family', 'typeface', 'fontId', 'font_id'],
+  motion: ['motion', 'speed', 'pace', 'animationSpeed', 'animation_speed', 'animation'],
+  backdrop: ['backdrop', 'backgroundStyle', 'background_style', 'backdropStyle'],
+  watermarkCorner: ['watermarkCorner', 'watermark_corner', 'watermarkPosition', 'watermark_position'],
+  watermarkScale: ['watermarkScale', 'watermark_scale', 'watermarkSize', 'watermark_size'],
+  logo: ['logo', 'showLogo', 'show_logo', 'logoVisible', 'logo_visible'],
+  fit: ['fit', 'pictureFit', 'picture_fit', 'imageFit', 'image_fit', 'objectFit'],
+};
+
+/** The parts of the look an op asks for, as it wrote them: its fields, flat or under "look", or its name's one part. */
+function lookAsked(o: Record<string, unknown>, name: string): Map<LookField, unknown> {
+  const out = new Map<LookField, unknown>();
+  const nested = [o.look, o.fields, o.settings, o.set].find(isObj);
+  const from: Record<string, unknown> = nested ? { ...o, ...nested } : o;
+  const short = LOOK_SHORT[name];
+  if (short) {
+    const own = LOOK_KEYS[short].map((k) => from[k]).find((x) => x !== undefined);
+    const x = own ?? from.value ?? from.size ?? from.scale ?? from.colour ?? from.color ?? from.name ?? from.to ?? from.position ?? from.corner ?? from.mode;
+    if (x !== undefined) out.set(short, x);
+    else if (short === 'logo') out.set('logo', !/^hide/.test(name));
+    else if (name === 'bigger_logo') out.set('logoScale', 'bigger');
+    return out;
+  }
+  // In the order the op wrote them, each part once, by the first of its names.
+  for (const k of Object.keys(from)) {
+    const f = FIELD_OF.get(k);
+    if (f && !out.has(f) && from[k] !== undefined) out.set(f, from[k]);
+  }
+  return out;
+}
+
+/** Each name a model gives a part of the look, and the part. */
+const FIELD_OF: ReadonlyMap<string, LookField> = new Map(LOOK_FIELDS.flatMap((f) => LOOK_KEYS[f].map((k) => [k, f] as const)));
+
+/** An op's list of ops without its undos and — when the undo changed which scenes there are — without the ops that name one, which would name the wrong scene now. */
+export function afterUndo(ops: unknown, sameScenes: boolean): { ops: unknown[]; dropped: number } {
+  const list = Array.isArray(ops) ? ops : [];
+  const SCENE_OPS = new Set<OpName>(['edit_scene', 'add_scene', 'remove_scene', 'move_scene', 'swap_scenes', 'duplicate_scene', 'set_narration', 'find_pictures', 'remove_picture', 'use_photos', 'set_scene_look']);
+  let dropped = 0;
+  const out = list.filter((raw) => {
+    if (!isObj(raw)) return true;
+    const op = opOf(raw);
+    if (op === 'undo') return false;
+    if (sameScenes) return true;
+    const names = (op !== null && SCENE_OPS.has(op)) || lookTarget(raw) !== undefined || (op === 'set_seconds' && !isAll(sceneField(raw))) || (op === 'set_transition' && sceneField(raw) !== undefined && !isAll(sceneField(raw)));
+    if (names) dropped++;
+    return !names;
+  });
+  return { ops: out, dropped };
 }
 
 /** The scene an op names: its `scene`, or one of the other names a model gives it. */
@@ -609,7 +1188,7 @@ function seedOf(s: string): number {
 }
 
 /** Fields that are not words on screen — an edit of only these does not rewrite a scene in a new language. */
-const NOT_WORDS = new Set(['kind', 'type', 'seconds', 'duration', 'transition', 'imageQuery', 'image_query', 'imageQueries', 'value', 'prefix', 'suffix', 'url', 'unit', 'id', 'picture', 'pictures']);
+const NOT_WORDS = new Set(['kind', 'type', 'seconds', 'duration', 'transition', 'imageQuery', 'image_query', 'imageQueries', 'value', 'prefix', 'suffix', 'url', 'unit', 'id', 'picture', 'pictures', 'look']);
 
 /** The words a scene puts on screen, joined — every string but the fields that are not words, and less the brand's name, which stays as it is in every language. */
 function screenWords(s: Scene, brandName: string | undefined): string {
@@ -754,8 +1333,12 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   const original = Array.isArray(video.scenes) ? video.scenes : [];
   const numberOf = new Map(original.map((s, i) => [s.id, i + 1] as const));
   const changes: Change[] = [];
-  const skip = (op: string, why: Skip, scene?: number) => changes.push({ what: 'skipped', op, why, ...(scene ? { scene } : {}) });
+  const skip = (op: string, why: Skip, scene?: number, field?: LookField) =>
+    changes.push({ what: 'skipped', op, why, ...(scene ? { scene } : {}), ...(field ? { field } : {}) });
 
+  let look: LookSettings | undefined = video.look;
+  let undoSteps = 0;
+  let found: { queries: string[]; query: string } | undefined;
   let scenes = original;
   let lang = video.lang;
   let title = video.title;
@@ -805,7 +1388,115 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   };
 
   /** The video as the ops have left it so far — what a scene is repaired against. */
-  const draft = (): Video => ({ ...video, lang, title, style, brand, scenes });
+  const draft = (): Video => ({ ...video, lang, title, style, brand, scenes, look });
+
+  // ── the look ──
+  /** One part of the look, read from what the op says, from the value it has now. */
+  const readLook = (field: LookField, x: unknown, now: unknown): Asked<string | number | boolean> | undefined => {
+    switch (field) {
+      case 'logoScale': case 'textScale': case 'motion': case 'watermarkScale': {
+        const { min, max } = LOOK_LIMITS[field];
+        return amountOf(x, typeof now === 'number' ? now : 1, min, max);
+      }
+      case 'align': return alignOf(x, isRtl(lang));
+      case 'background': case 'text': {
+        const c = colourOf(x, brand);
+        return c === undefined ? undefined : { value: c };
+      }
+      case 'font': {
+        const f = fontOf(x);
+        return f === undefined ? undefined : { value: f };
+      }
+      case 'backdrop': return backdropOf(x);
+      case 'watermarkCorner': return cornerOf(x, isRtl(lang), typeof now === 'string' ? now as Corner : undefined);
+      case 'logo': return shownOf(x);
+      case 'fit': return fitOf(x);
+    }
+  };
+  const valueOf = (o: object, f: LookField): unknown => (o as Record<string, unknown>)[f];
+  const asValue = (x: unknown): string | number | boolean | null => (x === undefined ? null : x as string | number | boolean);
+
+  /** The whole video's look, with the parts an op asks for. False when it asked for none it could read. */
+  const setVideoLook = (op: string, asked: Map<LookField, unknown>): boolean => {
+    const before = normalLook(look ?? {});
+    const want: Record<string, unknown> = { ...before };
+    const fields: LookField[] = [];
+    let read = false;
+    for (const [field, x] of asked) {
+      if (SCENE_ONLY.has(field)) continue;
+      const now = valueOf(before, field);
+      const r = readLook(field, x, now);
+      if (!r) { skip(op, 'invalid', undefined, field); continue; }
+      read = true;
+      if (r.value === null) delete want[field];
+      else want[field] = r.value;
+      if (r.relative && r.value === (now ?? 1)) { skip(op, 'limit', undefined, field); continue; }
+      fields.push(field);
+    }
+    const after = normalLook(want);
+    for (const f of fields) {
+      const now = valueOf(after, f);
+      if (stable(valueOf(before, f)) === stable(now)) continue;
+      // Asked for, and not kept by the look's own rules: said, never guessed.
+      if (want[f] !== undefined && now === undefined) { skip(op, 'invalid', undefined, f); continue; }
+      changes.push({ what: 'look', field: f, value: asValue(now) });
+    }
+    if (stable(after) !== stable(before)) look = Object.keys(after).length ? after : undefined;
+    return read;
+  };
+
+  /** One scene's own look, several scenes', or every scene's ("all"), with the parts an op asks for. `quiet` says nothing: the scene is new. */
+  const setSceneLook = (op: string, target: unknown, asked: Map<LookField, unknown>, quiet = false): boolean => {
+    const all = isAll(target);
+    const fresh = isObj(target) && typeof target.sceneId === 'string' ? target.sceneId : null;
+    const named = fresh ? [{ id: fresh, n: 0 }] : all ? scenes.map((s) => ({ id: s.id, n: numberOf.get(s.id) ?? 0 })) : (Array.isArray(target) ? target : [target]).map((x) => ({ x, r: find(x) }))
+      .filter(({ x, r }) => { if (!r) skip(op, 'no-scene', asked2(x)); return !!r; })
+      .map(({ r }) => r!);
+    let read = false;
+    const bad = new Set<LookField>();
+    const forAll = new Map<LookField, string | number | boolean | null>();
+    for (const f of asked.keys()) if (VIDEO_ONLY.has(f)) { skip(op, 'video-only', all || named.length !== 1 ? undefined : named[0].n, f); }
+    const videoNow = normalLook(look ?? {});
+    for (const r of named) {
+      const at = indexOf(r.id);
+      if (at < 0) continue;
+      const s = scenes[at];
+      const before = normalSceneLook(s.look ?? {});
+      const want: Record<string, unknown> = { ...before };
+      const fields: LookField[] = [];
+      for (const [field, x] of asked) {
+        if (VIDEO_ONLY.has(field) || bad.has(field)) continue;
+        const now = valueOf(before, field) ?? (field === 'logo' ? LOGO_KINDS.has(s.kind) : field === 'fit' ? undefined : valueOf(videoNow, field));
+        const got = readLook(field, x, now);
+        if (!got) { bad.add(field); skip(op, 'invalid', all ? undefined : r.n, field); continue; }
+        read = true;
+        if (field === 'fit' && !FITTED.has(s.kind)) { if (!all && !quiet) skip(op, 'no-picture', r.n); continue; }
+        if (got.value === null) delete want[field];
+        else want[field] = got.value;
+        if (got.relative && got.value === (now ?? 1)) { if (!all) skip(op, 'limit', r.n, field); continue; }
+        fields.push(field);
+      }
+      const after = normalSceneLook(want);
+      if (stable(after) === stable(before)) continue;
+      const { look: _l, ...rest } = s;
+      const next = (Object.keys(after).length ? { ...rest, look: after } : rest) as Scene;
+      scenes = scenes.map((x, i) => (i === at ? next : x));
+      for (const f of fields) {
+        if (stable(valueOf(before, f)) === stable(valueOf(after, f))) continue;
+        if (want[f] !== undefined && valueOf(after, f) === undefined) { if (!all) skip(op, 'invalid', r.n, f); continue; }
+        if (quiet) continue;
+        if (all) { if (!forAll.has(f)) forAll.set(f, asValue(valueOf(after, f))); } else changes.push({ what: 'look', field: f, value: asValue(valueOf(after, f)), scene: r.n });
+      }
+    }
+    for (const [field, value] of forAll) changes.push({ what: 'look', field, value, scene: null });
+    if (all && asked.has('fit') && !scenes.some((s) => FITTED.has(s.kind))) skip(op, 'no-picture');
+    return read;
+  };
+  /** A scene number an op gave, for saying which scene it could not find. */
+  const asked2 = (x: unknown) => {
+    const n = typeof x === 'number' ? x : num(x);
+    return Number.isInteger(n) && n > 0 && n < 1000 ? n : undefined;
+  };
 
   // Numbers the person gave, in any of the places a number may come from.
   const known = numbersIn([
@@ -814,7 +1505,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
     ...(video.chat ?? []).filter((x) => x?.role === 'you').map((x) => str(x.text)),
     str(said),
     ...original.map((s) => {
-      const { seconds: _s, transition: _t, ...words } = fieldsOfScene(s);
+      const { seconds: _s, transition: _t, look: _l, ...words } = fieldsOfScene(s) as Record<string, unknown>;
       return JSON.stringify(words);
     }),
   ].join('\n'));
@@ -872,7 +1563,9 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         if (!f) { skip(op, 'invalid', r.n); break; }
         const at = indexOf(r.id);
         const old = scenes[at];
-        const { id: _id, picture: _picture, pictures: _pictures, ...safe } = f;
+        const { id: _id, picture: _picture, pictures: _pictures, look: lookSaid, ...safe } = f;
+        // Only a look: a set_scene_look written as an edit.
+        if (!Object.keys(safe).length && isObj(lookSaid)) { setSceneLook(op, r.n, lookAsked(lookSaid, '')); break; }
         const merged = { ...fieldsOfScene(old), ...safe };
         const askedKind = 'kind' in safe || 'type' in safe;
         if ('type' in safe && !('kind' in safe)) merged.kind = safe.type;
@@ -883,10 +1576,14 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         const secs = given ? s.seconds : old.seconds;
         s = { ...s, id: old.id, seconds: tenths(clamp(Math.max(Number.isFinite(secs) ? secs : 0, readingSeconds(s)), 2, 20)) };
         s = keptPictures(old, s, 'imageQuery' in safe || 'image_query' in safe || 'imageQueries' in safe);
-        if (sameScene(old, s)) break;
-        scenes = scenes.map((x, i) => (i === at ? s! : x));
-        touched.add(s.id);
-        changes.push({ what: 'edited', scene: r.n, ...(s.kind !== old.kind ? { kind: s.kind } : {}) });
+        // The scene's own look stays with it, whatever its words become.
+        if (old.look && !s.look) s = { ...s, look: old.look };
+        if (!sameScene(old, s)) {
+          scenes = scenes.map((x, i) => (i === at ? s! : x));
+          touched.add(s.id);
+          changes.push({ what: 'edited', scene: r.n, ...(s.kind !== old.kind ? { kind: s.kind } : {}) });
+        }
+        if (isObj(lookSaid)) setSceneLook(op, r.n, lookAsked(lookSaid, ''));
         break;
       }
       case 'add_scene': {
@@ -925,6 +1622,8 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         const change = { what: 'added' as const, at: at + 1, kind: s.kind };
         changes.push(change);
         placed.push({ change, id: s.id, key: 'at' });
+        // A look written with the new scene is its own look.
+        if (f && isObj(f.look)) setSceneLook(op, { sceneId: s.id }, lookAsked(f.look, ''), true);
         break;
       }
       case 'remove_scene': {
@@ -968,18 +1667,22 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         break;
       }
       case 'set_seconds': {
-        const secs = num(o.seconds ?? o.value ?? o.duration);
-        if (!Number.isFinite(secs) || secs <= 0) { skip(op, 'invalid'); break; }
-        const n = snapSeconds(secs);
+        const raw = o.seconds ?? o.value ?? o.duration;
+        // "longer", "shorter", "+20%": from each scene's own time.
+        const f = factorOf(raw);
+        const secs = num(raw);
+        if (f === undefined && (!Number.isFinite(secs) || secs <= 0)) { skip(op, 'invalid'); break; }
+        const timed = (s: Scene) => snapSeconds(f === undefined ? secs : s.seconds * f);
         const target = sceneField(o);
         if (isAll(target)) {
-          if (scenes.every((s) => s.seconds === n)) break;
-          scenes = scenes.map((s) => (s.seconds === n ? s : { ...s, seconds: n }));
-          changes.push({ what: 'seconds', scene: null, seconds: n });
+          if (scenes.every((s) => s.seconds === timed(s))) break;
+          scenes = scenes.map((s) => (s.seconds === timed(s) ? s : { ...s, seconds: timed(s) }));
+          changes.push({ what: 'seconds', scene: null, seconds: f === undefined ? timed(scenes[0]) : snapSeconds(scenes.reduce((a, s) => a + s.seconds, 0) / Math.max(1, scenes.length)) });
           break;
         }
         const r = find(target);
         if (!r) { skip(op, 'no-scene', asked(o)); break; }
+        const n = timed(scenes[indexOf(r.id)]);
         if (scenes[indexOf(r.id)].seconds === n) break;
         scenes = scenes.map((s) => (s.id === r.id ? { ...s, seconds: n } : s));
         changes.push({ what: 'seconds', scene: r.n, seconds: n });
@@ -1005,7 +1708,9 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         break;
       }
       case 'set_length': {
-        const secs = num(o.seconds ?? o.length ?? o.value ?? o.duration);
+        const raw = o.seconds ?? o.length ?? o.value ?? o.duration;
+        const f = factorOf(raw);
+        const secs = f === undefined ? num(raw) : (durationInFrames({ scenes }) / FPS) * f;
         if (!Number.isFinite(secs) || secs <= 0) { skip(op, 'invalid'); break; }
         length = clamp(Math.round(secs), 5, 180);
         scenes = fitted(scenes, { seconds: length });
@@ -1041,8 +1746,10 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         for (const k of ['primary', 'accent'] as const) {
           const c = k in o ? o[k] : k === 'primary' ? o.main ?? o.colour ?? o.color : undefined;
           if (c === undefined) continue;
-          if (c === null || str(c) === '') { delete b[k]; set[k] = null; }
-          else if (/^#[0-9a-f]{6}$/i.test(str(c))) { b[k] = str(c).toLowerCase(); set[k] = b[k]; }
+          if (c === null || str(c) === '') { delete b[k]; set[k] = null; continue; }
+          // #rgb, #rrggbb or a colour's name; "brand" here would be the colour it is replacing.
+          const hex = colourOf(c);
+          if (hex === null) { delete b[k]; set[k] = null; } else if (hex) { b[k] = hex; set[k] = hex; }
         }
         if (!Object.keys(set).length) { skip(op, 'invalid'); break; }
         if (b.name === brand.name && b.primary === brand.primary && b.accent === brand.accent) break;
@@ -1127,14 +1834,37 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
           seed: seedOf(newId()),
         };
         // One piece of music an answer: a later ask replaces an earlier one, and a removal before it is undone.
-        for (let i = changes.length - 1; i >= 0; i--) if (changes[i].what === 'music' || changes[i].what === 'no-music') changes.splice(i, 1);
+        found = undefined;
+        for (let i = changes.length - 1; i >= 0; i--) if (['music', 'no-music', 'found-music'].includes(changes[i].what)) changes.splice(i, 1);
         changes.push({ what: 'music', mood });
         break;
       }
+      case 'find_music': {
+        // English words to search with, or a mood — the chat's eight, or the words people use for them.
+        const q = str(o.query ?? o.search ?? o.words ?? o.q ?? o.genre).replace(/\s+/g, ' ');
+        const words = q && q.length <= 60 && /^[A-Za-z0-9][A-Za-z0-9 ,'&-]*$/.test(q) ? q : '';
+        const moodSaid = str(o.mood ?? o.style ?? o.feel).toLowerCase();
+        const mood = moodSaid === 'acoustic' || moodSaid === 'folk' || moodSaid === 'guitar' ? 'acoustic' : moodOf(moodSaid);
+        if ((q && !words) || (moodSaid && !mood && !queryOf(moodSaid))) { skip(op, 'invalid'); break; }
+        const queries = words
+          ? [...new Set([words, /\bmusic\b/i.test(words) ? words : `${words} music`])]
+          : mood ? [...musicSearches(mood)]
+            : moodSaid ? [`${moodSaid} music`]
+              : [...moodFor({ style }).queries];
+        const label = words || moodSaid || (moodFor({ style }).label.toLowerCase());
+        found = { queries, query: label };
+        music = undefined;
+        for (let i = changes.length - 1; i >= 0; i--) if (['music', 'no-music', 'found-music'].includes(changes[i].what)) changes.splice(i, 1);
+        changes.push({ what: 'found-music', query: label });
+        break;
+      }
       case 'music_volume': {
-        let v = num(o.value ?? o.volume ?? o.level);
+        const raw = o.value ?? o.volume ?? o.level ?? (name === 'louder' || name === 'quieter' ? name : undefined);
+        const f = factorOf(raw);
+        const was = musicVolumeOf(audio);
+        let v = f === undefined ? num(raw) : f > 1 ? Math.max(was * f, was + 0.1) : Math.min(was * f, was - 0.1);
         if (!Number.isFinite(v)) { skip(op, 'invalid'); break; }
-        if (v > 1 && v <= 100) v /= 100;
+        if (f === undefined && v > 1 && v <= 100) v /= 100;
         v = Math.round(clamp(v, 0, 1) * 100) / 100;
         if (v === musicVolumeOf(audio)) break;
         audio = { ...audio, musicVolume: v };
@@ -1196,13 +1926,14 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         break;
       }
       case 'no_music': {
-        if (!audio.music && !music) break;
+        if (!audio.music && !music && !found) break;
         if (audio.music) {
           const { music: _m, ...rest } = audio;
           audio = rest;
         }
         music = undefined;
-        for (let i = changes.length - 1; i >= 0; i--) if (changes[i].what === 'music') changes.splice(i, 1);
+        found = undefined;
+        for (let i = changes.length - 1; i >= 0; i--) if (changes[i].what === 'music' || changes[i].what === 'found-music') changes.splice(i, 1);
         changes.push({ what: 'no-music' });
         break;
       }
@@ -1221,7 +1952,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
       }
       case 'narrate':
       case 'captions': {
-        const on = onOff(o.on ?? o.value ?? o.enabled ?? o.show);
+        const on = onOff(o.on ?? o.value ?? o.enabled ?? o.show) ?? IMPLIED_ON[name] ?? null;
         if (on === null) { skip(op, 'invalid'); break; }
         if ((audio[op === 'narrate' ? 'narrate' : 'captions'] === true) === on) break;
         audio = { ...audio, [op === 'narrate' ? 'narrate' : 'captions']: on };
@@ -1230,7 +1961,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
       }
       case 'watermark':
       case 'credits': {
-        const on = onOff(o.on ?? o.value ?? o.enabled ?? o.show);
+        const on = onOff(o.on ?? o.value ?? o.enabled ?? o.show) ?? IMPLIED_ON[name] ?? null;
         if (on === null) { skip(op, 'invalid'); break; }
         const now = op === 'watermark' ? watermark !== false : credits !== false;
         if (now === on) break;
@@ -1238,8 +1969,123 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         changes.push({ what: op, on });
         break;
       }
+      case 'set_look':
+      case 'set_scene_look': {
+        const want = lookAsked(o, name);
+        if (!want.size) { skip(op, 'invalid'); break; }
+        const target = op === 'set_scene_look' ? lookTarget(o) ?? o.index ?? o.number : lookTarget(o);
+        if (target !== undefined && target !== null) {
+          // One scene's look, however it was asked for.
+          setSceneLook(op, target, want);
+          break;
+        }
+        setVideoLook(op, want);
+        // A part only scenes have, asked of the whole video: every scene.
+        const own = new Map([...want].filter(([f]) => SCENE_ONLY.has(f)));
+        if (own.size) setSceneLook(op, 'all', own);
+        break;
+      }
+      case 'set_picture_fit': {
+        const target = lookTarget(o) ?? sceneField(o) ?? 'all';
+        setSceneLook(op, target, new Map<LookField, unknown>([['fit', o.fit ?? o.value ?? o.mode ?? o.how]]));
+        break;
+      }
+      case 'reset_look': {
+        const target = lookTarget(o) ?? o.index ?? o.number;
+        if (target === undefined || target === null) {
+          if (!Object.keys(normalLook(look ?? {})).length) break;
+          look = undefined;
+          changes.push({ what: 'look-reset' });
+          break;
+        }
+        const all = isAll(target);
+        const r = all ? null : find(target);
+        if (!all && !r) { skip(op, 'no-scene', asked2(target)); break; }
+        const next = scenes.map((s) => {
+          if ((!all && s.id !== r!.id) || !s.look) return s;
+          const { look: _l, ...rest } = s;
+          return rest as Scene;
+        });
+        if (next.every((s, i) => s === scenes[i])) break;
+        scenes = next;
+        changes.push({ what: 'look-reset', scene: all ? null : r!.n });
+        break;
+      }
+      case 'remove_picture': {
+        const target = sceneField(o) ?? 'all';
+        const all = isAll(target);
+        const r = all ? null : find(target);
+        if (!all && !r) { skip(op, 'no-scene', asked(o)); break; }
+        /** The scene without its picture — and without the search, so it is not fetched again — or why not. */
+        const bare = (s: Scene, n: number | undefined): Scene | null => {
+          if (PICTURED.has(s.kind)) {
+            if (!s.picture && !s.imageQuery) { if (!all) skip(op, 'no-picture', n); return null; }
+            const { picture: _p, imageQuery: _q, ...rest } = s;
+            // A picture scene is its picture: without one it needs its caption to show anything.
+            if (s.kind === 'image' && !s.caption?.trim()) { if (!all) skip(op, 'unfit', n); return null; }
+            return rest as Scene;
+          }
+          if (s.kind === 'people') {
+            if (!s.people.some((p) => p.picture || p.imageQuery)) { if (!all) skip(op, 'no-picture', n); return null; }
+            return { ...s, people: s.people.map(({ picture: _p, imageQuery: _q, ...p }) => p) };
+          }
+          if (s.kind === 'gallery') {
+            // One tile, by its place; a montage with none left is nothing.
+            const k = num(o.picture ?? o.tile ?? o.which ?? o.image);
+            const tiles = (s.pictures ?? []).filter((p) => p?.src).length;
+            if (all || !Number.isInteger(k) || k < 1 || k > tiles || pictureSlots(s).length <= 2) {
+              if (!all) skip(op, 'unfit', n);
+              return null;
+            }
+            return withPicture(s, `g${k - 1}`, undefined);
+          }
+          if (!all) skip(op, 'no-picture', n);
+          return null;
+        };
+        let count = 0;
+        scenes = scenes.map((s) => {
+          if (!all && s.id !== r!.id) return s;
+          const next = bare(s, r?.n);
+          if (!next) return s;
+          count++;
+          return next;
+        });
+        if (all && !count) { skip(op, 'no-picture'); break; }
+        if (count) changes.push({ what: 'picture-removed', scene: all ? null : r!.n });
+        break;
+      }
+      case 'swap_scenes': {
+        const pair = Array.isArray(o.scenes) ? o.scenes : [];
+        const x = o.a ?? o.first ?? o.scene ?? o.from ?? pair[0];
+        const y = o.b ?? o.second ?? o.with ?? o.other ?? o.and ?? o.to ?? pair[1];
+        const ra = find(x);
+        const rb = find(y);
+        if (!ra || !rb) { skip(op, 'no-scene', asked2(!ra ? x : y)); break; }
+        if (ra.id === rb.id) { skip(op, 'invalid', ra.n); break; }
+        const i = indexOf(ra.id);
+        const j = indexOf(rb.id);
+        const next = [...scenes];
+        [next[i], next[j]] = [next[j], next[i]];
+        scenes = next;
+        changes.push({ what: 'swapped', a: ra.n, b: rb.n });
+        break;
+      }
+      case 'undo': {
+        const n = num(o.steps ?? o.count ?? o.times ?? o.n ?? o.value ?? 1);
+        undoSteps = clamp(undoSteps + (Number.isInteger(n) && n > 0 ? n : 1), 1, 20);
+        break;
+      }
+      case 'set_voice': {
+        const v = voiceOf(o.name ?? o.voice ?? o.value ?? o.id ?? o.speaker);
+        if (!v) { skip(op, 'invalid'); break; }
+        if (v === audio.voiceName) break;
+        audio = { ...audio, voiceName: v };
+        changes.push({ what: 'voice-name', name: v });
+        break;
+      }
     }
   }
+  if (undoSteps) changes.unshift({ what: 'undo', steps: undoSteps });
   if (list.length > MAX_OPS) skip('…', 'too-many');
 
   // Where the added and moved scenes are now that every op has run.
@@ -1261,6 +2107,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   if (credits !== video.credits) next.credits = credits;
   if (audio !== (video.audio ?? {})) next.audio = audio;
   if (format !== video.format) next.format = format;
+  if (look !== video.look) next.look = look;
 
   // The same change said twice is said once.
   const seen = new Set<string>();
@@ -1277,6 +2124,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
     wants: {
       pictures, ...(music ? { music } : {}), ...(logo ? { logo } : {}),
       ...(lookups.length ? { lookups } : {}), ...(voice ? { voice } : {}), ...(download ? { download } : {}),
+      ...(undoSteps ? { undo: undoSteps } : {}), ...(found ? { findMusic: found } : {}),
     },
   };
 }
