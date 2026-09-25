@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.110.0.
+version 0.111.0.
 
 ---
 
@@ -155,9 +155,10 @@ provider, no analytics, no crash reporting, and nothing is contacted that you
 did not name — with two exceptions, which you start by hand and which are
 described below: the Research panel looks for references in two public
 catalogues of scholarly work, OpenAlex and Crossref; and the Video panel looks
-for pictures in two public collections of openly licensed media, Openverse and
+the subject of a video up in Wikidata and Wikipedia, looks for pictures and
+music in two public collections of openly licensed media, Openverse and
 Wikimedia Commons, takes its styles' fonts from Google Fonts, and lets Remotion
-count each MP4 you export.
+count each film or poster you export.
 
 **Added providers** (Settings → Account → Model providers) each have their own
 address and their own key, and one rule governs them, pinned by
@@ -175,12 +176,13 @@ used to be proven by the CSP alone is now proven by `app/src/providers.ts` —
 which refuses non-https addresses, normalises them, and routes every request —
 and by the tests on it. The app still makes no request anywhere except the
 gateway, the providers in your list, OpenAlex and Crossref for a Research
-document you started, and the picture, font and licence requests below for a
-video you started.
+document you started, and the lookup, picture, music, font and licence requests
+below for a video you started.
 
-The frontend makes fifteen kinds of outbound request. Eight go to the gateway,
-two to those public catalogues of scholarship, and four are the Video panel's —
-two to the picture collections, one for fonts and one to Remotion:
+The frontend makes eighteen kinds of outbound request. Eight go to the gateway,
+two to those public catalogues of scholarship, and seven are the Video panel's —
+one to look its subject up, two to the picture collections, one for music, one
+to your own speech provider, one for fonts and one to Remotion:
 
 | Where | Request | When |
 |---|---|---|
@@ -188,7 +190,7 @@ two to the picture collections, one for fonts and one to Remotion:
 | `app/src/inline.ts` | `POST {gateway}/v1/messages` | ⌘K rewrite, apply-from-chat |
 | `app/src/complete.ts` | `POST {gateway}/v1/complete` | inline (ghost-text) completion |
 | `app/src/gateway.ts` | `POST {gateway}/v1/messages` | checking a key you just pasted |
-| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; planning a video's storyboard, or redoing one scene of it |
+| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration |
 | `app/src/account.ts` | `POST {gateway}/app/api/auth/login` | signing in — `/auth/register` and `/auth/logout` are the same shape |
 | `app/src/account.ts` | `GET {gateway}/app/api/me` | the plan balance: on launch, when a turn ends, otherwise every five minutes |
 | `app/src/account.ts` | `POST {gateway}/app/api/keys` | minting this app's own key, once, at the end of a sign-in |
@@ -196,8 +198,11 @@ two to the picture collections, one for fonts and one to Remotion:
 | `app/src/scholar.ts` | `GET https://api.openalex.org/works/doi:{doi}`, `GET https://api.crossref.org/works/{doi}` | looking up a DOI you added to a Research document |
 | `app/src/videomedia.ts` | `GET https://api.openverse.org/v1/images/`, then the picture chosen, from the address Openverse gives for it | finding a picture for a scene of a video you started, or when you ask for other pictures |
 | `app/src/videomedia.ts` | `GET https://commons.wikimedia.org/w/api.php`, then the picture chosen, from `upload.wikimedia.org` | the same, when Openverse refuses, fails or finds nothing |
+| `app/src/videoresearch.ts` | `GET https://www.wikidata.org/w/api.php`, `GET https://{ar,ckb,en,ku}.wikipedia.org/api/rest_v1/page/summary/…`, then `commons.wikimedia.org` and `api.openverse.org` for its photographs and logo | looking up the subject of a video you started, before its storyboard is planned — unless you switch **Look the subject up on the web first** off — or when you ask to look it up again |
+| `app/src/videomix.ts` | `GET https://api.openverse.org/v1/audio/`, then the track chosen, from `cdn.freesound.org`, `*.storage.jamendo.com` or `upload.wikimedia.org` | finding music for a video, when you ask for it in its Sound tab |
+| `app/src/videomix.ts` | `POST {speech provider}/v1/audio/speech` | making a video's narration, when you press **Make the voice** — to a provider you added, with that provider's own key |
 | `app/src/videotheme.ts` | `GET https://fonts.gstatic.com/…`, made by `@remotion/google-fonts` | the fonts of a video's style, the first time it is shown or exported in a session |
-| `app/src/videoexport.ts` | `POST https://www.remotion.pro/api/track/register-usage-point`, made by `@remotion/web-renderer` | once for each MP4 export, when it finishes or fails |
+| `app/src/videoexport.ts` | `POST https://www.remotion.pro/api/track/register-usage-point`, made by `@remotion/web-renderer` | once for each film (MP4 or WebM) or poster (PNG) you export, when it finishes or fails |
 
 `{gateway}` defaults to `https://capi.vylo-tech.com` and can be changed in
 Settings (`app/src/App.tsx`).
@@ -249,19 +254,53 @@ made it, under which licence, and where it was found. The credits are shown in a
 closing card unless you turn it off. Each style's fonts come from Google Fonts,
 which learns which fonts, and nothing about the video.
 
-**Each MP4 export sends Remotion one telemetry event.** The film is rendered in
-the page by Remotion's web renderer, `@remotion/web-renderer`, called from
+**Before it is planned, a video's subject is looked up — unless you say not
+to.** The model you chose names what the request is about — "UoD" becomes
+"University of Duhok" — through the same `route`; then
+`app/src/videoresearch.ts` sends that name, in plain GETs with no key, no
+cookie and no headers of its own, to Wikidata and to the Arabic, Sorani, English
+or Kurmanji Wikipedia for a short summary, and to Wikimedia Commons and Openverse
+for its photographs and logo. So **the name of your video's subject leaves this
+machine for those services.** What comes back is shown in the video's **Found on
+the web** tab — every fact with the page it came from, and a switch to leave it
+out — and only the facts you leave on reach the model, as the only figures,
+dates and names the storyboard may state as fact. Photographs and a logo are
+kept only if their licences allow reuse, and credited like every other picture;
+a logo found is offered for the brand and never put there unasked. When the
+video's model is reached over the Anthropic wire, the planning request may also
+carry Anthropic's own web-search tool: the search then happens at Anthropic,
+through the same route, and a gateway that refuses it is remembered for the
+session and not asked again. **Look the subject up on the web first**, under the
+request box, is on by default and switches all of this off.
+
+**A video can have music and a voice, when you ask for them.** In a video's
+**Sound** tab, `app/src/videomix.ts` searches Openverse for openly licensed
+music with the mood words you choose — a plain GET, like the pictures' — and
+downloads the track you pick from the host Openverse names, credited in the
+closing card. A narration is written by your chosen model, one line a scene, and
+spoken only when you press **Make the voice**: each line is sent, as text, to a
+speech provider you added in Settings — an OpenAI-shaped `/v1/audio/speech`
+address — with that provider's own key and to no other address. There is no
+Kurdish voice at any provider today, and the panel says so.
+
+**Each film or poster you export sends Remotion one telemetry event.** The film
+— an MP4, or a WebM where the window can encode one — is rendered in the page by
+Remotion's web renderer, `@remotion/web-renderer`, called from
 `app/src/videoexport.ts`: every frame is drawn and encoded on this machine, and
-none is uploaded. When the render finishes or fails, the renderer reports it to
+none is uploaded; a poster is one of those frames, drawn the same way and saved
+as a PNG. When the render finishes or fails, the renderer reports it to
 Remotion, who count renders under their licence: one `POST` to
 `https://www.remotion.pro`, carrying the licence key — this project uses
 Remotion's free licence, whose key is `free-license` and which the renderer
 sends as an empty key — the page's origin, whether the render succeeded, and,
 like any request, the IP address it comes from. No frame, word, title or picture
 is in it. The app cannot switch it off — the renderer sends it for every render
-— and it is sent only when you press Export.
+— and it is sent only when you press a button that renders: **Download MP4**,
+**Save as MP4…**, **WebM video**, **Poster**, or **All three shapes**,
+which renders three films and sends three. Subtitles and the storyboard backup
+are text written out in the page, and send nothing.
 
-**The fifteenth is WhatsApp, and it goes where you send it.** Every request is
+**The eighteenth is WhatsApp, and it goes where you send it.** Every request is
 built in one place, `app/src/whatsappwire.ts`, from an Evolution API instance
 whose address and key you enter together in `app/src/WhatsAppPanel.tsx`. No
 request to your messages goes anywhere else (transcription is the one exception
@@ -366,11 +405,13 @@ own providers, since a policy cannot be edited at runtime. Which hosts are
 provider you added, and the WhatsApp instance if you connected one — each with
 only its own key. The Research panel adds two that nobody chooses, OpenAlex and
 Crossref: their addresses are built only in `app/src/scholar.ts`, and no key
-is sent to either. The Video panel adds Openverse, Wikimedia Commons, the hosts
-their pictures are kept on, Google Fonts and Remotion: the collections'
-addresses are built only in `app/src/videomedia.ts`, the fonts' and the
-telemetry's only inside Remotion's own packages, and no key is sent to any of
-them. `chat.vylo-tech.com`
+is sent to either. The Video panel adds Wikidata, Wikipedia, Openverse,
+Wikimedia Commons, the hosts their pictures and music are kept on, Google Fonts
+and Remotion: the lookup's addresses are built only in
+`app/src/videoresearch.ts`, the collections' only in `app/src/videomedia.ts` and
+`app/src/videomix.ts`, the fonts' and the telemetry's only inside Remotion's own
+packages, and no key is sent to any of them. The one exception is a narration,
+which goes to the speech provider you added, with its own key. `chat.vylo-tech.com`
 appears as text in three error messages (two in `app/src/errors.ts`, one in
 `app/src/gateway.ts`), but nothing in the app fetches it.
 
@@ -394,10 +435,11 @@ travels down it.
 request, and `app/src-tauri/Cargo.toml` declares no HTTP client of its own — the
 only crate in it that speaks HTTP is `tauri-plugin-updater`, whose one endpoint
 is the URL above. `app/src-tauri/capabilities/default.json`
-grants the window fourteen permissions, and neither the HTTP plugin nor the
+grants the window fifteen permissions, and neither the HTTP plugin nor the
 shell plugin is among them. There is no telemetry, analytics or crash-reporting
 code anywhere in `app/src` or `app/src-tauri/src`; the one telemetry request the
-app makes is the Remotion renderer's own, described above, once per MP4 export.
+app makes is the Remotion renderer's own, described above, once per film or
+poster exported.
 
 ### What is actually in a request
 
@@ -509,15 +551,32 @@ item, and every one of them is absent from the tool schema below:
   of the document you were shown into the page and hidden everything else. It
   refuses a name that does not end in .pdf and a folder that does not exist,
   and creates none.
-- `export_write_video` writes an MP4 from the Video panel to the path the save
-  panel returned after you pressed Export — the film the panel rendered in the
-  page from exactly the storyboard you were previewing. Its bytes arrive as the
-  raw body of the request rather than as text. It refuses a path that is not
-  absolute, a name that does not end in .mp4, a folder that does not exist,
-  bytes that do not carry an MP4's `ftyp` mark and anything over 1 GiB, and it
-  creates no folders.
+- `export_write_video` writes what the Video panel exports — an MP4 or WebM
+  film, a PNG poster, SRT subtitles, or the storyboard as JSON — after you
+  pressed the button for that file. **Save as MP4…** writes to the path the save
+  panel returned, replacing a file there only because the panel asked you
+  first. **Download MP4** and the other downloads write into your Downloads
+  folder, and never over a file already there: if `Title.mp4` is taken it
+  writes `Title (2).mp4`, then `(3)`, creating each file only if nothing has
+  that name — a link at the name is not followed. A film or a poster is rendered
+  in the page from exactly the storyboard you were previewing; subtitles and the
+  storyboard file are that storyboard's own words, written out as text. Its
+  bytes arrive as the raw body of the request rather than as text. It refuses a
+  path that is not absolute, a folder that does not exist, any name but .mp4,
+  .webm, .png, .srt and .json, and bytes that are not what the name says — an
+  MP4 without its `ftyp` mark, a WebM without its EBML header, a PNG without its
+  signature, subtitles that are not plain UTF-8 text, a storyboard that is not
+  JSON — or that are too many: 1 GiB for a film, 64 MiB for a poster, 5 MiB for
+  text. It creates no folders.
 - `reveal_path` writes nothing and opens nothing: it selects a file in Finder
   or Explorer — a row of the file tree, or a document you have just saved.
+- `open_exported` writes nothing: when you press **Open** beside a file the
+  Video panel has just saved, it opens that file in the app your system opens
+  it with — the film in your video player. It opens only a path
+  `export_write_video` wrote since the app started, only a .mp4, .webm, .png or
+  .srt, and only while that is still a plain file beginning the way it did when
+  it was written; never the storyboard file, never a folder or a link, and never
+  anything that runs.
 - `history_restore`, `checkpoint_restore`, `checkpoint_redo` — putting a file
   back to a version this app already recorded, from the File History panel or an
   undo button.
@@ -537,7 +596,7 @@ everything:  write_file   edit_file   run_command   remember
 
 `apply_write` is not among them. Neither are `create_file`, `create_dir`,
 `rename_path`, `delete_path`, `git_create_branch`, `git_commit`, `export_write`,
-`export_write_docx`, `export_write_video`, `save_pdf`, `reveal_path`, `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
+`export_write_docx`, `export_write_video`, `save_pdf`, `reveal_path`, `open_exported`, `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
 `history_forget_all`, `checkpoint_save`, `checkpoint_restore`, `checkpoint_redo`,
 `store_sizes`, `store_empty`,
 `capture_screenshot`, `set_global_shortcut`, `watch_start`, `watch_stop`,
@@ -574,13 +633,16 @@ refuses anything that does not start with the root — so `..` and symlinks
 *resolve* rather than being pattern-matched, and a file that does not exist yet
 is checked through its parent.
 
-There are **nine** deliberate exceptions, and what they have in common is that
-the path is one you chose rather than one the model supplied. `read_image`,
+There are **ten** deliberate exceptions, and what they have in common is that
+the path is one you chose — or, for a download, your Downloads folder — rather
+than one the model supplied. `read_image`,
 `read_text_attachment`, `read_document` and `read_any_file` read a file you
 dragged in or picked — each says so in its doc comment in `lib.rs`; the
 Research panel's data files come through the last three. `export_write`,
-`export_write_docx` and `export_write_video` *write* to an absolute path, which is the save panel's, and
-so does `save_pdf`; `reveal_path` shows one in Finder or Explorer. All nine are
+`export_write_docx` and `export_write_video` *write* to an absolute path, which is the save panel's
+(or, for the Video panel's downloads, one in your Downloads folder), and
+so does `save_pdf`; `reveal_path` shows one in Finder or Explorer, and
+`open_exported` opens one the Video panel has just written. All ten are
 absent from the tool schema, so no tool call reaches any of them however
 the model is prompted.
 
@@ -763,12 +825,16 @@ dropped first (`LOGO_LIBRARY`), and in each document one was put on. Data files 
 text read out of them is kept, in the document's draft.
 
 **Videos are not one of them either.** Each video — what you asked for, the
-storyboard and its words, the brand colours and logo you gave it, and the
-pictures fetched for it, with their credits — is kept in the webview's
+storyboard and its words, the brand colours and logo you gave it, the facts and
+pictures found about its subject, the pictures and music fetched for it, with
+their credits, and its narration's audio — is kept in the webview's
 IndexedDB, in a database named `vylo-video`, on this machine
-(`app/src/videostore.ts`). Deleting a video in the panel deletes it there. The
-MP4 itself is written only when you press Export and choose a place, and only
-there.
+(`app/src/videostore.ts`). Deleting a video in the panel deletes it there. A
+film, a poster, subtitles or a storyboard file is written only when you press
+the button for it — into your Downloads folder, under a name no file there
+already has, or, with **Save as MP4…**, where you choose — and only there. The
+resolution, bitrate and sound you last chose for a download are remembered in
+`localStorage` (`vylo.video.download`).
 
 Chats, settings, your gateway key, your session token, which MCP servers you
 enabled, any model providers you added, the clipboard history, the terminal
@@ -825,7 +891,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.110.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.111.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -850,6 +916,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.110.0. Every statement above was read out of the code. If
+*Last checked against 0.111.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

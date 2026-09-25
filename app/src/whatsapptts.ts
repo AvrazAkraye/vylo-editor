@@ -107,9 +107,16 @@ export function speakerIn(providers: readonly Provider[]): Provider | null {
   return providers.find((p) => p.wire === 'openai' && p.key && p.baseUrl) ?? null;
 }
 
-/** Where the request goes. Built from the provider's own base and nothing else. */
-export const speechPath = (p: Pick<Provider, 'baseUrl'>): string =>
-  `${p.baseUrl.replace(/\/+$/, '')}/audio/speech`;
+/**
+ * Where the request goes. Built from the provider's own base and nothing else.
+ * Bases are stored without `/v1` (providers.ts `normalizeBase` strips it), so
+ * it is put back here — as `whatsappvoice.ts` does for transcription — and not
+ * doubled for a base that still carries it.
+ */
+export const speechPath = (p: Pick<Provider, 'baseUrl'>): string => {
+  const base = p.baseUrl.replace(/\/+$/, '');
+  return /\/v1$/.test(base) ? `${base}/audio/speech` : `${base}/v1/audio/speech`;
+};
 
 /** The headers for it. The key goes to `speechPath` and to no other address. */
 export const speechHeaders = (p: Pick<Provider, 'key'>): Record<string, string> => ({

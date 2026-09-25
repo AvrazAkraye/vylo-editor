@@ -11,8 +11,8 @@
 // needs a browser.
 import {
   cleanQuery, commonsArtist, commonsLicense, commonsUrl, creditsOf, fetchPicture, fillPictures,
-  fromCommons, fromOpenverse, openverseLicense, openverseUrl, picturesToTry, rank, scaledSize,
-  searchPictures, stripHtml, wikimediaSized,
+  fromCommons, fromOpenverse, needsPictures, openverseLicense, openverseUrl, picturesOf, picturesToTry, portrays, rank,
+  scaledSize, searchPictures, stripHtml, wikimediaSized, withPicturesOf,
 } from '../.test-build/videomedia.js';
 
 let pass = 0, fail = 0;
@@ -406,6 +406,61 @@ const scene = (id, kind, over = {}) => ({ id, kind, seconds: 4, transition: 'fad
   ok('stopped: an AbortError, the scene reported before it kept, nothing asked after', e?.name === 'AbortError' && same(reported, [0]) && !f.urls().some((u) => u.includes('hospital')));
 }
 ok('creditsOf ignores scenes without a picture and bad input', same(creditsOf([scene('a', 'title'), { picture: { credit: '  ' } }]), []) && same(creditsOf(null), []));
+
+// ── galleries and people ──────────────────────────────────────────────────
+// Openverse, q=Daniel Bliss (2026-09-25): four of eight results. Not one is a portrait of him: a
+// homestead named after a Daniel Bliss, and three army photographs that matched on other words.
+const ovBliss = {"result_count":116,"page_size":8,"results":[{"id":"326062e3-4b76-46f8-a493-5242c8cb50bf","title":"Daniel Bliss Homestead, Rehoboth MA","foreign_landing_url":"https://commons.wikimedia.org/w/index.php?curid=23566860","url":"https://upload.wikimedia.org/wikipedia/commons/0/0c/Daniel_Bliss_Homestead%2C_Rehoboth_MA.jpg","creator":"John Phelan","license":"by-sa","license_version":"3.0","provider":"wikimedia","source":"wikimedia","filetype":"jpg","mature":false,"height":2448,"width":3264,"thumbnail":"https://api.openverse.org/v1/images/326062e3-4b76-46f8-a493-5242c8cb50bf/thumb/","unstable__sensitivity":[]},{"id":"d9119690-bc1a-4ca8-a3c4-c242062b81ce","title":"U.S. Patriots augment Turkish air defense","foreign_landing_url":"https://www.flickr.com/photos/37585279@N03/15642408367","url":"https://live.staticflickr.com/5605/15642408367_1fce098507_b.jpg","creator":"U.S. Army Europe","license":"pdm","license_version":"1.0","provider":"flickr","source":"flickr","filetype":null,"mature":false,"height":623,"width":1024,"thumbnail":"https://api.openverse.org/v1/images/d9119690-bc1a-4ca8-a3c4-c242062b81ce/thumb/","unstable__sensitivity":[]},{"id":"2b7208ab-6797-4de1-b406-cfd4cab4df52","title":"180326-A-ED846-007","foreign_landing_url":"https://www.flickr.com/photos/133821783@N02/41036042981","url":"https://live.staticflickr.com/901/41036042981_00531269b2_b.jpg","creator":"NCOLCoE Archive Photos","license":"pdm","license_version":"1.0","provider":"flickr","source":"flickr","filetype":null,"mature":false,"height":682,"width":1024,"thumbnail":"https://api.openverse.org/v1/images/2b7208ab-6797-4de1-b406-cfd4cab4df52/thumb/","unstable__sensitivity":[]},{"id":"30de815b-9fb1-4a3a-a567-e3a110ce0b6b","title":"Art_Untitled.","foreign_landing_url":"https://www.flickr.com/photos/35980642@N05/14669707592","url":"https://live.staticflickr.com/5581/14669707592_4260df9c29_b.jpg","creator":"Carl Nenzén Lovén","license":"by","license_version":"2.0","provider":"flickr","source":"flickr","filetype":null,"mature":false,"height":1024,"width":683,"thumbnail":"https://api.openverse.org/v1/images/30de815b-9fb1-4a3a-a567-e3a110ce0b6b/thumb/","unstable__sensitivity":[]}]};
+{
+  const pic = (t) => ({ src: 'data:image/jpeg;base64,AA', credit: `${t} — X, CC0 (Wikimedia Commons)`, source: `https://commons.wikimedia.org/wiki/File:${t}`, query: t });
+  ok('needsPictures: a gallery short of its searches, a person with a search and no portrait, a one-picture scene',
+    needsPictures(scene('g', 'gallery', { imageQueries: ['coffee', 'tea'], pictures: [pic('a')] }))
+    && !needsPictures(scene('g', 'gallery', { imageQueries: ['coffee'], pictures: [pic('a')] }))
+    && needsPictures(scene('p', 'people', { heading: 'h', people: [{ name: 'A', imageQuery: 'A B' }] }))
+    && !needsPictures(scene('p', 'people', { heading: 'h', people: [{ name: 'A' }] }))
+    && needsPictures(scene('i', 'image', { imageQuery: 'x' })) && !needsPictures(scene('k', 'kinetic', { text: 'x' })) && !needsPictures(null));
+  ok('picturesOf and creditsOf count a gallery\'s and each person\'s pictures, in order, once',
+    same(picturesOf(scene('g', 'gallery', { pictures: [pic('a'), pic('b')] })).map((p) => p.query), ['a', 'b'])
+    && same(creditsOf([scene('t', 'title', { picture: pic('t') }), scene('g', 'gallery', { pictures: [pic('a'), pic('t')] }), scene('p', 'people', { heading: 'h', people: [{ name: 'n', picture: pic('p') }, { name: 'm' }] })]),
+      ['t — X, CC0 (Wikimedia Commons)', 'a — X, CC0 (Wikimedia Commons)', 'p — X, CC0 (Wikimedia Commons)']));
+  ok('portrays: every word of the name in the title, titles like "Dr" aside, and not a place named after them',
+    portrays('Rev. Daniel Bliss', 'Dr. Daniel Bliss') && portrays('Masrour Barzani meets the Prime Minister', 'Masrour Barzani')
+    && !portrays('Daniel Bliss Homestead, Rehoboth MA', 'Daniel Bliss') && !portrays('U.S. Patriots augment Turkish air defense', 'Daniel Bliss') && !portrays('Daniel Smith', 'Daniel Bliss') && !portrays('anything', ''));
+}
+{
+  const scenes = [scene('g', 'gallery', { heading: 'Mornings', imageQueries: ['coffee', 'coffee', 'hospital'] })];
+  const f = fake((u) => (isOV(u) && u.includes('q=coffee') ? reply(200, ovCoffee) : isOV(u) ? reply(200, { results: [] }) : isWM(u) ? reply(200, wmHospital) : jpeg(u)));
+  const reported = [];
+  const out = await fillPictures(scenes, { get: f.get, encode: fakeEncode().encode, onScene: (i, s) => reported.push([i, s.pictures?.length]) });
+  ok('a gallery gets one picture per search, a shared search searched once, no picture twice', out[0].pictures.length === 3 && new Set(out[0].pictures.map((p) => p.source)).size === 3
+    && f.urls().filter((u) => isOV(u) && u.includes('q=coffee')).length === 1 && same(reported, [[0, 3]]));
+  const two = [scene('g', 'gallery', { imageQueries: ['coffee', 'coffee', 'coffee'], pictures: [{ src: 'data:image/jpeg;base64,AA', credit: 'c', source: 'https://www.flickr.com/photos/47140246@N02/4325230234', query: 'q' }, { src: 'data:image/jpeg;base64,AB', credit: 'd', source: 'https://example.org/d', query: 'q' }] })];
+  const f2 = fake((u) => (isOV(u) ? reply(200, ovCoffee) : jpeg(u)));
+  const out2 = await fillPictures(two, { get: f2.get, encode: fakeEncode().encode });
+  ok('a gallery that already holds two pictures searches only for its third, and not the one it has', out2[0].pictures.length === 3 && !out2[0].pictures.slice(2).some((p) => p.source === 'https://www.flickr.com/photos/47140246@N02/4325230234'));
+}
+{
+  const scenes = [scene('p', 'people', { heading: 'Founder', people: [{ name: 'دانيال بلس', role: 'المؤسس', imageQuery: 'Daniel Bliss' }, { name: 'Nobody' }] })];
+  const f = fake((u) => (isOV(u) ? reply(200, ovBliss) : isWM(u) ? reply(200, { query: { pages: [] } }) : jpeg(u)));
+  const out = await fillPictures(scenes, { get: f.get, encode: fakeEncode().encode });
+  ok('a person gets no stranger\'s face: none of the real "Daniel Bliss" results is a portrait of him', !out[0].people[0].picture && f.urls().filter((u) => !isOV(u) && !isWM(u)).length === 0);
+  const named = clone(ovBliss);
+  named.results[1].title = 'Rev. Daniel Bliss, founder';
+  const f2 = fake((u) => (isOV(u) ? reply(200, named) : jpeg(u)));
+  const out2 = await fillPictures(scenes, { get: f2.get, encode: fakeEncode().encode });
+  ok('…and gets the one whose title names him', out2[0].people[0].picture?.credit.startsWith('Rev. Daniel Bliss, founder') && !out2[0].people[1].picture);
+}
+{
+  const p = (id) => ({ src: `data:image/jpeg;base64,${id}`, credit: id, source: `https://x/${id}`, query: id });
+  const cur = scene('g', 'gallery', { heading: 'edited', pictures: [p('a')] });
+  const found = scene('g', 'gallery', { heading: 'old', pictures: [p('a'), p('b')] });
+  ok('withPicturesOf: a gallery edited meanwhile keeps its edit and gains the new picture', same(withPicturesOf(cur, found), { ...cur, pictures: [p('a'), p('b')] }));
+  const people = scene('p', 'people', { heading: 'h', people: [{ name: 'Renamed' }, { name: 'Same' }] });
+  const got = scene('p', 'people', { heading: 'h', people: [{ name: 'Old name', picture: p('x') }, { name: 'Same', picture: p('y') }] });
+  ok('…a person gains a portrait only while still named the same', same(withPicturesOf(people, got).people, [{ name: 'Renamed' }, { name: 'Same', picture: p('y') }]));
+  const one = scene('i', 'image', { caption: 'mine', imageQuery: 'q' });
+  ok('…a one-picture scene gains its picture; another scene\'s is never taken', same(withPicturesOf(one, { ...one, caption: 'old', picture: p('z') }), { ...one, picture: p('z') }) && withPicturesOf(one, scene('other', 'image', { picture: p('z') })) === one);
+}
 
 // ── every request this file made ──────────────────────────────────────────
 ok('every search went to Openverse or Commons over https', everyCall.filter(([u]) => /api\.openverse|commons\.wikimedia/.test(u) && !u.includes('/thumb/')).every(([u]) => isOV(u) || isWM(u)));

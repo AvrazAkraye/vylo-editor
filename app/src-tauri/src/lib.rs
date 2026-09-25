@@ -2049,7 +2049,7 @@ pub fn run() {
             store_sizes, store_empty,
             capture_screenshot,
             set_global_shortcut,
-            export_write, export_write_docx, video::export_write_video, pdf::save_pdf, pdf::reveal_path,
+            export_write, export_write_docx, video::export_write_video, video::open_exported, pdf::save_pdf, pdf::reveal_path,
             watch::watch_start, watch::watch_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close, pty::pty_cwd, pty::pty_running, pty::shell_commands, pty::shell_history, pty::complete_path
         ])

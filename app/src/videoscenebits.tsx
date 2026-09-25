@@ -24,12 +24,12 @@
  * joins between letters.
  */
 
-import { createContext, useContext, useId } from 'react';
+import { createContext, useContext, useEffect, useId, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { AbsoluteFill, Img, interpolate, random, spring, useCurrentFrame, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, Img, interpolate, random, spring, useCurrentFrame, useDelayRender, useVideoConfig } from 'remotion';
 import type { Video } from './videotypes';
-import { alpha, contrast, mix } from './videotheme';
-import type { Box, Fit, Theme, TypeFace } from './videotheme';
+import { alpha, contrast, localDigits, luminance, mix } from './videotheme';
+import type { Box, Fit, Numerals, Theme, TypeFace } from './videotheme';
 
 // ---------------------------------------------------------------------------
 // Scene context
@@ -48,6 +48,8 @@ export interface SceneInfo {
   total: number;
   /** Whether the style's fonts are loaded (measurements are only cached then). */
   ready: boolean;
+  /** The digits the video's numbers are drawn in (videotheme.ts `numeralsOf`). */
+  digits: Numerals;
 }
 
 const SceneContext = createContext<SceneInfo | null>(null);
@@ -137,6 +139,67 @@ export function revealStyle(mode: RevealMode, p: number, travel: number, dir: 'u
   }
 }
 
+/** Frames a sheen takes to cross a line. */
+const SHEEN_FRAMES = 30;
+
+/** One band of a sheen: a clipped copy of the line in a lighter colour. */
+export interface SheenBand { clipPath: string; color: string; opacity: number }
+
+/**
+ * A band of light crossing a line of text once, `f` frames after it starts,
+ * in the direction the language reads: copies of the line in a lighter
+ * colour, each clipped to a slanted band (`clip-path: polygon`) — a bright
+ * core inside two fainter, wider ones, which reads as a soft highlight. Both
+ * the Player and the web renderer draw a clipped copy exactly over its line;
+ * a gradient clipped to the letters (`background-clip: text`) would be
+ * simpler, but the exporter reads that from computed styles and WebKit's is
+ * not to be relied on. Outside the sweep there are no bands at all. Minimal
+ * has no decoration and neon already glows, so neither shines.
+ */
+export function sheenBands(theme: Theme, color: string, f: number): SheenBand[] {
+  if (theme.style === 'minimal' || theme.style === 'neon' || f <= 0 || f >= SHEEN_FRAMES) return [];
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return [];
+  const t = Easing.inOut(Easing.cubic)(f / SHEEN_FRAMES);
+  // From before the start edge to past the end edge — right to left for Arabic and Kurdish.
+  const at = theme.rtl ? 130 - 160 * t : -30 + 160 * t;
+  // A pale line (white on a dark ground) catches the style's accent as the light passes; a coloured
+  // line brightens; dark words on a light ground warm towards the second accent.
+  const light = luminance(color) > 0.6
+    ? mix(theme.accent, '#FFFFFF', 0.4)
+    : theme.dark || theme.inverted ? mix(color, '#FFFFFF', 0.7) : mix(color, theme.accent2, 0.85);
+  const slant = theme.rtl ? -4 : 4;
+  const band = (half: number) => {
+    const x = (v: number) => `${v.toFixed(2)}%`;
+    return `polygon(${x(at - half + slant)} 0%, ${x(at + half + slant)} 0%, ${x(at + half - slant)} 100%, ${x(at - half - slant)} 100%)`;
+  };
+  const fade = Math.sin(t * Math.PI);
+  return [
+    { clipPath: band(11), color: light, opacity: 0.35 * fade },
+    { clipPath: band(6), color: light, opacity: 0.6 * fade },
+    { clipPath: band(2.5), color: light, opacity: 0.95 * fade },
+  ];
+}
+
+/**
+ * A line of text with its sheen: the line itself, then the bands laid
+ * exactly over it (same style, same box, later in the DOM so in front).
+ */
+export function ShineText(p: { text: string; style: CSSProperties; color: string; sheenAt?: number }) {
+  const { theme } = useScene();
+  const frame = useCurrentFrame();
+  const bands = p.sheenAt === undefined ? [] : sheenBands(theme, p.color, frame - p.sheenAt);
+  if (!bands.length) return <div style={p.style}>{p.text}</div>;
+  const { transform, opacity, ...plain } = p.style;
+  return (
+    <div style={{ position: 'relative', transform, opacity }}>
+      <div style={plain}>{p.text}</div>
+      {bands.map((b, i) => (
+        <div key={i} style={{ ...plain, position: 'absolute', left: 0, top: 0, width: '100%', color: b.color, opacity: b.opacity, textShadow: undefined, clipPath: b.clipPath }}>{p.text}</div>
+      ))}
+    </div>
+  );
+}
+
 interface LinesProps {
   fit: Fit;
   face: TypeFace;
@@ -151,6 +214,8 @@ interface LinesProps {
   lineColor?: (i: number) => string | undefined;
   style?: CSSProperties;
   slower?: number;
+  /** A light that sweeps once across the lines, starting at this frame of the scene (styles that have one). */
+  sheen?: number;
 }
 
 /**
@@ -179,13 +244,14 @@ export function Lines(p: LinesProps) {
           shadow={p.shadow}
           travel={theme.motion.travel * box.u}
           slower={p.slower}
+          sheen={p.sheen === undefined ? undefined : p.sheen + i * 3}
         />
       ))}
     </div>
   );
 }
 
-function Line(p: { text: string; size: number; face: TypeFace; bold?: boolean; color: string; lh: number; delay: number; mode: RevealMode; align?: 'start' | 'center'; shadow?: string; travel: number; slower?: number }) {
+function Line(p: { text: string; size: number; face: TypeFace; bold?: boolean; color: string; lh: number; delay: number; mode: RevealMode; align?: 'start' | 'center'; shadow?: string; travel: number; slower?: number; sheen?: number }) {
   const pr = useEnter(p.delay, p.slower);
   const text: CSSProperties = {
     fontFamily: p.face.family,
@@ -203,11 +269,11 @@ function Line(p: { text: string; size: number; face: TypeFace; bold?: boolean; c
     const pad = p.size * 0.28;
     return (
       <div style={{ overflow: 'hidden', paddingTop: pad, paddingBottom: pad, marginTop: -pad, marginBottom: -pad, paddingInline: pad * 0.4, marginInline: -pad * 0.4 }}>
-        <div style={{ ...text, transform: `translateY(${(1 - pr) * 115}%)`, opacity: Math.min(1, pr * 2) }}>{p.text}</div>
+        <ShineText text={p.text} color={p.color} sheenAt={p.sheen} style={{ ...text, transform: `translateY(${(1 - pr) * 115}%)`, opacity: Math.min(1, pr * 2) }} />
       </div>
     );
   }
-  return <div style={{ ...text, ...revealStyle(p.mode, pr, p.travel * 0.6) }}>{p.text}</div>;
+  return <ShineText text={p.text} color={p.color} sheenAt={p.sheen} style={{ ...text, ...revealStyle(p.mode, pr, p.travel * 0.6) }} />;
 }
 
 /** Plain text style for a face at a size. */
@@ -289,7 +355,7 @@ export function Grain(p: { opacity: number; width: number; height: number; t: nu
  * same picture and only the scene's content appears to change.
  */
 export function Backdrop(p: { plain?: boolean; intensity?: number }) {
-  const { theme: th, box, start, index, count, total, video } = useScene();
+  const { theme: th, box, start, index, count, total, video, digits } = useScene();
   const frame = useCurrentFrame();
   const t = start + frame;
   const { width: W, height: H, u } = box;
@@ -325,7 +391,7 @@ export function Backdrop(p: { plain?: boolean; intensity?: number }) {
         <div key="band2" style={{ position: 'absolute', left: -big * 0.25, top: H * 0.5 + big * 0.12, width: big * 1.5, height: big * 0.022, background: alpha(th.accent2, th.inverted ? 0.14 : 0.3), transform: `rotate(-14deg) translateX(${-slide}px)` }} />,
       );
       // The scene's number, huge and outlined, in the far corner.
-      const num = String(index + 1).padStart(2, '0');
+      const num = localDigits(String(index + 1).padStart(2, '0'), digits);
       const ns = (box.format === 'portrait' ? 520 : 600) * u;
       layers.push(
         <div key="num" style={{ position: 'absolute', [th.rtl ? 'left' : 'right']: -ns * 0.06, bottom: -ns * 0.2, fontFamily: "'Anton', 'Noto Kufi Arabic', sans-serif", fontWeight: 400, fontSize: ns, lineHeight: `${ns}px`, color: 'transparent', WebkitTextStroke: `${Math.max(1, 2.5 * u)}px ${alpha(th.fg, 0.12)}`, direction: 'ltr', whiteSpace: 'nowrap' }}>{num}</div>,
@@ -391,23 +457,31 @@ export function Backdrop(p: { plain?: boolean; intensity?: number }) {
       const small = 22 * u;
       const label: CSSProperties = { position: 'absolute', top: y1 - small * 1.9, fontFamily: th.body.family, fontWeight: th.body.strong, fontSize: small, lineHeight: `${small * 1.3}px`, color: th.muted, whiteSpace: 'nowrap' };
       const played = Math.min(1, t / Math.max(1, total - 1));
-      layers.push(
-        <div key="r1" style={{ position: 'absolute', left: box.x, top: y1, width: box.w, height: line, background: alpha(th.fg, 0.14) }} />,
-        <div key="r2" style={{ position: 'absolute', left: box.x, top: y2, width: box.w, height: line, background: alpha(th.fg, 0.14) }} />,
-        <div key="r3" style={{ position: 'absolute', [th.rtl ? 'right' : 'left']: box.x, top: y2 - line, width: box.w * played, height: line * 3, background: th.accent }} />,
-        <div key="n" style={{ ...label, [th.rtl ? 'right' : 'left']: box.x, direction: 'ltr' }}>{`${String(index + 1).padStart(2, '0')} / ${String(count).padStart(2, '0')}`}</div>,
-      );
-      if (video.brand?.name) {
-        layers.push(<div key="b" style={{ ...label, [th.rtl ? 'left' : 'right']: box.x }}>{video.brand.name}</div>);
+      // A vertical frame's story bar takes the place of the top rule.
+      if (box.format !== 'portrait') layers.push(<div key="r1" style={{ position: 'absolute', left: box.x, top: y1, width: box.w, height: line, background: alpha(th.fg, 0.14) }} />);
+      layers.push(<div key="r2" style={{ position: 'absolute', left: box.x, top: y2, width: box.w, height: line, background: alpha(th.fg, 0.14) }} />);
+      // A vertical video keeps words out of the top and bottom bands (phone apps draw there) and
+      // shows its progress in the story bar along the top instead (VideoScenes.tsx).
+      if (box.format !== 'portrait') {
+        const counter = localDigits(`${String(index + 1).padStart(2, '0')} / ${String(count).padStart(2, '0')}`, digits);
+        layers.push(
+          <div key="r3" style={{ position: 'absolute', [th.rtl ? 'right' : 'left']: box.x, top: y2 - line, width: box.w * played, height: line * 3, background: th.accent }} />,
+          <div key="n" style={{ ...label, [th.rtl ? 'right' : 'left']: box.x, direction: 'ltr' }}>{counter}</div>,
+        );
+        // The brand's name on the other side — unless the watermark already puts the brand in that corner.
+        if (video.brand?.name && !watermarkOn(video)) {
+          layers.push(<div key="b" style={{ ...label, [th.rtl ? 'left' : 'right']: box.x }}>{video.brand.name}</div>);
+        }
       }
       break;
     }
     case 'sun': {
-      const sun = Math.min(W, H) * (box.format === 'landscape' ? 0.62 : 0.5);
+      // In a vertical frame the sun sits up in the band phone apps draw over, clear of the words below it.
+      const sun = Math.min(W, H) * (box.format === 'landscape' ? 0.62 : box.format === 'portrait' ? 0.44 : 0.42);
       const rise = s(900) * 30 * u;
       // The sun sits in the far corner on the end side, where words rarely are.
       const sx = th.rtl ? W * 0.12 : W * 0.88;
-      const sy = box.format === 'portrait' ? H * 0.08 : H * 0.14;
+      const sy = box.format === 'portrait' ? H * 0.035 : box.format === 'square' ? H * 0.07 : H * 0.14;
       layers.push(
         <Blob key="glow" size={sun * 2.4} color={th.accent2} opacity={0.3 * k} style={{ left: sx - sun * 1.2, top: sy - sun * 1.2, transform: `translateY(${rise}px)` }} />,
         <div key="sun" style={{ position: 'absolute', left: sx - sun / 2, top: sy - sun / 2, width: sun, height: sun, borderRadius: '50%', background: `linear-gradient(200deg, ${alpha(th.accent2, 0.42)} 0%, ${alpha(th.accent, 0.22)} 100%)`, transform: `translateY(${rise}px)`, opacity: k }} />,
@@ -434,22 +508,42 @@ export function Backdrop(p: { plain?: boolean; intensity?: number }) {
 // Pictures
 
 /**
- * A picture filling its box, moving slowly: zooming in or out and drifting
- * in one of four directions, chosen by the scene's index so consecutive
- * pictures do not all move the same way.
+ * The slow camera moves a picture can make, as scale and drift (in % of the
+ * picture) at the start and the end: pushing in, pulling out, panning,
+ * tilting and diagonals. A picture always stays larger than its box, so no
+ * edge ever shows.
+ */
+const MOVES: readonly { s: [number, number]; x: [number, number]; y: [number, number] }[] = [
+  { s: [1.05, 1.17], x: [-1.2, 1.4], y: [0.6, -0.8] }, // push in, drifting to the end
+  { s: [1.19, 1.07], x: [1.4, -1.2], y: [-0.4, 0.8] }, // pull out, drifting back
+  { s: [1.12, 1.13], x: [-3.2, 3.2], y: [0, 0] }, // a pan across
+  { s: [1.14, 1.14], x: [0, 0], y: [2.8, -2.8] }, // a tilt up
+  { s: [1.06, 1.2], x: [2, -1.6], y: [1.6, -1.2] }, // a diagonal push
+  { s: [1.13, 1.12], x: [3, -3], y: [-0.6, 0.6] }, // a pan the other way
+  { s: [1.2, 1.08], x: [-1.8, 1.4], y: [-1.6, 1.2] }, // a diagonal pull
+];
+
+/**
+ * A picture filling its box, moving slowly — a Ken Burns move chosen by
+ * `seed` so neighbouring pictures never move alike, eased at both ends so it
+ * starts and settles like a camera on a slider rather than a scroll. The
+ * move runs across `frames` and a little past it, so it is still going
+ * during the transition out. `strength` scales it (a face moves less).
  */
 export function Photo(p: { src: string; seed: number; frames: number; style?: CSSProperties; strength?: number }) {
   const frame = useCurrentFrame();
-  const t = Math.max(0, Math.min(1, frame / Math.max(1, p.frames)));
   const k = p.strength ?? 1;
-  const zoomIn = p.seed % 2 === 0;
-  const scale = zoomIn ? 1.06 + 0.12 * t * k : 1.18 - 0.12 * t * k;
-  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-  const [dx, dy] = dirs[p.seed % 4];
-  const pan = 2.4 * (t - 0.5) * k;
+  const m = MOVES[((p.seed % MOVES.length) + MOVES.length) % MOVES.length];
+  const t = interpolate(frame, [0, Math.max(1, p.frames + 15)], [0, 1], { easing: Easing.bezier(0.33, 0, 0.6, 1), extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  const lerp = (r: [number, number]) => r[0] + (r[1] - r[0]) * t;
+  const scale = 1 + (lerp(m.s) - 1) * (0.6 + 0.4 * k);
+  // Drift never takes the picture's edge inside its box: at most half the headroom the scale leaves.
+  const room = ((scale - 1) / scale) * 50;
+  const dx = Math.max(-room, Math.min(room, lerp(m.x) * k));
+  const dy = Math.max(-room, Math.min(room, lerp(m.y) * k));
   return (
     <div style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', overflow: 'hidden', ...p.style }}>
-      <Img src={p.src} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${scale.toFixed(4)}) translate(${(dx * pan).toFixed(3)}%, ${(dy * pan).toFixed(3)}%)` }} />
+      <Img src={p.src} style={{ width: '100%', height: '100%', objectFit: 'cover', transform: `scale(${scale.toFixed(4)}) translate(${dx.toFixed(3)}%, ${dy.toFixed(3)}%)` }} />
     </div>
   );
 }
@@ -481,6 +575,45 @@ export function Scrim(p: { theme: Theme; to: 'bottom' | 'top' | 'start' | 'all';
   return <div style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', background: bg }} />;
 }
 
+const naturalSizes = new Map<string, { w: number; h: number }>();
+
+/**
+ * A picture's own width and height, for laying it out by hand (a logo framed
+ * tightly, say). Holds the renderer's frame until the picture has been
+ * measured, so no frame is drawn with a guess; null while unknown or when it
+ * cannot be read. Pictures are data: URLs, so this never touches the network.
+ */
+export function useNaturalSize(src: string | undefined): { w: number; h: number } | null {
+  const [size, setSize] = useState(() => (src ? naturalSizes.get(src) ?? null : null));
+  const { delayRender, continueRender } = useDelayRender();
+  useEffect(() => {
+    if (!src) return;
+    const known = naturalSizes.get(src);
+    if (known) {
+      setSize(known);
+      return;
+    }
+    let live = true;
+    const handle = delayRender('Measuring a picture', { timeoutInMilliseconds: 20000 });
+    const img = new Image();
+    const done = () => continueRender(handle);
+    img.onload = () => {
+      const got = { w: img.naturalWidth || 1, h: img.naturalHeight || 1 };
+      if (naturalSizes.size > 32) naturalSizes.clear();
+      naturalSizes.set(src, got);
+      if (live) setSize(got);
+      done();
+    };
+    img.onerror = done;
+    img.src = src;
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src]);
+  return src ? size ?? naturalSizes.get(src) ?? null : null;
+}
+
 /** The brand's logo, kept in proportion within a height. */
 export function Logo(p: { src: string; height: number; maxWidth: number; style?: CSSProperties }) {
   return <Img src={p.src} style={{ height: p.height, width: 'auto', maxWidth: p.maxWidth, objectFit: 'contain', ...p.style }} />;
@@ -495,4 +628,13 @@ export function Rule(p: { width: number; height: number; color: string; p: numbe
       <div style={{ width: w, height: p.height, background: p.color, borderRadius: theme.radius > 0 ? p.height / 2 : 0 }} />
     </div>
   );
+}
+
+/**
+ * Whether the film carries the brand in a corner: on unless the person
+ * turned it off, and only when there is a brand to carry — a logo, or a name
+ * to set as a small wordmark.
+ */
+export function watermarkOn(v: Pick<Video, 'watermark' | 'brand'>): boolean {
+  return v.watermark !== false && !!(v.brand?.logo || v.brand?.name?.trim());
 }

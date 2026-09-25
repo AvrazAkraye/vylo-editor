@@ -673,5 +673,69 @@ const NO_PDF = 'This provider cannot read a PDF. Save the PDF as text or as a Wo
   ok('a signal aborted with a reason of its own still rejects as an AbortError', e?.name === 'AbortError', e?.name);
 }
 
+// ── server tools: the Video module's web search ───────────────────────────
+// The optional `tools` goes as it is, on the Anthropic wire only; a request
+// without it is byte for byte what it was; the search's own blocks —
+// server_tool_use, web_search_tool_result — are never the answer; and a 4xx
+// carries its status, so the caller can remember "not offered here".
+const SEARCH = { type: 'web_search_20250305', name: 'web_search', max_uses: 3 };
+{
+  const sent = gateway([sse([
+    frame({ type: 'message_start', message: { usage: { input_tokens: 900, output_tokens: 1 } } }),
+    frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+    frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'I will search. ' } }),
+    frame({ type: 'content_block_stop', index: 0 }),
+    frame({ type: 'content_block_start', index: 1, content_block: { type: 'server_tool_use', id: 'srvtoolu_1', name: 'web_search' } }),
+    frame({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"query":"University of Duhok"}' } }),
+    frame({ type: 'content_block_stop', index: 1 }),
+    frame({ type: 'content_block_start', index: 2, content_block: { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_1', content: [{ type: 'web_search_result', title: 'University of Duhok', url: 'https://uod.ac', encrypted_content: 'EqgfCioIARgB' }] } }),
+    frame({ type: 'content_block_stop', index: 2 }),
+    frame({ type: 'content_block_start', index: 3, content_block: { type: 'text', text: '' } }),
+    frame({ type: 'content_block_delta', index: 3, delta: { type: 'text_delta', text: '{"facts":[{"label":"Founded","value":"1992","url":"https://uod.ac"}]}' } }),
+    frame({ type: 'content_block_delta', index: 3, delta: { type: 'citations_delta', citation: { type: 'web_search_result_location', url: 'https://uod.ac', title: 'UoD', cited_text: 'Founded in 1992', encrypted_index: 'Eo8B' } } }),
+    frame({ type: 'content_block_stop', index: 3 }),
+    frame({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 60 } }),
+    frame({ type: 'message_stop' }),
+  ])]);
+  const r = recorder();
+  const out = await generate(GW, { ...ASK, tools: [SEARCH], ...r.hooks });
+  ok('tools: sent as given, on the Anthropic wire', JSON.stringify(sent[0].body.tools) === JSON.stringify([SEARCH]), sent[0].body.tools);
+  ok('the answer is the text blocks only: no search query, no results, no citation', out.text === 'I will search. {"facts":[{"label":"Founded","value":"1992","url":"https://uod.ac"}]}'
+     && !/encrypted|srvtoolu|cited_text/.test(r.deltas().join('')), out.text);
+  const plain = gateway([sse(turn(['x']))]);
+  await generate(GW, { ...ASK, tools: [] });
+  ok('an empty tools list sends no tools field at all', !('tools' in plain[0].body), Object.keys(plain[0].body));
+}
+{
+  const sent = gateway([new Response(JSON.stringify({
+    content: [
+      { type: 'text', text: 'Searching. ' },
+      { type: 'server_tool_use', id: 'srvtoolu_2', name: 'web_search', input: { query: 'UoD' } },
+      { type: 'web_search_tool_result', tool_use_id: 'srvtoolu_2', content: [{ type: 'web_search_result', url: 'https://uod.ac', title: 'UoD', encrypted_content: 'x' }] },
+      { type: 'text', text: '{"facts":[]}', citations: [{ type: 'web_search_result_location', url: 'https://uod.ac', cited_text: 'c' }] },
+    ],
+    stop_reason: 'end_turn', usage: { input_tokens: 10, output_tokens: 5, server_tool_use: { web_search_requests: 1 } },
+  }), { status: 200, headers: { 'content-type': 'application/json' } })]);
+  const out = await generate(GW, { ...ASK, tools: [SEARCH] });
+  ok('a gateway that does not stream: text blocks only there too', out.text === 'Searching. {"facts":[]}' && sent.length === 1, out.text);
+}
+{
+  let fetched = 0;
+  globalThis.fetch = async () => { fetched += 1; throw new Error('should not be called'); };
+  const e = await caught(generate(OAI, { ...ASK, tools: [SEARCH] }));
+  ok('on the OpenAI wire a request with server tools is refused before anything is sent', /cannot run server tools/.test(String(e?.message)) && fetched === 0, e?.message);
+}
+{
+  gateway([refusal(400, 'tools.0: Input tag \'web_search_20250305\' found using \'type\' does not match any of the expected tags')]);
+  const e = await caught(generate(GW, { ...ASK, tools: [SEARCH] }));
+  ok('a 400 for the tool carries its status', e?.status === 400 && /answered 400/.test(e.message), [e?.status, e?.message]);
+  gateway([refusal(403, 'This plan does not include web search')]);
+  const e2 = await caught(generate(GW, { ...ASK, tools: [SEARCH] }));
+  ok('and so does a 403', e2?.status === 403, e2?.status);
+  gateway([refusal(401, 'invalid x-api-key')]);
+  const e3 = await caught(generate(GW, { ...ASK }));
+  ok('the old sentences are unchanged, with the status beside them', e3?.status === 401 && /^The API key was rejected/.test(e3.message), e3?.message);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

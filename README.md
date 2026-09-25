@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.110.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.111.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -115,14 +115,20 @@ needs the researcher's own data, it leaves a marked gap instead of inventing
 any.
 
 **Video, made with AI and drawn by the app.** Turn on the Video module and
-describe the video — *a 30-second vertical promo for our clinic, in Arabic*. The
-model writes a storyboard of scenes (a title, kinetic words, points, a counting
-number, a chart, a quote, a picture, steps, a close), the app finds openly
-licensed pictures for it on Openverse and Wikimedia Commons, credits kept, and
-the scenes are drawn by the app's own Remotion templates in six styles, in
-Arabic, Kurdish or English, landscape, vertical or square. Edit any scene, redo
-one with an instruction, watch it in the preview, and export an MP4 rendered in
-the app itself. The model never writes code; it writes the storyboard.
+describe the video — *a 30-second vertical promo for UoD, in Arabic*. The app
+first looks the subject up on the web — Wikidata, Wikipedia and Wikimedia
+Commons — so "UoD" becomes the University of Duhok with its real founding year,
+website and photographs, each fact shown with its source for you to keep or
+drop. The model then writes a storyboard from those facts: sixteen kinds of
+scene, among them a title, kinetic words, a counting number, a chart, a
+timeline, a comparison, people, a photo montage, a logo reveal and a QR code.
+The app's own Remotion templates draw it in six styles, in Arabic, Kurdish or
+English, landscape, vertical or square, with openly licensed pictures and
+music, an optional narrated voice and captions, all credited. Edit it on a
+timeline with undo, start from one of ten templates, take the brand colours
+from your logo, and **Download MP4** — or WebM, 4K, all three shapes at once, a
+poster, subtitles — rendered in the app itself. The model never writes code; it
+writes the storyboard.
 
 **Native, and small.** 8 MB installed and a 4 MB download, because it is a
 Tauri app with a Rust tool layer rather than an Electron shell. One codebase

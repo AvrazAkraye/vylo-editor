@@ -75,16 +75,25 @@ const ABSENT = [
   // Research's Save as PDF. Like export_write_docx, an absolute path is safe
   // here only while nothing the model produces can reach it.
   'save_pdf',
-  // Writes a rendered MP4 from the Video module wherever the OS save panel
-  // said. Absent for export_write_docx's reason: it takes an absolute path and
-  // does not contain it, which is safe only while nothing the model produces
-  // can reach it. Its guards (.mp4 only, ftyp bytes only, 1 GiB) narrow what
-  // it can write; they do not make it a tool.
+  // Writes what the Video module exports — an MP4 or WebM film, a PNG poster,
+  // SRT subtitles, the storyboard as JSON — wherever the OS save panel said, or
+  // into the Downloads folder under a name nothing there has. Absent for
+  // export_write_docx's reason: it takes an absolute path and does not contain
+  // it, which is safe only while nothing the model produces can reach it. Its
+  // guards (five extensions, each checked against its bytes, size caps, never
+  // replacing a download) narrow what it can write; they do not make it a tool.
   'export_write_video',
   // Selects a file in Finder or Explorer. It opens and writes nothing, but a
   // model that could put windows on the person's screen would be reaching
   // outside the app, which no tool does.
   'reveal_path',
+  // Opens a file the Video module just wrote in the system's player or viewer,
+  // for the Open button beside "Saved to …". It hands a file to another
+  // program, which is further than reveal_path goes, so it opens only a path
+  // export_write_video wrote in this run, only .mp4/.webm/.png/.srt, and only
+  // while the bytes still are what was written — and no tool can call it, since
+  // a model that could open files would be launching programs by another name.
+  'open_exported',
   // The file operations and the git writes. These have been absent from the
   // schema since G1 and M-whatever respectively, and until now they were absent
   // by nobody's decision — no test said they had to be. `create_file`'s own doc

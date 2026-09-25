@@ -1,9 +1,6 @@
 import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { invoke } from '@tauri-apps/api/core';
-import { save as savePanel } from '@tauri-apps/plugin-dialog';
 import { Icon } from './Icon';
-import { IS_MAC } from './Welcome';
 import * as ask from './ask';
 import { fill, type Lang } from './i18n';
 import { explain } from './errors';
@@ -13,17 +10,24 @@ import { MODELS, modelName } from './models';
 import { EFFORTS, effortLabel, effortOf, effortsFor, type Effort, type EffortBook } from './effort';
 import { generate, type Target } from './generate';
 import {
-  FPS, SCENE_KINDS, type Brand, type Format, type Picture, type Scene, type SceneKind, type Style, type Video, type VideoLang,
+  FPS, SCENE_KINDS, type Brand, type Format, type Scene, type SceneKind, type Style, type Video, type VideoLang,
 } from './videotypes';
 import {
   LENGTHS, TRANSITION_FRAMES, blankScene, durationInFrames, formatIn, isRtl, newVideo, parsePlan, parseScene,
   planPrompt, sceneFrames, scenePrompt, secondsIn, styleIn, videoLangOf,
 } from './video';
 import { deleteVideo, loadVideos, saveVideo } from './videostore';
-import { creditsOf, fillPictures } from './videomedia';
-import { canExport, renderVideo, videoFileName, writeVideoFile } from './videoexport';
+import { creditsOf, fillPictures, needsPictures, picturesOf, withPicturesOf } from './videomedia';
+import { factsBlock, placeBriefPictures, researchVideo, wantsLookup, type Ask } from './videoresearch';
 import { STYLE_SWATCH } from './VideoScenes';
-import { PICTURED, Storyboard, gistOf, kindAbout, kindName } from './VideoStoryboard';
+import { PICTURED, Storyboard, WatermarkSwitch, kindAbout, kindName } from './VideoStoryboard';
+import { VideoFacts } from './VideoFacts';
+import { VideoSound } from './VideoSound';
+import { RowDownload, VideoDownloads, forgetDownloads, useDownloading } from './VideoDownloads';
+import { UndoRedo, VideoTimeline, selectScene, useVideoKeys } from './VideoTimeline';
+import { videoHistory } from './videohistory';
+import { TEMPLATES, sampleOf, sampleVideo, templateAbout, templateName, type Template } from './videotemplates';
+import { brandFromLogo, paletteOfImage, type Swatch } from './videopalette';
 
 /**
  * Video, in the sidebar: describe a short film, and get a storyboard you can
@@ -39,9 +43,11 @@ import { PICTURED, Storyboard, gistOf, kindAbout, kindName } from './VideoStoryb
  * What comes back from the model is a storyboard in JSON: scenes of fixed
  * kinds with plain fields. video.ts reads and repairs it; the app's own
  * components draw it (VideoScenes.tsx). Nothing the model wrote is run, and
- * nothing it wrote reaches a file except through **Export MP4**, which the
- * person presses, at a path they choose in the save panel, rendering what is
- * on screen at that moment. That is SAFETY.md's rule, kept here.
+ * nothing it wrote reaches a file except through a download the person
+ * presses — **Download MP4** into their Downloads folder under a name that
+ * never replaces a file, or **Save as…** at a path they choose — rendering
+ * what is on screen at that moment (VideoDownloads.tsx). That is SAFETY.md's
+ * rule, kept here.
  *
  * ## Pictures
  *
@@ -86,21 +92,11 @@ interface Job {
   sceneId?: string;
   /** A request being tried again, and of how many. */
   retry?: { attempt: number; of: number };
-}
-
-/** An export in progress. */
-interface Out {
-  ctl: AbortController;
-  phase: 'render' | 'write';
-  fraction: number;
-  eta?: number;
-  started: number;
+  /** Looking the subject up on the web, before the storyboard is asked for (videoresearch.ts). */
+  looking?: boolean;
 }
 
 const jobs = new Map<string, Job>();
-const outs = new Map<string, Out>();
-/** Where each video was last exported this session, for "Show in Finder". */
-const savedTo = new Map<string, string>();
 /** The newest copy of every video this session has seen, by id. */
 const known = new Map<string, Video>();
 const watchers = new Set<() => void>();
@@ -133,8 +129,12 @@ function update(id: string, change: (v: Video) => Video) {
   if (v) keep({ ...change(v), updated: Date.now() });
 }
 
-const putPicture = (id: string, sceneId: string, picture: Picture) =>
-  update(id, (v) => ({ ...v, scenes: v.scenes.map((s) => (s.id === sceneId ? { ...s, picture } : s)) }));
+/** The pictures a search found for a scene — its own, a gallery's, each person's — written into its newest copy. */
+const putFound = (id: string, found: Scene) => {
+  const now = known.get(id)?.scenes.find((s) => s.id === found.id);
+  if (!now || withPicturesOf(now, found) === now) return;
+  update(id, (v) => ({ ...v, scenes: v.scenes.map((s) => (s.id === found.id ? withPicturesOf(s, found) : s)) }));
+};
 
 const newId = () => {
   const bytes = new Uint8Array(6);
@@ -154,23 +154,24 @@ const UNREADABLE_SCENE = 'video:unreadable-scene';
 async function picturesFor(id: string, job: Job, only?: string) {
   const v = known.get(id);
   if (!v) return;
-  const want = v.scenes.filter((s) => s.imageQuery && !s.picture && PICTURED.has(s.kind) && (!only || s.id === only));
+  // A gallery's pictures and each person's portrait are searched for too (videomedia's needsPictures).
+  const want = v.scenes.filter((s) => (s.kind === 'gallery' || s.kind === 'people' || PICTURED.has(s.kind)) && needsPictures(s) && (!only || s.id === only));
   job.stage = only ? 'scene' : 'pictures';
   job.pics = { done: 0, of: want.length };
   notify();
   if (!want.length) return;
   // The scenes that already have a picture go too, and are skipped: they are
   // what keeps the same photograph from being chosen for two scenes.
-  const got = await fillPictures(v.scenes.filter((s) => s.picture || want.includes(s)), {
+  const got = await fillPictures(v.scenes.filter((s) => picturesOf(s).length > 0 || want.includes(s)), {
     format: v.format,
     signal: job.ctl.signal,
     onScene: (_i, scene) => {
       job.pics.done = Math.min(job.pics.of, job.pics.done + 1);
-      if (scene.picture) putPicture(id, scene.id, scene.picture);
+      putFound(id, scene);
       notifySoon();
     },
   });
-  for (const s of got) if (s.picture && !known.get(id)?.scenes.find((x) => x.id === s.id)?.picture) putPicture(id, s.id, s.picture);
+  for (const s of got) putFound(id, s);
 }
 
 function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: unknown) => string, report: (m: string) => void) {
@@ -192,12 +193,43 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
   const going = (async () => {
     if (work.how === 'plan') {
       update(id, (x) => ({ ...x, stage: 'planning', error: undefined, model: gw.model }));
-      const p = planPrompt(known.get(id) ?? v);
+      // Look the subject up first — once a video; the Facts tab looks it up
+      // again on request. What it finds is a note, never a failure: a lookup
+      // that finds nothing, or fails, leaves the plan to go on without it.
+      const asked = known.get(id) ?? v;
+      if (wantsLookup(asked)) {
+        job.looking = true;
+        notify();
+        // Small requests on the same route, at low effort: naming the subject,
+        // and (Anthropic wire) the model's own web search.
+        const quick: Ask = (q) => generate(gw, {
+          system: q.system, user: q.user, maxTokens: q.maxTokens, tools: q.tools,
+          efforts: { ...efforts, [gw.model]: 'low' }, signal: q.signal ?? ctl.signal,
+        }).then((r) => r.text);
+        try {
+          const brief = await researchVideo(asked.request, {
+            lang: asked.lang, format: asked.format, signal: ctl.signal, ask: quick,
+            webSearch: gw.wire === 'anthropic' ? { ask: quick, key: `${gw.baseUrl} ${gw.model}` } : null,
+          });
+          update(id, (x) => ({ ...x, brief }));
+        } catch (e) {
+          if (ctl.signal.aborted || (e as { name?: string })?.name === 'AbortError') throw e;
+        }
+        job.looking = false;
+        notify();
+      }
+      const before = known.get(id) ?? v;
+      const p = planPrompt(before, {
+        facts: before.lookup !== false ? factsBlock(before.brief) : undefined,
+        narration: !!before.audio?.narrate,
+      });
       const out = await call(p.system, p.user, 8000);
       const cur = known.get(id) ?? v;
       const plan = parsePlan(out.text, cur, newId);
       if (!plan || !plan.scenes.length) throw new Error(UNREADABLE_PLAN);
-      keep({ ...cur, title: plan.title || cur.title, scenes: plan.scenes, stage: 'pictures', updated: Date.now() });
+      // The subject's own pictures go in first; the search fills what is left.
+      const scenes = cur.lookup !== false ? placeBriefPictures(plan.scenes, cur.brief, cur.format) : plan.scenes;
+      keep({ ...cur, title: plan.title || cur.title, scenes, stage: 'pictures', updated: Date.now() });
       await picturesFor(id, job);
     } else if (work.how === 'scene') {
       const cur = known.get(id);
@@ -263,9 +295,11 @@ interface Draft {
   lang: VideoLang | null;
   set: Partial<Pick<Video, 'choice' | 'effort'>>;
   more: boolean;
+  /** Look the subject up on the web before planning (videoresearch.ts). */
+  lookup: boolean;
 }
 
-const draft: Draft = { request: '', format: null, seconds: null, style: null, lang: null, set: {}, more: false };
+const draft: Draft = { request: '', format: null, seconds: null, style: null, lang: null, set: {}, more: false, lookup: true };
 
 function useDraft<K extends keyof Draft>(k: K): [Draft[K], (v: Draft[K]) => void] {
   const [v, setV] = useState<Draft[K]>(draft[k]);
@@ -568,6 +602,17 @@ function BrandFields({ t, value, style, onChange, disabled }: {
 }) {
   const [bad, setBad] = useState(false);
   const sw = STYLE_SWATCH[style];
+  // The logo's own colours, read on this machine (videopalette.ts) and offered —
+  // never put in place of colours the person chose until they press for it.
+  const [swatches, setSwatches] = useState<Swatch[] | null>(null);
+  useEffect(() => {
+    if (!value.logo) { setSwatches(null); return; }
+    let live = true;
+    paletteOfImage(value.logo).then((x) => { if (live) setSwatches(x); }, () => { if (live) setSwatches(null); });
+    return () => { live = false; };
+  }, [value.logo]);
+  const offer = swatches ? brandFromLogo(swatches, sw.bg) : null;
+  const inUse = !!offer && value.primary?.toUpperCase() === offer.primary && value.accent?.toUpperCase() === offer.accent;
   const colour = (label: string, key: 'primary' | 'accent', fallback: string) => (
     <div className="vid-colour">
       <label>
@@ -602,6 +647,26 @@ function BrandFields({ t, value, style, onChange, disabled }: {
         </button>
         {value.logo && <button type="button" className="ghost" disabled={disabled} onClick={() => onChange({ ...value, logo: undefined })}>{t('Remove')}</button>}
       </div>
+      {offer && (
+        <div className="vid-tpl-palette vid-wide">
+          <span className="vid-tpl-dots" aria-hidden="true">
+            <i style={{ background: offer.primary }} title={offer.primary} />
+            {offer.accent && <i style={{ background: offer.accent }} title={offer.accent} />}
+          </span>
+          <span className="vid-tpl-palette-what">
+            <b>{t('Colours from the logo')}</b>
+            {offer.adjusted && <span>{t('Made lighter or darker where needed, so they read on this style’s background.')}</span>}
+          </span>
+          {inUse
+            ? <small className="vid-tpl-inuse"><Icon name="check" size={11} />{t('In use')}</small>
+            : (
+              <button type="button" className="ghost" disabled={disabled}
+                      onClick={() => onChange({ ...value, primary: offer.primary, accent: offer.accent })}>
+                {t('Use the logo’s colours')}
+              </button>
+            )}
+        </div>
+      )}
       {bad && <p className="vid-bad vid-wide">{t('Use a PNG or JPEG picture under 400 KB.')}</p>}
     </div>
   );
@@ -614,7 +679,7 @@ function JobStatus({ t, video, job }: { t: T; video: Video; job: Job }) {
   let line: string;
   let pct: number | null = null;
   if (job.stage === 'planning') {
-    line = job.chars ? t('Writing the storyboard…') : `${thinkingVerb(elapsed, t)}…`;
+    line = job.looking ? t('Looking it up on the web…') : job.chars ? t('Writing the storyboard…') : `${thinkingVerb(elapsed, t)}…`;
   } else if (job.stage === 'pictures') {
     pct = job.pics.of ? Math.round((100 * job.pics.done) / job.pics.of) : 100;
     line = job.pics.of
@@ -638,31 +703,6 @@ function JobStatus({ t, video, job }: { t: T; video: Video; job: Job }) {
         <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
         {job.stage === 'planning' && job.chars > 0 && <span>{fill(t('{n} characters'), { n: job.chars.toLocaleString() })}</span>}
         {job.retry && <span>{fill(t('Trying again ({n} of {of})…'), { n: job.retry.attempt, of: job.retry.of })}</span>}
-      </p>
-    </div>
-  );
-}
-
-/** An export under way: the frames rendered, roughly how long is left, and Cancel. */
-function ExportStatus({ t, out }: { t: T; out: Out }) {
-  useTick(true);
-  const elapsed = Date.now() - out.started;
-  const pct = Math.round(Math.min(1, Math.max(0, out.fraction)) * 100);
-  const left = out.eta ?? (out.fraction > 0.02 ? (elapsed / out.fraction) * (1 - out.fraction) : 0);
-  return (
-    <div className="vid-status vid-export" role="status">
-      <p className="vid-status-line">
-        <span className="vid-glyph" aria-hidden="true">✻</span>
-        <b>{out.phase === 'write' ? t('Saving the file…') : t('Rendering the video…')}</b>
-        {out.phase === 'render' && <span className="vid-pct">{pct}%</span>}
-      </p>
-      <div className="vid-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} aria-label={t('Progress')}>
-        <i style={{ inlineSize: `${out.phase === 'write' ? 100 : pct}%` }} />
-      </div>
-      <p className="vid-clock">
-        <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
-        {out.phase === 'render' && left > 1000 && <span>{fill(t('about {time} left'), { time: clock(left) })}</span>}
-        <span>{t('Keep the app open until it is saved.')}</span>
       </p>
     </div>
   );
@@ -829,18 +869,9 @@ function Stage({ t, video, seek, onSeek }: { t: T; video: Video; seek?: { frame:
             {job && <JobStatus t={t} video={video} job={job} />}
           </div>
         )}
+      {/* The timeline is the way through the scenes here: click, drag, resize (VideoTimeline.tsx). */}
       {video.scenes.length > 0 && (
-        <ol className="vid-strip" aria-label={t('Scenes')}>
-          {video.scenes.map((s, i) => (
-            <li key={s.id}>
-              <button type="button" onClick={() => onSeek(i)} title={gistOf(s)}>
-                <span className="vid-strip-n">{i + 1}</span>
-                <b>{kindName(s.kind, t)}</b>
-                <span dir="auto">{gistOf(s) || '—'}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
+        <VideoTimeline t={t} video={video} onScenes={(scenes) => edit(video.id, { scenes })} onSeek={onSeek} locked={!!job} wide />
       )}
       {credits.length > 0 && (
         <details className="vid-credits">
@@ -895,8 +926,10 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
   const [langSet, setLangSet] = useDraft('lang');
   const [set, putSet] = useDraft('set');
   const [more, setMore] = useDraft('more');
+  const [lookup, setLookup] = useDraft('lookup');
   const [brand, setBrandNow] = useState<Brand>(readBrand);
   const [brandUnkept, setBrandUnkept] = useState(false);
+  const [picked, setPicked] = useState<Template['id'] | null>(null);
 
   const found = useMemo(() => ({
     format: formatIn(request), seconds: secondsIn(request), style: styleIn(request),
@@ -919,13 +952,35 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
   const go = () => {
     if (!request.trim() || !ready || !onPlan) return;
     const v = newVideo({ id: newId(), now: Date.now(), request: request.trim(), lang: vlang, format, style, seconds, brand });
-    onStart({ ...v, ...set, credits: v.credits ?? true });
+    onStart({ ...v, ...set, credits: v.credits ?? true, lookup });
     setRequest('');
     setFormatSet(null);
     setSecondsSet(null);
     setStyleSet(null);
     setLangSet(null);
+    setPicked(null);
   };
+
+  // A template fills the form in the interface's language; nothing is asked of a model until "Make it".
+  const pickTemplate = (tpl: Template) => {
+    const text = tpl.request[lang] ?? tpl.request.en;
+    setRequest(text);
+    setFormatSet(tpl.format);
+    setSecondsSet(tpl.seconds);
+    setStyleSet(tpl.style);
+    // Sorani and Badini are told apart by a few words, and a short request may not have them.
+    if (langSet === null && videoLangOf(text, lang) !== lang) setLangSet(lang);
+    setPicked(tpl.id);
+    requestAnimationFrame(() => document.getElementById('vid-request')?.focus());
+  };
+  // A sample storyboard, opened at once: placeholder words to see and edit, no model asked.
+  const openSample = (tpl: Template) => {
+    const v = sampleVideo(tpl, { now: Date.now(), lang: vlang, request: request.trim() || (tpl.request[lang] ?? tpl.request.en), brand, newId });
+    keep({ ...v, ...set });
+    setPicked(null);
+    onOpen(v.id);
+  };
+  const pickedTpl = picked ? TEMPLATES.find((x) => x.id === picked) ?? null : null;
 
   // What the words switched on, and what is only the default, side by side.
   const chip = (icon: 'grid' | 'clock' | 'sparkle' | 'chat', label: string, by: 'you' | 'words' | 'default') => (
@@ -960,6 +1015,35 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
         </div>
 
         <div className="vid-group">
+          <span className="vid-group-label">{t('Start from a template')}</span>
+          <div className="vid-tpl-row" role="group" aria-label={t('Start from a template')}>
+            {TEMPLATES.map((tpl) => {
+              const sw = STYLE_SWATCH[tpl.style];
+              return (
+                <button key={tpl.id} type="button" className={`vid-tpl-card ${picked === tpl.id ? 'on' : ''}`} aria-pressed={picked === tpl.id}
+                        onClick={() => pickTemplate(tpl)} title={templateAbout(tpl.id, t)}>
+                  <span className="vid-tpl-thumb" style={{ background: sw.bg, color: sw.accent }} aria-hidden="true">
+                    <i className={tpl.format === 'portrait' ? 'vid-tpl-frame is-portrait' : tpl.format === 'square' ? 'vid-tpl-frame is-square' : 'vid-tpl-frame is-landscape'} />
+                    <Icon name={tpl.icon} size={14} />
+                  </span>
+                  <b>{templateName(tpl.id, t)}</b>
+                  <small>{formatName(tpl.format, t)} · {fill(t('{n} s'), { n: tpl.seconds })}</small>
+                </button>
+              );
+            })}
+          </div>
+          {pickedTpl && (
+            <div className="vid-tpl-picked">
+              <span>{templateAbout(pickedTpl.id, t)} {t('Change any word above, then make it — or see a sample first.')}</span>
+              <button type="button" className="ghost" onClick={() => openSample(pickedTpl)}>
+                <Icon name="play" size={11} />{t('Open a sample storyboard')}
+              </button>
+              <small>{t('Placeholder words, ready to preview and edit. No model is asked.')}</small>
+            </div>
+          )}
+        </div>
+
+        <div className="vid-group">
           <span className="vid-group-label">{t('Shape')}</span>
           <FormatPicker t={t} value={format} onChange={setFormatSet} />
         </div>
@@ -985,6 +1069,14 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
         {more && <BrandFields t={t} value={brand} style={style} onChange={setBrand} />}
         {more && brandUnkept && <p className="vid-bad">{t('The brand could not be kept on this machine. It goes on this video only.')}</p>}
 
+        <label className="vid-check vid-facts-ask">
+          <input type="checkbox" checked={lookup} onChange={(e) => setLookup(e.target.checked)} />
+          <span>
+            {t('Look the subject up on the web first')}
+            <small>{t('Real facts, photographs and the logo from Wikipedia, Wikidata and Wikimedia Commons, given to the model before it plans. You see and check every one under “Found on the web”.')}</small>
+          </span>
+        </label>
+
         {!onPlan && <p className="vid-warn vid-in">{fill(t('Your plan does not include {model}. Choose another model above.'), { model: modelName(target.model) })}</p>}
         <button className="sb-cta-go vid-go" disabled={!request.trim() || !ready || !onPlan} onClick={go}>
           <Icon name="film" size={13} />
@@ -1005,9 +1097,9 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
 
 function VideoRow({ t, video, onOpen }: { t: T; video: Video; onOpen: () => void }) {
   const job = jobs.get(video.id);
-  const out = outs.get(video.id);
+  const out = useDownloading(video.id);
   return (
-    <li>
+    <li className="vid-dl-li">
       <button className="vid-row" onClick={onOpen}>
         <span className={`vid-dot ${job || out ? 'is-live' : video.error ? 'is-bad' : video.stage === 'ready' ? 'is-done' : ''}`} aria-hidden="true" />
         <span className="vid-row-what">
@@ -1024,13 +1116,28 @@ function VideoRow({ t, video, onOpen }: { t: T; video: Video; onOpen: () => void
           </span>
         </span>
       </button>
+      <RowDownload t={t} video={video} locked={!!job} />
     </li>
   );
 }
 
 // ── one video ─────────────────────────────────────────────────────────────
 
-type Tab = 'scenes' | 'look' | 'details';
+type Tab = 'scenes' | 'look' | 'sound' | 'facts' | 'details';
+
+/**
+ * A change the person made by hand: kept, and remembered for undo
+ * (videohistory.ts). A run's own changes — a plan, a scene written again, a
+ * picture fetched — go through `update` and are not; the history notices
+ * them and starts again from what they left, so an undo never fights one.
+ */
+function edit(id: string, next: Partial<Video>) {
+  const before = known.get(id);
+  if (!before) return;
+  update(id, (v) => ({ ...v, ...next }));
+  const after = known.get(id);
+  if (after && after !== before) videoHistory.record(id, before, after);
+}
 
 function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSeek, onBack, begin, onError }: {
   t: T;
@@ -1047,59 +1154,31 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
   onError: (m: string) => void;
 }) {
   const [tab, setTab] = useState<Tab>('scenes');
-  // Asked once a video: a webview too old to encode says so here, before the
-  // person has chosen where to save a file that could never be written.
-  const [can, setCan] = useState<{ ok: boolean; why?: string } | null>(null);
-  useEffect(() => {
-    let live = true;
-    canExport(video).then((c) => { if (live) setCan(c); }, () => { if (live) setCan(null); });
-    return () => { live = false; };
-  }, [video.id, video.format]); // eslint-disable-line react-hooks/exhaustive-deps
   const job = jobs.get(video.id);
-  const out = outs.get(video.id);
-  const saved = savedTo.get(video.id);
+  // Rendering and saving, and whether this window can, live in VideoDownloads.
+  const out = useDownloading(video.id);
   const busy = !!job;
-  const change = (next: Partial<Video>) => update(video.id, (v) => ({ ...v, ...next }));
-  const missing = video.scenes.filter((s) => s.imageQuery && !s.picture && PICTURED.has(s.kind)).length;
+  // Every change made here by hand is remembered for undo; a run's own changes are not (see `edit`).
+  const change = (next: Partial<Video>) => edit(video.id, next);
+  const undo = () => {
+    if (jobs.has(video.id)) return;
+    const back = videoHistory.undo(video.id, known.get(video.id) ?? video);
+    if (back) update(video.id, (v) => ({ ...v, ...back }));
+  };
+  const redoEdit = () => {
+    if (jobs.has(video.id)) return;
+    const again = videoHistory.redo(video.id, known.get(video.id) ?? video);
+    if (again) update(video.id, (v) => ({ ...v, ...again }));
+  };
+  const viewRef = useRef<HTMLDivElement>(null);
+  const seekScene = (i: number) => { selectScene(video.id, video.scenes[i]?.id ?? null); onSeek(i); };
+  useVideoKeys({ video, scope: viewRef, locked: busy, onScenes: (scenes) => change({ scenes }), onSeek: seekScene, onUndo: undo, onRedo: redoEdit });
+  const sample = sampleOf(video);
+  // Montages and people count too: videomedia's needsPictures is the same test the search runs.
+  const missing = video.scenes.filter((s) => (s.kind === 'gallery' || s.kind === 'people' || PICTURED.has(s.kind)) && needsPictures(s)).length;
   const credits = creditsOf(video.scenes);
   const target = targetOf(video, routes);
   const level = effortOf(bookFor(video, target, efforts), target.model);
-
-  const exportIt = async () => {
-    if (outs.has(video.id) || jobs.has(video.id) || !video.scenes.length) return;
-    // What is exported is the video as it is now, on screen: the press is the approval.
-    const v = video;
-    try {
-      const can = await canExport(v);
-      if (!can.ok) {
-        onError(can.why ? fill(t('The video cannot be rendered here: {why}'), { why: can.why }) : t('This computer cannot render the video here.'));
-        return;
-      }
-      const path = await savePanel({ title: t('Export MP4'), defaultPath: videoFileName(v), filters: [{ name: 'MP4', extensions: ['mp4'] }] });
-      if (!path) return;
-      const o: Out = { ctl: new AbortController(), phase: 'render', fraction: 0, started: Date.now() };
-      outs.set(v.id, o);
-      savedTo.delete(v.id);
-      notify();
-      try {
-        const bytes = await renderVideo(v, {
-          signal: o.ctl.signal,
-          onProgress: (fraction, eta) => { o.fraction = fraction; o.eta = eta; notifySoon(); },
-        });
-        if (o.ctl.signal.aborted) return;
-        o.phase = 'write';
-        notify();
-        await writeVideoFile(path, bytes);
-        savedTo.set(v.id, path);
-      } finally {
-        outs.delete(v.id);
-        notify();
-      }
-    } catch (e) {
-      if ((e as { name?: string })?.name === 'AbortError') return;
-      onError(explain(e, t('export the video')));
-    }
-  };
 
   const remove = async () => {
     const yes = await ask.confirm({
@@ -1111,9 +1190,9 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
     if (!yes) return;
     gone.add(video.id);
     stop(video.id);
-    outs.get(video.id)?.ctl.abort();
+    forgetDownloads(video.id);
+    videoHistory.forget(video.id);
     known.delete(video.id);
-    savedTo.delete(video.id);
     void deleteVideo(video.id);
     notify();
     onBack();
@@ -1159,7 +1238,8 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
   const at = now === 'new' ? -1 : ORDER.indexOf(now);
 
   return (
-    <div className="vid-view">
+    // Focusable, so a click anywhere in the video's view puts its keys (Space, the arrows) to work.
+    <div className="vid-view vid-tl-scope" ref={viewRef} tabIndex={-1}>
       <div className="vid-top">
         <button className="sb-act vid-back" onClick={onBack} title={t('Back')} aria-label={t('Back')}>
           <Icon name="chevron" size={14} />
@@ -1168,6 +1248,10 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
           <b dir="auto">{video.title || video.request}</b>
           <span>{formatName(video.format, t)} · {styleName(video.style, t)} · {langName(video.lang, t)}{video.scenes.length ? ` · ${fill(t('{n} s'), { n: Math.round(lengthOf(video)) })}` : ''}</span>
         </div>
+        {video.scenes.length > 0 && (
+          <UndoRedo t={t} canUndo={!busy && videoHistory.canUndo(video.id, video)} canRedo={!busy && videoHistory.canRedo(video.id, video)}
+                    onUndo={undo} onRedo={redoEdit} />
+        )}
         {!inFull && (
           <button className="sb-act" onClick={() => toggleVideoFull(true)} title={t('Full screen')} aria-label={t('Full screen')}>
             <Icon name="maximise" size={14} />
@@ -1192,11 +1276,26 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
 
       {job && <JobStatus t={t} video={video} job={job} />}
       {!job && video.error && <p className="vid-bad vid-pad">{errorText(video.error, t)}</p>}
+      {sample && !job && (
+        <div className="vid-tpl-sample" role="note">
+          <Icon name="sparkle" size={13} />
+          <span className="vid-tpl-sample-what">
+            <b>{fill(t('A sample from “{name}”'), { name: templateName(sample.id, t) })}</b>
+            <span>{t('Placeholder words that show the shape of the video — no model has written anything yet. Change every line, or have the model plan it from your request.')}</span>
+          </span>
+          <button className="ghost" disabled={!ready} onClick={() => void replan()}>
+            <Icon name="sparkle" size={12} />{t('Plan it with the model')}
+          </button>
+        </div>
+      )}
 
       {!inFull && video.scenes.length > 0 && (
         <Suspense fallback={<div className="vid-player is-wait"><span className="vid-spinner" aria-hidden="true" /></div>}>
           <Preview video={video} t={t} at={seek} maxBlock="46vh" />
         </Suspense>
+      )}
+      {!inFull && video.scenes.length > 0 && (
+        <VideoTimeline t={t} video={video} onScenes={(scenes) => change({ scenes })} onSeek={seekScene} locked={busy} />
       )}
       {!video.scenes.length && !job && (
         <div className="vid-acts">
@@ -1206,26 +1305,16 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
         </div>
       )}
 
-      {video.scenes.length > 0 && (
+      {/* Download MP4 and every other way to take the video away, with the
+          progress, Cancel and "Saved to …" — one primary action, in VideoDownloads. */}
+      {video.scenes.length > 0 && <VideoDownloads t={t} video={video} locked={busy} onError={onError} />}
+      {video.scenes.length > 0 && (job || (!out && missing > 0)) && (
         <div className="vid-acts">
-          {job
-            ? (
-              <button className="ghost" onClick={() => stop(video.id)}>
-                <Icon name="stop" size={12} />{t('Stop now')}
-              </button>
-            )
-            : out
-              ? (
-                <button className="ghost" onClick={() => out.ctl.abort()}>
-                  <Icon name="stop" size={12} />{t('Cancel')}
-                </button>
-              )
-              : (
-                <button className="sb-cta-go vid-export-go" onClick={() => void exportIt()} disabled={can?.ok === false}
-                        title={can?.ok === false && can.why ? can.why : t('Renders the video on this computer and saves it where you choose.')}>
-                  <Icon name="film" size={12} />{t('Export MP4…')}
-                </button>
-              )}
+          {job && (
+            <button className="ghost" onClick={() => stop(video.id)}>
+              <Icon name="stop" size={12} />{t('Stop now')}
+            </button>
+          )}
           {!job && !out && missing > 0 && (
             <button className="ghost" disabled={!ready} onClick={() => begin(video, { how: 'pictures' })}>
               <Icon name="image" size={12} />{fill(t('Find {n} missing pictures'), { n: missing })}
@@ -1233,34 +1322,21 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
           )}
         </div>
       )}
-      {!out && can?.ok === false && (
-        <p className="vid-bad vid-pad" dir="auto">
-          {can.why ? fill(t('The video cannot be rendered here: {why}'), { why: can.why }) : t('This computer cannot render the video here.')}
-        </p>
-      )}
-      {out && <ExportStatus t={t} out={out} />}
-      {saved && !out && (
-        <div className="vid-saved-row">
-          <p className="vid-saved" dir="auto">{fill(t('Saved to {path}'), { path: saved })}</p>
-          <button className="ghost" onClick={() => invoke('reveal_path', { path: saved }).catch((e: unknown) => onError(explain(e, t('show the file'))))}>
-            <Icon name="folder" size={12} />{IS_MAC ? t('Show in Finder') : t('Show in Explorer')}
-          </button>
-        </div>
-      )}
 
       {video.scenes.length > 0 && (
         <>
           <div className="vid-tabs" role="tablist">
-            {(['scenes', 'look', 'details'] as const).map((x) => (
+            {(['scenes', 'look', 'sound', 'facts', 'details'] as const).map((x) => (
               <button key={x} role="tab" aria-selected={tab === x} className={tab === x ? 'on' : ''} onClick={() => setTab(x)}>
-                {x === 'scenes' ? fill(t('Scenes ({n})'), { n: video.scenes.length }) : x === 'look' ? t('Look') : t('Details')}
+                {x === 'scenes' ? fill(t('Scenes ({n})'), { n: video.scenes.length })
+                  : x === 'look' ? t('Look') : x === 'sound' ? t('Sound') : x === 'facts' ? t('Found on the web') : t('Details')}
               </button>
             ))}
           </div>
 
           {tab === 'scenes' && (
             <Storyboard t={t} video={video} redoingId={job?.how === 'scene' ? job.sceneId : undefined} locked={busy || !ready}
-                        onScenes={(scenes) => change({ scenes })} onRedo={(id) => void redo(id)} onSeek={onSeek} onAdd={add} onError={onError} />
+                        onScenes={(scenes) => change({ scenes })} onRedo={(id) => void redo(id)} onSeek={seekScene} onAdd={add} onError={onError} />
           )}
           {tab === 'look' && (
             <div className="vid-look">
@@ -1279,6 +1355,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
               <div className="vid-group vid-pad">
                 <span className="vid-group-label">{t('Brand')}</span>
                 <BrandFields t={t} value={video.brand} style={video.style} onChange={(brand) => change({ brand })} />
+                <WatermarkSwitch t={t} video={video} onChange={(watermark) => change({ watermark })} />
               </div>
               <label className="vid-check vid-pad">
                 <input type="checkbox" checked={video.credits !== false} onChange={(e) => change({ credits: e.target.checked })} />
@@ -1286,6 +1363,11 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
               </label>
             </div>
           )}
+          {tab === 'sound' && (
+            <VideoSound t={t} video={video} onChange={change} locked={busy} providers={routes.providers} onError={onError}
+                        target={target} efforts={bookFor(video, target, efforts)} />
+          )}
+          {tab === 'facts' && <VideoFacts t={t} video={video} onChange={change} locked={busy} onError={onError} />}
           {tab === 'details' && (
             <div className="vid-look">
               <div className="vid-f vid-pad">
@@ -1312,11 +1394,15 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
         <p><Icon name="image" size={12} />{credits.length
           ? fill(t('{n} pictures, all openly licensed (CC0, public domain, CC BY or CC BY-SA), credited at the end of the video.'), { n: credits.length })
           : t('Pictures come only from openly licensed collections, and each is credited at the end of the video.')}</p>
-        <p><Icon name="warning" size={12} />{t('The words were written by an AI model. Read every line — and check every name, number and claim — before you publish it.')}</p>
-        <p className="vid-model">
-          {fill(t('Planned with {model}.'), { model: modelName(video.model ?? target.model) })}
-          {level ? ` · ${effortLabel(level, t)}` : ''}
-        </p>
+        <p><Icon name="warning" size={12} />{sample
+          ? t('The words are a template’s placeholders. Replace every one — and check every name, number and claim — before you publish it.')
+          : t('The words were written by an AI model. Read every line — and check every name, number and claim — before you publish it.')}</p>
+        {!sample && (
+          <p className="vid-model">
+            {fill(t('Planned with {model}.'), { model: modelName(video.model ?? target.model) })}
+            {level ? ` · ${effortLabel(level, t)}` : ''}
+          </p>
+        )}
       </div>
     </div>
   );

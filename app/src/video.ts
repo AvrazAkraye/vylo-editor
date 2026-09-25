@@ -37,11 +37,14 @@
  * seconds longer than asked.
  */
 
-import type { Brand, Format, Scene, SceneKind, Style, Transition, Video, VideoLang } from './videotypes';
+import type { Brand, Format, Picture, Scene, SceneKind, Style, Transition, Video, VideoLang } from './videotypes';
 import { FORMATS, FPS, SCENE_KINDS } from './videotypes';
 import { docLangOf } from './research';
 import { jsonIn } from './researchrun';
 import { fold } from './settings';
+import { qrText } from './videoqr';
+
+export { qrModules, qrPath, qrText } from './videoqr';
 
 // ── timing ────────────────────────────────────────────────────────────────
 
@@ -415,8 +418,14 @@ const SCHEMA = [
   '- {"kind":"split","heading":"2 to 5 words","text":"one sentence of at most 14 words","imageQuery":"required"} — a picture on one side, words on the other.',
   '- {"kind":"steps","heading":"2 to 5 words","steps":["2 to 5 steps of 1 to 4 words each"]} — a process, in order.',
   '- {"kind":"outro","headline":"the brand or the main message","cta":"one clear action, 2 to 5 words","url":"only a website the request or the brand gives"} — always the last scene.',
+  '- {"kind":"gallery","heading":"optional, 2 to 5 words","imageQueries":["2 to 4 picture searches, each like an imageQuery"]} — a moving montage of places, work and moments; at most one in a video. Not for portraits of people.',
+  '- {"kind":"timeline","heading":"2 to 5 words","events":[{"when":"a year or a date","text":"what happened, 2 to 8 words"}]} — 2 to 5 events in order, ONLY with dates the request or the facts give; without real dates there is no timeline.',
+  '- {"kind":"compare","heading":"2 to 6 words","left":{"title":"1 to 3 words","points":["up to 4 points of 1 to 5 words"]},"right":{"title":"1 to 3 words","points":["up to 4 points"]}} — two sides next to each other: before and after, without and with. "right" is the side the video argues for.',
+  '- {"kind":"people","heading":"2 to 5 words","people":[{"name":"as the request or the facts write it","role":"their role there, 1 to 5 words","imageQuery":"optional: their name in Latin letters, only for a well-known public figure"}]} — 1 to 4 real people, ONLY names the request or the facts give, with the role they give; never invent a person, a name or a role.',
+  '- {"kind":"logo","tagline":"optional, one short line"} — the brand\'s logo revealed, or its name as a wordmark; only in a video with a brand, once.',
+  '- {"kind":"qr","heading":"what scanning opens, 2 to 6 words","url":"the website"} — a QR code on screen for a few seconds, ONLY for a website the request, the brand or the facts give.',
   '',
-  '"imageQuery" is always in English whatever the video\'s language: 2 to 5 concrete words a stock-photo search would find — the subject and the setting, like "dentist examining child patient" or "mountain road at sunset". No text, logos, brand names or real people\'s names in it. Only on "image", "split" and, when a picture helps, "title". A picture in about a third of the scenes keeps the video alive; more makes it a slideshow.',
+  '"imageQuery" is always in English whatever the video\'s language: 2 to 5 concrete words a stock-photo search would find — the subject and the setting, like "dentist examining child patient" or "mountain road at sunset". No text, logos, brand names or real people\'s names in it. Only on "image", "split" and, when a picture helps, "title"; a "gallery" has its own "imageQueries", each written the same way. A picture in about a third of the scenes keeps the video alive; more makes it a slideshow.',
 ].join('\n');
 
 /** One compact example of the shape, for a request that gave no figures — so it has none. */
@@ -451,7 +460,8 @@ function systemOf(v: Pick<Video, 'lang'>): string {
     'Rules that are never broken:',
     '- Numbers. Use only figures that appear in the request. Never invent a statistic, a percentage, a price, a count, a date, a rating, a duration or a result. A "stat" or "chart" scene exists only for a figure the request gives; without one, make the point with "kinetic" or "bullets".',
     '- Quotations. A "quote" scene holds only words the request gives, with the author it names. Otherwise, at most a short line with no "author" at all. Never put words in the mouth of a real person, a customer, a patient, a doctor, a company or an organisation, and never write a testimonial or a review.',
-    '- Contact details. A phone number, an address, a website or a social handle only if the request or the brand gives it. Never invent one: leave "url" out instead.',
+    '- Contact details. A phone number, an address, a website or a social handle only if the request or the brand gives it. Never invent one: leave "url" out instead, and make no "qr" scene.',
+    '- People and dates. A "people" scene names only people the request names, with the role it gives them; a "timeline" holds only dates it gives. Without them, use neither.',
     '- Claims. Say nothing about the brand that the request does not say — no "award-winning", "number one", "since 1990", "trusted by thousands" unless it is stated.',
     '- On-screen words only: no stage directions, no descriptions of the animation, no markdown, no HTML, no emojis or hashtags unless the request asks for them.',
     '',
@@ -472,7 +482,11 @@ function quoted(label: string, text: string): string {
 /** The brand, as far as it matters to the words. */
 function brandLine(v: Video): string {
   const name = v.brand?.name?.trim();
-  return name ? `- Brand: ${name} — name it in the title or the outro, spelled exactly like this.` : '';
+  const lines = [
+    name ? `- Brand: ${name} — name it in the title or the outro, spelled exactly like this.` : '',
+    v.brand?.logo ? '- The brand has a logo. One "logo" scene reveals it — right after the hook, or just before the outro.' : '',
+  ];
+  return lines.filter(Boolean).join('\n');
 }
 
 /**
@@ -481,7 +495,15 @@ function brandLine(v: Video): string {
  * shows one example of the shape — an example with no figures, because the
  * example is what a model copies most faithfully.
  */
-export function planPrompt(v: Video): { system: string; user: string } {
+/**
+ * What planning may be given besides the video: what was found about its
+ * subject on the web (`facts`, written by videoresearch.ts — sourced lines the
+ * person can see and switch off), and whether each scene needs a line for a
+ * voice to say (`narration`).
+ */
+export interface PlanExtra { facts?: string; narration?: boolean }
+
+export function planPrompt(v: Video, extra: PlanExtra = {}): { system: string; user: string } {
   const { width, height } = FORMATS[v.format] ?? FORMATS.landscape;
   const { lo, hi } = sceneRange(v.seconds);
   const lang = LANGUAGE_NAME[v.lang];
@@ -495,6 +517,8 @@ export function planPrompt(v: Video): { system: string; user: string } {
     `- Scenes: ${lo} to ${hi}, counting the opening title and the outro.`,
     `- Style: ${TONE[v.style] ?? TONE.modern}. Let the wording match it.`,
     brandLine(v),
+    ...(extra.facts?.trim() ? ['', FACTS_RULE, extra.facts.trim()] : []),
+    ...(extra.narration ? ['', narrationRule(v)] : []),
     '',
     'Reply with one JSON object and nothing else — no explanation before or after it:',
     `{"title":"a short name for the video, in ${lang}","scenes":[scene, scene, …]}`,
@@ -507,10 +531,38 @@ export function planPrompt(v: Video): { system: string; user: string } {
   return { system: systemOf(v), user };
 }
 
-/** A scene as the model reads it again: its fields, without the id or the picture the app fetched. */
+/**
+ * How the found facts are to be used. They are the only figures, dates and
+ * names the video may state as fact — which is what lets a 'stat', a
+ * 'timeline' or a 'people' scene exist at all without inventing anything.
+ */
+const FACTS_RULE = [
+  'What is known about the subject, found on the web before this plan (each line says where it came from).',
+  'Use these facts: they are the only figures, dates, names and claims the video may state as fact. Prefer them to',
+  'general words — a real founding year in a timeline, a real student count in a stat, the real website in the outro.',
+  'Do not state anything about the subject that is not here or in the request. Put no source names on screen.',
+].join('\n');
+
+/** The rule for a narrated video: one spoken line a scene, timed to the scene. */
+function narrationRule(v: Video): string {
+  return [
+    `The video is narrated. Give every scene a "narration": what a voice says during it, in ${LANGUAGE_NAME[v.lang]},`,
+    'natural spoken sentences (not the on-screen words read out), at most about 2.5 words for each of the scene\'s seconds,',
+    'so the voice finishes before the scene ends. The outro\'s narration is the call to action.',
+  ].join('\n');
+}
+
+/**
+ * A scene as the model reads it again: its fields, without the id or the
+ * pictures the app fetched — a gallery's and each person's included, which
+ * are data: URLs of a megabyte each and nothing the model could use.
+ */
 function sceneJson(s: Scene): string {
   const { id: _id, picture: _picture, ...rest } = s;
-  return JSON.stringify(rest);
+  const out: Record<string, unknown> = { ...rest };
+  if (s.kind === 'gallery') delete out.pictures;
+  if (s.kind === 'people') out.people = s.people.map(({ picture: _p, ...person }) => person);
+  return JSON.stringify(out);
 }
 
 /**
@@ -561,7 +613,13 @@ const ALIASES: Readonly<Record<string, SceneKind>> = {
   quotation: 'quote', testimonial: 'quote',
   picture: 'image', photo: 'image', 'full-image': 'image',
   'image-text': 'split', 'split-screen': 'split', two_column: 'split',
-  process: 'steps', timeline: 'steps', step: 'steps', 'how-to': 'steps',
+  process: 'steps', step: 'steps', 'how-to': 'steps',
+  montage: 'gallery', collage: 'gallery', photos: 'gallery', pictures: 'gallery', images: 'gallery', grid: 'gallery', 'photo-grid': 'gallery', mosaic: 'gallery',
+  history: 'timeline', milestones: 'timeline', chronology: 'timeline', dates: 'timeline',
+  versus: 'compare', vs: 'compare', comparison: 'compare', contrast: 'compare', 'before-after': 'compare', before_after: 'compare', 'pros-cons': 'compare',
+  team: 'people', person: 'people', founders: 'people', staff: 'people', leadership: 'people', profiles: 'people', speakers: 'people',
+  brand: 'logo', 'logo-reveal': 'logo', logo_reveal: 'logo', wordmark: 'logo', 'brand-reveal': 'logo',
+  'qr-code': 'qr', qr_code: 'qr', qrcode: 'qr', scan: 'qr',
 };
 
 const KINDS = new Set<string>(SCENE_KINDS);
@@ -570,7 +628,10 @@ const TRANSITIONS = new Set<string>(['fade', 'slide', 'wipe', 'zoom', 'none']);
 const PICTURED = new Set<SceneKind>(['image', 'split', 'title']);
 
 /** How long a field may be, in characters: a headline, a sentence, a label on a bar. */
-const CAP = { headline: 90, sentence: 220, point: 90, label: 40, affix: 8, unit: 12, author: 60, url: 80, query: 60 } as const;
+const CAP = { headline: 90, sentence: 220, point: 90, label: 40, affix: 8, unit: 12, author: 60, url: 80, query: 60, when: 24 } as const;
+
+/** The most a scene of each list-like new kind holds. */
+const MAX = { gallery: 4, events: 5, sidePoints: 4, people: 4 } as const;
 
 /**
  * Letters that are invisible or rewrite the order text is shown in: bidi
@@ -667,6 +728,31 @@ function urlOf(v: unknown): string | undefined {
   return /^[\p{L}\p{N}][\p{L}\p{N}.\-/:_~?=&%#+@]*$/u.test(u.replace(/^https?:\/\//i, '')) ? u : undefined;
 }
 
+/** A website's host as people compare them: lower case, no scheme, no "www.", no path. */
+function hostOf(url: string): string {
+  return url.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').split(/[/?#]/)[0].replace(/:\d+$/, '');
+}
+
+/**
+ * Whether the person gave this website: its host is in the request, in the
+ * brief's website or its facts (the ones switched on), or already in the
+ * storyboard, where the person typed or kept it. A QR code is scanned and
+ * followed, so a host the model made up — however likely it looks — is not
+ * one the video may send a phone to.
+ */
+function knownUrl(url: string, v: Video): boolean {
+  const host = hostOf(url);
+  if (!host || !host.includes('.')) return false;
+  const brief = v.brief;
+  const said = [
+    typeof v.request === 'string' ? v.request : '',
+    brief?.website ?? '',
+    ...(brief?.facts ?? []).filter((f) => f && f.use !== false).map((f) => `${f.value ?? ''}`),
+    ...(v.scenes ?? []).map((s) => (s.kind === 'outro' || s.kind === 'qr' ? s.url ?? '' : '')),
+  ].join(' ').toLowerCase();
+  return said.includes(host);
+}
+
 /** The words a scene puts on screen, counted as a reader meets them. */
 function wordsOf(s: Scene): number {
   const text: string[] = [];
@@ -681,17 +767,29 @@ function wordsOf(s: Scene): number {
     case 'split': text.push(s.heading, s.text); break;
     case 'steps': text.push(s.heading, ...s.steps); break;
     case 'outro': text.push(s.headline, s.cta ?? '', s.url ? '1' : ''); break;
+    // A picture in a montage is looked at for about as long as two words take to read.
+    case 'gallery': text.push(s.heading ?? '', ...Array.from({ length: Math.max(2, s.pictures?.length ?? 0, s.imageQueries?.length ?? 0) * 2 }, () => '1')); break;
+    case 'timeline': text.push(s.heading, ...s.events.flatMap((e) => [e.when, e.text])); break;
+    case 'compare': text.push(s.heading, s.left.title, ...s.left.points, s.right.title, ...s.right.points); break;
+    case 'people': text.push(s.heading, ...s.people.flatMap((p) => [p.name, p.role ?? ''])); break;
+    // The reveal itself is worth a second and a half of looking.
+    case 'logo': text.push(s.tagline ?? '', '1 2 3 4'); break;
+    case 'qr': text.push(s.heading, '1'); break;
   }
   return text.join(' ').split(/\s+/).filter(Boolean).length;
 }
 
+/** A QR code needs time for a phone to be raised and pointed at it, whatever it says. */
+const QR_SECONDS = 5;
+
 /**
  * The least a scene can be on screen and still be read: its words at three a
  * second, plus the moment it takes to arrive — inside the 2 to 20 seconds a
- * scene may last.
+ * scene may last. A QR code stays long enough to be scanned.
  */
 function readingSeconds(s: Scene): number {
-  return clampNum(wordsOf(s) / WORDS_PER_SECOND + ARRIVAL, SCENE_SECONDS.min, SCENE_SECONDS.max);
+  const read = wordsOf(s) / WORDS_PER_SECOND + ARRIVAL;
+  return clampNum(s.kind === 'qr' ? Math.max(QR_SECONDS, read) : read, SCENE_SECONDS.min, SCENE_SECONDS.max);
 }
 
 /**
@@ -805,8 +903,101 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
         : null;
       break;
     }
+    case 'gallery': {
+      // A montage needs two pictures; one is an image scene, none is its heading said in words.
+      const heading = opt(o.heading ?? o.title ?? o.caption, CAP.headline);
+      const raw = o.imageQueries ?? o.image_queries ?? o.queries ?? o.images ?? o.pictures;
+      const list = Array.isArray(raw) ? raw.slice(0, 50) : typeof raw === 'string' ? raw.split(/[;\n|]/) : [];
+      const queries: string[] = [];
+      for (const x of list) {
+        const q = queryOf(typeof x === 'object' && x !== null ? (x as Record<string, unknown>).imageQuery ?? (x as Record<string, unknown>).query : x);
+        if (q && !queries.some((y) => y.toLowerCase() === q.toLowerCase())) queries.push(q);
+        if (queries.length >= MAX.gallery) break;
+      }
+      if (queries.length >= 2) scene = { ...base, kind, ...(heading ? { heading } : {}), imageQueries: queries };
+      else if (queries.length === 1) scene = { ...base, kind: 'image', imageQuery: queries[0], ...(heading ? { caption: heading } : {}) };
+      else scene = heading ? asKinetic(heading) : null;
+      break;
+    }
+    case 'timeline': {
+      const heading = t(o.heading ?? o.title, CAP.headline);
+      const raw = o.events ?? o.items ?? o.milestones ?? o.points;
+      const events: { when: string; text: string }[] = [];
+      for (const e of Array.isArray(raw) ? raw.slice(0, 50) : []) {
+        let when = '';
+        let text = '';
+        if (typeof e === 'object' && e !== null) {
+          const r = e as Record<string, unknown>;
+          when = t(r.when ?? r.date ?? r.year ?? r.time, CAP.when);
+          text = t(r.text ?? r.event ?? r.what ?? r.label ?? r.title ?? r.description, CAP.point);
+        } else if (typeof e === 'string') {
+          // "1992 — Founded": a date, a dash or a colon, what happened.
+          const m = /^\s*([^\u2014:\-\u2013]{1,24}?\d[^\u2014:\-\u2013]{0,20}?)\s*[\u2014:\-\u2013]\s*(.+)$/.exec(e);
+          if (m) {
+            when = t(m[1], CAP.when);
+            text = t(m[2], CAP.point);
+          }
+        }
+        if (when && text) events.push({ when, text });
+        if (events.length >= MAX.events) break;
+      }
+      scene = events.length >= 2 ? { ...base, kind, heading, events } : asKinetic(heading, ...events.map((e) => `${e.when} ${e.text}`));
+      break;
+    }
+    case 'compare': {
+      const heading = t(o.heading ?? o.title, CAP.headline);
+      const columns = Array.isArray(o.sides) ? o.sides : Array.isArray(o.columns) ? o.columns : [];
+      const side = (x: unknown): { title: string; points: string[] } => {
+        if (typeof x === 'string') return { title: t(x, CAP.label), points: [] };
+        if (typeof x !== 'object' || x === null || Array.isArray(x)) return { title: '', points: [] };
+        const r = x as Record<string, unknown>;
+        return { title: t(r.title ?? r.name ?? r.label ?? r.heading, CAP.label), points: cleanList(r.points ?? r.items ?? r.bullets, MAX.sidePoints, CAP.point, lang) };
+      };
+      const left = side(o.left ?? o.a ?? o.before ?? columns[0]);
+      const right = side(o.right ?? o.b ?? o.after ?? columns[1]);
+      const has = (x: { title: string; points: string[] }) => !!x.title || x.points.length > 0;
+      if (has(left) && has(right)) scene = { ...base, kind, heading, left, right };
+      else {
+        // One side is a list, not a comparison.
+        const only = has(left) ? left : right;
+        scene = only.points.length ? { ...base, kind: 'bullets', heading: heading || only.title, points: only.points } : asKinetic(heading, only.title);
+      }
+      break;
+    }
+    case 'people': {
+      const heading = t(o.heading ?? o.title, CAP.headline);
+      const raw = o.people ?? o.persons ?? o.team ?? o.members;
+      const people: { name: string; role?: string; imageQuery?: string }[] = [];
+      for (const x of Array.isArray(raw) ? raw.slice(0, 50) : []) {
+        const r: Record<string, unknown> = typeof x === 'object' && x !== null ? x as Record<string, unknown> : { name: x };
+        const name = t(r.name, CAP.author);
+        if (!name || people.some((p) => p.name === name)) continue;
+        const role = opt(r.role ?? r.position ?? r.job ?? r.title, CAP.author);
+        // A portrait is searched by the person's name — the one search where a name belongs.
+        const q = queryOf(r.imageQuery ?? r.image_query ?? r.query);
+        people.push({ name, ...(role ? { role } : {}), ...(q ? { imageQuery: q } : {}) });
+        if (people.length >= MAX.people) break;
+      }
+      scene = people.length ? { ...base, kind, heading, people } : asKinetic(heading);
+      break;
+    }
+    case 'logo': {
+      const tagline = opt(o.tagline ?? o.subtitle ?? o.text ?? o.caption, CAP.headline);
+      scene = { ...base, kind, ...(tagline ? { tagline } : {}) };
+      break;
+    }
+    case 'qr': {
+      // A code a phone will open: only an address the person gave, never one the model thought of.
+      const heading = t(o.heading ?? o.title ?? o.text ?? o.caption, CAP.headline);
+      const url = urlOf(o.url ?? o.website ?? o.link);
+      scene = url && qrText(url) && knownUrl(url, v) ? { ...base, kind, heading, url } : null;
+      break;
+    }
   }
   if (!scene) return null;
+  // A spoken line, when the video is narrated: plain words in its language, one or two sentences.
+  const narration = t(o.narration ?? o.voiceover ?? o.voice, CAP.sentence * 2);
+  if (narration) scene.narration = narration;
   const secs = numberOf(o.seconds ?? o.duration);
   scene.seconds = tenths(Number.isFinite(secs)
     ? clampNum(secs, SCENE_SECONDS.min, SCENE_SECONDS.max)
@@ -912,6 +1103,8 @@ interface Blank {
   title: string; subtitle: string; kinetic: string; heading: string; points: string[]; statLabel: string;
   chart: string; bars: string[]; quote: string; caption: string; splitHeading: string; splitText: string;
   steps: string; stepList: string[]; outro: string; cta: string;
+  gallery: string; timeline: string; events: string[]; compare: string; before: string; after: string; sidePoints: string[];
+  team: string; person: string; role: string; tagline: string; qr: string;
 }
 
 const BLANK: Readonly<Record<VideoLang, Blank>> = {
@@ -921,6 +1114,9 @@ const BLANK: Readonly<Record<VideoLang, Blank>> = {
     chart: 'How they compare', bars: ['First', 'Second', 'Third'], quote: 'Words worth remembering.', caption: 'A caption for the picture',
     splitHeading: 'A heading', splitText: 'A sentence that explains it.', steps: 'How it works', stepList: ['Step one', 'Step two', 'Step three'],
     outro: 'Thank you', cta: 'Get in touch',
+    gallery: 'In pictures', timeline: 'Our story', events: ['Where it began', 'A step forward', 'Where we are now'],
+    compare: 'Before and after', before: 'Before', after: 'After', sidePoints: ['First point', 'Second point'],
+    team: 'Meet the team', person: 'Full name', role: 'Role', tagline: 'A line under the logo', qr: 'Scan to visit us',
   },
   ar: {
     title: 'عنوانك هنا', subtitle: 'سطر يوضح موضوع الفيديو', kinetic: 'فكرة واحدة بكلمات قليلة وقوية',
@@ -928,6 +1124,9 @@ const BLANK: Readonly<Record<VideoLang, Blank>> = {
     chart: 'مقارنة سريعة', bars: ['الأول', 'الثاني', 'الثالث'], quote: 'كلمات تستحق أن تُذكر.', caption: 'وصف قصير للصورة',
     splitHeading: 'عنوان', splitText: 'جملة توضح الفكرة.', steps: 'كيف يعمل', stepList: ['الخطوة الأولى', 'الخطوة الثانية', 'الخطوة الثالثة'],
     outro: 'شكراً لكم', cta: 'تواصل معنا',
+    gallery: 'بالصور', timeline: 'قصتنا', events: ['حيث بدأ كل شيء', 'خطوة إلى الأمام', 'أين نحن اليوم'],
+    compare: 'قبل وبعد', before: 'قبل', after: 'بعد', sidePoints: ['النقطة الأولى', 'النقطة الثانية'],
+    team: 'تعرّف على الفريق', person: 'الاسم الكامل', role: 'المنصب', tagline: 'سطر تحت الشعار', qr: 'امسح الرمز لزيارتنا',
   },
   ckb: {
     title: 'ناونیشانەکەت لێرە', subtitle: 'دێڕێک کە بابەتەکە ڕوون دەکاتەوە', kinetic: 'یەک بیرۆکە، بە چەند وشەیەکی بەهێز',
@@ -935,6 +1134,9 @@ const BLANK: Readonly<Record<VideoLang, Blank>> = {
     chart: 'بەراوردێکی خێرا', bars: ['یەکەم', 'دووەم', 'سێیەم'], quote: 'قسەیەک کە دەبێت لەبیر بمێنێت.', caption: 'وەسفێکی کورت بۆ وێنەکە',
     splitHeading: 'ناونیشان', splitText: 'ڕستەیەک کە بیرۆکەکە ڕوون دەکاتەوە.', steps: 'چۆن کار دەکات', stepList: ['هەنگاوی یەکەم', 'هەنگاوی دووەم', 'هەنگاوی سێیەم'],
     outro: 'سوپاس', cta: 'پەیوەندیمان پێوە بکە',
+    gallery: 'بە وێنە', timeline: 'چیرۆکی ئێمە', events: ['لێرەوە دەستی پێکرد', 'هەنگاوێک بۆ پێشەوە', 'ئەمڕۆ لە کوێین'],
+    compare: 'پێش و دوای', before: 'پێشتر', after: 'دواتر', sidePoints: ['خاڵی یەکەم', 'خاڵی دووەم'],
+    team: 'تیمەکە بناسە', person: 'ناوی تەواو', role: 'پۆست', tagline: 'دێڕێک لە ژێر لۆگۆکە', qr: 'سکان بکە و سەردانمان بکە',
   },
   kmr: {
     title: 'ناڤونیشانێ تە ل ڤێرە', subtitle: 'رێزەک کو بابەتی روون دکەت', kinetic: 'ئێک بیرۆکە، ب چەند پەیڤێن بهێز',
@@ -942,6 +1144,9 @@ const BLANK: Readonly<Record<VideoLang, Blank>> = {
     chart: 'بەراوردەکا لەز', bars: ['ئێکێ', 'دووێ', 'سێێ'], quote: 'گۆتنەک کو دڤێت ل بیرا بمینیت.', caption: 'وەسفەکێ کورت بۆ وێنەی',
     splitHeading: 'ناڤونیشان', splitText: 'رستەیەک کو بیرۆکێ روون دکەت.', steps: 'چاوا کار دکەت', stepList: ['پێنگاڤا ئێکێ', 'پێنگاڤا دووێ', 'پێنگاڤا سێێ'],
     outro: 'سوپاس', cta: 'پەیوەندیێ ب مە بکە',
+    gallery: 'ب وێنەیان', timeline: 'چیرۆکا مە', events: ['ژ ڤێرە دەستپێکر', 'پێنگاڤەک بۆ پێش', 'ئەڤرۆ ل کیڤەینە'],
+    compare: 'بەری و پشتی', before: 'بەری', after: 'پشتی', sidePoints: ['خالا ئێکێ', 'خالا دووێ'],
+    team: 'تیمێ بنیاسە', person: 'ناڤێ تەمام', role: 'پۆست', tagline: 'رێزەک ل بن لۆگۆیێ', qr: 'سکان بکە و سەرەدانا مە بکە',
   },
 };
 
@@ -967,10 +1172,147 @@ export function blankScene(kind: SceneKind, v: Video, newId: () => string): Scen
     case 'split': s = { ...base, kind, heading: w.splitHeading, text: w.splitText }; break;
     case 'steps': s = { ...base, kind, heading: w.steps, steps: [...w.stepList] }; break;
     case 'outro': s = { ...base, kind, headline: v.brand?.name?.trim() || w.outro, cta: w.cta }; break;
+    // The person chooses the montage's pictures, one tile at a time.
+    case 'gallery': s = { ...base, kind, heading: w.gallery, imageQueries: [] }; break;
+    // Round, obviously placeholder years, like the stat's 100%.
+    case 'timeline': s = { ...base, kind, heading: w.timeline, events: w.events.map((text, i) => ({ when: String(2000 + i * 10), text })) }; break;
+    case 'compare':
+      s = { ...base, kind, heading: w.compare, left: { title: w.before, points: [...w.sidePoints] }, right: { title: w.after, points: [...w.sidePoints] } };
+      break;
+    case 'people': s = { ...base, kind, heading: w.team, people: [{ name: w.person, role: w.role }, { name: w.person, role: w.role }] }; break;
+    case 'logo': s = { ...base, kind, tagline: w.tagline }; break;
+    case 'qr': s = { ...base, kind, heading: w.qr, url: knownSite(v) ?? '' }; break;
     default: s = { ...base, kind: 'kinetic', text: w.kinetic };
   }
   s.seconds = tenths(Math.max(3, readingSeconds(s)));
   return s;
+}
+
+/**
+ * A website the person has already given for this video — the brief's, one
+ * in the request, one in the storyboard's close — for a QR scene they add by
+ * hand. Never made up: none is an empty address to fill in.
+ */
+function knownSite(v: Video): string | undefined {
+  if (v.brief?.website && urlOf(v.brief.website)) return v.brief.website;
+  const inRequest = typeof v.request === 'string'
+    ? /(?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>"')]*)?/i.exec(v.request)?.[0]
+    : undefined;
+  if (inRequest && urlOf(inRequest)) return inRequest.replace(/[.,;:!?]+$/, '');
+  for (const s of v.scenes ?? []) if ((s.kind === 'outro' || s.kind === 'qr') && s.url && urlOf(s.url)) return s.url;
+  return undefined;
+}
+
+// ── pictures in a scene ───────────────────────────────────────────────────
+
+/**
+ * One place a scene shows a picture: the scene's own (`main`), a tile of a
+ * gallery (`g0`…), a person's portrait (`p0`…) — or a gallery tile still to
+ * be found (`q:` and its search words). `query` is what to search it with.
+ */
+export interface PictureSlot { key: string; query?: string; picture?: Picture }
+
+const sameQuery = (a: string | undefined, b: string | undefined) => !!a && !!b && a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/**
+ * Every place a scene shows or wants a picture. A gallery's slots are its
+ * pictures, then the searches none of them came from, up to four in all; a
+ * people scene's are its people, whether or not each has a portrait.
+ */
+export function pictureSlots(s: Scene): PictureSlot[] {
+  if (!s || typeof s !== 'object') return [];
+  if (s.kind === 'gallery') {
+    const pics = (s.pictures ?? []).filter((p): p is Picture => !!p?.src).slice(0, MAX.gallery);
+    const out: PictureSlot[] = pics.map((p, i) => ({ key: `g${i}`, picture: p, query: p.query }));
+    for (const q of s.imageQueries ?? []) {
+      if (out.length >= MAX.gallery) break;
+      if (!pics.some((p) => sameQuery(p.query, q))) out.push({ key: `q:${q}`, query: q });
+    }
+    return out;
+  }
+  if (s.kind === 'people') {
+    return (s.people ?? []).slice(0, MAX.people).map((p, i) => ({
+      key: `p${i}`, ...(p.picture ? { picture: p.picture } : {}), ...(p.imageQuery || p.picture?.query ? { query: p.imageQuery || p.picture?.query } : {}),
+    }));
+  }
+  if (PICTURED.has(s.kind)) return [{ key: 'main', ...(s.picture ? { picture: s.picture } : {}), ...(s.imageQuery ? { query: s.imageQuery } : {}) }];
+  return [];
+}
+
+/**
+ * The scene with a picture put in one of its slots, or taken out of it
+ * (`undefined`). Pure: a new scene, the old one untouched. A gallery tile
+ * found for a search (`q:…`) is added after the others; a tile taken out
+ * takes its search with it, so it is not fetched again behind the person's
+ * back. A person's portrait taken out forgets its search for the same reason.
+ * A key the scene does not have returns it as it was.
+ */
+export function withPicture(s: Scene, key: string, picture: Picture | undefined): Scene {
+  if (s.kind === 'gallery') {
+    const pics = (s.pictures ?? []).filter((p): p is Picture => !!p?.src);
+    const queries = [...(s.imageQueries ?? [])];
+    if (key.startsWith('q:')) {
+      const q = key.slice(2);
+      // Taking out a tile still to be found drops its search.
+      if (!picture) return queries.some((x) => sameQuery(x, q)) ? { ...s, imageQueries: queries.filter((x) => !sameQuery(x, q)) } : s;
+      if (pics.length >= MAX.gallery) return s;
+      const shown = { ...picture, query: picture.query || q };
+      return { ...s, pictures: [...pics, shown], imageQueries: queries.some((x) => sameQuery(x, q)) ? queries : [...queries, q].slice(0, MAX.gallery) };
+    }
+    // A tile the person chose by hand: its search is remembered too, so a redone scene asks for it again.
+    const remember = (q: string | undefined, list: string[]) =>
+      q && queryOf(q) && !list.some((x) => sameQuery(x, q)) && list.length < MAX.gallery ? [...list, q.trim()] : list;
+    if (key === 'new') {
+      if (!picture || pics.length >= MAX.gallery) return s;
+      return { ...s, pictures: [...pics, picture], imageQueries: remember(picture.query, queries) };
+    }
+    const i = /^g(\d)$/.exec(key) ? Number(key.slice(1)) : -1;
+    if (i < 0 || i >= pics.length) return s;
+    if (picture) {
+      const replaced = queries.filter((q) => !sameQuery(q, pics[i].query));
+      return { ...s, pictures: pics.map((p, j) => (j === i ? picture : p)), imageQueries: remember(picture.query, replaced) };
+    }
+    const gone = pics[i];
+    return { ...s, pictures: pics.filter((_, j) => j !== i), imageQueries: queries.filter((q) => !sameQuery(q, gone.query)) };
+  }
+  if (s.kind === 'people') {
+    const i = /^p(\d)$/.exec(key) ? Number(key.slice(1)) : -1;
+    if (i < 0 || i >= s.people.length) return s;
+    return {
+      ...s,
+      people: s.people.map((p, j) => {
+        if (j !== i) return p;
+        const { picture: _old, imageQuery: _q, ...rest } = p;
+        if (!picture) return rest;
+        const q = picture.query || p.imageQuery;
+        return { ...rest, picture, ...(q ? { imageQuery: q } : {}) };
+      }),
+    };
+  }
+  if (key === 'main' && PICTURED.has(s.kind)) {
+    if (picture) return { ...s, picture, imageQuery: picture.query || s.imageQuery };
+    const { picture: _old, ...rest } = s;
+    return rest as Scene;
+  }
+  return s;
+}
+
+/** Every picture a scene shows, in the order it shows them — for credits. */
+export function picturesOf(s: Scene): Picture[] {
+  return pictureSlots(s).map((x) => x.picture).filter((p): p is Picture => !!p?.src);
+}
+
+/**
+ * The pictures a storyboard still wants: each scene's slots that have search
+ * words and no picture, in order. Fetch each, then `withPicture(scene, key,
+ * picture)` on the scene as it is by then.
+ */
+export function pictureJobs(scenes: Scene[]): { sceneId: string; key: string; query: string }[] {
+  const out: { sceneId: string; key: string; query: string }[] = [];
+  for (const s of Array.isArray(scenes) ? scenes : []) {
+    for (const slot of pictureSlots(s)) if (slot.query && !slot.picture) out.push({ sceneId: s.id, key: slot.key, query: slot.query });
+  }
+  return out;
 }
 
 /**
@@ -1056,6 +1398,19 @@ export function parseScene(text: string, old: Scene, v: Video, newId: () => stri
       out.picture = old.picture;
       if (!out.imageQuery && old.imageQuery) out.imageQuery = old.imageQuery;
     }
+  }
+  // A montage keeps the tiles it still asks for; a person keeps their portrait.
+  if (out.kind === 'gallery' && old.kind === 'gallery' && old.pictures?.length) {
+    const kept = old.pictures.filter((p) => p?.src && (out.imageQueries ?? []).some((q) => sameQuery(q, p.query)));
+    if (kept.length) out.pictures = kept.slice(0, MAX.gallery);
+  }
+  if (out.kind === 'people' && old.kind === 'people') {
+    out.people = out.people.map((p) => {
+      const was = old.people.find((x) => x.name === p.name && x.picture);
+      return was?.picture && (!p.imageQuery || sameQuery(p.imageQuery, was.imageQuery ?? was.picture.query))
+        ? { ...p, picture: was.picture, ...(was.imageQuery ? { imageQuery: was.imageQuery } : {}) }
+        : p;
+    });
   }
   return out;
 }

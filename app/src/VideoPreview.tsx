@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Player, type PlayerRef } from '@remotion/player';
 import type { Video } from './videotypes';
 import { compositionOf, loadVideoFonts } from './VideoScenes';
+import { playhead } from './VideoTimeline';
 
 /**
  * The preview: Remotion's player over the app's own composition.
@@ -36,6 +37,39 @@ export default function VideoPreview({ video, t, at, maxBlock }: {
     player.current?.pause();
     player.current?.seekTo(Math.min(Math.max(0, at.frame), comp.durationInFrames - 1));
   }, [at?.n, fonts]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Where the player is, for the timeline under it (VideoTimeline.tsx's
+  // `playhead`), and the controls the timeline and the video's keys move it with.
+  const frames = useRef(comp.durationInFrames);
+  frames.current = comp.durationInFrames;
+  useEffect(() => {
+    const p = player.current;
+    if (!fonts || !p) return;
+    const id = video.id;
+    const say = () => playhead.report(id, p.getCurrentFrame(), p.isPlaying());
+    const onFrame = (e: { detail: { frame: number } }) => playhead.report(id, e.detail.frame, p.isPlaying());
+    p.addEventListener('frameupdate', onFrame);
+    p.addEventListener('seeked', onFrame);
+    p.addEventListener('play', say);
+    p.addEventListener('pause', say);
+    p.addEventListener('ended', say);
+    say();
+    const off = playhead.attach(id, {
+      seek: (f) => p.seekTo(Math.min(Math.max(0, Math.round(f)), frames.current - 1)),
+      play: () => p.play(),
+      pause: () => p.pause(),
+      toggle: () => p.toggle(),
+    });
+    return () => {
+      p.removeEventListener('frameupdate', onFrame);
+      p.removeEventListener('seeked', onFrame);
+      p.removeEventListener('play', say);
+      p.removeEventListener('pause', say);
+      p.removeEventListener('ended', say);
+      off();
+      playhead.report(id, playhead.clock(id).frame, false);
+    };
+  }, [fonts, video.id]);
 
   const ratio = comp.width / comp.height;
   const box = { aspectRatio: `${comp.width} / ${comp.height}`, inlineSize: `min(100%, calc(${maxBlock} * ${ratio.toFixed(4)}))` };

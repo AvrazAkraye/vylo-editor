@@ -9,7 +9,8 @@
 // no words in a real person's mouth.
 import {
   LENGTHS, TRANSITION_FRAMES, blankScene, durationInFrames, formatIn, isRtl, newVideo, parsePlan, parseScene,
-  planPrompt, sanitizeScene, sceneFrames, scenePrompt, secondsIn, styleIn, videoLangOf,
+  pictureJobs, pictureSlots, picturesOf, planPrompt, qrModules, qrPath, qrText, sanitizeScene, sceneFrames, scenePrompt,
+  secondsIn, styleIn, videoLangOf, withPicture,
 } from '../.test-build/video.js';
 
 let pass = 0, fail = 0;
@@ -20,6 +21,8 @@ const ok = (name, cond, detail = '') => {
 
 const FPS = 30;
 const KINDS = ['title', 'kinetic', 'bullets', 'stat', 'chart', 'quote', 'image', 'split', 'steps', 'outro'];
+/** Round 2's kinds: a montage, dates, two sides, real people, the logo, a QR code. */
+const NEW_KINDS = ['gallery', 'timeline', 'compare', 'people', 'logo', 'qr'];
 const LANGS = ['ar', 'ckb', 'kmr', 'en'];
 let n = 0;
 const newId = () => `id${++n}`;
@@ -141,7 +144,7 @@ ok('no letters at all is the fallback', videoLangOf('30 / 9:16', 'ar') === 'ar' 
   ok('never words in a real person\'s mouth', /Never put words in the mouth of a real person/i.test(p.system) && /testimonial/i.test(p.system));
   ok('never an invented phone or website', /Never invent one/i.test(p.system) && /phone/i.test(p.system));
   ok('JSON only', /JSON and nothing else/i.test(p.system) && /one JSON object and nothing else/i.test(p.user));
-  ok('every kind\'s shape is described', KINDS.every((k) => p.user.includes(`"kind":"${k}"`)));
+  ok('every kind\'s shape is described', [...KINDS, ...NEW_KINDS].every((k) => p.user.includes(`"kind":"${k}"`)));
   ok('every transition is named', ['fade', 'slide', 'wipe', 'zoom', 'none'].every((t) => all.includes(`"${t}"`)));
   ok('imageQuery is English', /"imageQuery" is always in English/.test(p.user));
   ok('the length, the frame and the scene count', p.user.includes('about 30 seconds') && p.user.includes('1080×1920') && /Scenes: \d+ to \d+/.test(p.user));
@@ -424,6 +427,216 @@ ok('Badini placeholders use ڤ, as Badini does', KINDS.map((k) => texts(blankSce
   ok('a blank title and outro carry the brand', blankScene('title', v, newId).title === 'Nuri Clinic' && blankScene('outro', v, newId).headline === 'Nuri Clinic');
   ok('a blank chart has bars, a blank stat a number', blankScene('chart', v, newId).bars.length >= 2 && Number.isFinite(blankScene('stat', v, newId).value));
   ok('an unknown kind is kinetic rather than a crash', blankScene('hologram', v, newId).kind === 'kinetic');
+}
+
+// ── round 2: six more kinds ───────────────────────────────────────────────
+{
+  const p = planPrompt(video());
+  ok('a timeline only with dates given, people only with names given, a QR only for a website given',
+    /timeline[^\n]*ONLY with dates the request or the facts give/.test(p.user)
+    && /people[^\n]*ONLY names the request or the facts give/.test(p.user)
+    && /qr[^\n]*ONLY for a website the request, the brand or the facts give/.test(p.user));
+  ok('the rules say it too', /A "people" scene names only people the request names/.test(p.system) && /make no "qr" scene/.test(p.system));
+  ok('a gallery has its own English searches', /a "gallery" has its own "imageQueries"/.test(p.user));
+  ok('a brand with a logo is told a logo scene reveals it; one without is not',
+    /"logo" scene reveals it/.test(planPrompt(video({ brand: { name: 'Nuri', logo: 'data:image/png;base64,AAAA' } })).user)
+    && !/"logo" scene reveals it/.test(planPrompt(video({ brand: { name: 'Nuri' } })).user));
+  ok('the logo itself never reaches the prompt', !planPrompt(video({ brand: { name: 'Nuri', logo: 'data:image/png;base64,SECRETLOGO' } })).user.includes('SECRETLOGO'));
+}
+{
+  const v = video();
+  const kindOf = (x) => sanitizeScene(x, v, newId)?.kind;
+  ok('team → people, history → timeline, versus and vs → compare',
+    kindOf({ kind: 'team', heading: 'H', people: [{ name: 'Ana' }] }) === 'people'
+    && kindOf({ kind: 'history', heading: 'H', events: [{ when: '1992', text: 'a' }, { when: '2000', text: 'b' }] }) === 'timeline'
+    && kindOf({ kind: 'versus', heading: 'H', left: { title: 'A' }, right: { title: 'B' } }) === 'compare'
+    && kindOf({ kind: 'vs', heading: 'H', left: { title: 'A' }, right: { title: 'B' } }) === 'compare');
+  ok('montage and collage → gallery, brand → logo, qr-code → qr',
+    kindOf({ kind: 'montage', imageQueries: ['a beach', 'a road'] }) === 'gallery'
+    && kindOf({ kind: 'collage', imageQueries: ['a beach', 'a road'] }) === 'gallery'
+    && kindOf({ kind: 'brand', tagline: 'x' }) === 'logo'
+    && kindOf({ kind: 'qr-code', heading: 'Scan', url: 'https://example.org' }) === undefined // not a site the person gave
+    && sanitizeScene({ kind: 'qr-code', heading: 'Scan', url: 'nuri.iq' }, video({ request: 'promo, site nuri.iq' }), newId)?.kind === 'qr');
+  ok('a timeline is its own kind now, not steps', kindOf({ kind: 'timeline', heading: 'H', events: [{ when: '1', text: 'a' }, { when: '2', text: 'b' }] }) === 'timeline');
+}
+{
+  // gallery
+  const v = video();
+  const g = sanitizeScene({ kind: 'gallery', heading: 'Campus <b>life</b>', imageQueries: ['university library', 'students on lawn', 'lecture hall', 'campus at night', 'graduation', 'lab'], pictures: [{ src: 'data:image/png;base64,AAAA' }] }, v, newId);
+  ok('a gallery keeps four searches at most, its heading cleaned', g?.kind === 'gallery' && g.imageQueries.length === 4 && g.heading === 'Campus life', g);
+  ok('a gallery never takes pictures from the reply', g && g.pictures === undefined && !texts(g).includes('data:'));
+  const mixed = sanitizeScene({ kind: 'gallery', imageQueries: ['مكتبة', 'library', 'LIBRARY', 'x'.repeat(80), { query: 'lawn with trees' }] }, v, newId);
+  ok('only short English searches, once each, objects read', mixed?.kind === 'gallery' && mixed.imageQueries.join('|') === 'library|lawn with trees' && mixed.heading === undefined, mixed);
+  const one = sanitizeScene({ kind: 'gallery', heading: 'Our lab', imageQueries: ['science lab'] }, v, newId);
+  ok('one picture is an image scene with the heading as its caption', one?.kind === 'image' && one.imageQuery === 'science lab' && one.caption === 'Our lab', one);
+  ok('no pictures is the heading in words, or nothing',
+    sanitizeScene({ kind: 'gallery', heading: 'Moments' }, v, newId)?.kind === 'kinetic' && sanitizeScene({ kind: 'gallery' }, v, newId) === null);
+  ok('a string of searches is a list', sanitizeScene({ kind: 'gallery', imageQueries: 'beach; mountain road' }, v, newId)?.imageQueries?.length === 2);
+}
+{
+  // timeline
+  const v = video({ lang: 'ar' });
+  const tl = sanitizeScene({ kind: 'timeline', heading: 'مسيرتنا', events: [
+    { when: '1992', text: 'تأسست الجامعة' }, { date: '2004', event: 'كلية الطب' }, { year: 2010, text: '<i>حرم جديد</i>' },
+    { when: '', text: 'no date' }, { when: '2015', text: '' }, '2018 — مركز البحوث', { when: '2020', text: 'x' }, { when: '2021', text: 'y' }, { when: '2022', text: 'z' },
+  ] }, v, newId);
+  ok('a timeline keeps events with a date and words, five at most', tl?.kind === 'timeline' && tl.events.length === 5, tl);
+  ok('dates and words read from their other names, markup stripped', tl.events[1].when === '2004' && tl.events[1].text === 'كلية الطب' && tl.events[2].when === '2010' && tl.events[2].text === 'حرم جديد');
+  ok('"2018 — words" is a date and what happened', tl.events[3].when === '2018' && tl.events[3].text === 'مركز البحوث', tl.events[3]);
+  ok('a date is short', Array.from(sanitizeScene({ kind: 'timeline', heading: 'h', events: [{ when: 'x'.repeat(100), text: 'a' }, { when: '1', text: 'b' }] }, v, newId).events[0].when).length <= 24);
+  const lone = sanitizeScene({ kind: 'timeline', heading: 'Since', events: [{ when: '1992', text: 'Founded' }] }, video(), newId);
+  ok('one event is words, not a timeline', lone?.kind === 'kinetic' && lone.text.includes('1992') && lone.text.includes('Founded'), lone);
+}
+{
+  // compare
+  const v = video();
+  const c = sanitizeScene({ kind: 'compare', heading: 'Then and now', left: { title: 'Paper', points: ['Queues', 'Lost forms', 'Calls', 'Waiting', 'More'] }, right: { title: 'The app', points: 'Book in a minute\nReminders' } }, v, newId);
+  ok('a comparison keeps both sides, four points a side', c?.kind === 'compare' && c.left.title === 'Paper' && c.left.points.length === 4 && c.right.points.join() === 'Book in a minute,Reminders', c);
+  const cols = sanitizeScene({ kind: 'compare', heading: 'H', sides: [{ name: 'A', items: ['a1'] }, { label: 'B', bullets: ['b1'] }] }, v, newId);
+  ok('sides given as a list are left and right', cols?.kind === 'compare' && cols.left.title === 'A' && cols.right.title === 'B' && cols.right.points[0] === 'b1', cols);
+  const ab = sanitizeScene({ kind: 'compare', heading: 'H', before: 'Slow', after: 'Fast' }, v, newId);
+  ok('before and after read as the two sides, titles only', ab?.kind === 'compare' && ab.left.title === 'Slow' && ab.right.title === 'Fast' && ab.left.points.length === 0);
+  const half = sanitizeScene({ kind: 'compare', heading: 'Why us', right: { title: 'Us', points: ['Fast', 'Kind'] } }, v, newId);
+  ok('one side alone is a list of its points', half?.kind === 'bullets' && half.heading === 'Why us' && half.points.join() === 'Fast,Kind', half);
+  ok('a side title is short', Array.from(sanitizeScene({ kind: 'compare', heading: 'h', left: { title: 'x'.repeat(200) }, right: { title: 'y' } }, v, newId).left.title).length <= 40);
+}
+{
+  // people
+  const v = video({ lang: 'ckb' });
+  const pp = sanitizeScene({ kind: 'people', heading: 'سەرۆکایەتی', people: [
+    { name: 'د. ئەحمەد', role: 'سەرۆکی زان\u0643ۆ', imageQuery: 'Ahmed Rashid portrait', picture: { src: 'data:image/jpeg;base64,AAAA' } },
+    { name: 'د. ئەحمەد', role: 'duplicate' }, { role: 'no name' }, 'سارا', { name: '<b>ژیان</b>', position: 'ڕاگر', imageQuery: 'ژیان' },
+    { name: 'a' }, { name: 'b' }, { name: 'c' },
+  ] }, v, newId);
+  ok('people: four at most, each once, a name needed', pp?.kind === 'people' && pp.people.length === 4 && pp.people.map((x) => x.name).slice(0, 3).join('|') === 'د. ئەحمەد|سارا|ژیان', pp);
+  ok('a role in Kurdish letters, read from "position" too', pp.people[0].role === 'سەرۆکی زان\u06A9ۆ' && pp.people[2].role === 'ڕاگر');
+  ok('a portrait search is kept only in Latin letters', pp.people[0].imageQuery === 'Ahmed Rashid portrait' && pp.people[2].imageQuery === undefined);
+  ok('a portrait is never taken from the reply', pp.people.every((x) => x.picture === undefined) && !texts(pp).includes('data:'));
+  ok('no named person: the heading in words', sanitizeScene({ kind: 'people', heading: 'Our team', people: [{ role: 'x' }] }, v, newId)?.kind === 'kinetic');
+}
+{
+  // logo and qr
+  const v = video({ request: 'a promo for Nuri Clinic, visit www.nuri.iq/book today', brand: { name: 'Nuri' } });
+  const lg = sanitizeScene({ kind: 'logo', tagline: 'Care, <em>always</em>' }, v, newId);
+  ok('a logo scene keeps its line, cleaned', lg?.kind === 'logo' && lg.tagline === 'Care, always');
+  ok('a logo scene needs no line', sanitizeScene({ kind: 'logo' }, v, newId)?.kind === 'logo');
+  const qr = sanitizeScene({ kind: 'qr', heading: 'Book online', url: 'https://nuri.iq/book' }, v, newId);
+  ok('a QR code for the website the request gave', qr?.kind === 'qr' && qr.url === 'https://nuri.iq/book' && qr.heading === 'Book online');
+  ok('a QR code stays up long enough to scan', qr.seconds >= 5, qr.seconds);
+  ok('a QR code for a website nobody gave is dropped', sanitizeScene({ kind: 'qr', heading: 'Scan', url: 'nuriclinic.com' }, v, newId) === null);
+  ok('a QR code for javascript:, or with no address, is dropped',
+    sanitizeScene({ kind: 'qr', heading: 'x', url: 'javascript:alert(1)' }, v, newId) === null && sanitizeScene({ kind: 'qr', heading: 'x' }, v, newId) === null);
+  const briefed = video({ brief: { subjects: ['University of Duhok'], facts: [
+    { label: 'Official website', value: 'https://uod.ac', source: 'Wikidata', url: 'https://www.wikidata.org/wiki/Q1', use: true },
+    { label: 'Other site', value: 'uod-old.org', source: 'Wikidata', url: 'https://www.wikidata.org/wiki/Q1', use: false },
+  ], pictures: [], at: 1 } });
+  ok('a website from the facts found about the subject is one the person has', sanitizeScene({ kind: 'qr', heading: 'x', url: 'uod.ac' }, briefed, newId)?.kind === 'qr');
+  ok('but not from a fact the person switched off', sanitizeScene({ kind: 'qr', heading: 'x', url: 'uod-old.org' }, briefed, newId) === null);
+  ok('the brief\'s own website counts', sanitizeScene({ kind: 'qr', heading: 'x', url: 'https://www.duhok.example/x' }, video({ brief: { subjects: [], facts: [], pictures: [], website: 'https://duhok.example', at: 1 } }), newId)?.kind === 'qr');
+}
+{
+  // narration survives the plan and the redo
+  const v = video();
+  const plan = parsePlan(JSON.stringify({ title: 'T', scenes: [
+    { kind: 'title', title: 'Hook', narration: 'Have you ever <b>waited</b> all night?' },
+    { kind: 'timeline', heading: 'Since', events: [{ when: '1992', text: 'a' }, { when: '2000', text: 'b' }], narration: 'It began in 1992.' },
+    { kind: 'outro', headline: 'Bye', voiceover: 'Book today.' },
+  ] }), v, newId);
+  ok('narration is kept on every kind, cleaned, from "voiceover" too',
+    plan && plan.scenes[0].narration === 'Have you ever waited all night?' && plan.scenes[1].narration === 'It began in 1992.' && plan.scenes[2].narration === 'Book today.', plan && plan.scenes);
+  const vv = { ...v, scenes: plan.scenes };
+  const redone = parseScene('{"kind":"people","heading":"Who","people":[{"name":"Ana","role":"Dean"}],"narration":"Meet Ana, our dean."}', vv.scenes[1], vv, newId);
+  ok('a redone scene keeps the narration it was given', redone?.kind === 'people' && redone.narration === 'Meet Ana, our dean.');
+}
+{
+  // pictures in a scene: slots, putting one in, taking one out, redo keeping them
+  const pic = (q, n = 1) => ({ src: `data:image/jpeg;base64,P${n}`, credit: `c${n}`, source: `s${n}`, query: q });
+  const g = { id: 'g', kind: 'gallery', seconds: 4, transition: 'fade', heading: 'H', imageQueries: ['beach', 'road', 'city'] };
+  ok('an empty gallery wants each of its searches', pictureSlots(g).map((s) => s.key).join() === 'q:beach,q:road,q:city');
+  let g2 = withPicture(g, 'q:road', pic('road', 1));
+  ok('a found tile joins the montage, and its search is no longer wanted', g2.pictures.length === 1 && pictureSlots(g2).map((s) => s.key).join() === 'g0,q:beach,q:city' && g !== g2 && g.pictures === undefined);
+  g2 = withPicture(withPicture(g2, 'q:beach', pic('beach', 2)), 'q:city', pic('city', 3));
+  ok('three tiles, nothing more wanted', g2.pictures.length === 3 && pictureJobs([g2]).length === 0 && picturesOf(g2).length === 3);
+  const g3 = withPicture(g2, 'g1', undefined);
+  ok('a tile taken out takes its search with it', g3.pictures.length === 2 && !g3.imageQueries.includes('beach') && pictureJobs([g3]).length === 0, g3);
+  const g4 = withPicture(g3, 'g0', pic('harbour', 4));
+  ok('a tile replaced by hand remembers the new search instead of the old', g4.pictures[0].query === 'harbour' && g4.imageQueries.includes('harbour') && !g4.imageQueries.includes('road'), g4.imageQueries);
+  const g5 = withPicture(withPicture(g4, 'new', pic('lake', 5)), 'new', pic('hill', 6));
+  ok('four tiles at most', g5.pictures.length === 4 && withPicture(g5, 'new', pic('more', 7)) === g5);
+  ok('a tile still to be found, taken out, is not searched for', pictureJobs([withPicture(g, 'q:road', undefined)]).map((j) => j.query).join() === 'beach,city');
+  const people = { id: 'p', kind: 'people', seconds: 4, transition: 'fade', heading: 'H', people: [{ name: 'Ana', imageQuery: 'Ana Smith' }, { name: 'Bo' }] };
+  ok('a person with a search wants a portrait; one without, none', pictureJobs([people]).map((j) => `${j.sceneId}/${j.key}/${j.query}`).join() === 'p/p0/Ana Smith');
+  const withAna = withPicture(people, 'p0', pic('Ana Smith', 8));
+  ok('a portrait goes to its person', withAna.people[0].picture.src.endsWith('P8') && withAna.people[1].picture === undefined && pictureJobs([withAna]).length === 0);
+  const noAna = withPicture(withAna, 'p0', undefined);
+  ok('a portrait taken out is not fetched again', noAna.people[0].picture === undefined && noAna.people[0].imageQuery === undefined && pictureJobs([noAna]).length === 0);
+  const title = { id: 't', kind: 'title', seconds: 3, transition: 'fade', title: 'x', imageQuery: 'sunrise' };
+  ok('a title\'s one picture is its main slot', pictureJobs([title])[0].key === 'main' && withPicture(title, 'main', pic('sunrise', 9)).picture.src.endsWith('P9'));
+  ok('a kind with no picture has no slots, and an unknown key changes nothing',
+    pictureSlots({ id: 'k', kind: 'kinetic', text: 'x', seconds: 3, transition: 'fade' }).length === 0 && withPicture(people, 'p9', pic('x')) === people && withPicture(g, 'g5', pic('x')) === g);
+
+  // The redo prompt carries no pictures, and the redone scene keeps the ones it still asks for.
+  const v = video();
+  const vv = { ...v, scenes: [{ id: 't0', kind: 'title', title: 'Hook', seconds: 3, transition: 'fade' }, { ...g2, id: 'g1' }, { ...withAna, id: 'p1' }, { id: 'o', kind: 'outro', headline: 'Bye', seconds: 3, transition: 'none' }] };
+  const prompt = scenePrompt(vv, 1, '');
+  ok('no gallery tile or portrait is sent back to the model', !prompt.user.includes('data:image') && prompt.user.includes('"imageQueries"') && prompt.user.includes('Ana Smith'));
+  const again = parseScene('{"kind":"gallery","heading":"New","imageQueries":["road","beach","forest"]}', vv.scenes[1], vv, newId);
+  ok('a redone gallery keeps the tiles it still asks for', again?.kind === 'gallery' && again.pictures.map((p) => p.query).join() === 'road,beach' && pictureJobs([again]).map((j) => j.query).join() === 'forest', again);
+  const peopleAgain = parseScene('{"kind":"people","heading":"Team","people":[{"name":"Ana","role":"Dean"},{"name":"Cy"}]}', vv.scenes[2], vv, newId);
+  ok('a redone people scene keeps each portrait by name', peopleAgain?.people[0].picture?.src.endsWith('P8') && peopleAgain.people[1].picture === undefined, peopleAgain);
+}
+// ── a scene of a new kind added by hand ───────────────────────────────────
+for (const lang of LANGS) {
+  const v = video({ lang, request: 'a video for nuri.iq', brand: { name: 'Nuri' } });
+  const scenes = NEW_KINDS.map((k) => blankScene(k, v, newId));
+  ok(`${lang}: every new kind has a blank of that kind`, scenes.every((s, i) => s.kind === NEW_KINDS[i]), scenes.map((s) => s.kind));
+  ok(`${lang}: new blanks have readable seconds and fresh ids`, scenes.every((s) => s.seconds >= 3 && s.seconds <= 20) && new Set(scenes.map((s) => s.id)).size === NEW_KINDS.length);
+  const byKind = Object.fromEntries(scenes.map((s) => [s.kind, s]));
+  ok(`${lang}: a blank timeline has events, a comparison two sides, a people scene people`,
+    byKind.timeline.events.length >= 2 && byKind.compare.left.points.length && byKind.compare.right.title && byKind.people.people.length >= 1);
+  ok(`${lang}: a blank QR code opens the site the request gave, and stays up to be scanned`, byKind.qr.url === 'nuri.iq' && byKind.qr.seconds >= 5, byKind.qr);
+  ok(`${lang}: the blanks with words survive their own repair`, ['timeline', 'compare', 'people', 'logo', 'qr'].every((k) => sanitizeScene(byKind[k], v, newId)?.kind === k));
+  const words = scenes.map(texts).join(' ');
+  if (lang === 'ar') ok('ar: new placeholders in Arabic letters', /[\u0600-\u06FF]/.test(words) && !/[\u06CC\u06A9\u06D5]/.test(words));
+  if (lang === 'ckb' || lang === 'kmr') ok(`${lang}: new placeholders in Kurdish letters`, /[\u06D5\u06CE]/.test(words) && !/[\u064A\u0643\u0629]/.test(words));
+  if (lang === 'en') ok('en: new placeholders in English', !/[\u0600-\u06FF]/.test(words));
+}
+ok('a blank QR code for a video with no website has an empty address to fill in', blankScene('qr', video(), newId).url === '');
+ok('a blank QR code takes the brief\'s website first', blankScene('qr', video({ brief: { subjects: [], facts: [], pictures: [], website: 'https://uod.ac', at: 1 } }), newId).url === 'https://uod.ac');
+
+// ── the QR code ───────────────────────────────────────────────────────────
+ok('an address without a scheme opens as https', qrText('uod.ac') === 'https://uod.ac/' && qrText('www.nuri.iq/book?x=1') === 'https://www.nuri.iq/book?x=1');
+ok('http stays http', qrText('http://example.org') === 'http://example.org/');
+ok('only web addresses: no javascript:, mailto:, ftp:, spaces or bare words',
+  [ 'javascript:alert(1)', 'mailto:a@b.c', 'ftp://x.org', 'nuri clinic', 'localhost', '', undefined, 42, 'https://user:pw@x.org' ].every((x) => qrText(x) === null));
+ok('an Arabic-script host is carried as punycode, every byte ASCII', /^https:\/\/xn--[a-z0-9-]+\.[a-z]+\/$/.test(qrText('جامعة.com') ?? ''), qrText('جامعة.com'));
+{
+  const m = qrModules('https://uod.ac/');
+  ok('a short address is a version 2 code at level M (25 × 25)', m && m.size === 25 && m.level === 'M' && m.dark.length === 25 && m.dark.every((r) => r.length === 25), m && m.size);
+  const finder = (r0, c0) => {
+    for (let r = 0; r < 7; r++) for (let c = 0; c < 7; c++) {
+      const ring = r === 0 || r === 6 || c === 0 || c === 6;
+      const core = r >= 2 && r <= 4 && c >= 2 && c <= 4;
+      if (m.dark[r0 + r][c0 + c] !== (ring || core)) return false;
+    }
+    return true;
+  };
+  ok('finder patterns in three corners', finder(0, 0) && finder(0, m.size - 7) && finder(m.size - 7, 0));
+  ok('timing patterns alternate', Array.from({ length: m.size - 16 }, (_, i) => i + 8).every((i) => m.dark[6][i] === (i % 2 === 0) && m.dark[i][6] === (i % 2 === 0)));
+  ok('the dark module is dark', m.dark[m.size - 8][8] === true);
+  ok('the same address is the same code', JSON.stringify(qrModules('uod.ac').dark) === JSON.stringify(m.dark));
+  const h = qrModules('https://uod.ac/', true);
+  ok('with a logo over it, level H and a larger code', h.level === 'H' && h.size > m.size);
+  ok('an address too long for any code is no code', qrModules('https://x.org/' + 'a'.repeat(3000)) === null && qrModules('not a url') === null);
+  const path = qrPath(m);
+  const dark = m.dark.flat().filter(Boolean).length;
+  const cells = [...path.matchAll(/M\d+ \d+h(\d+)v1h-\d+z/g)].reduce((a, x) => a + Number(x[1]), 0);
+  ok('the path draws exactly the dark modules, in runs', /^(M\d+ \d+h\d+v1h-\d+z)+$/.test(path) && cells === dark, { cells, dark });
+  const mid = Math.floor(m.size / 2);
+  const hole = qrPath(m, { from: mid - 2, to: mid + 3 });
+  const holeCells = [...hole.matchAll(/M\d+ \d+h(\d+)v1h-\d+z/g)].reduce((a, x) => a + Number(x[1]), 0);
+  const under = m.dark.slice(mid - 2, mid + 3).flatMap((r) => r.slice(mid - 2, mid + 3)).filter(Boolean).length;
+  ok('a square left out under a logo', holeCells === dark - under);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

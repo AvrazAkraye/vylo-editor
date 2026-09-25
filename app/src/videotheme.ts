@@ -425,12 +425,20 @@ export interface Box {
 
 /**
  * Safe margins per format. Portrait leaves room at the top and bottom where
- * phone apps draw their own buttons and captions.
+ * phone apps draw their own buttons and captions: no words in the top 12% or
+ * the bottom 18% of a vertical frame (Reels, TikTok, Shorts and Stories all
+ * put their names, captions and buttons there).
  */
+export const PORTRAIT_SAFE = { top: 0.12, bottom: 0.18 } as const;
+
 export function boxOf(width: number, height: number): Box {
   const format: Format = width > height * 1.15 ? 'landscape' : height > width * 1.15 ? 'portrait' : 'square';
   const u = Math.min(width, height) / 1080;
-  const m = format === 'landscape' ? { x: 150, top: 110, bottom: 120 } : format === 'portrait' ? { x: 90, top: 230, bottom: 330 } : { x: 100, top: 110, bottom: 120 };
+  const m = format === 'landscape'
+    ? { x: 150, top: 110, bottom: 120 }
+    : format === 'portrait'
+      ? { x: 90, top: Math.ceil((height * PORTRAIT_SAFE.top) / u) + 2, bottom: Math.ceil((height * PORTRAIT_SAFE.bottom) / u) + 2 }
+      : { x: 100, top: 110, bottom: 120 };
   const x = m.x * u;
   const top = m.top * u;
   const bottom = m.bottom * u;
@@ -597,4 +605,74 @@ export function fitText(text: string, o: FitOptions): Fit {
 /** The width of a short string at a size, for things like counters that must not jump. */
 export function textWidth(text: string, f: TypeFace, size: number, bold: boolean, ready: boolean): number {
   return (widthAt100(text, f, bold, ready) * size) / 100;
+}
+
+// ---------------------------------------------------------------------------
+// Numbers
+
+/**
+ * The digits a video's numbers are drawn in. English is always Western. An
+ * Arabic, Sorani or Badini video draws them in Arabic-Indic digits (١٢٣) —
+ * the digits Iraqi and Kurdish print uses — unless its own words are written
+ * with Western ones (a request and a storyboard that say "2024", "30%"),
+ * because a counter in one set of digits under a line in the other reads as
+ * two different videos. Decided once per video, from all of its words.
+ */
+export type Numerals = 'latn' | 'arab';
+
+const numeralsCache = new WeakMap<object, Numerals>();
+
+export function numeralsOf(v: Pick<Video, 'lang' | 'scenes' | 'title'>): Numerals {
+  if (!rtlLang(v.lang)) return 'latn';
+  const hit = numeralsCache.get(v);
+  if (hit) return hit;
+  // Only the words the film shows — never ids, searches, pictures or web addresses, which are Latin on purpose.
+  const words: string[] = [v.title ?? ''];
+  for (const s of v.scenes ?? []) {
+    switch (s.kind) {
+      case 'title': words.push(s.title, s.subtitle ?? ''); break;
+      case 'kinetic': words.push(s.text); break;
+      case 'bullets': words.push(s.heading, ...s.points); break;
+      case 'stat': words.push(s.label, s.prefix ?? '', s.suffix ?? ''); break;
+      case 'chart': words.push(s.heading, ...s.bars.map((x) => x.label), s.unit ?? ''); break;
+      case 'quote': words.push(s.quote, s.author ?? ''); break;
+      case 'image': words.push(s.caption ?? ''); break;
+      case 'split': words.push(s.heading, s.text); break;
+      case 'steps': words.push(s.heading, ...s.steps); break;
+      case 'outro': words.push(s.headline, s.cta ?? ''); break;
+      case 'gallery': words.push(s.heading ?? ''); break;
+      case 'timeline': words.push(s.heading, ...s.events.flatMap((e) => [e.when, e.text])); break;
+      case 'compare': words.push(s.heading, s.left.title, ...s.left.points, s.right.title, ...s.right.points); break;
+      case 'people': words.push(s.heading, ...s.people.flatMap((x) => [x.name, x.role ?? ''])); break;
+      case 'logo': words.push(s.tagline ?? ''); break;
+      case 'qr': words.push(s.heading); break;
+    }
+  }
+  const text = words.filter((w) => typeof w === 'string').join(' ');
+  const western = (text.match(/[0-9]/g) ?? []).length;
+  const eastern = (text.match(/[\u0660-\u0669\u06F0-\u06F9]/g) ?? []).length;
+  const out: Numerals = western > eastern ? 'latn' : 'arab';
+  numeralsCache.set(v, out);
+  return out;
+}
+
+/**
+ * A string of Western digits in the video's digits: 0-9 become ٠-٩, and the
+ * separators between digits their Arabic forms (٬ for thousands, ٫ for the
+ * decimal point), % the Arabic ٪. Left as it is for 'latn', and whenever it
+ * holds Latin letters — "4G" or "COVID-19" is a name, not a number.
+ */
+export function localDigits(s: string, n: Numerals): string {
+  if (n !== 'arab' || !s || /[A-Za-z]/.test(s)) return s;
+  return s
+    .replace(/(\d),(?=\d)/g, '$1\u066C')
+    .replace(/(\d)\.(?=\d)/g, '$1\u066B')
+    .replace(/%/g, '\u066A')
+    .replace(/[0-9]/g, (d) => String.fromCharCode(0x660 + Number(d)));
+}
+
+/** A number with thousands separators and `decimals` places, in the video's digits. */
+export function formatNum(v: number, decimals: number, n: Numerals): string {
+  const s = (Number.isFinite(v) ? v : 0).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return localDigits(s, n);
 }

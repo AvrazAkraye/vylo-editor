@@ -67,6 +67,8 @@ ok('the path is built from the provider and nothing else',
    speechPath({ baseUrl: 'https://api.example.com/v1' }) === 'https://api.example.com/v1/audio/speech');
 ok('a trailing slash does not double up',
    speechPath({ baseUrl: 'https://api.example.com/v1/' }) === 'https://api.example.com/v1/audio/speech');
+ok('a base as providers.ts stores it — without /v1 — gets /v1 put back, as transcription does',
+   speechPath({ baseUrl: 'https://api.openai.com' }) === 'https://api.openai.com/v1/audio/speech');
 ok('the key rides in the header', speechHeaders({ key: 'sk-x' }).Authorization === 'Bearer sk-x');
 {
   const b = speechBody('hello', BLANK_SPEECH);

@@ -3,8 +3,10 @@ import { Icon } from './Icon';
 import { fill } from './i18n';
 import { explain } from './errors';
 import { SCENE_KINDS, type Picture, type Scene, type SceneKind, type Transition, type Video } from './videotypes';
+import type { CompareScene, GalleryScene, PeopleScene, TimelineScene } from './videotypes';
 import { searchPictures, fetchPicture, type Candidate } from './videomedia';
 import { SceneThumb } from './VideoScenes';
+import { pictureSlots, qrText, withPicture } from './video';
 
 /**
  * The storyboard, as the person edits it: one card a scene.
@@ -31,6 +33,12 @@ export function kindName(k: SceneKind, t: T): string {
   if (k === 'image') return t('Picture');
   if (k === 'split') return t('Picture and text');
   if (k === 'steps') return t('Steps');
+  if (k === 'gallery') return t('Montage');
+  if (k === 'timeline') return t('Milestones');
+  if (k === 'compare') return t('Comparison');
+  if (k === 'people') return t('People');
+  if (k === 'logo') return t('Logo reveal');
+  if (k === 'qr') return t('QR code');
   return t('Closing');
 }
 
@@ -44,6 +52,12 @@ export function kindAbout(k: SceneKind, t: T): string {
   if (k === 'image') return t('A picture across the frame, slowly moving, with a caption.');
   if (k === 'split') return t('A picture on one side, a heading and a sentence on the other.');
   if (k === 'steps') return t('Up to five numbered steps, in order.');
+  if (k === 'gallery') return t('Up to four pictures in a moving montage, with a heading.');
+  if (k === 'timeline') return t('Up to five dates on a line that draws itself — only real ones.');
+  if (k === 'compare') return t('Two sides next to each other: before and after, without and with.');
+  if (k === 'people') return t('Up to four real people, with their photo or their initials.');
+  if (k === 'logo') return t('The brand logo revealed — or its name, when there is no logo.');
+  if (k === 'qr') return t('A code a phone scans to open your web address.');
   return t('The brand, what to do next, and where.');
 }
 
@@ -69,6 +83,12 @@ export function gistOf(s: Scene): string {
     case 'image': return s.caption ?? '';
     case 'split': return s.heading;
     case 'steps': return s.heading;
+    case 'gallery': return s.heading ?? '';
+    case 'timeline': return s.heading || s.events.map((e) => e.when).join(' · ');
+    case 'compare': return s.heading || `${s.left.title} / ${s.right.title}`;
+    case 'people': return s.heading || s.people.map((p) => p.name).join(', ');
+    case 'logo': return s.tagline ?? '';
+    case 'qr': return s.heading || s.url;
     default: return s.headline;
   }
 }
@@ -94,15 +114,18 @@ function WebThumb({ url, alt }: { url: string; alt: string }) {
  * pictures come back (videomedia.ts), each with its credit, which is carried
  * into the video's closing card.
  */
-function PictureChooser({ t, scene, video, onPick, onClose, onError }: {
+function PictureChooser({ t, query: first, hasPicture, video, onPick, onClose, onError }: {
   t: T;
-  scene: Scene;
+  /** The words to search with first: the picture's own, or the ones the model suggested. */
+  query: string;
+  /** There is a picture now, so "No picture" can take it away. */
+  hasPicture: boolean;
   video: Video;
   onPick: (p: Picture | undefined) => void;
   onClose: () => void;
   onError: (m: string) => void;
 }) {
-  const [query, setQuery] = useState(scene.picture?.query ?? scene.imageQuery ?? '');
+  const [query, setQuery] = useState(first);
   const [found, setFound] = useState<Candidate[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [taking, setTaking] = useState<string | null>(null);
@@ -169,7 +192,7 @@ function PictureChooser({ t, scene, video, onPick, onClose, onError }: {
       )}
       <div className="vid-pick-foot">
         <small>{t('Openly licensed pictures from Openverse and Wikimedia Commons. Each one is credited at the end of the video.')}</small>
-        {scene.picture && (
+        {hasPicture && (
           <button type="button" className="ghost" onClick={() => { onPick(undefined); onClose(); }}>{t('No picture')}</button>
         )}
         <button type="button" className="ghost" onClick={onClose}>{t('Close')}</button>
@@ -206,11 +229,209 @@ function LinesField({ label, value, max, onChange, disabled }: {
   );
 }
 
+/**
+ * A small picture in a list — a montage's tile, a person's portrait — with
+ * the chooser behind it. The picture is put in or taken out of its slot by
+ * `withPicture` (video.ts), which keeps the scene's searches in step, so a
+ * picture taken out by hand is not fetched again.
+ */
+function SlotThumb({ t, picture, label, onChoose, disabled }: {
+  t: T;
+  picture?: Picture;
+  label: string;
+  onChoose: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button type="button" className="vid-sb-thumb" disabled={disabled} onClick={onChoose} title={label} aria-label={label}>
+      {picture ? <img src={picture.src} alt="" /> : <span className="vid-pic-none"><Icon name="image" size={14} /></span>}
+      <span className="vid-sb-sr">{picture ? t('Change the picture') : t('Choose a picture')}</span>
+    </button>
+  );
+}
+
+/** A montage's pictures: each one to replace or take out, and room for up to four. */
+function GalleryFields({ t, scene, video, onChange, onError, disabled }: {
+  t: T;
+  scene: GalleryScene;
+  video: Video;
+  onChange: (patch: Partial<Scene>) => void;
+  onError: (m: string) => void;
+  disabled?: boolean;
+}) {
+  const [picking, setPicking] = useState<string | null>(null);
+  const slots = pictureSlots(scene);
+  const put = (key: string, picture: Picture | undefined) => {
+    const next = withPicture(scene, key, picture) as GalleryScene;
+    onChange({ pictures: next.pictures ?? [], imageQueries: next.imageQueries ?? [] } as Partial<Scene>);
+  };
+  const chosen = picking ? slots.find((x) => x.key === picking) : undefined;
+  return (
+    <div className="vid-f vid-wide">
+      <span>{t('Pictures')}</span>
+      <ul className="vid-sb-rows vid-sb-slots">
+        {slots.map((slot) => (
+          <li key={slot.key}>
+            <SlotThumb t={t} picture={slot.picture} label={slot.picture ? t('Change the picture') : t('Choose a picture')} disabled={disabled}
+                       onChoose={() => setPicking(picking === slot.key ? null : slot.key)} />
+            <span className="vid-pic-what">
+              <b>{slot.picture ? t('Picture') : t('No picture yet')}</b>
+              <span dir="auto">{slot.picture ? slot.picture.credit : slot.query ? fill(t('Suggested: “{q}”'), { q: slot.query }) : ''}</span>
+            </span>
+            <button type="button" className="sb-act" disabled={disabled} title={t('Remove this picture')} aria-label={t('Remove this picture')}
+                    onClick={() => { put(slot.key, undefined); if (picking === slot.key) setPicking(null); }}><Icon name="close" size={11} /></button>
+          </li>
+        ))}
+      </ul>
+      {slots.length < 4 && (
+        <button type="button" className="ghost vid-add-bar" disabled={disabled} onClick={() => setPicking(picking === 'new' ? null : 'new')}>
+          <Icon name="plus" size={11} />{t('Add a picture')}
+        </button>
+      )}
+      {picking && (
+        <PictureChooser key={picking} t={t} query={chosen?.picture?.query ?? chosen?.query ?? ''} hasPicture={false} video={video} onError={onError}
+                        onPick={(picture) => { if (picture) put(chosen?.picture ? picking : chosen?.key.startsWith('q:') ? picking : 'new', picture); }}
+                        onClose={() => setPicking(null)} />
+      )}
+    </div>
+  );
+}
+
+/** A timeline's dates: when and what happened, one row each, up to five. */
+function TimelineFields({ t, scene, onChange, disabled }: {
+  t: T;
+  scene: TimelineScene;
+  onChange: (patch: Partial<Scene>) => void;
+  disabled?: boolean;
+}) {
+  const events = scene.events;
+  const put = (next: { when: string; text: string }[]) => onChange({ events: next } as Partial<Scene>);
+  return (
+    <div className="vid-f vid-wide">
+      <span>{t('Milestones')}</span>
+      <ul className="vid-sb-rows vid-sb-events">
+        {events.map((e, i) => (
+          <li key={i}>
+            <input value={e.when} dir="auto" disabled={disabled} aria-label={t('When')} placeholder={t('When')}
+                   onChange={(ev) => put(events.map((x, j) => (j === i ? { ...x, when: ev.target.value } : x)))} />
+            <input value={e.text} dir="auto" disabled={disabled} aria-label={t('What happened')} placeholder={t('What happened')}
+                   onChange={(ev) => put(events.map((x, j) => (j === i ? { ...x, text: ev.target.value } : x)))} />
+            <button type="button" className="sb-act" disabled={disabled || events.length <= 2} title={t('Remove this date')} aria-label={t('Remove this date')}
+                    onClick={() => put(events.filter((_, j) => j !== i))}><Icon name="close" size={11} /></button>
+          </li>
+        ))}
+      </ul>
+      {events.length < 5 && (
+        <button type="button" className="ghost vid-add-bar" disabled={disabled}
+                onClick={() => put([...events, { when: '', text: '' }])}><Icon name="plus" size={11} />{t('Add a date')}</button>
+      )}
+    </div>
+  );
+}
+
+/** A comparison's two sides: a title and up to four points each. The second is the side the video argues for. */
+function CompareFields({ t, scene, onChange, disabled }: {
+  t: T;
+  scene: CompareScene;
+  onChange: (patch: Partial<Scene>) => void;
+  disabled?: boolean;
+}) {
+  const side = (which: 'left' | 'right', label: string) => {
+    const v = scene[which];
+    return (
+      <div className="vid-sb-side">
+        <b>{label}</b>
+        <label className="vid-f">
+          <span>{t('Title')}</span>
+          <input value={v.title} dir="auto" disabled={disabled} onChange={(e) => onChange({ [which]: { ...v, title: e.target.value } } as Partial<Scene>)} />
+        </label>
+        <LinesField label={t('Points, one per line (up to four)')} value={v.points} max={4} disabled={disabled}
+                    onChange={(points) => onChange({ [which]: { ...v, points } } as Partial<Scene>)} />
+      </div>
+    );
+  };
+  return (
+    <div className="vid-sb-sides vid-wide">
+      {side('left', t('First side'))}
+      {side('right', t('Second side — the one you argue for'))}
+    </div>
+  );
+}
+
+/** The people: name, role and portrait each, up to four. */
+function PeopleFields({ t, scene, video, onChange, onError, disabled }: {
+  t: T;
+  scene: PeopleScene;
+  video: Video;
+  onChange: (patch: Partial<Scene>) => void;
+  onError: (m: string) => void;
+  disabled?: boolean;
+}) {
+  const [picking, setPicking] = useState<number | null>(null);
+  const people = scene.people;
+  const put = (next: PeopleScene['people']) => onChange({ people: next } as Partial<Scene>);
+  const portrait = (i: number, picture: Picture | undefined) => put((withPicture(scene, `p${i}`, picture) as PeopleScene).people);
+  const who = picking === null ? undefined : people[picking];
+  return (
+    <div className="vid-f vid-wide">
+      <span>{t('People')}</span>
+      <ul className="vid-sb-rows vid-sb-people">
+        {people.map((p, i) => (
+          <li key={i}>
+            <SlotThumb t={t} picture={p.picture} label={p.picture ? t('Change the picture') : t('Choose a picture')} disabled={disabled}
+                       onChoose={() => setPicking(picking === i ? null : i)} />
+            <input value={p.name} dir="auto" disabled={disabled} aria-label={t('Name')} placeholder={t('Name')}
+                   onChange={(e) => put(people.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} />
+            <input value={p.role ?? ''} dir="auto" disabled={disabled} aria-label={t('Role')} placeholder={t('Role')}
+                   onChange={(e) => put(people.map((x, j) => (j === i ? { ...x, role: e.target.value } : x)))} />
+            <button type="button" className="sb-act" disabled={disabled || people.length <= 1} title={t('Remove this person')} aria-label={t('Remove this person')}
+                    onClick={() => { put(people.filter((_, j) => j !== i)); setPicking(null); }}><Icon name="close" size={11} /></button>
+          </li>
+        ))}
+      </ul>
+      {people.length < 4 && (
+        <button type="button" className="ghost vid-add-bar" disabled={disabled}
+                onClick={() => put([...people, { name: '' }])}><Icon name="plus" size={11} />{t('Add a person')}</button>
+      )}
+      {picking !== null && who && (
+        <PictureChooser key={picking} t={t} query={who.picture?.query ?? who.imageQuery ?? ''} hasPicture={!!who.picture} video={video} onError={onError}
+                        onPick={(picture) => portrait(picking, picture)} onClose={() => setPicking(null)} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Whether the film carries the brand small in a corner (`video.watermark`).
+ * For the panel's Look tab, beside the brand: on by default, and only
+ * meaningful when the brand has a logo or a name.
+ */
+export function WatermarkSwitch({ t, video, onChange, disabled }: {
+  t: T;
+  video: Video;
+  onChange: (watermark: boolean) => void;
+  disabled?: boolean;
+}) {
+  const brand = !!(video.brand?.logo || video.brand?.name?.trim());
+  return (
+    <label className="vid-sb-switch">
+      <input type="checkbox" checked={video.watermark !== false} disabled={disabled || !brand}
+             onChange={(e) => onChange(e.target.checked)} />
+      <span>
+        <b>{t('Brand in the corner')}</b>
+        <small>{t('Show the brand logo, or its name, small in a corner of every scene.')}</small>
+      </span>
+    </label>
+  );
+}
+
 /** One scene's own fields, by kind. */
-function SceneFields({ t, scene, onChange, disabled }: {
+function SceneFields({ t, scene, video, onChange, onError, disabled }: {
   t: T;
   scene: Scene;
+  video: Video;
   onChange: (patch: Partial<Scene>) => void;
+  onError: (m: string) => void;
   disabled?: boolean;
 }) {
   const text = (label: string, value: string | undefined, key: string, wide = false, long = false) => (
@@ -293,6 +514,32 @@ function SceneFields({ t, scene, onChange, disabled }: {
       </>
     );
   }
+  if (s.kind === 'gallery') return <>{text(t('Heading'), s.heading, 'heading', true)}<GalleryFields t={t} scene={s} video={video} onChange={onChange} onError={onError} disabled={disabled} /></>;
+  if (s.kind === 'timeline') return <>{text(t('Heading'), s.heading, 'heading', true)}<TimelineFields t={t} scene={s} onChange={onChange} disabled={disabled} /></>;
+  if (s.kind === 'compare') return <>{text(t('Heading'), s.heading, 'heading', true)}<CompareFields t={t} scene={s} onChange={onChange} disabled={disabled} /></>;
+  if (s.kind === 'people') return <>{text(t('Heading'), s.heading, 'heading', true)}<PeopleFields t={t} scene={s} video={video} onChange={onChange} onError={onError} disabled={disabled} /></>;
+  if (s.kind === 'logo') {
+    return (
+      <>
+        {text(t('Line under the logo'), s.tagline, 'tagline', true)}
+        <p className="vid-note vid-wide">{t('Shows the brand logo from Look, or the brand name when there is none.')}</p>
+      </>
+    );
+  }
+  if (s.kind === 'qr') {
+    const bad = !!s.url.trim() && !qrText(s.url);
+    return (
+      <>
+        {text(t('Heading'), s.heading, 'heading', true)}
+        <label className="vid-f vid-wide">
+          <span>{t('Web address')}</span>
+          <input value={s.url} dir="ltr" disabled={disabled} inputMode="url" spellCheck={false}
+                 onChange={(e) => onChange({ url: e.target.value } as Partial<Scene>)} />
+        </label>
+        {bad && <p className="vid-bad vid-wide">{t('This address cannot be made into a QR code. Write it like uod.ac or https://uod.ac/apply.')}</p>}
+      </>
+    );
+  }
   return (
     <>
       {text(t('Headline'), s.headline, 'headline', true)}
@@ -352,7 +599,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
       {open && (
         <div className="vid-scene-body">
           <div className="vid-form">
-            <SceneFields t={t} scene={scene} onChange={onChange} disabled={redoing} />
+            <SceneFields t={t} scene={scene} video={video} onChange={onChange} onError={onError} disabled={redoing} />
             <label className="vid-f">
               <span>{t('Seconds on screen')}</span>
               <input type="number" min={2} max={20} step={0.5} value={scene.seconds} disabled={redoing}
@@ -384,7 +631,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
             </div>
           )}
           {picking && (
-            <PictureChooser t={t} scene={scene} video={video} onError={onError}
+            <PictureChooser t={t} query={scene.picture?.query ?? scene.imageQuery ?? ''} hasPicture={!!scene.picture} video={video} onError={onError}
                             onPick={(picture) => onChange({ picture, ...(picture ? { imageQuery: picture.query } : {}) })}
                             onClose={() => setPicking(false)} />
           )}

@@ -32,6 +32,10 @@
  *   writes. That thinking is billed, but it is not the document, and a
  *   paragraph of it pasted into chapter two would be the worst kind of wrong:
  *   plausible. Only text blocks reach `onText` or the returned text.
+ * - **Nor a server tool's blocks.** A request may carry server tools (the
+ *   optional `tools`, Anthropic wire only — the Video module's web search).
+ *   Their `server_tool_use` and `web_search_tool_result` blocks are the
+ *   provider's working, not the answer, and are dropped the same way.
  * - **The stop reason, in one spelling.** `max_tokens` means the section ran
  *   out of room and is to be continued rather than trusted. The OpenAI dialect
  *   calls that `length`, and a caller that checked for one word would miss the
@@ -215,6 +219,14 @@ type UserContent = string | Array<
 /** What the OpenAI dialect says to a PDF, before any request is made. */
 const NO_PDF = 'This provider cannot read a PDF. Save the PDF as text or as a Word file, and attach that.';
 
+/** And to server tools, which only the Anthropic wire carries. */
+const NO_TOOLS = 'This provider cannot run server tools such as web search.';
+
+/** An error that also says which HTTP status it came from. */
+function withStatus(e: Error, status: number): Error & { status: number } {
+  return Object.assign(e, { status });
+}
+
 /**
  * The user message as the wire carries it: blocks as given on the Anthropic
  * wire; on the other, a refusal for a PDF and one string for text blocks,
@@ -260,6 +272,14 @@ export async function generate(gw: Target, o: {
   onRetry?: (attempt: number, of: number, waitMs: number) => void;
   onRestart?: () => void;
   signal?: AbortSignal;
+  /**
+   * Server tools the provider runs itself — Anthropic's web search, say —
+   * sent as they are. Anthropic wire only: on the other a request with tools
+   * is refused before it is sent, because an answer from a model that never
+   * had the tool it was asked to use is not an answer. Never a tool the app
+   * would have to carry out: nothing here runs what a model asks for.
+   */
+  tools?: readonly unknown[];
 }): Promise<Generated> {
   const wire: Wire = gw.wire === 'openai' ? 'openai' : 'anthropic';
   // One record for both, as everywhere: the key goes where its URL goes.
@@ -268,6 +288,8 @@ export async function generate(gw: Target, o: {
   const onText = (t: string) => o.onText?.(t);
   // Before the loop: a request that can never succeed is not sent, not even once.
   const user = userFor(wire, o.user);
+  const tools = Array.isArray(o.tools) && o.tools.length ? [...o.tools] : null;
+  if (tools && wire !== 'anthropic') throw new Error(NO_TOOLS);
 
   // What the model has already told us about itself wins over the table.
   let learned: Learned = learnedFor(gw.model);
@@ -304,6 +326,9 @@ export async function generate(gw: Target, o: {
       // Spread, so a model that takes no effort gets no field at all — Haiku
       // answers the field with a 400.
       ...effortField(wire, o.efforts ?? {}, gw.model),
+      // Spread for the same reason: a request without tools is the request
+      // every caller before this field sent, byte for byte.
+      ...(tools ? { tools } : {}),
     };
 
     let res: Response;
@@ -355,9 +380,11 @@ export async function generate(gw: Target, o: {
 
       const ms = again(retryable(res.status, detail), res.headers.get('retry-after'));
       if (ms >= 0) { await wait(ms); continue; }
-      if (res.status === 401) throw new Error(`The API key was rejected. Check it in Settings. (${detail})`);
-      if (res.status === 429) throw new Error(`Rate limited — wait a moment. (${detail})`);
-      throw new Error(`The server answered ${res.status}: ${detail}`);
+      // The status rides along, so a caller can tell "this is not offered
+      // here" (a 4xx) from a network that failed, without reading sentences.
+      if (res.status === 401) throw withStatus(new Error(`The API key was rejected. Check it in Settings. (${detail})`), res.status);
+      if (res.status === 429) throw withStatus(new Error(`Rate limited — wait a moment. (${detail})`), res.status);
+      throw withStatus(new Error(`The server answered ${res.status}: ${detail}`), res.status);
     }
 
     if (res.headers.get('content-type')?.includes('text/event-stream') && res.body) {

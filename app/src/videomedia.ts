@@ -40,7 +40,7 @@
  * on each, and a stop that stops. One scene's failure never fails the others.
  */
 
-import type { Format, Picture, Scene } from './videotypes';
+import type { Format, GalleryScene, Picture, Scene } from './videotypes';
 
 /** One picture a search found, before its bytes are fetched. */
 export interface Candidate {
@@ -100,7 +100,7 @@ const CORS_HOSTS = [
 ];
 
 /** Titles no promotional video should open on, whatever the index's own flag says. */
-const UNSAFE = /\b(nude|nudes|nudity|naked|nsfw|porn\w*|erotic\w*|sex|sexy|sexual|topless|lingerie|fetish|gore|corpse|autopsy)\b/i;
+export const UNSAFE = /\b(nude|nudes|nudity|naked|nsfw|porn\w*|erotic\w*|sex|sexy|sexual|topless|lingerie|fetish|gore|corpse|autopsy)\b/i;
 
 // ── small helpers ─────────────────────────────────────────────────────────
 
@@ -235,7 +235,7 @@ function sourceName(code: string): string {
 }
 
 /** A title fit for a credit line: text only, no file extension, not too long. */
-function cleanTitle(t: string): string {
+export function cleanTitle(t: string): string {
   const s = stripHtml(t).replace(/^File:/i, '').replace(/\.(jpe?g|png|gif|webp|tiff?)$/i, '').replace(/_/g, ' ').trim();
   return cap(s || 'Untitled', 100);
 }
@@ -423,7 +423,7 @@ function isSmall(c: Candidate): boolean {
 }
 
 /** The same picture however it was found: its page, its file, or a title of three words or more. */
-function keysOf(c: Pick<Candidate, 'url' | 'source' | 'title'>): string[] {
+export function keysOf(c: Pick<Candidate, 'url' | 'source' | 'title'>): string[] {
   const keys = [`u:${bare(c.url)}`, `s:${c.source}`];
   const words = c.title.toLowerCase().replace(/[^\p{L}\s]+/gu, ' ').split(/\s+/).filter(Boolean);
   if (words.length >= 3) keys.push(`t:${words.join(' ')}`);
@@ -434,7 +434,7 @@ function keysOf(c: Pick<Candidate, 'url' | 'source' | 'title'>): string[] {
 
 const defaultGet: Get = (url, signal) => fetch(url, { signal });
 
-function abortError(signal?: AbortSignal): Error {
+export function abortError(signal?: AbortSignal): Error {
   const r = signal?.reason;
   if (r && typeof r === 'object' && (r as { name?: unknown }).name === 'AbortError') return r as Error;
   const e = new Error('Stopped.');
@@ -442,7 +442,7 @@ function abortError(signal?: AbortSignal): Error {
   return e;
 }
 
-function isAbort(e: unknown): boolean {
+export function isAbort(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { name?: unknown }).name === 'AbortError';
 }
 
@@ -451,7 +451,7 @@ function isAbort(e: unknown): boolean {
  * after `ms` (a TimeoutError). Settles when either happens even if `run`
  * ignores its signal.
  */
-async function within<T>(ms: number, signal: AbortSignal | undefined, run: (s: AbortSignal) => Promise<T>): Promise<T> {
+export async function within<T>(ms: number, signal: AbortSignal | undefined, run: (s: AbortSignal) => Promise<T>): Promise<T> {
   if (signal?.aborted) throw abortError(signal);
   const ctrl = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -651,13 +651,73 @@ export async function fetchPicture(
 /** Candidates tried per scene before it is left without a picture. */
 const TRIES_PER_SCENE = 3;
 
+/** The most pictures a gallery montage shows (videotypes: "up to four"). */
+const GALLERY_MAX = 4;
+
 /**
- * Pictures for every scene that asks for one (an `imageQuery` and no
- * `picture`), one scene at a time. Each finished scene — with its picture, or
- * unchanged when its search or fetch failed — is reported through `onScene`
- * as it happens; the new list is returned at the end. No picture is used
- * twice, counting the ones scenes already had. Stopping throws an AbortError;
- * the scenes reported until then keep their pictures.
+ * The searches a gallery still needs answered: one per picture it lacks, from
+ * its own `imageQueries`, in order — a gallery that already holds two of the
+ * subject's own pictures searches only for its third and fourth.
+ */
+function galleryQueries(s: GalleryScene): string[] {
+  const qs = (Array.isArray(s.imageQueries) ? s.imageQueries : []).map(cleanQuery).filter(Boolean);
+  const have = Array.isArray(s.pictures) ? s.pictures.length : 0;
+  return qs.slice(have, Math.min(GALLERY_MAX, qs.length));
+}
+
+/**
+ * Whether a scene still wants a picture a search can find: a one-picture
+ * scene with an `imageQuery` and no picture, a gallery with fewer pictures
+ * than its `imageQueries`, a person with an `imageQuery` and no portrait.
+ */
+export function needsPictures(s: Scene): boolean {
+  if (!s || typeof s !== 'object') return false;
+  if (s.kind === 'gallery') return galleryQueries(s).length > 0;
+  if (s.kind === 'people') return (Array.isArray(s.people) ? s.people : []).some((p) => !!p && !p.picture && !!cleanQuery(p.imageQuery));
+  return !s.picture && !!cleanQuery(s.imageQuery);
+}
+
+/** Every picture a scene shows, in order: its own, a gallery's, each person's. */
+export function picturesOf(s: Scene): Picture[] {
+  const out: Picture[] = [];
+  if (!s || typeof s !== 'object') return out;
+  if (s.picture) out.push(s.picture);
+  if (s.kind === 'gallery' && Array.isArray(s.pictures)) out.push(...s.pictures.filter(Boolean));
+  if (s.kind === 'people' && Array.isArray(s.people)) for (const p of s.people) if (p?.picture) out.push(p.picture);
+  return out;
+}
+
+const HONORIFIC = /^(dr|prof|mr|mrs|ms|miss|sir|dame|eng|sheikh|mam|kak|kaka|rev)$/;
+/** Titles of things named after a person rather than the person: "Daniel Bliss Homestead" (measured). */
+const NAMED_AFTER = /\b(homestead|house|home|street|st|road|avenue|av|school|college|university|hall|building|church|mosque|bridge|park|square|station|farm|grave|tomb|cemetery|monument|memorial|plaque|signature|map|logo|award|prize|library|hospital|center|centre|stadium|airport|ship|company)\b/i;
+
+/**
+ * Whether a picture's title says it shows this person. A search for a name
+ * finds other people with that name, and places named after them, as readily
+ * as the one meant ("Daniel Bliss" found a homestead and an army ceremony,
+ * measured) — and a stranger's face over a real person's name is the one
+ * mistake a video about real people must not make. So a portrait is taken
+ * only when every word of the name (titles like "Dr" aside) is in its title,
+ * whatever the case and accents, and nothing in the title makes it a place or
+ * a thing named after them.
+ */
+export function portrays(title: string, name: string): boolean {
+  const fold = (x: string) => str(x).normalize('NFKD').replace(/\p{M}+/gu, '').toLowerCase();
+  const words = fold(name).split(/[^\p{L}\p{N}]+/u).filter((w) => w.length >= 2 && !HONORIFIC.test(w));
+  const t = ` ${fold(title).replace(/[^\p{L}\p{N}]+/gu, ' ')} `;
+  return words.length > 0 && words.every((w) => t.includes(` ${w} `)) && !NAMED_AFTER.test(t);
+}
+
+/**
+ * Pictures for every scene that asks for one (see `needsPictures`), one scene
+ * at a time: a one-picture scene's `imageQuery`, each of a gallery's
+ * `imageQueries` it has no picture for yet, and each person's `imageQuery` —
+ * a portrait only when its title says it shows the person (`portrays`). Each
+ * finished scene — with its pictures, or unchanged when its searches or
+ * fetches failed — is reported through `onScene` as it happens; the new list
+ * is returned at the end. No picture is used twice, counting the ones scenes
+ * already had. Stopping throws an AbortError; the scenes reported until then
+ * keep their pictures.
  */
 export async function fillPictures(
   scenes: Scene[],
@@ -666,41 +726,64 @@ export async function fillPictures(
   const out = scenes.slice();
   const used = new Set<string>();
   for (const s of scenes) {
-    if (s.picture) keysOf({ url: s.picture.source, source: s.picture.source, title: '' }).forEach((k) => used.add(k));
+    for (const p of picturesOf(s)) keysOf({ url: p.source, source: p.source, title: '' }).forEach((k) => used.add(k));
   }
   const searched = new Map<string, Candidate[] | null>();
-  for (let i = 0; i < scenes.length; i++) {
-    const s = scenes[i];
-    if (o.signal?.aborted) throw abortError(o.signal);
-    if (s.picture) continue;
-    const q = cleanQuery(s.imageQuery);
-    if (!q) continue;
+  const search = async (q: string): Promise<Candidate[] | null> => {
+    const k = q.toLowerCase();
+    if (searched.has(k)) return searched.get(k) ?? null;
     let found: Candidate[] | null;
-    if (searched.has(q.toLowerCase())) found = searched.get(q.toLowerCase()) ?? null;
-    else {
-      try {
-        found = await searchPictures(q, { count: 10, format: o.format, signal: o.signal, get: o.get, timeout: o.timeout });
-      } catch (e) {
-        if (o.signal?.aborted || isAbort(e)) throw abortError(o.signal);
-        found = null;
-      }
-      searched.set(q.toLowerCase(), found);
+    try {
+      found = await searchPictures(q, { count: 10, format: o.format, signal: o.signal, get: o.get, timeout: o.timeout });
+    } catch (e) {
+      if (o.signal?.aborted || isAbort(e)) throw abortError(o.signal);
+      found = null;
     }
-    let next: Scene = s;
+    searched.set(k, found);
+    return found;
+  };
+  /** One picture for `q` not used before, from the first few candidates that `fit`; null when none fetched. */
+  const one = async (q: string, fits: (c: Candidate) => boolean = () => true): Promise<Picture | null> => {
     let tries = 0;
-    for (const c of found ?? []) {
+    for (const c of (await search(q)) ?? []) {
       if (tries >= TRIES_PER_SCENE) break;
       const keys = keysOf(c);
-      if (keys.some((k) => used.has(k))) continue;
+      if (keys.some((k) => used.has(k)) || !fits(c)) continue;
       tries += 1;
       try {
         const picture = await fetchPicture(c, q, { signal: o.signal, get: o.get, encode: o.encode, maxSide: o.maxSide, timeout: o.timeout });
         keys.forEach((k) => used.add(k));
-        next = { ...s, picture };
-        break;
+        return picture;
       } catch (e) {
         if (o.signal?.aborted || isAbort(e)) throw abortError(o.signal);
       }
+    }
+    return null;
+  };
+  for (let i = 0; i < scenes.length; i++) {
+    const s = scenes[i];
+    if (o.signal?.aborted) throw abortError(o.signal);
+    if (!needsPictures(s)) continue;
+    let next: Scene = s;
+    if (s.kind === 'gallery') {
+      const got: Picture[] = [];
+      for (const q of galleryQueries(s)) {
+        const p = await one(q);
+        if (p) got.push(p);
+      }
+      if (got.length) next = { ...s, pictures: [...(s.pictures ?? []), ...got].slice(0, GALLERY_MAX) };
+    } else if (s.kind === 'people') {
+      const people: typeof s.people = [];
+      for (const p of s.people) {
+        const q = cleanQuery(p?.imageQuery);
+        if (!p || p.picture || !q) { people.push(p); continue; }
+        const picture = await one(q, (c) => portrays(c.title, q) || portrays(c.title, p.name));
+        people.push(picture ? { ...p, picture } : p);
+      }
+      next = { ...s, people };
+    } else {
+      const picture = await one(cleanQuery(s.imageQuery));
+      if (picture) next = { ...s, picture };
     }
     out[i] = next;
     try { o.onScene?.(i, next); } catch { /* the panel's problem, not the next scene's */ }
@@ -708,15 +791,44 @@ export async function fillPictures(
   return out;
 }
 
-/** The pictures' credit lines, each once, in the order the scenes show them. */
+/**
+ * `cur` with the pictures `found` holds and `cur` lacks, and nothing else of
+ * `found`: a scene edited while its pictures were being fetched keeps the
+ * edit. A gallery gains the pictures it does not show yet (at most four in
+ * all); a person gains a portrait only while still named the same.
+ */
+export function withPicturesOf(cur: Scene, found: Scene): Scene {
+  if (!cur || !found || cur.id !== found.id) return cur;
+  if (cur.kind === 'gallery' && found.kind === 'gallery') {
+    const have = cur.pictures ?? [];
+    const add = (found.pictures ?? []).filter((p) => !have.some((h) => h.src === p.src));
+    return add.length ? { ...cur, pictures: [...have, ...add].slice(0, GALLERY_MAX) } : cur;
+  }
+  if (cur.kind === 'people' && found.kind === 'people') {
+    let changed = false;
+    const people = cur.people.map((p) => {
+      if (!p || p.picture) return p;
+      const f = found.people.find((x) => x?.name === p.name && x.picture);
+      if (!f?.picture) return p;
+      changed = true;
+      return { ...p, picture: f.picture };
+    });
+    return changed ? { ...cur, people } : cur;
+  }
+  return found.picture && !cur.picture ? { ...cur, picture: found.picture } : cur;
+}
+
+/** The pictures' credit lines, each once, in the order the scenes show them — a gallery's and each person's included. */
 export function creditsOf(scenes: Scene[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const s of Array.isArray(scenes) ? scenes : []) {
-    const line = str(s?.picture?.credit).trim();
-    if (!line || seen.has(line)) continue;
-    seen.add(line);
-    out.push(line);
+    for (const p of picturesOf(s)) {
+      const line = str(p?.credit).trim();
+      if (!line || seen.has(line)) continue;
+      seen.add(line);
+      out.push(line);
+    }
   }
   return out;
 }

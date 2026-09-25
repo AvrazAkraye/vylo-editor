@@ -7,19 +7,21 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { AbsoluteFill, Easing, useCurrentFrame, useVideoConfig } from 'remotion';
 import type {
-  BulletsScene, ChartScene, ImageScene, KineticScene, OutroScene, QuoteScene, Scene, SplitScene, StatScene, StepsScene, TitleScene,
+  BulletsScene, ChartScene, ImageScene, KineticScene, OutroScene, QuoteScene, Scene, SplitScene, StatScene, StepsScene, TitleScene, Video,
 } from './videotypes';
-import { alpha, fitText, mix, textWidth } from './videotheme';
-import type { Fit, Theme, TypeFace } from './videotheme';
+import { alpha, fitText, formatNum, localDigits, mix, textWidth } from './videotheme';
+import type { Fit, Numerals, Theme, TypeFace } from './videotheme';
+import { picturesOf } from './video';
+import { musicCredit } from './videomix';
 import {
-  Backdrop, Lines, Logo, Photo, Rule, SceneProvider, Scrim, dirOf, enterAt, glowOf, onPhoto, progress, revealOf, revealStyle, staggerFor, textStyle, useEnter, useScene,
+  Backdrop, Lines, Logo, Photo, Rule, Scrim, dirOf, enterAt, glowOf, onPhoto, progress, revealOf, revealStyle, staggerFor, textStyle, useEnter, useScene,
 } from './videoscenebits';
 import type { SceneInfo } from './videoscenebits';
 
 // ---------------------------------------------------------------------------
 // Shared layout
 
-function Stage(p: { children: ReactNode; ground?: ReactNode; theme?: Theme; drift?: boolean; box?: CSSProperties }) {
+export function Stage(p: { children: ReactNode; ground?: ReactNode; theme?: Theme; drift?: boolean; box?: CSSProperties }) {
   const { theme: th0, box, frames } = useScene();
   const th = p.theme ?? th0;
   const frame = useCurrentFrame();
@@ -40,18 +42,18 @@ function Stage(p: { children: ReactNode; ground?: ReactNode; theme?: Theme; drif
 }
 
 /** Per-format size, in pixels: landscape, portrait, square (given in units of 1/1080 of the short side). */
-function per(fmt: { landscape: number; portrait: number; square: number }): number {
+export function per(fmt: { landscape: number; portrait: number; square: number }): number {
   const { box } = useScene();
   return fmt[box.format] * box.u;
 }
 
-function fit(text: string, face: TypeFace, o: { max: number; min: number; width: number; height: number; lines?: number; bold?: boolean; balance?: boolean }): Fit {
+export function fit(text: string, face: TypeFace, o: { max: number; min: number; width: number; height: number; lines?: number; bold?: boolean; balance?: boolean }): Fit {
   const { ready } = useScene();
   return fitText(text, { face, bold: o.bold, maxSize: o.max, minSize: o.min, maxWidth: o.width, maxHeight: o.height, maxLines: o.lines, ready, balance: o.balance });
 }
 
 /** A small label above a headline: a short bar and a word. */
-function Eyebrow(p: { text: string; theme: Theme; delay: number; center?: boolean }) {
+export function Eyebrow(p: { text: string; theme: Theme; delay: number; center?: boolean }) {
   const { box } = useScene();
   const pr = useEnter(p.delay);
   const th = p.theme;
@@ -111,7 +113,7 @@ function TitleView({ scene }: { scene: TitleScene }) {
         </div>
       ) : null}
       {th.style === 'elegant' ? <Ornament theme={th} delay={dHead - 2} /> : null}
-      <Lines fit={titleFit} face={th.display} color={th.fg} delay={dHead} stagger={st} align={center ? 'center' : 'start'} shadow={glowOf(th, u)} lineColor={th.style === 'modern' || th.style === 'warm' ? (i) => (lastOf(titleFit.lines.length)(i) && titleFit.lines.length > 1 ? th.accentText : undefined) : undefined} />
+      <Lines fit={titleFit} face={th.display} color={th.fg} delay={dHead} stagger={st} align={center ? 'center' : 'start'} shadow={glowOf(th, u)} sheen={dRule + 10} lineColor={th.style === 'modern' || th.style === 'warm' ? (i) => (lastOf(titleFit.lines.length)(i) && titleFit.lines.length > 1 ? th.accentText : undefined) : undefined} />
       <Rule width={per({ landscape: 150, portrait: 130, square: 120 })} height={Math.max(3, 7 * u)} color={th.accent} p={ruleP} center={center} style={{ marginTop: 40 * u, marginBottom: 34 * u }} />
       {subFit && scene.subtitle ? (
         <div style={{ ...revealStyle('rise', subP, 24 * u), display: 'flex', flexDirection: 'column', alignItems: center ? 'center' : 'flex-start' }}>
@@ -125,7 +127,7 @@ function TitleView({ scene }: { scene: TitleScene }) {
 }
 
 /** A thin line, a diamond, a thin line — the elegant style's headline ornament. */
-function Ornament(p: { theme: Theme; delay: number }) {
+export function Ornament(p: { theme: Theme; delay: number }) {
   const { box } = useScene();
   const u = box.u;
   const pr = useEnter(p.delay);
@@ -192,9 +194,9 @@ function KineticView({ scene }: { scene: KineticScene }) {
 
 function Marker(p: { i: number; theme: Theme; size: number; p: number }) {
   const th = p.theme;
-  const { box } = useScene();
+  const { box, digits } = useScene();
   const u = box.u;
-  const num = String(p.i + 1).padStart(2, '0');
+  const num = localDigits(String(p.i + 1).padStart(2, '0'), digits);
   const s = p.size;
   const scale = `scale(${0.4 + 0.6 * Math.min(1.1, p.p)})`;
   switch (th.style) {
@@ -203,7 +205,7 @@ function Marker(p: { i: number; theme: Theme; size: number; p: number }) {
     case 'neon':
       return <div style={{ width: s, height: s, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ width: s * 0.34, height: s * 0.34, borderRadius: '50%', background: th.accent, boxShadow: `0 0 ${18 * u}px ${th.accent}`, transform: scale }} /></div>;
     case 'warm':
-      return <div style={{ width: s, height: s, borderRadius: '50%', background: th.accent, color: th.onAccent, display: 'flex', alignItems: 'center', justifyContent: 'center', transform: scale, ...textStyle(th.body, s * 0.42, th.onAccent, true), direction: 'ltr' }}>{p.i + 1}</div>;
+      return <div style={{ width: s, height: s, borderRadius: '50%', background: th.accent, color: th.onAccent, display: 'flex', alignItems: 'center', justifyContent: 'center', transform: scale, ...textStyle(th.body, s * 0.42, th.onAccent, true), direction: 'ltr' }}>{localDigits(String(p.i + 1), digits)}</div>;
     case 'bold':
       return <div style={{ width: s, height: s, display: 'flex', alignItems: 'center', justifyContent: 'flex-start', ...textStyle(th.display, s * 0.8, th.accentText), direction: 'ltr', opacity: Math.min(1, p.p * 1.5) }}>{num}</div>;
     case 'minimal':
@@ -285,21 +287,21 @@ function decimalsOf(v: number): number {
   return i < 0 ? 0 : Math.min(2, s.length - i - 1);
 }
 
-function formatNumber(v: number, decimals: number): string {
-  return v.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+function formatNumber(v: number, decimals: number, digits: Numerals = 'latn'): string {
+  return formatNum(v, decimals, digits);
 }
 
 const hasLetters = (s: string) => /[A-Za-z؀-ۿ]/.test(s);
 
 function StatView({ scene }: { scene: StatScene }) {
-  const { theme: th, box, frames, ready } = useScene();
+  const { theme: th, box, frames, ready, digits } = useScene();
   const frame = useCurrentFrame();
   const u = box.u;
   const value = Number.isFinite(scene.value) ? scene.value : 0;
   const dec = decimalsOf(value);
-  const finalText = formatNumber(value, dec);
-  const prefix = (scene.prefix ?? '').trim();
-  const suffix = (scene.suffix ?? '').trim();
+  const finalText = formatNumber(value, dec, digits);
+  const prefix = localDigits((scene.prefix ?? '').trim(), digits);
+  const suffix = localDigits((scene.suffix ?? '').trim(), digits);
   const small = (s: string) => s.length > 1 && hasLetters(s);
   // The size at which prefix + number + suffix fit the width on one line.
   const maxSize = per({ landscape: 300, portrait: 250, square: 250 });
@@ -311,7 +313,7 @@ function StatView({ scene }: { scene: StatScene }) {
   while (size > 60 * u && widthAt(size) > box.w * 0.92) size *= 0.95;
   const countEnd = Math.max(18, Math.min(frames * 0.38, 50));
   const c = progress(frame, 6, 6 + countEnd, Easing.bezier(0.16, 1, 0.3, 1));
-  const now = formatNumber(value * c, dec);
+  const now = formatNumber(value * c, dec, digits);
   const numW = textWidth(finalText, th.display, size, false, ready) * 1.04;
   const pop = useEnter(2);
   const labelFit = fit(scene.label, th.body, { max: per({ landscape: 54, portrait: 60, square: 46 }), min: 26 * u, width: Math.min(box.w, 1150 * u), height: box.h * 0.25, lines: 3, bold: true });
@@ -344,7 +346,7 @@ function StatView({ scene }: { scene: StatScene }) {
 // Chart
 
 function ChartView({ scene }: { scene: ChartScene }) {
-  const { theme: th, box, frames, ready } = useScene();
+  const { theme: th, box, frames, ready, digits } = useScene();
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
   const u = box.u;
@@ -358,7 +360,7 @@ function ChartView({ scene }: { scene: ChartScene }) {
   const max = Math.max(1e-9, ...bars.map((b) => b.value));
   const dec = Math.max(0, ...bars.map((b) => decimalsOf(b.value)));
   const unit = (scene.unit ?? '').trim();
-  const valueText = (v: number) => `${formatNumber(v, dec)}${unit ? (unit.length > 2 ? ' ' : '') + unit : ''}`;
+  const valueText = (v: number) => `${formatNumber(v, dec, digits)}${unit ? (unit.length > 2 ? ' ' : '') + localDigits(unit, digits) : ''}`;
   const labelW = wide ? box.w * 0.26 : box.w;
   const labelSize = Math.min(...(bars.length ? bars : [{ label: '' }]).map((b) => fit(b.label, th.body, { max: per({ landscape: 40, portrait: 46, square: 34 }), min: 20 * u, width: labelW * 0.96, height: wide ? rowH * 0.8 : rowH * 0.34, lines: wide ? 2 : 1, bold: true }).size));
   const barH = wide ? Math.min(rowH * 0.52, 64 * u) : Math.min(rowH * 0.3, 64 * u);
@@ -451,7 +453,7 @@ function QuoteView({ scene }: { scene: QuoteScene }) {
 // Image
 
 /** A composition of shapes for a scene whose picture is missing. */
-function Artwork(p: { theme: Theme; seed: number; scale?: number }) {
+export function Artwork(p: { theme: Theme; seed: number; scale?: number }) {
   const { box, frames } = useScene();
   const frame = useCurrentFrame();
   const th = p.theme;
@@ -513,7 +515,7 @@ function ImageView({ scene }: { scene: ImageScene }) {
 // Split
 
 function SplitView({ scene }: { scene: SplitScene }) {
-  const { theme: th, box, frames, index } = useScene();
+  const { theme: th, box, frames, index, digits } = useScene();
   const frame = useCurrentFrame();
   const u = box.u;
   const side = box.format === 'landscape';
@@ -538,7 +540,7 @@ function SplitView({ scene }: { scene: SplitScene }) {
   const textLeft = side ? (endIsRight ? box.x : panelW + gap) : box.x;
   const bodyP = useEnter(10 + headFit.lines.length * th.motion.stagger);
   const ruleP = progress(frame, 12, 36, Easing.out(Easing.cubic));
-  const num = String(index + 1).padStart(2, '0');
+  const num = localDigits(String(index + 1).padStart(2, '0'), digits);
   const panel = pic ? (
     <Photo src={pic} seed={index} frames={frames} />
   ) : (
@@ -569,7 +571,7 @@ function SplitView({ scene }: { scene: SplitScene }) {
 
 function StepDot(p: { i: number; size: number; theme: Theme; on: number }) {
   const th = p.theme;
-  const { box } = useScene();
+  const { box, digits } = useScene();
   const u = box.u;
   const on = Math.max(0, Math.min(1.15, p.on));
   const lit = on > 0.02;
@@ -578,7 +580,7 @@ function StepDot(p: { i: number; size: number; theme: Theme; on: number }) {
     <div style={{ width: p.size, height: p.size, position: 'relative' }}>
       <div style={{ position: 'absolute', left: 0, top: 0, width: p.size, height: p.size, borderRadius: r, background: th.bg, border: `${Math.max(2, 3 * u)}px solid ${alpha(th.fg, 0.22)}` }} />
       <div style={{ position: 'absolute', left: 0, top: 0, width: p.size, height: p.size, borderRadius: r, background: th.accent, transform: `scale(${on})`, opacity: lit ? 1 : 0, boxShadow: th.style === 'neon' && lit ? `0 0 ${26 * u}px ${alpha(th.accent, 0.9)}` : undefined }} />
-      <div style={{ position: 'absolute', left: 0, top: 0, width: p.size, height: p.size, display: 'flex', alignItems: 'center', justifyContent: 'center', ...textStyle(th.body, p.size * 0.4, lit ? th.onAccent : th.muted, true), lineHeight: `${p.size}px`, direction: 'ltr' }}>{p.i + 1}</div>
+      <div style={{ position: 'absolute', left: 0, top: 0, width: p.size, height: p.size, display: 'flex', alignItems: 'center', justifyContent: 'center', ...textStyle(th.body, p.size * 0.4, lit ? th.onAccent : th.muted, true), lineHeight: `${p.size}px`, direction: 'ltr' }}>{localDigits(String(p.i + 1), digits)}</div>
     </div>
   );
 }
@@ -667,20 +669,45 @@ const CREDITS_LABEL: Record<string, string> = {
   kmr: 'ژێدەرێن وێنەیان',
 };
 
-/** Unique credit lines of the pictures the film shows. */
-export function creditLines(scenes: Scene[]): string[] {
+/** The card's label when the music is credited too. */
+const ALL_CREDITS_LABEL: Record<string, string> = {
+  en: 'Credits',
+  ar: 'المصادر',
+  ckb: 'سەرچاوەکان',
+  kmr: 'ژێدەر',
+};
+
+/** What the music's line starts with. */
+const MUSIC_LABEL: Record<string, string> = {
+  en: 'Music',
+  ar: 'الموسيقى',
+  ckb: 'مۆسیقا',
+  kmr: 'مۆزیک',
+};
+
+/**
+ * Unique credit lines of what the film uses: every picture it shows — a
+ * scene's own, a montage's tiles, each person's portrait — and, last, the
+ * music under it (videomix.ts `musicCredit`), which its licence asks to be
+ * credited like the pictures.
+ */
+export function creditLines(video: Pick<Video, 'scenes' | 'audio' | 'lang'>): string[] {
   const out: string[] = [];
-  for (const s of scenes) {
-    const c = s.picture?.credit?.trim();
-    if (c && !out.includes(c)) out.push(c);
+  for (const s of video.scenes ?? []) {
+    for (const pic of picturesOf(s)) {
+      const c = pic.credit?.trim();
+      if (c && !out.includes(c)) out.push(c);
+    }
   }
+  const music = musicCredit(video);
+  if (music) out.push(`${MUSIC_LABEL[video.lang] ?? MUSIC_LABEL.en} — ${music}`);
   return out;
 }
 
 /** How many frames at the end of the outro the credits card takes, or 0. */
 export function creditsFrames(info: Pick<SceneInfo, 'video' | 'frames'>): number {
   if (info.video.credits === false) return 0;
-  if (!creditLines(info.video.scenes).length) return 0;
+  if (!creditLines(info.video).length) return 0;
   if (info.frames < 75) return 0;
   return Math.round(Math.min(120, Math.max(45, info.frames * 0.4)));
 }
@@ -719,7 +746,7 @@ function OutroMain({ scene, frames }: { scene: OutroScene; frames: number }) {
       ) : name ? (
         <div style={{ marginBottom: 44 * u, ...revealStyle('pop', logoP, 30 * u), ...textStyle(th.display, per({ landscape: 56, portrait: 60, square: 50 }), th.accentText), letterSpacing: th.rtl ? undefined : '0.06em', textTransform: th.rtl ? undefined : 'uppercase' }}>{name}</div>
       ) : null}
-      <Lines fit={headFit} face={th.display} color={th.fg} delay={8} stagger={st} align="center" shadow={glowOf(th, u)} />
+      <Lines fit={headFit} face={th.display} color={th.fg} delay={8} stagger={st} align="center" shadow={glowOf(th, u)} sheen={dCta + 14} />
       {ctaFit && cta ? (
         <div style={{ marginTop: 56 * u, paddingInline: 50 * u, height: ctaFit.size * 2.3, display: 'flex', alignItems: 'center', justifyContent: 'center', background: th.accent, borderRadius: pill, boxShadow: th.style === 'neon' ? `0 0 ${30 * u}px ${alpha(th.accent, 0.8)}` : th.dark ? undefined : `0 ${12 * u}px ${30 * u}px ${alpha(th.accent, 0.35)}`, ...revealStyle('pop', ctaP, 20 * u) }}>
           <div style={{ ...textStyle(th.body, ctaFit.size, th.onAccent, true), lineHeight: `${ctaFit.size * 1.3}px` }}>{ctaFit.lines[0]}</div>
@@ -750,7 +777,9 @@ function CreditsCard({ lines, delay }: { lines: string[]; delay: number }) {
     if (total <= box.h * 0.7 || size < 16 * u) break;
     size *= 0.9;
   }
-  const label = CREDITS_LABEL[video.lang] ?? CREDITS_LABEL.en;
+  const label = musicCredit(video)
+    ? ALL_CREDITS_LABEL[video.lang] ?? ALL_CREDITS_LABEL.en
+    : CREDITS_LABEL[video.lang] ?? CREDITS_LABEL.en;
   return (
     <AbsoluteFill style={{ direction: th.rtl ? 'rtl' : 'ltr', background: th.bg, opacity: inP, fontFamily: th.body.family }}>
       <Backdrop intensity={0.5} />
@@ -775,30 +804,29 @@ function OutroView({ scene }: { scene: OutroScene }) {
   return (
     <AbsoluteFill>
       <OutroMain scene={scene} frames={start + 6} />
-      <CreditsCard lines={creditLines(info.video.scenes)} delay={start} />
+      <CreditsCard lines={creditLines(info.video)} delay={start} />
     </AbsoluteFill>
   );
 }
 
 // ---------------------------------------------------------------------------
 
-/** Draws one scene of any kind, given its context. */
-export function SceneBody({ info }: { info: SceneInfo }) {
-  const scene = info.video.scenes[info.index];
-  let body: ReactNode = null;
-  if (scene) {
-    switch (scene.kind) {
-      case 'title': body = <TitleView scene={scene} />; break;
-      case 'kinetic': body = <KineticView scene={scene} />; break;
-      case 'bullets': body = <BulletsView scene={scene} />; break;
-      case 'stat': body = <StatView scene={scene} />; break;
-      case 'chart': body = <ChartView scene={scene} />; break;
-      case 'quote': body = <QuoteView scene={scene} />; break;
-      case 'image': body = <ImageView scene={scene} />; break;
-      case 'split': body = <SplitView scene={scene} />; break;
-      case 'steps': body = <StepsView scene={scene} />; break;
-      case 'outro': body = <OutroView scene={scene} />; break;
-    }
+/**
+ * The first ten kinds' views; the six that came after are in
+ * videoscenemore.tsx, whose `SceneBody` draws any scene.
+ */
+export function firstKindView(scene: Scene): ReactNode | null {
+  switch (scene.kind) {
+    case 'title': return <TitleView scene={scene} />;
+    case 'kinetic': return <KineticView scene={scene} />;
+    case 'bullets': return <BulletsView scene={scene} />;
+    case 'stat': return <StatView scene={scene} />;
+    case 'chart': return <ChartView scene={scene} />;
+    case 'quote': return <QuoteView scene={scene} />;
+    case 'image': return <ImageView scene={scene} />;
+    case 'split': return <SplitView scene={scene} />;
+    case 'steps': return <StepsView scene={scene} />;
+    case 'outro': return <OutroView scene={scene} />;
+    default: return null;
   }
-  return <SceneProvider value={info}>{body ?? <Stage><div /></Stage>}</SceneProvider>;
 }

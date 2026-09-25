@@ -15,8 +15,9 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import { VideoAudioLayer } from './videoaudio';
 import type React from 'react';
-import { AbsoluteFill, Easing, useDelayRender, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, Img, interpolate, useCurrentFrame, useDelayRender, useVideoConfig } from 'remotion';
 import { TransitionSeries, linearTiming } from '@remotion/transitions';
 import type { TransitionPresentation, TransitionPresentationComponentProps } from '@remotion/transitions';
 import { fade } from '@remotion/transitions/fade';
@@ -26,8 +27,10 @@ import { Thumbnail } from '@remotion/player';
 import { FORMATS, FPS } from './videotypes';
 import type { Scene, Transition, Video } from './videotypes';
 import { TRANSITION_FRAMES, durationInFrames, isRtl, sceneFrames } from './video';
-import { SWATCHES, boxOf, fontKeyOf, fontsReady, loadFonts, themeOf } from './videotheme';
-import { SceneBody } from './videoscenekinds';
+import { SWATCHES, alpha, boxOf, fontKeyOf, fontsReady, loadFonts, numeralsOf, themeOf } from './videotheme';
+import type { Theme } from './videotheme';
+import { SceneBody } from './videoscenemore';
+import { watermarkOn } from './videoscenebits';
 import type { SceneInfo } from './videoscenebits';
 
 /** Background, text and accent of each style, for the panel's style picker. */
@@ -117,16 +120,23 @@ function startsOf(scenes: Scene[]): number[] {
 
 function infoFor(v: Video, index: number, width: number, height: number, starts: number[], total: number, ready: boolean): SceneInfo {
   const scene = v.scenes[index];
+  let box = boxOf(width, height);
+  // A vertical frame keeps a band at the top of its safe area for the watermark, so a heading never runs into it.
+  if (box.format === 'portrait' && scene && !SHOWS_BRAND.has(scene.kind) && watermarkOn(v)) {
+    const band = WATERMARK_BAND * box.u;
+    box = { ...box, top: box.top + band, h: box.h - band };
+  }
   return {
     video: v,
     theme: themeOf(v, index),
-    box: boxOf(width, height),
+    box,
     frames: scene ? sceneFrames(scene) : FPS,
     index,
     count: v.scenes.length,
     start: starts[index] ?? 0,
     total,
     ready,
+    digits: numeralsOf(v),
   };
 }
 
@@ -155,7 +165,155 @@ export function VideoComposition({ video }: { video: Video }): JSX.Element {
   return (
     <AbsoluteFill style={{ background: base.bg }}>
       <TransitionSeries>{items}</TransitionSeries>
+      <Watermark video={video} starts={starts} />
+      <StoryProgress video={video} starts={starts} />
+      <VideoAudioLayer video={video} />
     </AbsoluteFill>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Over the whole film: the story bar and the watermark
+
+/**
+ * How much of scene `i` is on screen at `frame`, 0 to 1: all of it inside
+ * the scene, fading across the transition that brings it in and the one that
+ * takes it out. The film's overlays weigh themselves by it, so they change
+ * with the scenes and never jump at a cut.
+ */
+function presence(video: Video, starts: number[], i: number, frame: number): number {
+  const s = video.scenes[i];
+  if (!s) return 0;
+  const from = starts[i] ?? 0;
+  const to = from + sceneFrames(s);
+  if (frame < from || frame >= to) return 0;
+  const prev = video.scenes[i - 1];
+  const fadeIn = i > 0 && prev && prev.transition !== 'none' ? Math.min(1, (frame - from) / TRANSITION_FRAMES) : 1;
+  const next = video.scenes[i + 1];
+  const outFrom = to - TRANSITION_FRAMES;
+  const fadeOut = next && s.transition !== 'none' && frame >= outFrom ? 1 - (frame - outFrom) / TRANSITION_FRAMES : 1;
+  return Math.max(0, Math.min(fadeIn, fadeOut));
+}
+
+/**
+ * A vertical video's story bar: one thin segment a scene along the top,
+ * filling as the scene plays, the way a phone shows a story — drawn in the
+ * style's own manner (a gold hairline for elegant, a glowing one for neon,
+ * square blocks for bold) and kept just above the band where words start.
+ * Wide and square videos have none.
+ */
+function StoryProgress({ video, starts }: { video: Video; starts: number[] }) {
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  const box = boxOf(width, height);
+  const n = video.scenes.length;
+  if (box.format !== 'portrait' || n < 2) return null;
+  const th = themeOf(video, 0, false);
+  const u = box.u;
+  const total = durationInFrames(video);
+  const segs = n <= 12 ? n : 1;
+  const gap = segs > 1 ? (th.style === 'bold' ? 10 : 8) * u : 0;
+  const bar = (th.style === 'elegant' || th.style === 'minimal' ? 3 : th.style === 'bold' ? 8 : 6) * u;
+  const w = (box.w - gap * (segs - 1)) / segs;
+  const top = box.top - 64 * u;
+  const track = th.style === 'bold' ? alpha(th.fg, 0.18) : alpha(th.fg, th.dark ? 0.2 : 0.14);
+  const fillColor = th.style === 'modern' ? th.fg : th.style === 'minimal' ? th.fg : th.accent;
+  const round = th.style === 'bold' || th.style === 'minimal' ? 0 : bar / 2;
+  // In with the film, out with the close's own fade.
+  const shown = Math.min(1, frame / 12) * (1 - Math.max(0, Math.min(1, (frame - (total - 14)) / 12)));
+  const fillOf = (i: number): number => {
+    if (segs === 1) return Math.min(1, frame / Math.max(1, total - 1));
+    const s = video.scenes[i];
+    const from = starts[i] ?? 0;
+    const len = sceneFrames(s) - (i < n - 1 && s.transition !== 'none' ? TRANSITION_FRAMES : 0);
+    return Math.max(0, Math.min(1, (frame - from) / Math.max(1, len)));
+  };
+  return (
+    <div style={{ position: 'absolute', left: box.x, top, width: box.w, height: bar, display: 'flex', flexDirection: th.rtl ? 'row-reverse' : 'row', gap, opacity: shown }}>
+      {Array.from({ length: segs }, (_, i) => {
+        const f = fillOf(i);
+        return (
+          <div key={i} style={{ position: 'relative', width: w, height: bar, borderRadius: round, background: track, overflow: 'hidden' }}>
+            <div style={{ position: 'absolute', [th.rtl ? 'right' : 'left']: 0, top: 0, width: w * f, height: bar, borderRadius: round, background: fillColor, boxShadow: th.style === 'neon' && f > 0 ? `0 0 ${10 * u}px ${th.accent}` : undefined }} />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * Scenes the watermark steps aside for: the ones that show the brand large
+ * already, and the montage, whose pictures run to the frame's edge.
+ */
+const SHOWS_BRAND = new Set<Scene['kind']>(['title', 'logo', 'outro', 'gallery']);
+
+/** The band a vertical frame keeps for the watermark at the top of its safe area, in units. */
+const WATERMARK_BAND = 84;
+
+/** Scenes whose whole frame is a picture, where the mark is always light. */
+function onPicture(s: Scene | undefined): boolean {
+  if (!s) return false;
+  if (s.kind === 'image' || s.kind === 'title') return !!s.picture?.src;
+  return s.kind === 'gallery';
+}
+
+/**
+ * The brand, small, in the top corner on the end side — its logo, or its
+ * name as a quiet wordmark — on every scene that does not already show it.
+ * It fades out for the title, the logo reveal and the close, and back in
+ * after them, across the same transitions the scenes take. Off when the
+ * person turned it off (`video.watermark === false`).
+ */
+function Watermark({ video, starts }: { video: Video; starts: number[] }) {
+  const frame = useCurrentFrame();
+  const { width, height } = useVideoConfig();
+  if (!watermarkOn(video)) return null;
+  const box = boxOf(width, height);
+  const th: Theme = themeOf(video, 0, false);
+  const u = box.u;
+  let weight = 0;
+  let lead = -1;
+  let best = 0;
+  for (let i = 0; i < video.scenes.length; i++) {
+    const p = presence(video, starts, i, frame);
+    if (p <= 0) continue;
+    if (!SHOWS_BRAND.has(video.scenes[i].kind)) weight += p;
+    if (p > best) { best = p; lead = i; }
+  }
+  // Settles in over a few frames after its first appearance, like the rest of the film.
+  const opacity = Math.min(1, weight) * interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  if (opacity <= 0.001) return null;
+  const leadScene = video.scenes[lead];
+  const inverted = th.style === 'bold' && lead % 2 === 1;
+  const light = onPicture(leadScene) || th.dark || inverted;
+  const ink = onPicture(leadScene) ? '#FFFFFF' : inverted ? themeOf(video, lead).fg : th.fg;
+  const logo = video.brand?.logo;
+  const name = video.brand?.name?.trim() ?? '';
+  const h = (box.format === 'landscape' ? 50 : box.format === 'portrait' ? 60 : 46) * u;
+  // Inside the elegant frame's lines, level with the minimal style's counter, otherwise centred in the top margin.
+  const inset = Math.min(box.x, box.top) * 0.45;
+  const top = box.format === 'portrait'
+    ? box.top + 4 * u
+    : th.style === 'elegant' ? inset + 26 * u
+      : th.style === 'minimal' ? box.top * 0.55 - 22 * u * 1.9 - (h - 22 * u * 1.3) / 2
+        : box.top / 2 - h / 2;
+  const side = th.style === 'elegant' && box.format !== 'portrait' ? inset + 34 * u : box.x;
+  const place: React.CSSProperties = { position: 'absolute', top, [th.rtl ? 'left' : 'right']: side, height: h, display: 'flex', alignItems: 'center', opacity: opacity * (light ? 0.92 : 0.85) };
+  if (logo) {
+    return (
+      <div style={place}>
+        <Img src={logo} style={{ height: h, width: 'auto', maxWidth: 260 * u, objectFit: 'contain' }} />
+      </div>
+    );
+  }
+  const size = (box.format === 'landscape' ? 24 : 26) * u;
+  const latin = !/[\u0600-\u06FF]/.test(name);
+  return (
+    <div style={{ ...place, gap: 12 * u, flexDirection: 'row', direction: th.rtl ? 'rtl' : 'ltr' }}>
+      <div style={{ width: 10 * u, height: 10 * u, borderRadius: th.radius ? '50%' : 0, background: onPicture(leadScene) ? '#FFFFFF' : th.accent }} />
+      <div style={{ fontFamily: th.body.family, fontWeight: th.body.strong, fontSize: size, lineHeight: `${size * 1.3}px`, color: ink, whiteSpace: 'nowrap', letterSpacing: latin ? '0.14em' : undefined, textTransform: latin ? 'uppercase' : undefined, direction: latin ? 'ltr' : 'rtl', textShadow: onPicture(leadScene) ? `0 ${u}px ${8 * u}px rgba(0, 0, 0, 0.5)` : undefined }}>{name}</div>
+    </div>
   );
 }
 

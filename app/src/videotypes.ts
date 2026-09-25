@@ -64,6 +64,8 @@ interface SceneBase {
   /** Words to search a picture with, in English — the model's suggestion. */
   imageQuery?: string;
   picture?: Picture;
+  /** What a voice says during this scene, when the video is narrated. In the video's language. */
+  narration?: string;
 }
 
 /** A headline and a line under it. The opening scene, usually. */
@@ -86,15 +88,29 @@ export interface SplitScene extends SceneBase { kind: 'split'; heading: string; 
 export interface StepsScene extends SceneBase { kind: 'steps'; heading: string; steps: string[] }
 /** The close: the brand, what to do next, and where. */
 export interface OutroScene extends SceneBase { kind: 'outro'; headline: string; cta?: string; url?: string }
+/** Up to four pictures in a moving montage, with an optional heading. */
+export interface GalleryScene extends SceneBase { kind: 'gallery'; heading?: string; pictures?: Picture[]; imageQueries?: string[] }
+/** Dated events on a line, in order. Up to five; `when` is a year or a date as the sources give it. */
+export interface TimelineScene extends SceneBase { kind: 'timeline'; heading: string; events: { when: string; text: string }[] }
+/** Two sides compared, each with a title and up to four points. */
+export interface CompareScene extends SceneBase { kind: 'compare'; heading: string; left: { title: string; points: string[] }; right: { title: string; points: string[] } }
+/** Real people — a founder, a dean, a team — with their role and, when one was found, their picture. Up to four. */
+export interface PeopleScene extends SceneBase { kind: 'people'; heading: string; people: { name: string; role?: string; picture?: Picture; imageQuery?: string }[] }
+/** The brand's logo revealed, with a line under it. Uses `video.brand.logo`; the brand name when there is none. */
+export interface LogoScene extends SceneBase { kind: 'logo'; tagline?: string }
+/** A QR code for an address, with a line saying what it opens. */
+export interface QrScene extends SceneBase { kind: 'qr'; heading: string; url: string }
 
 export type Scene =
   | TitleScene | KineticScene | BulletsScene | StatScene | ChartScene
-  | QuoteScene | ImageScene | SplitScene | StepsScene | OutroScene;
+  | QuoteScene | ImageScene | SplitScene | StepsScene | OutroScene
+  | GalleryScene | TimelineScene | CompareScene | PeopleScene | LogoScene | QrScene;
 
 export type SceneKind = Scene['kind'];
 
 export const SCENE_KINDS: readonly SceneKind[] = [
   'title', 'kinetic', 'bullets', 'stat', 'chart', 'quote', 'image', 'split', 'steps', 'outro',
+  'gallery', 'timeline', 'compare', 'people', 'logo', 'qr',
 ];
 
 /** The brand the video carries: colours override the style's, a logo appears on the title and the close. */
@@ -106,6 +122,64 @@ export interface Brand {
   accent?: string;
   /** A data: URL the person picked. */
   logo?: string;
+}
+
+/**
+ * A fact about the video's subject, found on the web before the storyboard
+ * is planned, with where it came from. The person sees every one and can
+ * switch it off; only facts that are on reach the model.
+ */
+export interface Fact {
+  /** What it is, in English: "Founded", "Students", "Official website", "Motto". */
+  label: string;
+  value: string;
+  /** The page it came from, named: "Wikidata", "Wikipedia (ar)". */
+  source: string;
+  url: string;
+  use: boolean;
+}
+
+/** What was found about the subjects the request names — "UoD", a company, a city. */
+export interface Brief {
+  /** The names looked up, as they were understood: "University of Duhok". */
+  subjects: string[];
+  /** A few sentences about the subject from the sources, in the video's language when there was one. */
+  summary?: string;
+  facts: Fact[];
+  /** Its own pictures — buildings, events, people — fetched, with credits. The video's scenes may use them. */
+  pictures: Picture[];
+  /** Its logo, when a free one was found. Offered for the brand, never put there unasked. */
+  logo?: Picture;
+  website?: string;
+  /** When it was looked up (ms). */
+  at: number;
+}
+
+/** A piece of music under the video: openly licensed, fetched, credited. */
+export interface Track {
+  /** A data: URL of the audio. */
+  src: string;
+  title: string;
+  credit: string;
+  source: string;
+  license: string;
+  seconds?: number;
+  query?: string;
+}
+
+/** The video's sound: music under it, and an optional voice reading each scene's narration. */
+export interface VideoAudio {
+  /** Plan the video with a spoken line per scene, and read it out. */
+  narrate?: boolean;
+  music?: Track;
+  /** 0 to 1. */
+  musicVolume?: number;
+  /** The narration's audio per scene id, made once from the scene's `narration`. */
+  voice?: Record<string, { text: string; src: string; seconds: number }>;
+  /** The voice's name at the provider that spoke it. */
+  voiceName?: string;
+  /** Burn the narration in as captions. */
+  captions?: boolean;
 }
 
 /** Where a video is in its life. */
@@ -133,5 +207,17 @@ export interface Video {
   effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
   /** Show the pictures' credits in a closing card. On by default; the licences ask for it. */
   credits?: boolean;
+  /**
+   * The brand's logo (or its name, when there is no logo) small in a corner of
+   * every scene that does not already show it. On by default when the brand
+   * has either; `false` turns it off.
+   */
+  watermark?: boolean;
+  /** What was found on the web about the subject before planning, when it was looked up. */
+  brief?: Brief;
+  /** Look the subject up on the web before planning. On by default. */
+  lookup?: boolean;
+  /** Music and narration. */
+  audio?: VideoAudio;
   error?: string;
 }
