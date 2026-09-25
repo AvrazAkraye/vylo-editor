@@ -71,9 +71,14 @@ const ABSENT = [
   // it. Its guards (.docx only, zip bytes only, 32 MB) narrow what it can
   // write; they do not make it a tool.
   'export_write_docx',
+  // Writes a PowerPoint file from Slides wherever the OS save panel said.
+  // Absent for export_write_docx's reason, with the same guards (.pptx only,
+  // zip bytes only, 32 MB) — which narrow what it can write and do not make
+  // it a tool.
+  'export_write_pptx',
   // Writes the window, printed, as a PDF to the path a save panel returned —
-  // Research's Save as PDF. Like export_write_docx, an absolute path is safe
-  // here only while nothing the model produces can reach it.
+  // Research's and Slides' Save as PDF. Like export_write_docx, an absolute
+  // path is safe here only while nothing the model produces can reach it.
   'save_pdf',
   // Writes what the Video module exports — an MP4 or WebM film, a PNG poster,
   // SRT subtitles, the storyboard as JSON — wherever the OS save panel said, or

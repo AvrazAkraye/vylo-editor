@@ -95,6 +95,9 @@ const ICONS: Record<string, Stroke[]> = {
   // Video. A strip of film rather than a camera: the module makes a finished
   // film from a sentence, and `camera` already means a screenshot here.
   film: [{ d: 'M5.5 4.5h13a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1zM8 4.5v15M16 4.5v15M4.5 9h3.5M4.5 15h3.5M16 9h3.5M16 15h3.5' }],
+  // Slides. A board on a stand with a rising line on it: a talk given from
+  // slides, which `board` (the kanban) and `grid` already cannot say.
+  slides: [{ d: 'M3.5 4.5h17M5 4.5V14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4.5M12 15v3M9 20.5l3-2.5 3 2.5M8.5 12l2.5-2.5 2 2 3-3' }],
   pencil: [{ d: 'M4.6 19.4l.7-3.5a2 2 0 0 1 .55-1.02L15.9 4.7a2.2 2.2 0 0 1 3.4 2.77l-.28.33-10.03 10.03a2 2 0 0 1-1.02.55zM14.4 6.2l3.4 3.4' }],
 };
 

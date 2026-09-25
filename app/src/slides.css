@@ -1,0 +1,141 @@
+/* ── Slides: presentations you edit, present and save ───────────────────────
+   The panel wears Video's clothes — `.vid-*` from styles.css — so the three
+   modules that make something from a sentence look like one family. What is
+   here is what only Slides has: the slide itself, drawn on a 1280 × 720
+   canvas and scaled (SlideView.tsx), the strip of slides, the editor's
+   lists and table, the presenter's screen and the printed sheets.
+   Kept beside the panel, and loaded with it, because nobody who never opens
+   Slides needs any of it. */
+
+/* The slide. A frame the width of its box, holding a canvas that is always
+   1280 × 720 and always left to right: the layout has already put every box
+   where it belongs, reflected for an Arabic or Kurdish deck. */
+.sl-frame{
+  position:relative; inline-size:100%; aspect-ratio:16 / 9; overflow:hidden;
+  border-radius:var(--r-2); background:#fff; box-shadow:var(--shadow);
+}
+.sl-canvas{ position:absolute; inset-block-start:0; left:0; transform-origin:top left; direction:ltr; overflow:hidden; }
+.sl-rect, .sl-img, .sl-text, .sl-table{ position:absolute; }
+.sl-img{ object-fit:contain; }
+.sl-text{ display:flex; flex-direction:column; overflow-wrap:anywhere; }
+.sl-p{ margin:0; white-space:pre-wrap; }
+.sl-bullet{ display:inline-block; inline-size:1.1em; text-indent:0; text-align:center; }
+.sl-table{ border-collapse:collapse; table-layout:fixed; line-height:1.2; }
+.sl-table td{ padding:6px 14px; text-align:center; vertical-align:middle; overflow-wrap:anywhere; }
+/* In the editor's preview a part of the slide says it can be clicked to edit. */
+.sl-text.is-editable, .sl-table[data-field]{ cursor:text; }
+.sl-text.is-editable:hover, .sl-table[data-field]:hover{ outline:3px dashed color-mix(in srgb, var(--brand) 70%, transparent); outline-offset:6px; }
+
+.sl-preview{ margin-inline:var(--sp-6); inline-size:auto; }
+
+/* Start from words, or from a document. */
+.sl-from button{ display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2); }
+
+.sl-kinds{ display:grid; grid-template-columns:repeat(2, 1fr); gap:var(--sp-2); }
+.sl-kinds button{
+  display:flex; flex-direction:column; gap:2px; min-inline-size:0; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+  color:var(--ink); font:inherit; text-align:start; cursor:pointer;
+  transition:border-color .15s ease, background .15s ease;
+}
+.sl-kinds button:hover{ border-color:var(--rule-2); }
+.sl-kinds button.on{ border-color:var(--brand); background:var(--brand-wash); }
+.sl-kinds b{ font-size:var(--fs-3); font-weight:600; }
+.sl-kinds small{ font-size:var(--fs-1); line-height:1.35; color:var(--mute); }
+
+.sl-docs{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-2); max-block-size:260px; overflow-y:auto; }
+.sl-docs button{
+  inline-size:100%; display:flex; align-items:flex-start; gap:var(--sp-3); padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+  color:var(--ink); font:inherit; text-align:start; cursor:pointer;
+}
+.sl-docs button.on{ border-color:var(--brand); background:var(--brand-wash); }
+.sl-docs button > span{ display:flex; flex-direction:column; gap:2px; min-inline-size:0; }
+.sl-docs b{ font-size:var(--fs-3); font-weight:600; overflow:hidden; text-overflow:ellipsis; }
+.sl-docs small{ font-size:var(--fs-1); color:var(--mute); }
+
+/* The strip of slides: a row that scrolls in the sidebar, a grid in the full window. */
+.sl-strip{
+  list-style:none; margin:0; padding:var(--sp-2) var(--sp-6); display:flex; gap:var(--sp-3);
+  overflow-x:auto; scroll-snap-type:x proximity;
+}
+.sl-strip.is-grid{ flex-wrap:wrap; overflow:visible; padding:0; justify-content:center; }
+.sl-strip li{ flex:none; scroll-snap-align:start; }
+.sl-thumb{
+  position:relative; display:block; padding:0; border:2px solid transparent; border-radius:calc(var(--r-2) + 2px);
+  background:transparent; cursor:pointer;
+}
+.sl-thumb:hover{ border-color:var(--rule-2); }
+.sl-thumb.on{ border-color:var(--brand); }
+.sl-thumb .sl-frame{ box-shadow:none; border:1px solid var(--rule); }
+.sl-thumb small{
+  position:absolute; inset-block-end:4px; inset-inline-start:4px; padding:0 5px; border-radius:6px;
+  background:rgba(0, 0, 0, .55); color:#fff; font-size:10px; font-variant-numeric:tabular-nums;
+}
+
+.sl-out{ align-items:center; }
+.sl-saved{ display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; margin:0 var(--sp-7); }
+.sl-saved span{ min-inline-size:0; overflow-wrap:anywhere; }
+
+/* The full window's stage: the slide large, the others under it. */
+.sl-stage{ align-items:flex-start; }
+.sl-stage-in{ flex:1; display:flex; flex-direction:column; gap:var(--sp-8); padding:var(--sp-8) 40px; min-inline-size:0; }
+.sl-big{ max-inline-size:1100px; margin-inline:auto; }
+
+/* The editor. */
+.sl-edit-bar{ display:flex; align-items:flex-end; gap:var(--sp-3); }
+.sl-edit-bar .vid-f{ flex:1; }
+.sl-edit-acts{ display:flex; gap:2px; }
+.sl-pairs{ gap:var(--sp-2); }
+.sl-pair{ display:grid; grid-template-columns:minmax(64px, 1fr) 2.2fr auto; gap:var(--sp-2); align-items:center; }
+.sl-pairs > .ghost, .sl-grid-acts .ghost{ display:inline-flex; align-items:center; gap:var(--sp-2); justify-self:start; }
+.sl-grid-cells{ display:grid; gap:4px; }
+.sl-grid-cells input{ padding:var(--sp-2) var(--sp-3); font-size:var(--fs-2); }
+.sl-grid-cells input.is-head{ font-weight:600; }
+.sl-grid-acts{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+.sl-add select{ inline-size:auto; }
+
+/* Presenting: the slide on black, as large as the screen allows. */
+.sl-present{
+  position:fixed; inset:0; z-index:200; display:flex; flex-direction:column; background:#000; color:#fff;
+}
+.sl-present:focus{ outline:none; }
+.sl-present-stage{ flex:1; min-block-size:0; display:flex; align-items:center; justify-content:center; cursor:pointer; }
+.sl-present-stage .sl-frame{ border-radius:0; box-shadow:none; }
+.sl-present-notes{
+  flex:none; max-block-size:26vh; overflow-y:auto; padding:var(--sp-5) var(--sp-8);
+  background:#111; color:#eee; font-size:18px; line-height:1.6; white-space:pre-wrap;
+}
+.sl-present-bar{
+  flex:none; display:flex; align-items:center; justify-content:center; gap:var(--sp-4); block-size:44px;
+  background:#000; color:#aaa; font-size:13px; font-variant-numeric:tabular-nums;
+  opacity:.35; transition:opacity .2s ease;
+}
+.sl-present-bar:hover, .sl-present:focus-within .sl-present-bar:focus-within{ opacity:1; }
+.sl-present-bar button{
+  display:inline-flex; align-items:center; gap:var(--sp-2); padding:var(--sp-2) var(--sp-4);
+  border:1px solid #333; border-radius:var(--r-2); background:#111; color:#ddd; font:inherit; cursor:pointer;
+}
+.sl-present-bar button[aria-pressed="true"]{ border-color:#777; color:#fff; }
+.sl-present-bar button:disabled{ opacity:.4; cursor:default; }
+
+/* The printed sheets: out of sight until a PDF is made of them, then the
+   only thing on the page, one slide to a sheet the shape of a slide (the
+   Rust side sets the paper to 1280 × 720 CSS pixels, so nothing scales). */
+#sl-print{ position:fixed; inset-block-start:0; left:-100000px; visibility:hidden; pointer-events:none; }
+/* A named page, because styles.css says `@page{ size:A4 }` for Research's
+   paper view, and Chromium (WebView2) takes that A4's portrait orientation
+   for every sheet unless a sheet names a page of its own shape. */
+@page slide{ size:1280px 720px; margin:0; }
+.sl-sheet{ page:slide; position:relative; inline-size:1280px; block-size:720px; overflow:hidden; break-after:page; page-break-after:always; }
+.sl-sheet:last-child{ break-after:auto; page-break-after:auto; }
+.sl-sheet .sl-canvas{ print-color-adjust:exact; -webkit-print-color-adjust:exact; }
+@media print{
+  :root.sl-printing body > *:not(#sl-print){ display:none !important; }
+  :root.sl-printing body{ background:#fff; margin:0; }
+  :root.sl-printing #sl-print{ position:static; visibility:visible; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .sl-present-bar{ transition:none; }
+}

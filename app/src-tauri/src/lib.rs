@@ -1938,16 +1938,40 @@ fn export_write_docx(path: String, data: String) -> Result<(), String> {
 /// `export_write_docx` with its ceiling as an argument, so the tests can pin
 /// the size check with a few bytes rather than thirty-two megabytes of them.
 fn write_docx(path: &str, data: &str, max: usize) -> Result<(), String> {
+    write_zipped(path, data, max, "docx", "a Word document")
+}
+
+/// The largest presentation `export_write_pptx` will write. A deck is XML and
+/// one logo of at most 400 KB, so this is `MAX_DOCX_BYTES`'s ceiling for
+/// `MAX_DOCX_BYTES`'s reason.
+const MAX_PPTX_BYTES: usize = 32 * 1024 * 1024;
+
+/// Write a PowerPoint file the user has just chosen to save, from Slides.
+///
+/// `export_write_docx` for a `.pptx`, with the same four refusals for the same
+/// reasons, and the same argument for its absolute path: it is **absent from
+/// the tool schema** (`test/modes.test.mjs` names it), the path comes from the
+/// OS save panel, and the bytes from `slidespptx.ts`, built from exactly the
+/// deck the person pressing Save has been looking at.
+#[tauri::command]
+fn export_write_pptx(path: String, data: String) -> Result<(), String> {
+    write_zipped(&path, &data, MAX_PPTX_BYTES, "pptx", "a PowerPoint presentation")
+}
+
+/// An Office file — a zip of XML — from base64, to a path whose extension is
+/// `ext`, refused as `export_write_docx` describes. `what` names it in the
+/// refusal a person reads: "is not a Word document".
+fn write_zipped(path: &str, data: &str, max: usize, ext: &str, what: &str) -> Result<(), String> {
     let p = PathBuf::from(path);
     if p.is_dir() {
         return Err(format!("{path}: is a directory"));
     }
-    let docx = p
+    let named = p
         .extension()
         .and_then(|e| e.to_str())
-        .is_some_and(|e| e.eq_ignore_ascii_case("docx"));
-    if !docx {
-        return Err(format!("{path}: is not a .docx file"));
+        .is_some_and(|e| e.eq_ignore_ascii_case(ext));
+    if !named {
+        return Err(format!("{path}: is not a .{ext} file"));
     }
     // Every three bytes are four characters, so a longer string cannot decode
     // to `max` bytes or fewer. Refused here, before decoding allocates for it.
@@ -1962,7 +1986,7 @@ fn write_docx(path: &str, data: &str, max: usize) -> Result<(), String> {
         return Err(format!("{path}: the document is larger than {} MB", max / (1024 * 1024)));
     }
     if !bytes.starts_with(b"PK\x03\x04") {
-        return Err(format!("{path}: is not a Word document"));
+        return Err(format!("{path}: is not {what}"));
     }
     fs::write(&p, bytes).map_err(|e| format!("{path}: {e}"))
 }
@@ -2049,7 +2073,7 @@ pub fn run() {
             store_sizes, store_empty,
             capture_screenshot,
             set_global_shortcut,
-            export_write, export_write_docx, video::export_write_video, video::open_exported, pdf::save_pdf, pdf::reveal_path,
+            export_write, export_write_docx, export_write_pptx, video::export_write_video, video::open_exported, pdf::save_pdf, pdf::reveal_path,
             watch::watch_start, watch::watch_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close, pty::pty_cwd, pty::pty_running, pty::shell_commands, pty::shell_history, pty::complete_path
         ])
@@ -2555,6 +2579,51 @@ mod tests {
             .expect_err("a missing parent is an error, not something to create");
         assert!(!err.is_empty());
         assert!(!dir.join("no such folder").exists(), "the parent was not created");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Slides saves a PowerPoint file through the same guard as a Word
+    /// document; this pins that it is that guard with `.pptx` in place of
+    /// `.docx` — the bytes arrive unchanged, and a Word name, a folder or bytes
+    /// that are not a zip are refused and leave nothing behind.
+    #[test]
+    fn export_write_pptx_writes_a_zip_and_refuses_what_is_not_one() {
+        let dir = std::env::temp_dir().join(format!("vylo_exportpptx_{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let at = |name: &str| dir.join(name).to_string_lossy().to_string();
+        let mut deck = b"PK\x03\x04".to_vec();
+        deck.extend((0u8..=255).cycle().take(2048));
+        let data = BASE64.encode(&deck);
+
+        export_write_pptx(at("defence.pptx"), data.clone()).expect("should write");
+        assert_eq!(fs::read(dir.join("defence.pptx")).unwrap(), deck, "the bytes on disk are the bytes sent");
+        export_write_pptx(at("سمینار.PPTX"), data.clone()).expect("a Kurdish name, upper-case extension");
+        assert_eq!(fs::read(dir.join("سمینار.PPTX")).unwrap(), deck);
+
+        let before: std::collections::BTreeSet<_> =
+            fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        let refused = |path: String, data: String, why: &str| {
+            let err = export_write_pptx(path.clone(), data).expect_err(&format!("{path} should be refused"));
+            assert!(err.contains(why), "{path}: expected {why:?}, got {err:?}");
+        };
+        refused(dir.to_string_lossy().into(), data.clone(), "is a directory");
+        for name in ["deck.docx", "deck.ppt", "deck.pptm", "deck.pptx.txt", ".zshrc", "pptx"] {
+            refused(at(name), data.clone(), "is not a .pptx file");
+        }
+        refused(at("text.pptx"), BASE64.encode(b"<xml/>"), "is not a PowerPoint presentation");
+        refused(at("junk.pptx"), "not base64!".into(), "did not arrive intact");
+        refused(at("huge.pptx"), "!".repeat((MAX_PPTX_BYTES / 3 + 1) * 4 + 1), "larger than 32 MB");
+        let after: std::collections::BTreeSet<_> =
+            fs::read_dir(&dir).unwrap().flatten().map(|e| e.file_name()).collect();
+        assert_eq!(after, before, "a refusal wrote nothing");
+
+        // The Word guard still says what it did, now that it is shared.
+        let err = export_write_docx(at("deck.pptx"), data).expect_err("a .pptx is not a .docx");
+        assert!(err.contains("is not a .docx file"), "{err}");
+        let err = export_write_docx(at("notes.docx"), BASE64.encode(b"text")).expect_err("not a zip");
+        assert!(err.contains("is not a Word document"), "{err}");
 
         let _ = fs::remove_dir_all(&dir);
     }

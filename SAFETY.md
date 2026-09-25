@@ -190,7 +190,7 @@ to your own speech provider, one for fonts and one to Remotion:
 | `app/src/inline.ts` | `POST {gateway}/v1/messages` | ⌘K rewrite, apply-from-chat |
 | `app/src/complete.ts` | `POST {gateway}/v1/complete` | inline (ghost-text) completion |
 | `app/src/gateway.ts` | `POST {gateway}/v1/messages` | checking a key you just pasted |
-| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab |
+| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again |
 | `app/src/account.ts` | `POST {gateway}/app/api/auth/login` | signing in — `/auth/register` and `/auth/logout` are the same shape |
 | `app/src/account.ts` | `GET {gateway}/app/api/me` | the plan balance: on launch, when a turn ends, otherwise every five minutes |
 | `app/src/account.ts` | `POST {gateway}/app/api/keys` | minting this app's own key, once, at the end of a sign-in |
@@ -558,6 +558,13 @@ item, and every one of them is absent from the tool schema below:
   of the document you were shown into the page and hidden everything else. It
   refuses a name that does not end in .pdf and a folder that does not exist,
   and creates none.
+- `export_write_pptx` writes a PowerPoint file from the Slides panel to the
+  path the save panel returned after you pressed **Save as PowerPoint**, and is
+  allowed for `export_write_docx`'s reasons, behind the same guards: a name that
+  does not end in .pptx and bytes that do not begin as a ZIP archive does are
+  refused, and no folder is created. Its bytes are built by
+  `app/src/slidespptx.ts` from exactly the slides the panel was showing you. The
+  panel's **Save as PDF** is `save_pdf` again, on pages the shape of a slide.
 - `export_write_video` writes what the Video panel exports — an MP4 or WebM
   film, a PNG poster, SRT subtitles, or the storyboard as JSON — after you
   pressed the button for that file. **Save as MP4…** writes to the path the save
@@ -603,7 +610,7 @@ everything:  write_file   edit_file   run_command   remember
 
 `apply_write` is not among them. Neither are `create_file`, `create_dir`,
 `rename_path`, `delete_path`, `git_create_branch`, `git_commit`, `export_write`,
-`export_write_docx`, `export_write_video`, `save_pdf`, `reveal_path`, `open_exported`, `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
+`export_write_docx`, `export_write_pptx`, `export_write_video`, `save_pdf`, `reveal_path`, `open_exported`, `draft_save`, `draft_clear`, `history_restore`, `history_forget`,
 `history_forget_all`, `checkpoint_save`, `checkpoint_restore`, `checkpoint_redo`,
 `store_sizes`, `store_empty`,
 `capture_screenshot`, `set_global_shortcut`, `watch_start`, `watch_stop`,
@@ -640,16 +647,16 @@ refuses anything that does not start with the root — so `..` and symlinks
 *resolve* rather than being pattern-matched, and a file that does not exist yet
 is checked through its parent.
 
-There are **ten** deliberate exceptions, and what they have in common is that
+There are **eleven** deliberate exceptions, and what they have in common is that
 the path is one you chose — or, for a download, your Downloads folder — rather
 than one the model supplied. `read_image`,
 `read_text_attachment`, `read_document` and `read_any_file` read a file you
 dragged in or picked — each says so in its doc comment in `lib.rs`; the
 Research panel's data files come through the last three. `export_write`,
-`export_write_docx` and `export_write_video` *write* to an absolute path, which is the save panel's
+`export_write_docx`, `export_write_pptx` and `export_write_video` *write* to an absolute path, which is the save panel's
 (or, for the Video panel's downloads, one in your Downloads folder), and
 so does `save_pdf`; `reveal_path` shows one in Finder or Explorer, and
-`open_exported` opens one the Video panel has just written. All ten are
+`open_exported` opens one the Video panel has just written. All eleven are
 absent from the tool schema, so no tool call reaches any of them however
 the model is prompted.
 
@@ -843,10 +850,21 @@ already has, or, with **Save as MP4…**, where you choose — and only there. T
 resolution, bitrate and sound you last chose for a download are remembered in
 `localStorage` (`vylo.video.download`).
 
+**Presentations are not one of them either.** Each presentation — what you
+asked for, its slides and speaker notes, its colours, the names and logo on its
+title slide and, for one made from a Research document, the part of that
+document it was written from and its reference list — is kept in the webview's
+IndexedDB, in a database named `vylo-slides`, on this machine
+(`app/src/slidestore.ts`). Deleting a presentation in the panel deletes it
+there. The title slide's names and logo, filled in once for the next
+presentation, are kept in `localStorage` under `vylo.slides.cover.v1`. A
+PowerPoint file or a PDF is written only when you press **Save as PowerPoint**
+or **Save as PDF**, and only where you choose.
+
 Chats, settings, your gateway key, your session token, which MCP servers you
 enabled, any model providers you added, the clipboard history, the terminal
-sessions and the Research cover details above are in the webview's
-`localStorage`, and the Research drafts and the videos in its IndexedDB — not in that
+sessions and the Research and Slides cover details above are in the webview's
+`localStorage`, and the Research drafts, the videos and the presentations in its IndexedDB — not in that
 directory.
 
 Nothing here is encrypted at rest beyond whatever your disk already does.
