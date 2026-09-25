@@ -6646,3 +6646,6 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   .vid-chat-turn, .vid-chat-status b{ animation:none; }
   .vid-chat-send{ transition:none; }
 }
+
+/* A download the chat offers: the list row's own button, under the answer. */
+.vid-chat-offer{ display:flex; align-items:center; gap:var(--sp-3); margin-block-start:var(--sp-3); font-size:var(--fs-2); font-weight:600; color:var(--ink); }

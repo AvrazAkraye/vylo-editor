@@ -18,7 +18,7 @@ import {
 } from './video';
 import { deleteVideo, loadVideos, saveVideo } from './videostore';
 import { creditsOf, fillPictures, needsPictures, picturesOf, withPicturesOf } from './videomedia';
-import { factsBlock, placeBriefPictures, researchVideo, wantsLookup, type Ask } from './videoresearch';
+import { factsBlock, placeBriefPictures, researchVideo, wantsLookup, withSiteLogo, type Ask } from './videoresearch';
 import { STYLE_SWATCH } from './VideoScenes';
 import { PICTURED, Storyboard, WatermarkSwitch, kindAbout, kindName } from './VideoStoryboard';
 import { VideoFacts } from './VideoFacts';
@@ -208,9 +208,14 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
           efforts: { ...efforts, [gw.model]: 'low' }, signal: q.signal ?? ctl.signal,
         }).then((r) => r.text);
         try {
-          const brief = await researchVideo(asked.request, {
+          const found = await researchVideo(asked.request, {
             lang: asked.lang, format: asked.format, signal: ctl.signal, ask: quick,
             webSearch: gw.wire === 'anthropic' ? { ask: quick, key: `${gw.baseUrl} ${gw.model}` } : null,
+          });
+          // No free logo on Wikimedia: the organisation's own, from its own website.
+          const brief = await withSiteLogo(found, { signal: ctl.signal }).catch((e: unknown) => {
+            if (ctl.signal.aborted) throw e;
+            return found;
           });
           update(id, (x) => ({ ...x, brief }));
         } catch (e) {
@@ -1340,7 +1345,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
                         onScenes={(scenes) => change({ scenes })} onRedo={(id) => void redo(id)} onSeek={seekScene} onAdd={add} onError={onError} />
           )}
           {tab === 'chat' && (
-            <VideoChat t={t} video={video} onChange={change} locked={busy} ready={ready} target={target}
+            <VideoChat t={t} video={video} onChange={change} locked={busy} ready={ready} target={target} providers={routes.providers}
                        efforts={bookFor(video, target, efforts)} onFindPictures={() => begin(video, { how: 'pictures' })} onError={onError}
                        current={() => known.get(video.id) ?? video} />
           )}

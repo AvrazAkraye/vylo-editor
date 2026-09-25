@@ -212,6 +212,8 @@ export interface ChatTurn {
   skipped?: string[];
   /** The model's turn could not be understood or applied. */
   failed?: boolean;
+  /** Buttons offered under the model's turn, for things only the person may press — a download. */
+  offer?: 'download'[];
 }
 
 /** Where a video is in its life. */

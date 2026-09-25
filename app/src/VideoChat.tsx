@@ -4,11 +4,15 @@ import { fill } from './i18n';
 import { explain } from './errors';
 import type { EffortBook } from './effort';
 import { generate, type Target } from './generate';
-import type { ChatTurn, Style, Track, Transition, Video, VideoLang } from './videotypes';
+import type { Brief, ChatTurn, Format, Style, Track, Transition, Video, VideoLang } from './videotypes';
 import { kindName } from './VideoStoryboard';
 import { composeMusic, musicCues } from './videosynth';
-import { isAbort } from './videomix';
-import { MAX_OPS, MAX_SCENES, applyOps, chatPrompt, keptChat, parseChat, playedSeconds, type Change } from './videochatops';
+import { audioSeconds, fitScenesToVoice, isAbort, speakLine, speakerFor, toDataUrl, voiceForScenes } from './videomix';
+import { TTS_KEY } from './whatsapptts';
+import type { Provider } from './providers';
+import { RowDownload } from './VideoDownloads';
+import { mergeBrief, researchVideo, siteLogo, withSiteLogo } from './videoresearch';
+import { MAX_OPS, MAX_SCENES, applyOps, chatPrompt, keptChat, parseChat, playedSeconds, type Change, type LookedUp } from './videochatops';
 
 /**
  * Talking to the video: the Chat tab.
@@ -55,6 +59,8 @@ interface Props {
    * Without it, the copy this tab last drew.
    */
   current?: () => Video;
+  /** The person's providers, where a speech service for the voice is found. */
+  providers?: readonly Provider[];
 }
 
 // ── state that outlives the tab ───────────────────────────────────────────
@@ -65,8 +71,12 @@ interface Run {
   started: number;
   /** Characters of the answer so far, so a long wait visibly moves. */
   chars: number;
-  stage: 'asking' | 'music';
+  stage: 'asking' | 'looking' | 'music' | 'logo' | 'voice';
   retry?: { attempt: number; of: number };
+  /** What is being looked up on the web now. */
+  looking?: string;
+  /** Lines spoken so far, of how many. */
+  voiced?: { done: number; of: number };
 }
 
 /** A message that could not be answered: said under it, with Try again. Not kept in the video. */
@@ -120,6 +130,8 @@ interface Deps {
   t: T;
   target: Target;
   efforts: EffortBook;
+  /** The person's providers, where a speech service for the voice is found. */
+  providers: readonly Provider[];
   onChange: (next: Partial<Video>) => void;
   onFindPictures: () => void;
   current: () => Video | undefined;
@@ -150,14 +162,49 @@ async function send(id: string, message: string, d: Deps) {
   try {
     const v0 = now();
     if (!v0) return;
-    const p = chatPrompt(v0, v0.chat, text);
-    const out = await generate(d.target, {
-      system: p.system, user: p.user, maxTokens: 6000, efforts: d.efforts, signal: ctl.signal,
-      onText: (x) => { run.chars += x.length; run.retry = undefined; ping(); },
-      onRestart: () => { run.chars = 0; },
-      onRetry: (attempt, of) => { run.retry = { attempt, of }; ping(); },
-    });
-    const parsed = parseChat(out.text);
+    // The video as the model sees it, with what this message has looked up so far.
+    let brief: Brief | undefined = v0.brief;
+    const withBrief = (v: Video): Video => (brief && brief !== v.brief ? { ...v, brief, lookup: true } : v);
+    const looked: LookedUp[] = [];
+    let parsed: ReturnType<typeof parseChat> = { reply: '', ops: [], readable: false };
+    // The model may ask to look things up before it acts. The app does, and
+    // asks again with what was found — twice at most, so a message ends.
+    for (let round = 0; ; round++) {
+      const base = withBrief(now() ?? v0);
+      const p = chatPrompt(base, base.chat, text, looked);
+      run.stage = 'asking';
+      run.chars = 0;
+      ping();
+      const out = await generate(d.target, {
+        system: p.system, user: p.user, maxTokens: 6000, efforts: d.efforts, signal: ctl.signal,
+        onText: (x) => { run.chars += x.length; run.retry = undefined; ping(); },
+        onRestart: () => { run.chars = 0; },
+        onRetry: (attempt, of) => { run.retry = { attempt, of }; ping(); },
+      });
+      parsed = parseChat(out.text);
+      const asks = parsed.readable ? (applyOps(base, parsed.ops, newId, text).wants.lookups ?? []) : [];
+      if (!asks.length || round >= 2) break;
+      run.stage = 'looking';
+      for (const subject of asks) {
+        run.looking = subject;
+        ping();
+        let got: Brief | null = null;
+        try {
+          got = await withSiteLogo(
+            await researchVideo(base.request, { lang: base.lang, format: base.format, subjects: [{ name: subject }], signal: ctl.signal }),
+            { signal: ctl.signal },
+          );
+        } catch (e) {
+          if (ctl.signal.aborted || isAbort(e)) throw e;
+        }
+        const useful = !!got && (got.facts.length > 0 || got.pictures.length > 0 || !!got.logo);
+        if (useful) brief = mergeBrief(brief, got);
+        looked.push({
+          subject, found: useful ? got!.subjects : [], facts: useful ? got!.facts.length : 0, photos: useful ? got!.pictures.length : 0,
+          logo: useful && !!got!.logo, ...(useful && got!.website ? { website: got!.website } : {}),
+        });
+      }
+    }
     const you: ChatTurn = { role: 'you', text, at: run.started };
     if (!parsed.readable) {
       d.onChange({ chat: keptChat(now()?.chat, [you, { role: 'model', text: '', at: Date.now(), failed: true }]) });
@@ -165,13 +212,13 @@ async function send(id: string, message: string, d: Deps) {
     }
     if (order(now()) !== order(v0)) throw new Error(MOVED);
 
-    let applied = applyOps(now()!, parsed.ops, newId, text);
+    let applied = applyOps(withBrief(now()!), parsed.ops, newId, text);
     let track: Track | undefined;
     let musicError = '';
     if (applied.wants.music) {
       run.stage = 'music';
       ping();
-      const planned = { ...now()!, ...applied.next };
+      const planned = { ...withBrief(now()!), ...applied.next };
       try {
         track = await composeMusic(applied.wants.music, playedSeconds(planned), { cues: musicCues(planned), signal: ctl.signal });
       } catch (e) {
@@ -181,21 +228,90 @@ async function send(id: string, message: string, d: Deps) {
       // The video may have changed while the music was made: the ops go onto its newest copy.
       if (order(now()) !== order(v0)) throw new Error(MOVED);
       const spec = applied.wants.music;
-      applied = applyOps(now()!, parsed.ops, newId, text);
+      applied = applyOps(withBrief(now()!), parsed.ops, newId, text);
       applied.wants.music = spec;
+    }
+    // The logo, found before anything is applied, so it lands in the same undo step.
+    let logoSrc: string | null = null;
+    if (applied.wants.logo) {
+      run.stage = 'logo';
+      ping();
+      const base = withBrief(now()!);
+      logoSrc = base.brief?.logo?.src ?? null;
+      const site = applied.wants.logo.site ?? base.brief?.website;
+      try {
+        if (!logoSrc && site) {
+          const names = [...(base.brief?.subjects ?? []), base.brand?.name ?? '', base.title].filter((n) => n.trim());
+          logoSrc = (await siteLogo(site, names, { signal: ctl.signal }))?.src ?? null;
+        } else if (!logoSrc && !base.brief) {
+          // Never looked up: look the subject up now — Wikimedia first, then its own website.
+          const got = await withSiteLogo(await researchVideo(base.request, { lang: base.lang, format: base.format, signal: ctl.signal }), { signal: ctl.signal });
+          brief = mergeBrief(brief, got);
+          logoSrc = got.logo?.src ?? null;
+        }
+      } catch (e) {
+        if (ctl.signal.aborted || isAbort(e)) throw e;
+      }
+      if (order(now()) !== order(v0)) throw new Error(MOVED);
     }
     const cur = now()!;
     const next: Partial<Video> = { ...applied.next };
-    let changes: Change[] = applied.changes;
+    let changes: Change[] = [...looked.map((l): Change => ({ what: 'looked', subject: l.subject, found: l.found.length > 0 })), ...applied.changes];
+    if (brief && brief !== cur.brief) { next.brief = brief; next.lookup = true; }
+    if (applied.wants.logo) {
+      if (logoSrc) next.brand = { ...(next.brand ?? cur.brand ?? {}), logo: logoSrc };
+      else changes = changes.map((c) => (c.what === 'logo' ? { what: 'logo-failed' } : c));
+    }
     if (applied.wants.music) {
       if (track) next.audio = { ...(next.audio ?? cur.audio ?? {}), music: track };
       else changes = changes.map((c) => (c.what === 'music' ? { what: 'music-failed', mood: c.mood, error: musicError } : c));
     }
+    // The voice: every narration line spoken by the person's own speech
+    // service, into the same step. The lines are the ones this answer leaves.
+    if (applied.wants.voice) {
+      const film = { ...cur, ...next };
+      let stored: string | null = null;
+      try { stored = localStorage.getItem(TTS_KEY); } catch { /* private mode */ }
+      const speaker = speakerFor(d.providers, stored, film.audio?.voiceName);
+      const lines = film.scenes.filter((x) => x.narration?.trim());
+      if (!speaker) changes.push({ what: 'voice-failed', error: d.t('No speech service is set up — add one in Settings, then ask again.') });
+      else if (!lines.length) changes.push({ what: 'voice-failed', error: d.t('No scene has a narration line to speak yet.') });
+      else {
+        run.stage = 'voice';
+        run.voiced = { done: 0, of: lines.length };
+        ping();
+        try {
+          const voice = { ...(voiceForScenes(film) ?? {}) };
+          let made = 0;
+          for (const x of lines) {
+            const said = x.narration!.trim();
+            if (voice[x.id]?.text !== said) {
+              const bytes = await speakLine(speaker, said, { signal: ctl.signal });
+              voice[x.id] = { text: said, src: toDataUrl(bytes, 'audio/mpeg'), seconds: await audioSeconds(bytes) };
+              made++;
+            }
+            run.voiced.done++;
+            ping();
+          }
+          const audio = { ...(film.audio ?? {}), narrate: true, voice, voiceName: speaker.speech.voice };
+          const fit = fitScenesToVoice({ scenes: film.scenes, audio });
+          next.audio = audio;
+          if (fit.longer.length) next.scenes = fit.scenes;
+          changes.push({ what: 'voice', lines: made || lines.length });
+        } catch (e) {
+          if (ctl.signal.aborted || isAbort(e)) throw e;
+          changes.push({ what: 'voice-failed', error: explain(e, d.t('make the voice')) });
+        }
+      }
+      if (order(now()) !== order(v0)) throw new Error(MOVED);
+    }
+    if (applied.wants.download) changes.push({ what: 'download' });
     const done = changeLines(changes.filter((c) => !failed(c)), d.t);
     const not = changes.filter(failed).map((c) => changeLine(c, d.t));
     const model: ChatTurn = {
       role: 'model', text: parsed.reply, at: Date.now(),
       ...(done.length ? { changes: done } : {}), ...(not.length ? { skipped: not } : {}),
+      ...(applied.wants.download ? { offer: ['download'] as ChatTurn['offer'] } : {}),
     };
     d.onChange({ ...next, chat: keptChat(cur.chat, [you, model]) });
     if (applied.wants.pictures) d.onFindPictures();
@@ -221,7 +337,14 @@ function stop(id: string) {
 
 // ── words ─────────────────────────────────────────────────────────────────
 
-const failed = (c: Change) => c.what === 'skipped' || c.what === 'music-failed';
+const failed = (c: Change) => c.what === 'skipped' || c.what === 'music-failed' || c.what === 'logo-failed' || c.what === 'voice-failed'
+  || (c.what === 'looked' && !c.found);
+
+function formatName(f: Format, t: T): string {
+  if (f === 'portrait') return t('Vertical 9:16');
+  if (f === 'square') return t('Square 1:1');
+  return t('Wide 16:9');
+}
 
 function styleName(s: Style, t: T): string {
   if (s === 'bold') return t('Bold');
@@ -289,6 +412,14 @@ export function changeLine(c: Change, t: T): string {
     case 'music-failed': return fill(t('The music could not be composed: {error}'), { error: c.error });
     case 'volume': return fill(t('Music volume: {n}%'), { n: c.value });
     case 'no-music': return t('Music removed');
+    case 'logo': return t('The logo is on the brand — it shows on the first screen and at the close');
+    case 'looked': return c.found ? fill(t('Looked up “{subject}” on the web'), { subject: c.subject }) : fill(t('Nothing was found on the web for “{subject}”'), { subject: c.subject });
+    case 'photos': return fill(t('Photographs from the web put in {n} scenes'), { n: c.scenes });
+    case 'format': return fill(t('Shape: {format}'), { format: formatName(c.format, t) });
+    case 'voice': return fill(t('The voice is made: {n} lines spoken'), { n: c.lines });
+    case 'voice-failed': return fill(t('The voice could not be made: {error}'), { error: c.error });
+    case 'download': return t('Download it with the button below');
+    case 'logo-failed': return t('No logo could be found on the web — add one under Look → Brand');
     case 'narration':
       return c.removed ? fill(t('Scene {n}: narration line removed'), { n: c.scene }) : fill(t('Scene {n}: new narration line'), { n: c.scene });
     case 'narrate': return c.on ? t('Narration on — make the voice in the Sound tab') : t('Narration off');
@@ -370,7 +501,7 @@ function suggestions(v: Video, t: T): string[] {
 
 // ── the tab ───────────────────────────────────────────────────────────────
 
-export function VideoChat({ t, video, onChange, locked, ready, target, efforts, onFindPictures, onError: _onError, current }: Props): JSX.Element {
+export function VideoChat({ t, video, onChange, locked, ready, target, efforts, onFindPictures, onError: _onError, current, providers = [] }: Props): JSX.Element {
   useRuns();
   latest.set(video.id, video);
   const id = video.id;
@@ -409,7 +540,7 @@ export function VideoChat({ t, video, onChange, locked, ready, target, efforts, 
     if (el) el.scrollTop = el.scrollHeight;
   }, [turns.length, !!run, !!trouble]);
 
-  const deps = (): Deps => ({ t, target, efforts, onChange, onFindPictures, current: () => current?.() ?? latest.get(id) });
+  const deps = (): Deps => ({ t, target, efforts, providers, onChange, onFindPictures, current: () => current?.() ?? latest.get(id) });
   const go = (message: string) => {
     if (!can || runs.has(id) || !message.trim()) return;
     write('');
@@ -426,8 +557,14 @@ export function VideoChat({ t, video, onChange, locked, ready, target, efforts, 
   };
 
   const elapsed = run ? Date.now() - run.started : 0;
+  // Only the newest answer's offer stands: an older one belonged to an older video.
+  const lastModel = turns.map((x) => x.role).lastIndexOf('model');
   const status = run
-    ? run.stage === 'music' ? t('Composing the music…') : run.chars ? t('Writing the changes…') : `${thinkingVerb(elapsed, t)}…`
+    ? run.stage === 'music' ? t('Composing the music…')
+      : run.stage === 'logo' ? t('Finding the logo…')
+      : run.stage === 'looking' ? fill(t('Looking up “{subject}” on the web…'), { subject: run.looking ?? '' })
+      : run.stage === 'voice' ? fill(t('Making the voice: {n} of {of}…'), { n: run.voiced?.done ?? 0, of: run.voiced?.of ?? 0 })
+      : run.chars ? t('Writing the changes…') : `${thinkingVerb(elapsed, t)}…`
     : '';
 
   return (
@@ -468,6 +605,13 @@ export function VideoChat({ t, video, onChange, locked, ready, target, efforts, 
                     ))}
                   </ul>
                 ) : null}
+                {/* A download is the person's to press: the chat offers it, and the button does it. */}
+                {turn.offer?.includes('download') && i === lastModel && (
+                  <div className="vid-chat-offer">
+                    <RowDownload t={t} video={video} locked={locked} />
+                    <span>{t('Download MP4')}</span>
+                  </div>
+                )}
               </div>
             </li>
           )))}

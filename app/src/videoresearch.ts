@@ -1414,3 +1414,177 @@ export const HOSTS = [
   'commons.wikimedia.org', 'api.openverse.org', 'upload.wikimedia.org', 'thumb.wikimedia.org',
 ] as const;
 
+
+// ── the organisation's own logo ───────────────────────────────────────────
+
+/**
+ * The organisation's own logo, from its own website — for when Wikimedia has
+ * no free one, which for a university is the usual case: its arms are rarely
+ * uploaded, and a Wikipedia's copy is marked non-free and never taken. The
+ * site is the one place the logo is certainly right, and a video about the
+ * organisation is made on its behalf; the credit says where it came from, so
+ * nobody takes it for an openly licensed picture.
+ *
+ * The page names its logo in one of a few ways, tried in the order a site
+ * means them: schema.org's `logo`, an `og:logo`, an image whose file, class
+ * or text says "logo" and names the organisation or the site, and last its
+ * largest touch icon. A partner's logo — a university's front page lists a
+ * dozen — says "logo" but not the organisation's name, and scores below it.
+ */
+export function siteLogoCandidates(html: string, pageUrl: string, names: readonly string[]): string[] {
+  const text = String(html ?? '').slice(0, 3_000_000);
+  const host = (() => { try { return new URL(pageUrl).hostname.replace(/^www\./, ''); } catch { return ''; } })();
+  // The site's own short name: "uod" for uod.ac, "uni-heidelberg" for uni-heidelberg.de.
+  const label = host.split('.')[0] ?? '';
+  const named = (s: string) => {
+    const f = fold(s);
+    return (label.length > 1 && new RegExp(`(^|[^a-z0-9])${label.replace(/[^a-z0-9-]/g, '')}([^a-z0-9]|$)`).test(f))
+      || names.some((n) => n.trim() && (sameName(n, s) || f.includes(fold(n))));
+  };
+  const abs = (u: string) => {
+    try {
+      const url = new URL(u.replace(/&amp;/g, '&'), pageUrl);
+      if (url.protocol === 'http:') url.protocol = 'https:';
+      return url.protocol === 'https:' ? url.href : null;
+    } catch { return null; }
+  };
+  const scored = new Map<string, number>();
+  const add = (u: string | null | undefined, score: number) => {
+    const url = u ? abs(u) : null;
+    if (!url || /\.(ico|gif)(\?|$)/i.test(url)) return;
+    scored.set(url, Math.max(scored.get(url) ?? -Infinity, score));
+  };
+  const attr = (tag: string, name: string) => (new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, 'i').exec(tag) ?? [])
+    .slice(2).find((x) => x !== undefined) ?? '';
+
+  // schema.org, in JSON-LD or microdata.
+  for (const m of text.matchAll(/"logo"\s*:\s*(?:"([^"]+)"|\{[^}]*?"url"\s*:\s*"([^"]+)")/gi)) add(m[1] ?? m[2], 100);
+  for (const m of text.matchAll(/<meta[^>]+>/gi)) {
+    const tag = m[0];
+    if (/property\s*=\s*["']og:logo["']|itemprop\s*=\s*["']logo["']/i.test(tag)) add(attr(tag, 'content'), 95);
+  }
+  // Images: the page's own chrome — its header — comes first in its source,
+  // and ends where the header or the navigation does, or the main part begins.
+  const ends = [/<\/header>/i, /<main\b/i, /<\/nav>/i].map((re) => re.exec(text)?.index ?? -1).filter((i) => i >= 0);
+  const header = ends.length ? Math.min(...ends) : Math.round(text.length * 0.12);
+  const imgs = [...text.matchAll(/<img\b[^>]*>/gi)];
+  imgs.forEach((m) => {
+    const inHeader = (m.index ?? 0) < header;
+    const tag = m[0];
+    const src = attr(tag, 'src') || attr(tag, 'data-src');
+    if (!src) return;
+    const about = `${src} ${attr(tag, 'alt')} ${attr(tag, 'class')} ${attr(tag, 'id')} ${attr(tag, 'title')}`;
+    const says = /logo|brand|emblem|crest|seal/i.test(about);
+    const own = named(`${attr(tag, 'alt')} ${attr(tag, 'title')} ${src.split('/').pop() ?? ''}`);
+    // A photograph whose caption names the organisation is not its logo, and
+    // a partner's logo names somebody else: an image counts when it says it
+    // is a logo and names the organisation, or says either from the header —
+    // and a JPEG, a photograph's format, only when it says it is a logo.
+    if (!(says && own) && !((says || own) && inHeader)) return;
+    if (!says && /\.jpe?g(\?|$)/i.test(src)) return;
+    let score = (says ? 40 : 0) + (own ? 45 : 0);
+    if (inHeader) score += 10;
+    if (/\/static\/|\/assets\/|\/theme/i.test(src)) score += 5; // the site's own files, not an article's
+    if (/white|light|inverse|negative|footer/i.test(about)) score -= 12; // drawn for a dark band; invisible on light styles
+    if (/\b(sm|small|icon|thumb|favicon)\b|[-_.](sm|small)[-_.]/i.test(src)) score -= 6;
+    if (/\.svg(\?|$)/i.test(src)) score -= 4; // drawn from a blob, which not every webview can
+    add(src, score);
+  });
+  // The touch icons: square, often good, sometimes the logo on a coloured tile.
+  for (const m of text.matchAll(/<link\b[^>]*>/gi)) {
+    const tag = m[0];
+    if (!/rel\s*=\s*["'][^"']*(apple-touch-icon|icon)[^"']*["']/i.test(tag)) continue;
+    const size = Number((/sizes\s*=\s*["'](\d+)x\d+/i.exec(tag) ?? [])[1]) || (/apple-touch-icon/i.test(tag) ? 180 : 32);
+    add(attr(tag, 'href'), 20 + Math.min(size, 512) / 20);
+  }
+  return [...scored.entries()].filter(([, s]) => s >= 25).sort((a, b) => b[1] - a[1]).map(([u]) => u);
+}
+
+/** The logo of the organisation `names` name, from its website `site`, as a PNG data URL; `null` when there is none to be had. */
+export async function siteLogo(
+  site: string, names: readonly string[],
+  o: { get?: Get; signal?: AbortSignal; encode?: Encode } = {},
+): Promise<Picture | null> {
+  const plain = o.get ?? defaultGet;
+  // Once more after a moment when the network itself fails: WebKit loses the
+  // odd request to a site behind Cloudflare ("Load failed") and has it the
+  // next time, which a logo asked for once should not be lost to.
+  const get: Get = async (url, signal) => {
+    try {
+      return await plain(url, signal);
+    } catch (e) {
+      if (signal?.aborted || isAbort(e)) throw e;
+      await new Promise((r) => setTimeout(r, 500));
+      return plain(url, signal);
+    }
+  };
+  const raw = String(site ?? '').trim();
+  if (!raw) return null;
+  let start: URL;
+  try { start = new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw}`); } catch { return null; }
+  if (start.protocol !== 'https:' && start.protocol !== 'http:') return null;
+  // The app's own pages are https; a site given as http is asked for over https.
+  start.protocol = 'https:';
+  const page = start.origin + '/';
+  let html = '';
+  try {
+    html = await within(15_000, o.signal, async (s) => {
+      const res = await get(page, s);
+      if (!res.ok) return '';
+      const body = typeof res.text === 'function' ? await res.text() : await (await res.blob()).text();
+      return body.slice(0, 3_000_000);
+    });
+  } catch (e) {
+    if (o.signal?.aborted || isAbort(e)) throw abortError(o.signal);
+    return null;
+  }
+  const host = start.hostname.replace(/^www\./, '');
+  const main = names.find((n) => n.trim()) ?? host;
+  for (const url of siteLogoCandidates(html, page, names).slice(0, 4)) {
+    try {
+      const pic = await fetchPicture(
+        { thumb: url, url, title: `${main} logo`, credit: `${main} logo — from ${host}, the organisation's own website`, source: page, license: "The organisation's own" },
+        main,
+        { get, signal: o.signal, maxSide: LOGO_SIDE, encode: o.encode ?? encodePng },
+      );
+      if ((pic.width ?? 0) >= 64 && (pic.height ?? 0) >= 64) return pic;
+    } catch (e) {
+      if (o.signal?.aborted || isAbort(e)) throw abortError(o.signal);
+    }
+  }
+  return null;
+}
+
+/**
+ * The brief with the organisation's own logo, when Wikimedia had no free one
+ * and the brief knows its website. The logo is still only offered: the Found
+ * on the web tab shows it with where it came from, and the brand takes it only
+ * when the person — or their message in the Chat tab — says so.
+ */
+export async function withSiteLogo(brief: Brief, o: { get?: Get; signal?: AbortSignal; encode?: Encode } = {}): Promise<Brief> {
+  if (brief.logo || !brief.website) return brief;
+  const logo = await siteLogo(brief.website, brief.subjects, o);
+  return logo ? { ...brief, logo } : brief;
+}
+
+/**
+ * What was known and what was just found, together: the subjects, the facts
+ * (a new one switched on, one already known kept as the person left it), the
+ * photographs without repeats, and the first logo, website and summary. For
+ * the Chat tab, which looks things up while the video already has a brief.
+ */
+export function mergeBrief(known: Brief | undefined, found: Brief | null | undefined): Brief | undefined {
+  if (!found) return known;
+  if (!known) return found;
+  const seen = new Set(known.facts.map((f) => `${fold(f.label)}|${fold(f.value)}`));
+  const photos = new Set(known.pictures.map((p) => p.src));
+  return {
+    subjects: [...known.subjects, ...found.subjects.filter((s) => !known.subjects.some((k) => sameName(k, s)))],
+    ...(known.summary || found.summary ? { summary: known.summary ?? found.summary } : {}),
+    facts: [...known.facts, ...found.facts.filter((f) => !seen.has(`${fold(f.label)}|${fold(f.value)}`)).map((f) => ({ ...f, use: true }))],
+    pictures: [...known.pictures, ...found.pictures.filter((p) => !photos.has(p.src))].slice(0, 16),
+    ...(known.logo ?? found.logo ? { logo: known.logo ?? found.logo } : {}),
+    ...(known.website ?? found.website ? { website: known.website ?? found.website } : {}),
+    at: found.at,
+  };
+}

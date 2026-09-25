@@ -15,7 +15,7 @@
 // read; requests go to a fake `Get` and the canvas step is a fake `encode`, so
 // nothing here touches a socket or needs a browser.
 import {
-  HOSTS, LABELS, WEB_SEARCH_TOOL, chooseEntity, commonsCategoryUrl, commonsFilesUrl, commonsTitleUrl, entitiesUrl, factsBlock,
+  HOSTS, LABELS, WEB_SEARCH_TOOL, chooseEntity, siteLogo, siteLogoCandidates, withSiteLogo, mergeBrief, commonsCategoryUrl, commonsFilesUrl, commonsTitleUrl, entitiesUrl, factsBlock,
   findSubjects, fold, forgetRefusals, formatTime, fromCommonsFiles, fromSearch, fromSummary, guessSubjects, parseResearch,
   parseSubjects, pictureTitle, placeBriefPictures, portraitOf, readEntity, researchPrompt, researchVideo, sameName,
   searchLanguage, searchUrl, subjectsPrompt, summaryUrl, summaryWikis, webFacts, webSearchRefused, wantsLookup,
@@ -469,6 +469,61 @@ ok('fact labels the Facts tab translates', LABELS.founded === 'Founded' && LABEL
 // ── every request this file made ──────────────────────────────────────────
 ok('no request carried an init object (so no header, no preflight)', everyCall.every((c) => c.length === 2 && (c[1] === undefined || c[1] instanceof AbortSignal)));
 ok('every request went over https to Wikidata, Wikipedia, Commons, Openverse or the image hosts', everyCall.every(([u]) => /^https:\/\/(www\.wikidata\.org|(ar|ckb|en|ku)\.wikipedia\.org|commons\.wikimedia\.org|api\.openverse\.org|(upload|thumb)\.wikimedia\.org|live\.staticflickr\.com)\//.test(u)), everyCall.map((c) => c[0]).filter((u) => !/^https:\/\/(www\.wikidata|(ar|ckb|en|ku)\.wikipedia|commons\.wikimedia|api\.openverse|(upload|thumb)\.wikimedia|live\.staticflickr)/.test(u)));
+
+// ── the organisation's own logo, from its own website ─────────────────────
+{
+  // uod.ac's front page, trimmed to what matters: its own logo in the header,
+  // partners' logos further down, news photographs captioned with its name,
+  // and its touch icons.
+  const page = `<html><head>
+    <link rel="shortcut icon" href="https://uod.ac/static/images/favicon.ico">
+    <link rel="apple-touch-icon" sizes="152x152" href="/static/images/favicon/apple-touch-icon-152x152.png">
+    </head><body><header><a href="/"><img alt="University of Duhok (UoD)" width="45" src="https://uod.ac/static/images/uod-logo-blue.png"></a></header>
+    <img src="/media/images/DSC08605.fill-1200x675.jpg" alt="University of Duhok students at graduation">
+    <img src="/media/images/a.jpg"><img src="/media/images/b.jpg"><img src="/media/images/c.jpg"><img src="/media/images/d.jpg">
+    <img src="/media/images/e.jpg"><img src="/media/images/f.jpg"><img src="/media/images/g.jpg">
+    <img src="https://uod.ac/media/images/purdue-university-logo.width-500.png" alt="Purdue University">
+    <img src="https://uod.ac/media/images/UniMed-logo.width-500.png">
+    <footer><img src="/static/images/uod-logo-white-sm.png" alt="UoD"></footer></body></html>`;
+  const c = siteLogoCandidates(page, 'https://uod.ac/', ['University of Duhok']);
+  ok('its own header logo comes first', c[0] === 'https://uod.ac/static/images/uod-logo-blue.png', c);
+  ok('a partner university\'s logo is never taken for it', !c.some((u) => /purdue|UniMed/i.test(u)), c);
+  ok('nor a news photograph whose caption names it', !c.some((u) => /\.jpg$/.test(u)), c);
+  ok('the white footer version is kept below the one drawn for light backgrounds', c.indexOf('https://uod.ac/static/images/uod-logo-white-sm.png') > 0);
+  ok('the touch icon is the last resort, made absolute; the .ico is left out', c.at(-1) === 'https://uod.ac/static/images/favicon/apple-touch-icon-152x152.png' && !c.some((u) => u.endsWith('.ico')), c);
+  ok('schema.org\'s logo outranks everything', siteLogoCandidates(`${page}<script type="application/ld+json">{"@type":"CollegeOrUniversity","logo":{"@type":"ImageObject","url":"/brand/mark.png"}}</script>`, 'https://uod.ac/', [])[0] === 'https://uod.ac/brand/mark.png');
+  ok('an http image is asked for over https', siteLogoCandidates('<img src="http://example.org/logo.png" alt="logo">', 'https://example.org/', ['Example'])[0] === 'https://example.org/logo.png');
+
+  const asked = [];
+  const get = async (url) => {
+    asked.push(url);
+    if (url === 'https://uod.ac/') return reply(200, page, { 'content-type': 'text/html' });
+    if (url.endsWith('uod-logo-blue.png')) return reply(200, new Blob(['UODLOGO'], { type: 'image/png' }), { 'content-type': 'image/png' });
+    return reply(404, '');
+  };
+  const pic = await siteLogo('http://uod.ac', ['University of Duhok'], { get, encode: encodeLogo });
+  ok('the site given as http is read over https, and its logo fetched', asked[0] === 'https://uod.ac/' && pic && /^data:image\/png/.test(pic.src), asked);
+  ok('…credited to the organisation\'s own website, not to a licence', pic && /from uod\.ac, the organisation's own website/.test(pic.credit) && pic.source === 'https://uod.ac/');
+  ok('a site that cannot be read gives no logo, and no throw', (await siteLogo('https://nowhere.example', ['X'], { get: async () => reply(500, '') })) === null);
+  ok('nor does a site with nothing that is a logo', (await siteLogo('https://uod.ac', ['University of Duhok'], { get: async (u) => (u === 'https://uod.ac/' ? reply(200, '<p>hello</p>') : reply(404, '')) })) === null);
+
+  const brief = { subjects: ['University of Duhok'], facts: [], pictures: [], website: 'http://uod.ac', at: 1 };
+  const withLogo = await withSiteLogo(brief, { get, encode: encodeLogo });
+  ok('a brief with no free logo gets its website\'s', !!withLogo.logo && withLogo.website === 'http://uod.ac');
+  const had = { ...brief, logo: { src: 'data:image/png;base64,QQ==', credit: 'free', source: 'https://commons.wikimedia.org/x', query: 'x' } };
+  ok('a brief that has a free logo keeps it, and nothing is asked', (await withSiteLogo(had, { get: async () => { throw new Error('asked'); } })) === had);
+}
+
+// ── what was known and what was just found ────────────────────────────────
+{
+  const known = { subjects: ['University of Duhok'], facts: [{ label: 'Founded', value: '1992', source: 'Wikidata', url: 'u', use: false }], pictures: [{ src: 'data:a', credit: 'a', source: 'a', query: 'a' }], website: 'http://uod.ac', at: 1 };
+  const found = { subjects: ['Duhok Dam', 'university of duhok'], facts: [{ label: 'Founded', value: '1992', source: 'Wikidata', url: 'u', use: true }, { label: 'Height', value: '60 m', source: 'Wikidata', url: 'u', use: false }], pictures: [{ src: 'data:a', credit: 'a', source: 'a', query: 'a' }, { src: 'data:b', credit: 'b', source: 'b', query: 'b' }], logo: { src: 'data:l', credit: 'l', source: 'l', query: 'l' }, at: 2 };
+  const m = mergeBrief(known, found);
+  ok('merged: new subjects added, the same one not twice', m.subjects.join('|') === 'University of Duhok|Duhok Dam');
+  ok('…a fact already known kept as the person left it, a new one switched on', m.facts.length === 2 && m.facts[0].use === false && m.facts[1].label === 'Height' && m.facts[1].use === true);
+  ok('…photographs without repeats, the first logo and website', m.pictures.length === 2 && m.logo?.src === 'data:l' && m.website === 'http://uod.ac' && m.at === 2);
+  ok('nothing found leaves the brief as it was; nothing known takes what was found', mergeBrief(known, null) === known && mergeBrief(undefined, found) === found);
+}
 
 // HOSTS is what SAFETY lists for this file: every address it asks is on it,
 // except the picture hosts a collection names for a photograph's bytes.

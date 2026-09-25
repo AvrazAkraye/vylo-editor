@@ -38,7 +38,7 @@
  * Pure: every rule here is tested without a model (test/videochat.test.mjs).
  */
 
-import type { Brand, ChatTurn, MusicSpec, Scene, SceneKind, Style, Transition, Video, VideoAudio, VideoLang } from './videotypes';
+import type { Brand, ChatTurn, Format, MusicSpec, Scene, SceneKind, Style, Transition, Video, VideoAudio, VideoLang } from './videotypes';
 import { FORMATS, FPS } from './videotypes';
 import {
   LANGUAGE, LANGUAGE_NAME, SCHEMA, TONE, WHERE, clean, durationInFrames, fitted, pictureJobs, quoted, readingSeconds,
@@ -46,7 +46,7 @@ import {
 } from './video';
 import { duplicateScene, moveScene, snapSeconds } from './videohistory';
 import { cleanLine, musicVolumeOf } from './videomix';
-import { factsBlock } from './videoresearch';
+import { factsBlock, placeBriefPictures } from './videoresearch';
 import { jsonIn } from './researchrun';
 
 // ── limits ────────────────────────────────────────────────────────────────
@@ -71,7 +71,8 @@ const REPLY_CHARS = 1500;
 export const OPS = [
   'edit_scene', 'add_scene', 'remove_scene', 'move_scene', 'duplicate_scene', 'set_seconds', 'set_transition',
   'set_length', 'set_style', 'set_title', 'set_brand', 'set_language', 'find_pictures', 'compose_music',
-  'music_volume', 'no_music', 'set_narration', 'narrate', 'captions', 'watermark', 'credits',
+  'music_volume', 'no_music', 'set_narration', 'narrate', 'captions', 'watermark', 'credits', 'use_logo',
+  'look_up', 'use_photos', 'set_format', 'make_voice', 'offer_download',
 ] as const;
 export type OpName = (typeof OPS)[number];
 
@@ -202,10 +203,11 @@ function settingsOf(v: Video): string[] {
   return [
     `- Name (in the list of videos; not on screen — the opening words are scene 1's): "${capped(scrub(v.title ?? ''), 120)}"`,
     `- Language of every on-screen word: ${LANGUAGE_NAME[v.lang] ?? 'English'}.`,
-    `- Format: ${width}×${height}, ${WHERE[v.format] ?? WHERE.landscape}. It cannot be changed here.`,
+    `- Format: ${width}×${height}, ${WHERE[v.format] ?? WHERE.landscape}. set_format changes it.`,
     `- Length: plays for ${played} seconds (asked for: ${v.seconds}).`,
     `- Style: ${TONE[v.style] ?? TONE.modern}.`,
     `- Brand: ${brand.name?.trim() ? `"${capped(scrub(brand.name.trim()), 80)}"` : 'no name'}; ${colours || 'the style\'s own colours'}; ${brand.logo ? 'a logo' : 'no logo'}.`,
+    `- The subject's logo: ${v.brief?.logo ? 'found on the web — use_logo puts it on the brand' : v.brief?.website ? `not found yet — use_logo reads it from ${capped(scrub(v.brief.website), 80)}` : 'not looked up — use_logo searches the web for it'}.`,
     `- The brand small in a corner of every scene (watermark): ${v.watermark !== false ? 'on' : 'off'}${!brand.name?.trim() && !brand.logo ? ' (shows nothing without a brand name or logo)' : ''}.`,
     `- A card crediting the pictures at the end: ${v.credits !== false ? 'on' : 'off'}.`,
     `- Music: ${musicLine}${music ? `, at ${Math.round(musicVolumeOf(audio) * 100)}% volume` : ''}.`,
@@ -239,16 +241,22 @@ const CATALOGUE = [
   '- {"op":"set_length","seconds":20} — the whole video, 5 to 180 seconds. Every scene is scaled together, and none becomes shorter than its words take to read.',
   `- {"op":"set_style","style":"bold"} — ${STYLES.map((s) => TONE[s]).join('; ')}.`,
   '- {"op":"set_title","title":"…"} — the video\'s name in the list. To change the words that open the video, edit scene 1.',
-  '- {"op":"set_brand","name":"…","primary":"#1A4D8F","accent":"#F2A900"} — any of the three; colours are #rrggbb, null gives back the style\'s own. A logo is added by the person in the Look tab, never here.',
+  '- {"op":"set_brand","name":"…","primary":"#1A4D8F","accent":"#F2A900"} — any of the three; colours are #rrggbb, null gives back the style\'s own. The logo is set with use_logo, not here.',
+  '- {"op":"use_logo"} — put the subject\'s logo on the brand: it shows on the first screen (the title scene) and at the close, and in a "logo" scene (add one with add_scene, "kind":"logo", to reveal it on its own). The app takes the logo found on the web, or reads it from the organisation\'s own website; "site":"https://…" names that website when the person gave it. Whenever the person asks for a logo, use this — never answer that you cannot search for or add one.',
   '- {"op":"set_language","lang":"ckb"} — "ar" (Arabic), "ckb" (Kurdish, Sorani), "kmr" (Kurdish, Badini) or "en" (English). ONLY together with an edit_scene for EVERY scene that has words, rewriting all of its words — and its "narration", when it has one — in the new language, following that language\'s spelling. Without them it is refused.',
-  '- {"op":"find_pictures","scene":4,"query":"students in a university library"} — a new picture for an "image", "split" or "title" scene, searched with these English words (2 to 5 concrete words, no names or brands); without "scene", new pictures for every scene that shows one.',
+  '- {"op":"find_pictures","scene":4,"query":"students in a university library"} — a new picture for an "image", "split" or "title" scene, searched with these English words (2 to 6 concrete words; a real place\'s, organisation\'s or landmark\'s name when the person asks for that one, like "University of Duhok campus"); without "scene", new pictures for every scene that shows one.',
+  '- {"op":"look_up","subject":"University of Duhok"} — look something up on the web — Wikipedia, Wikidata, Wikimedia Commons and the organisation\'s own website — for its facts, photographs and logo. Send it ALONE, with a "reply" saying what you are looking up, whenever doing what the person asks needs facts, a logo or photographs you do not have above; the app then sends you what was found and you answer again with the ops that do the task. Never answer that you cannot search the web: look it up.',
+  '- {"op":"use_photos","scene":3} — put photographs found on the web (by the lookup, listed above) into picture scenes: into scene 3, or without "scene" into every picture scene that has none.',
+  '- {"op":"set_format","format":"portrait"} — the frame: "landscape" (16:9, YouTube and screens), "portrait" (9:16, stories, reels, TikTok) or "square" (1:1, posts). Every scene lays itself out again.',
+  '- {"op":"make_voice"} — speak every narration line with the person\'s speech service, into the video. Give the lines (set_narration, and narrate on) in the same answer when scenes have none.',
+  '- {"op":"offer_download"} — when the person asks to download, save or export the video: the app puts a Download MP4 button under your reply, which they press. You cannot save a file yourself.',
   `- {"op":"compose_music","mood":"calm","tempo":80,"energy":0.3} — the app composes new music of the video's length itself. "mood" is one of ${MUSIC_MOODS.join(', ')}; "tempo" (60 to 170 beats a minute) and "energy" (0 to 1: how busy and loud) are optional.`,
   '- {"op":"music_volume","value":0.4} — 0 to 1.',
   '- {"op":"no_music"} — the video without music.',
   '- {"op":"set_narration","scene":2,"text":"…"} — what the voice says during that scene, in the video\'s language, at most about 2.5 words for each of its seconds; "" removes it.',
   '- {"op":"narrate","on":true} — a voice reads the narration. {"op":"captions","on":true} — the narration on screen as captions. {"op":"watermark","on":false} — the brand small in a corner. {"op":"credits","on":true} — the card crediting the pictures.',
   '',
-  'What cannot be done here — say so in "reply", with no ops, and name the tab: changing the shape (wide, vertical, square), adding a logo or a picture from the person\'s computer (Look, Scenes), choosing or recording a voice (Sound), exporting the video (Download MP4).',
+  'Almost anything the person asks can be done with these ops — look things up first when you need to. Only these cannot, and then say so in "reply" and name the tab: a picture, logo or sound file from the person\'s own computer (Look, Scenes, Sound), and choosing which voice speaks (Sound).',
 ].join('\n');
 
 /** One compact answer of the right shape — with no figures, because the example is what a model copies. */
@@ -264,7 +272,10 @@ const EXAMPLE = '{"reply":"Done: the opening is shorter, the list is gone and th
  * message fenced off as a request rather than a place to change the rules
  * from, and the ops it may answer with.
  */
-export function chatPrompt(v: Video, turns: readonly ChatTurn[] | undefined, message: string): { system: string; user: string } {
+/** What the app looked up for this message, round by round, for the model's next answer. */
+export interface LookedUp { subject: string; found: string[]; facts: number; photos: number; logo: boolean; website?: string }
+
+export function chatPrompt(v: Video, turns: readonly ChatTurn[] | undefined, message: string, looked: readonly LookedUp[] = []): { system: string; user: string } {
   const scenes = v.scenes ?? [];
   const facts = v.lookup !== false ? factsBlock(v.brief) : '';
   const lang = LANGUAGE_NAME[v.lang] ?? 'English';
@@ -291,6 +302,14 @@ export function chatPrompt(v: Video, turns: readonly ChatTurn[] | undefined, mes
     capped(scrub(str(message)).trim(), MESSAGE_CHARS) || '(empty)',
     '>>>',
     '',
+    ...(looked.length
+      ? [
+        'You asked to look things up for this message, and the app did:',
+        ...looked.map((l) => `- "${capped(scrub(l.subject), 80)}": ${l.found.length ? `found as ${l.found.map((f) => `"${capped(scrub(f), 80)}"`).join(', ')}` : 'nothing was found'}; ${l.facts} facts (now in the facts above), ${l.photos} photographs (use_photos places them), ${l.logo ? 'a logo (use_logo puts it on the brand)' : 'no logo'}${l.website ? `, website ${capped(scrub(l.website), 80)}` : ''}.`),
+        'Now do what the person asked, with the ops that do it. Do not look the same thing up again.',
+        '',
+      ]
+      : []),
     'Reply with one JSON object and nothing else — no explanation before or after it, no code fence:',
     '{"reply":"…","ops":[…]}',
     '"reply": one to three short sentences to the person, in the language their new message is written in (which may not be the video\'s): what you changed, your answer, or one question. Plain text — no markdown, no lists, no emojis.',
@@ -467,6 +486,14 @@ export type Change =
   | { what: 'music-failed'; mood: MusicSpec['mood']; error: string }
   | { what: 'volume'; value: number }
   | { what: 'no-music' }
+  | { what: 'logo' }
+  | { what: 'logo-failed' }
+  | { what: 'looked'; subject: string; found: boolean }
+  | { what: 'photos'; scenes: number }
+  | { what: 'format'; format: Format }
+  | { what: 'voice'; lines: number }
+  | { what: 'voice-failed'; error: string }
+  | { what: 'download' }
   | { what: 'narration'; scene: number; removed?: boolean }
   | { what: 'narrate' | 'captions' | 'watermark' | 'credits'; on: boolean }
   | { what: 'skipped'; op: string; why: Skip; scene?: number };
@@ -480,6 +507,14 @@ export interface Applied {
     pictures: boolean;
     /** Compose this and put it under the video (videosynth.ts). */
     music?: MusicSpec;
+    /** Put the subject's logo on the brand: the one found on the web, or from `site` (videoresearch.ts `siteLogo`). */
+    logo?: { site?: string };
+    /** Look these up on the web and ask again (videoresearch.ts). */
+    lookups?: string[];
+    /** Speak the narration with the person's speech service. */
+    voice?: boolean;
+    /** Put a Download MP4 button under the reply; the person presses it. */
+    download?: boolean;
   };
 }
 
@@ -497,6 +532,12 @@ const OP_ALIASES: Readonly<Record<string, OpName>> = {
   set_lang: 'set_language', language: 'set_language', translate: 'set_language',
   find_picture: 'find_pictures', new_picture: 'find_pictures', change_picture: 'find_pictures', replace_picture: 'find_pictures',
   search_picture: 'find_pictures', search_pictures: 'find_pictures',
+  lookup: 'look_up', search: 'look_up', search_web: 'look_up', web_search: 'look_up', research: 'look_up', find_info: 'look_up', look_it_up: 'look_up',
+  use_found_photos: 'use_photos', place_photos: 'use_photos', found_photos: 'use_photos',
+  format: 'set_format', set_shape: 'set_format', shape: 'set_format', change_format: 'set_format', set_aspect: 'set_format',
+  voice: 'make_voice', speak: 'make_voice', make_narration_audio: 'make_voice', tts: 'make_voice',
+  download: 'offer_download', export: 'offer_download', save_video: 'offer_download', export_video: 'offer_download',
+  add_logo: 'use_logo', set_logo: 'use_logo', logo: 'use_logo', find_logo: 'use_logo', get_logo: 'use_logo', show_logo: 'use_logo', insert_logo: 'use_logo',
   music: 'compose_music', make_music: 'compose_music', generate_music: 'compose_music', new_music: 'compose_music', set_music: 'compose_music',
   set_music_volume: 'music_volume', volume: 'music_volume',
   remove_music: 'no_music', delete_music: 'no_music', mute_music: 'no_music', music_off: 'no_music',
@@ -725,6 +766,11 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   let credits = video.credits;
   let audio: VideoAudio = video.audio ?? {};
   let music: MusicSpec | undefined;
+  let logo: { site?: string } | undefined;
+  let format = video.format;
+  const lookups: string[] = [];
+  let voice = false;
+  let download = false;
   let findAsked = false;
   const touched = new Set<string>();
   /** Changes that name where a scene ends up, filled in when every op has run. */
@@ -1095,6 +1141,60 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         changes.push({ what: 'volume', value: Math.round(v * 100) });
         break;
       }
+      case 'look_up': {
+        const subject = str(o.subject ?? o.query ?? o.name ?? o.what).replace(/\s+/g, ' ').trim().slice(0, 120);
+        if (!subject) { skip(op, 'invalid'); break; }
+        if (lookups.length < 3 && !lookups.some((l) => l.toLowerCase() === subject.toLowerCase())) lookups.push(subject);
+        break;
+      }
+      case 'use_photos': {
+        const photos = video.brief?.pictures ?? [];
+        if (!photos.length) { skip(op, 'no-picture'); break; }
+        const want = o.scene !== undefined ? find(sceneField(o)) : null;
+        if (o.scene !== undefined && !want) { skip(op, 'no-scene', asked(o)); break; }
+        const before = scenes;
+        // The found photographs go where a picture is wanted: one scene, or every one that has none.
+        const pool = want ? scenes.map((x) => (x.id === want.id ? { ...x, picture: undefined } as Scene : x)) : scenes;
+        const placed = placeBriefPictures(pool, video.brief, format);
+        const got = placed.filter((x, i) => x.picture && x.picture !== before[i]?.picture && (!want || x.id === want.id)).length;
+        if (!got) { skip(op, 'no-picture', want?.n); break; }
+        scenes = want ? scenes.map((x) => (x.id === want.id ? placed.find((y) => y.id === x.id) ?? x : x)) : placed;
+        changes.push({ what: 'photos', scenes: got });
+        break;
+      }
+      case 'set_format': {
+        const f = str(o.format ?? o.shape ?? o.value).toLowerCase().trim();
+        const next: Format | undefined = /^(portrait|vertical|story|stories|reel|reels|tiktok|9:16)$/.test(f) ? 'portrait'
+          : /^(square|1:1|post)$/.test(f) ? 'square'
+          : /^(landscape|wide|horizontal|youtube|16:9)$/.test(f) ? 'landscape' : undefined;
+        if (!next) { skip(op, 'invalid'); break; }
+        if (next === format) break;
+        format = next;
+        changes.push({ what: 'format', format: next });
+        break;
+      }
+      case 'make_voice': {
+        voice = true;
+        break;
+      }
+      case 'offer_download': {
+        download = true;
+        break;
+      }
+      case 'use_logo': {
+        // Only an address the web could have: https (or http, asked for over https), with a dot in its name.
+        const raw = typeof (o.site ?? o.url ?? o.website) === 'string' ? String(o.site ?? o.url ?? o.website).trim() : '';
+        let site: string | undefined;
+        if (raw) {
+          try {
+            const u = new URL(/^[a-z]+:\/\//i.test(raw) ? raw : `https://${raw}`);
+            if ((u.protocol === 'https:' || u.protocol === 'http:') && u.hostname.includes('.') && !/\s/.test(raw)) site = u.origin;
+          } catch { /* no site: the one found on the web, or none */ }
+        }
+        logo = site ? { site } : {};
+        if (!changes.some((c) => c.what === 'logo')) changes.push({ what: 'logo' });
+        break;
+      }
       case 'no_music': {
         if (!audio.music && !music) break;
         if (audio.music) {
@@ -1160,6 +1260,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   if (watermark !== video.watermark) next.watermark = watermark;
   if (credits !== video.credits) next.credits = credits;
   if (audio !== (video.audio ?? {})) next.audio = audio;
+  if (format !== video.format) next.format = format;
 
   // The same change said twice is said once.
   const seen = new Set<string>();
@@ -1171,7 +1272,13 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   });
 
   const pictures = findAsked || pictureJobs(scenes).some((j) => touched.has(j.sceneId));
-  return { next, changes: unique, wants: { pictures, ...(music ? { music } : {}) } };
+  return {
+    next, changes: unique,
+    wants: {
+      pictures, ...(music ? { music } : {}), ...(logo ? { logo } : {}),
+      ...(lookups.length ? { lookups } : {}), ...(voice ? { voice } : {}), ...(download ? { download } : {}),
+    },
+  };
 }
 
 // ── the conversation ──────────────────────────────────────────────────────

@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.113.0.
+version 0.114.0.
 
 ---
 
@@ -266,7 +266,12 @@ the web** tab — every fact with the page it came from, and a switch to leave i
 out — and only the facts you leave on reach the model, as the only figures,
 dates and names the storyboard may state as fact. Photographs and a logo are
 kept only if their licences allow reuse, and credited like every other picture;
-a logo found is offered for the brand and never put there unasked. When the
+a logo found is offered for the brand and never put there unasked. When
+Wikimedia has no free logo — the usual case for a university — the
+organisation's own website, the address Wikidata gives for it, is read over
+https for the logo in its header (`siteLogo`), offered the same way and
+credited as the organisation's own: a logo to use on its behalf, not an openly
+licensed picture. When the
 video's model is reached over the Anthropic wire, the planning request may also
 carry Anthropic's own web-search tool: the search then happens at Anthropic,
 through the same route, and a gateway that refuses it is remembered for the
@@ -285,10 +290,16 @@ Kurdish voice at any provider today, and the panel says so. Music composed in
 the **Sound** tab — or asked for in the **Chat** tab — is written and played on
 this machine by `app/src/videosynth.ts`, and sends nothing anywhere. In the
 **Chat** tab the model answers with a list of changes from a fixed set — edit a
-scene's words, add, remove or move a scene, the style, the length, the music —
-which `app/src/videochatops.ts` checks and applies; like the storyboard, it is
-never code, and a figure, date or name it gives that is not in the request, the
-facts you left on or your own messages is refused.
+scene's words, add, remove or move a scene, the style, the shape, the length,
+the music, the logo — which `app/src/videochatops.ts` checks and applies; like
+the storyboard, it is never code, and a figure, date or name it gives that is
+not in the request, the facts you left on or your own messages is refused. When
+it needs to know something first, it asks the app to look it up — the lookup
+above, with the name it asked about — and answers again with what was found, at
+most twice a message. Asked to, it has the narration spoken — the request
+**Make the voice** sends — and asked to download the video, it puts a
+**Download MP4** button under its answer, which you press: it never writes a
+file itself.
 
 **Each film or poster you export sends Remotion one telemetry event.** The film
 — an MP4, or a WebM where the window can encode one — is rendered in the page by
@@ -916,7 +927,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.113.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.114.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -941,6 +952,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.113.0. Every statement above was read out of the code. If
+*Last checked against 0.114.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

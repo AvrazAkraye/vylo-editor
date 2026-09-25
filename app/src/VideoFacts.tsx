@@ -4,7 +4,7 @@ import { Icon } from './Icon';
 import { fill } from './i18n';
 import { explain } from './errors';
 import type { Brief, Fact, Video } from './videotypes';
-import { LABELS, guessSubjects, pictureTitle, researchVideo } from './videoresearch';
+import { LABELS, guessSubjects, pictureTitle, researchVideo, withSiteLogo } from './videoresearch';
 
 /**
  * "Found on the web": what was looked up about the video's subject before its
@@ -72,7 +72,8 @@ export function VideoFacts({ t, video, onChange, locked, onError }: {
     setBusy(true);
     setMissed(null);
     try {
-      const next = await researchVideo(video.request, { lang: video.lang, format: video.format, subjects: [{ name: n }], signal: c.signal });
+      const found = await researchVideo(video.request, { lang: video.lang, format: video.format, subjects: [{ name: n }], signal: c.signal });
+      const next = await withSiteLogo(found, { signal: c.signal }).catch((e: unknown) => { if (c.signal.aborted) throw e; return found; });
       if (c.signal.aborted) return;
       if (!next.facts.length && !next.pictures.length) { setMissed(n); return; }
       onChange({ brief: keepSwitches(next, brief), lookup: true });
@@ -199,6 +200,10 @@ export function VideoFacts({ t, video, onChange, locked, onError }: {
                 <img src={logo.src} alt="" />
                 <span className="vid-facts-what">
                   <span dir="auto">{logo.credit}</span>
+                  {/* Not openly licensed: the organisation's own mark, from its own site. */}
+                  {!/wikimedia|wikipedia|openverse/i.test(logo.source) && (
+                    <small>{t('The organisation’s own logo, from its website. Use it in a video made for the organisation or with its permission.')}</small>
+                  )}
                   {logoInUse && <b className="vid-facts-ok"><Icon name="check" size={11} />{t('In use as the brand’s logo')}</b>}
                 </span>
                 {!logoInUse && (

@@ -463,5 +463,43 @@ console.log('the conversation');
   ok('…and marks where each scene after the first begins', cues.length === v.scenes.length - 1 && cues.every((c, i) => c > 0 && (i === 0 || c > cues[i - 1])), cues);
 }
 
+// ── the logo ──────────────────────────────────────────────────────────────
+{
+  const r = apply([{ op: 'use_logo' }]);
+  ok('use_logo asks for the logo, and changes nothing by itself', r.wants.logo && !r.wants.logo.site && !r.next.brand && r.changes.some((c) => c.what === 'logo'));
+  ok('a site the person named goes with it, as an origin', apply([{ op: 'use_logo', site: 'uod.ac/en/about' }]).wants.logo.site === 'https://uod.ac');
+  ok('…over http too, and a site that is not one is dropped', apply([{ op: 'use_logo', url: 'http://uod.ac' }]).wants.logo.site === 'http://uod.ac' && !apply([{ op: 'use_logo', site: 'javascript:alert(1)' }]).wants.logo.site && !apply([{ op: 'use_logo', site: 'not a site' }]).wants.logo.site);
+  ok('the names models reach for mean it', ['add_logo', 'set_logo', 'find_logo'].every((op) => apply([{ op }]).wants.logo));
+  ok('asked twice, it is said once', apply([{ op: 'use_logo' }, { op: 'add_logo' }]).changes.filter((c) => c.what === 'logo').length === 1);
+  const p = chatPrompt(video(), [], 'add the logo to the first screen');
+  ok('the prompt offers use_logo and forbids saying it cannot be done', /"op":"use_logo"/.test(p.user + p.system) && /never answer that you cannot search for or add one/.test(p.user + p.system));
+}
+
+// ── looking things up, the shape, the voice, a download ───────────────────
+{
+  const r = apply([{ op: 'look_up', subject: 'University of Duhok' }, { op: 'search_web', query: 'university of duhok' }, { op: 'look_up', subject: 'Duhok Dam' }]);
+  ok('look_up asks for lookups, the same subject once, and changes nothing by itself', same(r.wants.lookups, ['University of Duhok', 'Duhok Dam']) && !Object.keys(r.next).length);
+  ok('at most three a message, and one with no subject is skipped', apply([1, 2, 3, 4].map((n) => ({ op: 'look_up', subject: `Thing ${n}` }))).wants.lookups.length === 3 && skipped(apply([{ op: 'look_up' }]), 'invalid').length === 1);
+
+  const f = apply([{ op: 'set_format', format: 'vertical' }]);
+  ok('set_format makes it vertical, and says so', f.next.format === 'portrait' && f.changes.some((c) => c.what === 'format' && c.format === 'portrait'));
+  ok('…and understands square, reels and 16:9', apply([{ op: 'set_format', format: 'square' }]).next.format === 'square' && apply([{ op: 'shape', format: 'reels' }]).next.format === 'portrait' && !apply([{ op: 'set_format', format: '16:9' }]).next.format);
+  ok('a shape it does not know is skipped', skipped(apply([{ op: 'set_format', format: 'circle' }]), 'invalid').length === 1);
+
+  ok('make_voice and offer_download are asked for, not done by applying', apply([{ op: 'make_voice' }]).wants.voice === true && apply([{ op: 'download' }]).wants.download === true);
+
+  // A picture scene without a picture takes the photograph the lookup found.
+  const bare = video();
+  const v = frozen({ ...bare, scenes: bare.scenes.map((x) => (x.id === 's5' ? { ...x, picture: undefined } : x)) });
+  const u = apply([{ op: 'use_photos', scene: 5 }], v);
+  ok('use_photos puts a found photograph in the scene asked for', u.changes.some((c) => c.what === 'photos' && c.scenes === 1) && !!u.next.scenes.find((x) => x.id === 's5').picture);
+  ok('…and with no photographs found, it is skipped', skipped(apply([{ op: 'use_photos' }], frozen({ ...v, brief: { ...v.brief, pictures: [] } })), 'no-picture').length === 1);
+
+  const looked = chatPrompt(video(), [], 'add a photo of the Duhok Dam', [{ subject: 'Duhok Dam', found: ['Duhok Dam'], facts: 4, photos: 3, logo: false }]);
+  ok('the next round says what was looked up and asks for the task, not the lookup again', /You asked to look things up/.test(looked.user) && /"Duhok Dam": found as "Duhok Dam"; 4 facts/.test(looked.user) && /Do not look the same thing up again/.test(looked.user));
+  const plain = chatPrompt(video(), [], 'make it vertical');
+  ok('the prompt no longer says the shape cannot be changed, and never says it cannot search', /set_format changes it/.test(plain.user) && !/It cannot be changed here/.test(plain.user) && /Never answer that you cannot search the web/.test(plain.user));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
