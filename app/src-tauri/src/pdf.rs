@@ -10,6 +10,10 @@
 //! Research panel's paper view, with everything else hidden — and paginated
 //! as A4, and the file goes where the save panel said.
 //!
+//! Slides prints its deck the same way, on sheets the shape of a slide
+//! rather than A4: the caller names the paper (`paper_for`), and nothing else
+//! about the save changes.
+//!
 //! ## Why these are not in the tool schema
 //!
 //! `save_pdf` writes to an absolute path, which is the save panel's, the way
@@ -25,6 +29,30 @@ use std::time::Duration;
 
 /// What the platform half reports: done, or why not.
 type Done = Result<(), String>;
+
+/// The sheet a PDF is printed on, in millimetres.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Paper {
+    pub width_mm: f64,
+    pub height_mm: f64,
+}
+
+/// A4, portrait: Research's paper view draws its own A4 sheets.
+pub const A4: Paper = Paper { width_mm: 210.0, height_mm: 297.0 };
+
+/// A widescreen slide, 13⅓ × 7½ inches — PowerPoint's own, and exactly the
+/// 1280 × 720 CSS pixels Slides draws each sheet at, so nothing is scaled.
+pub const SLIDE: Paper = Paper { width_mm: 338.666_666_666_666_7, height_mm: 190.5 };
+
+/// The paper a caller asked for: `"slides"` for a deck, and A4 for anything
+/// else, including nothing — which is what Research sends, so its PDFs are
+/// exactly what they were.
+pub fn paper_for(page: Option<&str>) -> Paper {
+    match page {
+        Some("slides") => SLIDE,
+        _ => A4,
+    }
+}
 
 /// A path from the save panel, checked: absolute, named `.pdf`, not a folder,
 /// in a folder that exists. The panel only offers such paths; this is for a
@@ -47,16 +75,17 @@ pub fn check_pdf_path(path: &str) -> Result<PathBuf, String> {
     Ok(p)
 }
 
-/// Save what the window shows, as printed, to `path` — for Research's Save as PDF.
+/// Save what the window shows, as printed, to `path` — for Research's and
+/// Slides' Save as PDF, on the paper `page` names (see `paper_for`).
 ///
 /// The panel has put its paper view into the page before calling this, and
 /// takes it out when this returns. A thesis is a few seconds' layout; the wait
 /// is bounded so a webview that never answers does not hold the button forever.
 #[tauri::command]
-pub async fn save_pdf(window: tauri::WebviewWindow, path: String) -> Result<(), String> {
+pub async fn save_pdf(window: tauri::WebviewWindow, path: String, page: Option<String>) -> Result<(), String> {
     let p = check_pdf_path(&path)?;
     let (tx, rx) = mpsc::channel::<Done>();
-    render(&window, p, tx)?;
+    render(&window, p, paper_for(page.as_deref()), tx)?;
     let got = tauri::async_runtime::spawn_blocking(move || rx.recv_timeout(Duration::from_secs(300)))
         .await
         .map_err(|e| e.to_string())?;
@@ -67,14 +96,14 @@ pub async fn save_pdf(window: tauri::WebviewWindow, path: String) -> Result<(), 
 }
 
 #[cfg(target_os = "macos")]
-fn render(window: &tauri::WebviewWindow, path: PathBuf, tx: Sender<Done>) -> Result<(), String> {
+fn render(window: &tauri::WebviewWindow, path: PathBuf, paper: Paper, tx: Sender<Done>) -> Result<(), String> {
     window
-        .with_webview(move |wv| mac::print_to(wv.inner(), wv.ns_window(), &path, tx))
+        .with_webview(move |wv| mac::print_to(wv.inner(), wv.ns_window(), &path, paper, tx))
         .map_err(|e| e.to_string())
 }
 
 #[cfg(windows)]
-fn render(window: &tauri::WebviewWindow, path: PathBuf, tx: Sender<Done>) -> Result<(), String> {
+fn render(window: &tauri::WebviewWindow, path: PathBuf, paper: Paper, tx: Sender<Done>) -> Result<(), String> {
     window
         .with_webview(move |wv| {
             use webview2_com::Microsoft::Web::WebView2::Win32::{ICoreWebView2Environment6, ICoreWebView2_7};
@@ -88,15 +117,16 @@ fn render(window: &tauri::WebviewWindow, path: PathBuf, tx: Sender<Done>) -> Res
                 // result is checked; the handler owns what it captures.
                 unsafe {
                     let core7: ICoreWebView2_7 = wv.controller().CoreWebView2()?.cast()?;
-                    // A4 with no margins, stated rather than left to the
+                    // The paper asked for (A4 unless Slides said otherwise)
+                    // with no margins, stated rather than left to the
                     // defaults (1 cm, US Letter, no backgrounds): the page
-                    // draws its own A4 sheets, each with the Word file's
+                    // draws its own sheets, each with the Word file's
                     // 2.5 cm inside it and its footnotes at its foot.
                     let env6: ICoreWebView2Environment6 = wv.environment().cast()?;
                     let s = env6.CreatePrintSettings()?;
                     let margin = 0.0;
-                    s.SetPageWidth(210.0 / 25.4)?;
-                    s.SetPageHeight(297.0 / 25.4)?;
+                    s.SetPageWidth(paper.width_mm / 25.4)?;
+                    s.SetPageHeight(paper.height_mm / 25.4)?;
                     s.SetMarginTop(margin)?;
                     s.SetMarginBottom(margin)?;
                     s.SetMarginLeft(margin)?;
@@ -122,7 +152,7 @@ fn render(window: &tauri::WebviewWindow, path: PathBuf, tx: Sender<Done>) -> Res
 }
 
 #[cfg(all(not(target_os = "macos"), not(windows)))]
-fn render(_window: &tauri::WebviewWindow, _path: PathBuf, _tx: Sender<Done>) -> Result<(), String> {
+fn render(_window: &tauri::WebviewWindow, _path: PathBuf, _paper: Paper, _tx: Sender<Done>) -> Result<(), String> {
     Err("saving as PDF is not available on this system".into())
 }
 
@@ -135,7 +165,7 @@ mod mac {
     //! file that is not a PDF. The modal run calls back when the file is
     //! written, so the callback is a small Objective-C object made here.
 
-    use super::Done;
+    use super::{Done, Paper};
     use objc2::encode::{Encode, Encoding};
     use objc2::rc::Retained;
     use objc2::runtime::{AnyObject, Bool, NSObject};
@@ -212,7 +242,7 @@ mod mac {
         }
     }
 
-    pub fn print_to(webview: *mut c_void, window: *mut c_void, path: &Path, tx: Sender<Done>) {
+    pub fn print_to(webview: *mut c_void, window: *mut c_void, path: &Path, paper: Paper, tx: Sender<Done>) {
         let (wk, win) = (webview as *mut AnyObject, window as *mut AnyObject);
         if wk.is_null() || win.is_null() {
             let _ = tx.send(Err("the window has no page to save".into()));
@@ -236,8 +266,10 @@ mod mac {
             let dict: *mut AnyObject = msg_send![info, dictionary];
             let url: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: url_path];
             let _: () = msg_send![dict, setObject: url, forKey: NSPrintJobSavingURL];
-            let _: () = msg_send![info, setPaperSize: Size { width: 595.28, height: 841.89 }];
-            // The page draws its own A4 sheets, margins and all, under an
+            // Points, from millimetres: A4 is 595.28 × 841.89, a slide 960 × 540.
+            let points = |mm: f64| mm / 25.4 * 72.0;
+            let _: () = msg_send![info, setPaperSize: Size { width: points(paper.width_mm), height: points(paper.height_mm) }];
+            // The page draws its own sheets, margins and all, under an
             // @page rule of no margin; margins here would shrink them to fit.
             let _: () = msg_send![info, setTopMargin: 0.0f64];
             let _: () = msg_send![info, setBottomMargin: 0.0f64];
@@ -330,6 +362,19 @@ mod tests {
         assert!(check_pdf_path("relative.pdf").is_err());
         assert!(check_pdf_path(&dir.join("no-such-folder-vylo").join("a.pdf").to_string_lossy()).is_err());
         assert!(check_pdf_path(&format!("{}\n.pdf", dir.join("a").display())).is_err());
+    }
+
+    #[test]
+    fn the_paper_is_a4_unless_slides_ask_for_theirs() {
+        assert_eq!(paper_for(None), A4, "Research sends no page, and keeps A4");
+        assert_eq!(paper_for(Some("a4")), A4);
+        assert_eq!(paper_for(Some("anything else")), A4);
+        let s = paper_for(Some("slides"));
+        assert_eq!(s, SLIDE);
+        // 16:9, and 1280 × 720 CSS pixels at 96 to the inch.
+        assert!((s.width_mm / s.height_mm - 16.0 / 9.0).abs() < 1e-9);
+        assert!((s.width_mm / 25.4 * 96.0 - 1280.0).abs() < 1e-6);
+        assert!((s.height_mm / 25.4 * 96.0 - 720.0).abs() < 1e-6);
     }
 
     #[test]

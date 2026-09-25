@@ -201,7 +201,10 @@ export function cssClasses(css) {
  */
 export function deadCss() {
   const code = frontendFiles().map((f) => read(join(SRC, f))).join('\n');
-  const defined = [...cssClasses(read(join(SRC, 'styles.css')))].sort();
+  // Every stylesheet in src, not only styles.css: a module whose styles load
+  // with it (slides.css, beside the lazy Slides panel) can leave dead rules too.
+  const sheets = listing(SRC, '.css').map((f) => read(join(SRC, f))).join('\n');
+  const defined = [...cssClasses(sheets)].sort();
   const dead = defined.filter((c) => {
     if (ALLOW.css[c]) return false;
     // `[^\w-]` on both sides, so `.chip` is not kept alive by `chip-row`.

@@ -52,6 +52,9 @@ const TerminalPanel = lazy(() => import('./TerminalPanel'));
 // Lazy: the Video module carries Remotion, which nobody who never opens it
 // should download with the rest of the app.
 const VideoPanel = lazy(() => import('./VideoPanel').then((m) => ({ default: m.VideoPanel })));
+// Lazy for the same reason: its PowerPoint writer and slide renderer are nothing
+// anyone who never opens Slides should load.
+const SlidesPanel = lazy(() => import('./SlidesPanel').then((m) => ({ default: m.SlidesPanel })));
 import { Icon } from './Icon';
 import { Rail } from './Rail';
 import {
@@ -4343,6 +4346,12 @@ export function App() {
                 <Icon name="maximise" size={14} />
               </button>
             )}
+            {shown === 'slides' && (
+              <button className="sb-act" onClick={() => void import('./SlidesPanel').then((m) => m.toggleSlidesFull(true))}
+                      title={t('Full screen')} aria-label={t('Full screen')}>
+                <Icon name="maximise" size={14} />
+              </button>
+            )}
             {shown === 'files' && root && (
               <>
                 <button className="sb-act" onClick={() => void newFile()}
@@ -4421,6 +4430,14 @@ export function App() {
             {shown === 'video' && (
               <Suspense fallback={<div className="panel-load">{t('Opening…')}</div>}>
                 <VideoPanel t={t} lang={lang} gw={wired} efforts={efforts} plan={plan}
+                      providers={providers} choice={choice} gateway={{ baseUrl, apiKey }}
+                      onProviders={() => { setSettingsAt('account'); setShowSettings(true); }}
+                      onError={(m) => push({ kind: 'error', text: m })} />
+              </Suspense>
+            )}
+            {shown === 'slides' && (
+              <Suspense fallback={<div className="panel-load">{t('Opening…')}</div>}>
+                <SlidesPanel t={t} lang={lang} gw={wired} efforts={efforts} plan={plan}
                       providers={providers} choice={choice} gateway={{ baseUrl, apiKey }}
                       onProviders={() => { setSettingsAt('account'); setShowSettings(true); }}
                       onError={(m) => push({ kind: 'error', text: m })} />
