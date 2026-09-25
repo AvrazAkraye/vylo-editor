@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.112.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.113.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -132,6 +132,12 @@ message. Edit it on a timeline with undo, start from one of ten templates, take
 the brand colours from your logo, and **Download MP4** — or WebM, 4K, all three shapes at once, a
 poster, subtitles — rendered in the app itself. The model never writes code; it
 writes the storyboard.
+
+**Slides, from a sentence or a Research document.** Turn on the Slides module
+and describe the presentation — or pick a paper, thesis or defence the Research
+module wrote — and get slides in Arabic, Kurdish or English that you edit,
+present full screen, and save as a PowerPoint file or a 16:9 PDF. Like Video,
+the model writes the words and the app draws them.
 
 **Native, and small.** 8 MB installed and a 4 MB download, because it is a
 Tauri app with a Rust tool layer rather than an Electron shell. One codebase
