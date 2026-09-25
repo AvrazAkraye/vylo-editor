@@ -190,7 +190,7 @@ to your own speech provider, one for fonts and one to Remotion:
 | `app/src/inline.ts` | `POST {gateway}/v1/messages` | ⌘K rewrite, apply-from-chat |
 | `app/src/complete.ts` | `POST {gateway}/v1/complete` | inline (ghost-text) completion |
 | `app/src/gateway.ts` | `POST {gateway}/v1/messages` | checking a key you just pasted |
-| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again |
+| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again, and answering what you say or write in its Chat tab |
 | `app/src/account.ts` | `POST {gateway}/app/api/auth/login` | signing in — `/auth/register` and `/auth/logout` are the same shape |
 | `app/src/account.ts` | `GET {gateway}/app/api/me` | the plan balance: on launch, when a turn ends, otherwise every five minutes |
 | `app/src/account.ts` | `POST {gateway}/app/api/keys` | minting this app's own key, once, at the end of a sign-in |
@@ -346,8 +346,8 @@ loop refuses any tool a turn did not offer, whatever the model asks for.
 what it always did, for when you want to hand over one conversation rather than
 let it look.
 
-**A voice note can be transcribed, and only where you send it.** Nothing in
-this app can hear audio: the model API takes none, and `dictate.ts` is the
+**A voice note can be transcribed, and only where you send it.** The model
+hears no audio: the model API takes none, and `dictate.ts` is the
 browser's speech engine listening to a microphone, which cannot be pointed at a
 file. The words come from a service you name, and `app/src/whatsappvoice.ts`
 speaks to two kinds.
@@ -484,6 +484,20 @@ default, fires when you pause typing, and is switched off in Settings (stored as
 
 Your project is not uploaded. What leaves is what the agent read, and it read
 that because it asked for it while you were watching.
+
+**The Slides chat can record what you say, and only while its microphone is
+on.** Its microphone is the one place the app itself records audio
+(`app/src/slidesvoice.ts`): from your press on the button to your second press,
+or a minute, whichever comes first, and the system shows that the microphone is
+in use. The recording is kept in memory, sent to the transcription service you
+set up — Vylo Voice first, for its Sorani and Badini, or an OpenAI-shaped
+provider — which the button names before you press it, and then dropped;
+nothing is written to disk, and nothing is translated. The words that come back
+are sent to the deck's model as your message, marked as spoken, and its answer
+changes the slides only through the operations `app/src/slideschatops.ts` checks,
+which one undo takes back. It can open a slide or start the presentation; it
+cannot save a file, only offer the button that does. With no such service set
+up, the Chat tab uses the dictation below instead.
 
 ### Dictation is the one thing that is not ours
 

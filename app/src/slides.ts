@@ -104,6 +104,23 @@ export const EMPTY_META: DeckMeta = { presenter: '', supervisor: '', university:
 
 export type DeckStage = 'new' | 'planning' | 'ready';
 
+/** One turn of the Chat tab: the person's message, or the model's answer and what it changed. */
+export interface DeckTurn {
+  role: 'you' | 'model';
+  text: string;
+  at: number;
+  /** What the model's turn changed, in plain words, one line each — shown under its reply. */
+  changes?: string[];
+  /** What it asked for and did not get, one line each, shown apart. */
+  skipped?: string[];
+  /** The model's turn could not be understood or applied. */
+  failed?: boolean;
+  /** Buttons offered under the answer, for what only the person may press: saving a file. */
+  offer?: ('pptx' | 'pdf')[];
+  /** Whether the message was spoken rather than typed. */
+  spoken?: boolean;
+}
+
 export interface Deck {
   id: string;
   v: 1;
@@ -140,6 +157,8 @@ export interface Deck {
   source?: string;
   /** That document's references, as the app wrote them — the only ones a deck from it shows. */
   refs?: string[];
+  /** The Chat tab's conversation, oldest first (slideschatops.ts). */
+  chat?: DeckTurn[];
 }
 
 export function isRtl(lang: DeckLang): boolean {
@@ -340,7 +359,7 @@ export function deckLangOf(request: string, fallback: DeckLang): DeckLang {
 
 // ── what the model is told ────────────────────────────────────────────────
 
-const LANGUAGE_NAME: Readonly<Record<DeckLang, string>> = {
+export const LANGUAGE_NAME: Readonly<Record<DeckLang, string>> = {
   ar: 'Arabic', ckb: 'Central Kurdish (Sorani)', kmr: 'Northern Kurdish (Badini)', en: 'English',
 };
 
@@ -349,7 +368,7 @@ const LANGUAGE_NAME: Readonly<Record<DeckLang, string>> = {
  * letter for video.ts's reason: a model's Kurdish drifts into Arabic spelling,
  * and Badini into Sorani, and a Duhok audience reads either as somebody else's.
  */
-const LANGUAGE: Readonly<Record<DeckLang, string>> = {
+export const LANGUAGE: Readonly<Record<DeckLang, string>> = {
   ar: 'Write every word in Arabic: clear Modern Standard Arabic in the register of a good university presentation — precise, concise, never padded.',
   ckb: 'Write every word in Central Kurdish (Sorani), in the Kurdish Arabic-based alphabet with its own letters — ی ک ە ێ ۆ ڕ ڵ — never Arabic substitutes for them (not ي, ك, ة, and not ه where Kurdish writes ە). Use the words and spelling people in Sulaymaniyah and Erbil write, not Arabic or Persian words where a Kurdish one exists, and not Badini forms.',
   kmr: 'Write every word in Northern Kurdish as it is spoken in Duhok (Badini), in the Kurdish Arabic-based alphabet with its own letters — ی ک ە ێ ۆ ڤ — never Arabic substitutes for them (not ي, ك, ة). Use Badini words and grammar (for example ئەز, دڤێت, ژ, ل, ڤێ), not Sorani forms like دەمەوێت or لە, and not Arabic words where a Kurdish one exists.',
@@ -357,7 +376,7 @@ const LANGUAGE: Readonly<Record<DeckLang, string>> = {
 };
 
 /** The arc each kind of presentation follows. */
-const ARC: Readonly<Record<DeckKind, string>> = {
+export const ARC: Readonly<Record<DeckKind, string>> = {
   defense: 'A thesis or dissertation defence before an examining committee. The usual order: title; outline; introduction and the research problem; significance; objectives, and the questions or hypotheses; previous studies in brief; methodology (design, population and sample, tools, analysis); results — the main findings, with their real figures; discussion; conclusions; recommendations and future work; thanks and questions. Formal, precise, impersonal.',
   lecture: 'A university lecture. Title; what the students will learn; the topic in logical steps, each with its definitions and an example; a summary; questions to review it; thanks.',
   class: 'A student\'s class presentation or seminar. Title; outline; introduction; the main points in order, with examples; conclusion; thanks and questions.',
@@ -367,7 +386,7 @@ const ARC: Readonly<Record<DeckKind, string>> = {
 };
 
 /** The tone each look asks of the words; slideslayout.ts draws the rest. */
-const TONE: Readonly<Record<Theme, string>> = {
+export const TONE: Readonly<Record<Theme, string>> = {
   academic: 'academic — formal and exact',
   modern: 'modern — clean and confident',
   elegant: 'elegant — measured and refined',
@@ -376,7 +395,7 @@ const TONE: Readonly<Record<Theme, string>> = {
   warm: 'warm — friendly and plain',
 };
 
-const SCHEMA = [
+export const SCHEMA = [
   'Each slide is an object with a "kind" and the fields that kind uses:',
   '- {"kind":"title","title":"…","subtitle":"…"} — the first slide. The presenter, supervisor, university and date are added by the app: do not write them.',
   '- {"kind":"section","title":"…","subtitle":"…"} — a divider before a new part. Only in decks of twelve slides or more, and not more than three of them.',
@@ -420,7 +439,7 @@ function systemOf(deck: Deck): string {
   ].join('\n');
 }
 
-const quoted = (label: string, text: string) => `${label}:\n"""\n${text.replace(/"""/g, '"')}\n"""`;
+export const quoted = (label: string, text: string) => `${label}:\n"""\n${text.replace(/"""/g, '"')}\n"""`;
 
 /** The slides the model is asked for: the deck's count, less the references slides the app will add. */
 export function modelCount(deck: Pick<Deck, 'count' | 'refs'>): number {
@@ -453,7 +472,7 @@ export function planPrompt(deck: Deck): { system: string; user: string } {
 }
 
 /** A slide as the model reads it again: its words, without the id. */
-function slideJson(s: Slide): string {
+export function slideJson(s: Slide): string {
   const out: Record<string, unknown> = { kind: s.kind };
   if (s.title) out.title = s.title;
   if (s.subtitle) out.subtitle = s.subtitle;

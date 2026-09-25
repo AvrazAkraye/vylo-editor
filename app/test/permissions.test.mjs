@@ -55,5 +55,17 @@ for (const key of ['NSMicrophoneUsageDescription', 'NSSpeechRecognitionUsageDesc
 ok('the speech reason does not promise the audio never leaves the Mac',
    !/(never leaves|stays on (this|your) mac|on-device only|offline)/i.test(valueOf('NSSpeechRecognitionUsageDescription') ?? ''));
 
+// And the microphone reason says where a recording goes. The Slides chat
+// records what is said and sends it to a transcription service
+// (slidesvoice.ts); a reason that still said "nothing is recorded" would be the
+// dialog telling the person something the app no longer does.
+{
+  const voice = existsSync('src/slidesvoice.ts') ? readFileSync('src/slidesvoice.ts', 'utf8') : '';
+  const mic = valueOf('NSMicrophoneUsageDescription') ?? '';
+  ok('the Slides chat still records with the microphone', /getUserMedia/.test(voice) && /MediaRecorder/.test(voice));
+  ok('so the microphone reason says a recording goes to a transcription service', /transcription service/i.test(mic), mic);
+  ok('and does not claim nothing is recorded', !/nothing is recorded/i.test(mic), mic);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
