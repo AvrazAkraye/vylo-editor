@@ -4415,7 +4415,7 @@ export function App() {
                     onSettings={() => { setSettingsAt('account'); setShowSettings(true); }} />
             )}
             {shown === 'whatsapp' && (
-              <WhatsAppPanel t={t} onSendToChat={fromWhatsApp}
+              <WhatsAppPanel t={t} lang={lang} onSendToChat={fromWhatsApp}
                     onProviders={() => { setSettingsAt('account'); setShowSettings(true); }} />
             )}
             {/* The route the composer sends to, so a document is written by the

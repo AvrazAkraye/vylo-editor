@@ -8,6 +8,7 @@ import type { Provider } from './providers';
 import type { Deck, DeckTurn } from './slides';
 import { MAX_OPS, applyOps, chatPrompt, keptChat, parseChat, MAX_SLIDES, type Change } from './slideschatops';
 import { Recorder, SpeechError, speechBackend, speechFileName, transcribe } from './slidesvoice';
+import { micLang } from './whatsappvoice';
 import { Dictation, OFF as DICTATION_OFF, browserOpen, recognitionLang, speechAvailable, type State as DictationState } from './dictate';
 import { langName, slideKindName, themeName } from './slidesnames';
 
@@ -408,7 +409,10 @@ export function SlidesChat({
     try {
       const audio = await r.stop();
       if (!audio || audio.size === 0) { setHeardWrong(t('Nothing was recorded. Speak after pressing the microphone.')); return; }
-      const words = await transcribe(backend, audio, { name: speechFileName(r.type), signal: ctl.signal });
+      // The language said, not left to the server's guess, which on a short
+      // sentence can hear Arabic as English and never picks a Kurdish engine.
+      const spoken = micLang(backend.kind === 'vylo' ? backend.voice.lang : 'auto', lang, deck.lang);
+      const words = await transcribe(backend, audio, { name: speechFileName(r.type), signal: ctl.signal, lang: spoken });
       if (!words.trim()) { setHeardWrong(t('Nothing could be made out. Try again, a little closer to the microphone.')); return; }
       goRef.current(words, true);
     } catch (e) {

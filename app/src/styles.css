@@ -3104,6 +3104,25 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   border-inline-start-color:color-mix(in srgb, var(--on-fill) 40%, transparent);
   color:var(--on-fill); opacity:.85;
 }
+/* The language a transcript was heard in, and the others one press away. */
+.wa-relang{
+  display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-1);
+  margin-block-start:var(--sp-2); padding-inline-start:var(--sp-3);
+}
+.wa-relang button{
+  padding:1px var(--sp-2); border:1px solid var(--rule-2); border-radius:99px;
+  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-1); cursor:pointer;
+}
+.wa-relang button:hover:not(:disabled){ border-color:var(--brand); color:var(--brand); }
+.wa-relang button:disabled{ cursor:default; }
+.wa-relang button.on{ border-color:var(--brand); color:var(--brand); background:var(--brand-wash); }
+.wa-relang button:disabled:not(.on){ opacity:.5; }
+.wa-relang-wait{ display:inline-flex; align-items:center; gap:var(--sp-1); font-size:var(--fs-1); color:var(--mute); }
+.wa-bubble.mine .wa-relang button{
+  border-color:color-mix(in srgb, var(--on-fill) 40%, transparent); color:var(--on-fill);
+}
+.wa-bubble.mine .wa-relang button.on{ background:color-mix(in srgb, var(--on-fill) 18%, transparent); }
+.wa-bubble.mine .wa-relang-wait{ color:var(--on-fill); }
 
 /* ── the whole window ────────────────────────────────────────────────────
    A 248px column can show the list or a conversation. Given the window it

@@ -250,5 +250,26 @@ ok('no format is null', recordingType(() => false) === null && recordingType(() 
   ok('an OpenAI-shaped provider answers in one round trip', w2 === 'make it shorter' && said[0].url === 'https://api.example/v1/audio/transcriptions' && said[0].init.body.get('model') === 'gpt-4o-transcribe');
 }
 
+// ── the language the microphone says it heard ─────────────────────────────
+{
+  const sent = [];
+  const fake = async (url, init) => {
+    sent.push(init.body?.get?.('language') ?? null);
+    return { ok: true, status: 200, json: async () => (url.endsWith('/api/transcribe') ? { id: 'j' } : { status: 'done', transcript: 'x' }) };
+  };
+  const auto = { kind: 'vylo', name: 'Vylo Voice', voice: { baseUrl: 'https://voice.example', key: 'vsk_1', lang: 'auto', mode: 'fast', translate: '' } };
+  await transcribe(auto, new Blob(['x']), { name: 'speech.m4a', fetch: fake, wait: async () => {}, lang: 'ar' });
+  ok('a language named for the recording is the one sent, not the setting’s "auto"', sent[0] === 'ar');
+  sent.length = 0;
+  await transcribe(auto, new Blob(['x']), { name: 'speech.m4a', fetch: fake, wait: async () => {} });
+  ok('without one, the setting’s', sent[0] === 'auto');
+  const said = [];
+  const openai = { kind: 'openai', name: 'P', provider: { id: 'p', name: 'P', baseUrl: 'https://p.example', key: 'k', wire: 'openai', models: [] } };
+  const one = async (url, init) => { said.push(init.body.get('language')); return { ok: true, status: 200, json: async () => ({ text: 'x' }) }; };
+  await transcribe(openai, new Blob(['x']), { name: 'speech.webm', fetch: one, lang: 'ar' });
+  await transcribe(openai, new Blob(['x']), { name: 'speech.webm', fetch: one, lang: 'kmr' });
+  ok('an OpenAI-shaped service is sent Arabic, and not Kurdish, which it cannot hear', said[0] === 'ar' && said[1] === null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

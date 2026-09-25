@@ -84,6 +84,103 @@ export const langOf = (raw: unknown): VoiceLang =>
 
 export const modeOf = (raw: unknown): Mode => (raw === 'accurate' ? 'accurate' : 'fast');
 
+/** A language named outright: what a person picks when the guess was wrong. */
+export type SpokenLang = Exclude<VoiceLang, 'auto'>;
+export const SPOKEN: readonly SpokenLang[] = ['ar', 'ckb', 'kmr', 'en'];
+
+/** Letters of the Arabic script, without its digits and punctuation. */
+const ARABIC_LETTER = /[\u0621-\u064A\u0671-\u06D3\u06D5\u06EE\u06EF\u06FA-\u06FC\u0750-\u077F]/g;
+/** Letters Kurdish writes and Arabic does not: ڕ ڵ ێ ۆ ە ڤ ۊ. */
+const KURDISH_LETTER = /[\u0695\u06B5\u06CE\u06C6\u06D5\u06A4\u06CA]/g;
+const LATIN_LETTER = /[A-Za-z\u00C0-\u024F]/g;
+/** Kurmanji in Latin letters, as Badini is often typed on a phone. */
+const KURMANJI_LATIN = /[êîûçşÊÎÛÇŞ]/g;
+const count = (s: string, re: RegExp): number => s.match(re)?.length ?? 0;
+
+/**
+ * The language a voice note is most likely in, from what the same chat wrote.
+ *
+ * "Whichever language they are in" leaves the guess to the server, which makes
+ * it from the audio alone — and on two seconds from a phone it guesses badly:
+ * an Arabic «السلام عليكم» came back as English, in Latin letters. That guess
+ * also never reaches the Kurdish engines; the server only chooses among its
+ * general model's languages. The chat's own writing is better evidence. Arabic
+ * letters with none of Kurdish's own mean Arabic. ڕ ڵ ێ ۆ ە ڤ mean Kurdish,
+ * with ڤ leaning Badini and ڵ Sorani, and `kurdish` settling a tie. Latin with
+ * ê î û ç ş is Badini typed in Latin. Anything else stays the server's guess.
+ */
+export function langFromText(texts: readonly string[], kurdish: 'ckb' | 'kmr' = 'ckb'): VoiceLang {
+  const s = texts.join(' ').replace(/https?:\/\/\S+/g, ' ');
+  const arabic = count(s, ARABIC_LETTER);
+  const latin = count(s, LATIN_LETTER);
+  if (arabic >= 4 && arabic >= latin) {
+    const kurd = count(s, KURDISH_LETTER);
+    // Kurdish writes these letters constantly — ە alone is one letter in ten —
+    // and Arabic never does; one stray ڤ in a long Arabic chat (ڤيديو) is a
+    // loanword, while one in a short «سڵاو» is the whole message.
+    const share = kurd / arabic;
+    if (share < 0.02 || (kurd < 2 && share < 0.1)) return 'ar';
+    const badini = count(s, /\u06A4/g);
+    const sorani = count(s, /\u06B5/g);
+    return badini > sorani ? 'kmr' : sorani > badini ? 'ckb' : kurdish;
+  }
+  if (latin >= 4 && count(s, KURMANJI_LATIN) >= 2) return 'kmr';
+  return 'auto';
+}
+
+/**
+ * The language to send with one voice note.
+ *
+ * What the person picked for this chat comes first — they heard the result and
+ * corrected it. Then the setting, when it names a language. Only when it is
+ * left to chance does the chat's writing decide.
+ */
+export function noteLang(o: {
+  chat?: VoiceLang; setting: VoiceLang; texts: readonly string[]; kurdish?: 'ckb' | 'kmr';
+}): VoiceLang {
+  if (o.chat && o.chat !== 'auto') return o.chat;
+  if (o.setting !== 'auto') return o.setting;
+  return langFromText(o.texts, o.kurdish);
+}
+
+/** Where the language picked for each chat is kept. */
+export const NOTE_LANG_KEY = 'vylo.whatsapp.notelang.v1';
+/** Chats remembered at most; the oldest choice goes first. */
+export const NOTE_LANG_KEEP = 300;
+
+/** The languages picked per chat, repaired. */
+export function readNoteLangs(raw: string | null): Record<string, SpokenLang> {
+  const out: Record<string, SpokenLang> = {};
+  try {
+    const o = raw ? JSON.parse(raw) : null;
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return out;
+    for (const [jid, lang] of Object.entries(o as Record<string, unknown>)) {
+      if (jid && (SPOKEN as readonly unknown[]).includes(lang)) out[jid] = lang as SpokenLang;
+    }
+  } catch { /* a broken record is no record */ }
+  return out;
+}
+
+/** Remember `lang` for `jid`, newest last, keeping at most `NOTE_LANG_KEEP`. */
+export function withNoteLang(m: Record<string, SpokenLang>, jid: string, lang: SpokenLang): Record<string, SpokenLang> {
+  const rest = Object.entries(m).filter(([k]) => k !== jid);
+  return Object.fromEntries([...rest.slice(-(NOTE_LANG_KEEP - 1)), [jid, lang]]);
+}
+
+/**
+ * The spoken language for the Slides chat's microphone.
+ *
+ * The setting when it names one. Otherwise the interface's language, then the
+ * deck's, when either is Arabic or Kurdish — somebody talking to their slides
+ * talks in one of those, and "auto" would never reach a Kurdish engine. English
+ * stays the server's guess, which it makes well.
+ */
+export function micLang(setting: VoiceLang, ...hints: (string | undefined)[]): VoiceLang {
+  if (setting !== 'auto') return setting;
+  const named = hints.find((h): h is 'ar' | 'ckb' | 'kmr' => h === 'ar' || h === 'ckb' || h === 'kmr');
+  return named ?? 'auto';
+}
+
 export const BLANK_VOICE: Voice = { baseUrl: VOICE_URL, key: '', lang: 'auto', mode: 'fast', translate: '' };
 
 const trim = (s: unknown): string => (typeof s === 'string' ? s.trim() : '');
@@ -169,7 +266,7 @@ export type JobState =
    * this did — throws away the one of the two that is closer to the recording,
    * and leaves somebody who speaks the language nothing to check against.
    */
-  | { done: true; text: string; translation: string }
+  | { done: true; text: string; translation: string; heard: VoiceLang }
   | { done: true; failed: string };
 
 /**
@@ -190,7 +287,9 @@ export function jobState(body: unknown): JobState {
   if (status === 'done') {
     // Both can be empty on a recording with no speech in it, which is itself
     // an answer and not a failure.
-    return { done: true, text: trim(b.transcript), translation: trim(b.translation) };
+    // `heard` is the language the server settled on — its guess, when it was
+    // asked to make one — or 'auto' for one it has no engine of its own for.
+    return { done: true, text: trim(b.transcript), translation: trim(b.translation), heard: langOf(trim(b.detected_language)) };
   }
   const p = Number(b.progress);
   return { done: false, progress: Number.isFinite(p) ? p : 0 };

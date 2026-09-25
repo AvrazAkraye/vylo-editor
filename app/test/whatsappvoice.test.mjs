@@ -25,6 +25,7 @@ import {
   formFor, jobIdFrom, jobPath, jobState, langOf, modeOf, modelFor, readVoice,
   textFrom, transcribePath, transcriberIn, transcriptNote, uploadHeaders,
   TARGETS, targetOf, voiceForm, voiceHeaders, voiceReady, writeVoice,
+  NOTE_LANG_KEEP, SPOKEN, langFromText, micLang, noteLang, readNoteLangs, withNoteLang,
 } from '../.test-build/whatsappvoice.js';
 
 let pass = 0, fail = 0;
@@ -295,6 +296,51 @@ const p = (over = {}) => ({
   ok('and the translation, named as one', /\[translated\]: hello/.test(note), note);
   ok('and says nothing about translating when there was none',
      !transcriptNote('سڵاو', 'Vylo Voice').includes('translated'));
+}
+
+// ── which language a voice note is in ─────────────────────────────────────
+// Left to the server, two seconds of Arabic came back as English in Latin
+// letters. The chat's own writing names the language instead, and a person's
+// correction for a chat outranks every guess.
+{
+  ok('Arabic writing means Arabic', langFromText(['السلام عليكم', 'كيف حالك اليوم؟']) === 'ar');
+  ok('one ڤ in a long Arabic chat is still Arabic', langFromText(['شاهدت الڤيديو الذي أرسلته أمس وكان جميلاً جداً يا أخي العزيز']) === 'ar');
+  ok('Sorani writing means Sorani', langFromText(['سڵاو، چۆنی؟', 'باشم سوپاس، ئەتۆ چۆنی']) === 'ckb');
+  ok('Badini writing means Badini', langFromText(['ئەز دێ ئێم', 'هەڤالێ من، تو چاوا یی؟ ئەڤە چیە']) === 'kmr');
+  ok('Kurdish with neither ڤ nor ڵ goes to the Kurdish the interface names', langFromText(['ئێمە دەچین'], 'kmr') === 'kmr');
+  ok('one word of Kurdish is Kurdish', langFromText(['سڵاو']) === 'ckb');
+  ok('and to Sorani when it names none', langFromText(['ئێمە دەچین']) === 'ckb');
+  ok('Badini typed in Latin means Badini', langFromText(['Ez dê bêm, tu çawa yî?']) === 'kmr');
+  ok('English stays the server’s guess', langFromText(['See you tomorrow at the office']) === 'auto');
+  ok('so does a chat with nothing written', langFromText([]) === 'auto' && langFromText(['👍', '😂']) === 'auto');
+  ok('a link is not writing', langFromText(['https://example.com/salam-alaikum-video']) === 'auto');
+  ok('Arabic digits are not letters', langFromText(['٠١٢٣٤٥٦٧٨٩']) === 'auto');
+
+  ok('the chat’s own choice comes first', noteLang({ chat: 'en', setting: 'kmr', texts: ['السلام عليكم'] }) === 'en');
+  ok('then a setting that names a language', noteLang({ setting: 'kmr', texts: ['السلام عليكم'] }) === 'kmr');
+  ok('then the chat’s writing', noteLang({ setting: 'auto', texts: ['السلام عليكم ورحمة الله'] }) === 'ar');
+  ok('with the interface’s Kurdish for a tie', noteLang({ setting: 'auto', texts: ['ئێمە دەچین'], kurdish: 'kmr' }) === 'kmr');
+  ok('a stored "auto" for a chat is no choice', noteLang({ chat: 'auto', setting: 'auto', texts: ['سڵاو'] }) === 'ckb');
+
+  ok('the choices are the four languages', SPOKEN.join() === 'ar,ckb,kmr,en');
+  const kept = readNoteLangs(JSON.stringify({ a: 'ar', b: 'kmr', c: 'auto', d: 'fr', '': 'en', e: 3 }));
+  ok('a stored choice is repaired: only real languages, only named chats', JSON.stringify(kept) === JSON.stringify({ a: 'ar', b: 'kmr' }));
+  ok('a broken record is no record', JSON.stringify(readNoteLangs('{')) === '{}' && JSON.stringify(readNoteLangs('[1]')) === '{}' && JSON.stringify(readNoteLangs(null)) === '{}');
+  const moved = withNoteLang({ a: 'ar', b: 'kmr' }, 'a', 'en');
+  ok('a new choice replaces the old and goes last', JSON.stringify(moved) === JSON.stringify({ b: 'kmr', a: 'en' }));
+  let many = {};
+  for (let i = 0; i < NOTE_LANG_KEEP + 25; i++) many = withNoteLang(many, `c${i}`, 'ar');
+  ok('at most so many chats are remembered, the oldest dropped', Object.keys(many).length === NOTE_LANG_KEEP && !('c0' in many) && (`c${NOTE_LANG_KEEP + 24}` in many));
+
+  ok('the Slides mic: a setting that names a language wins', micLang('en', 'ar', 'ckb') === 'en');
+  ok('then the interface’s language', micLang('auto', 'kmr', 'ar') === 'kmr');
+  ok('then the deck’s', micLang('auto', 'en', 'ar') === 'ar');
+  ok('and English stays the server’s guess', micLang('auto', 'en', 'en') === 'auto' && micLang('auto') === 'auto');
+
+  const heard = jobState({ status: 'done', transcript: 'x', detected_language: 'ar' });
+  ok('a finished job says which language it heard', heard.done && heard.heard === 'ar');
+  ok('and "auto" for one without an engine here', jobState({ status: 'done', transcript: 'x', detected_language: 'ur' }).heard === 'auto'
+     && jobState({ status: 'done', transcript: 'x' }).heard === 'auto');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

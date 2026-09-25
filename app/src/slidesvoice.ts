@@ -1,7 +1,7 @@
 import type { Provider } from './providers';
 import {
   VOICE_KEY, acceptsName, backendFor, endpointOf, formFor, jobIdFrom, jobPath, jobState, modelFor, readVoice, textFrom,
-  transcribePath, uploadHeaders, voiceForm, voiceHeaders, type Backend,
+  transcribePath, uploadHeaders, voiceForm, voiceHeaders, type Backend, type VoiceLang,
 } from './whatsappvoice';
 
 /**
@@ -88,6 +88,8 @@ interface TranscribeOptions {
   wait?: (ms: number) => Promise<void>;
   /** Polls of a Vylo Voice job before giving up: about a minute. */
   tries?: number;
+  /** The language spoken, in place of the setting's (see `micLang` in whatsappvoice.ts). */
+  lang?: VoiceLang;
 }
 
 const pause = (ms: number) => new Promise<void>((done) => { setTimeout(done, ms); });
@@ -111,7 +113,7 @@ export async function transcribe(backend: Backend, audio: Blob, o: TranscribeOpt
     const v = backend.voice;
     if (!acceptsName(o.name)) throw new SpeechError('format', o.name);
     const up = await get(transcribePath(v), {
-      method: 'POST', headers: voiceHeaders(v), body: voiceForm(audio, o.name, { lang: v.lang, mode: v.mode, translate: '' }), signal: o.signal,
+      method: 'POST', headers: voiceHeaders(v), body: voiceForm(audio, o.name, { lang: o.lang ?? v.lang, mode: v.mode, translate: '' }), signal: o.signal,
     });
     if (up.status === 401 || up.status === 403) throw new SpeechError('refused');
     if (!up.ok) throw new SpeechError('status', String(up.status));
@@ -131,7 +133,7 @@ export async function transcribe(backend: Backend, audio: Blob, o: TranscribeOpt
   }
   const p = backend.provider;
   const r = await get(endpointOf(p), {
-    method: 'POST', headers: uploadHeaders(p), body: formFor(audio, o.name, modelFor(p), 'auto'), signal: o.signal,
+    method: 'POST', headers: uploadHeaders(p), body: formFor(audio, o.name, modelFor(p), o.lang ?? 'auto'), signal: o.signal,
   });
   if (r.status === 401 || r.status === 403) throw new SpeechError('refused');
   if (!r.ok) throw new SpeechError('status', String(r.status));

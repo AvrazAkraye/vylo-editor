@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Icon } from './Icon';
-import { fill } from './i18n';
+import { fill, type Lang } from './i18n';
 import {
   BLANK, DRAFTS_KEY, KEY, chatsFrom, inChat, isGroup, phoneOf, read, readDrafts,
   quoting, ready, relDay, messagesFrom, setDraft as withDraft, threadRows, write,
@@ -27,6 +27,7 @@ import {
   formFor, jobIdFrom, jobPath, jobState, langOf, modeOf, modelFor, readVoice,
   textFrom, transcribePath, transcriptNote, uploadHeaders, voiceForm,
   voiceHeaders, writeVoice, TARGETS, targetOf, type Voice,
+  NOTE_LANG_KEY, SPOKEN, noteLang, readNoteLangs, withNoteLang, type SpokenLang, type VoiceLang,
 } from './whatsappvoice';
 
 /**
@@ -86,6 +87,8 @@ function kindIcon(k: Msg['kind']): 'image' | 'camera' | 'mic' | 'file' | 'star' 
 
 interface Props {
   t: (s: string) => string;
+  /** The interface's language: which Kurdish a Kurdish chat most likely speaks. */
+  lang?: Lang;
   /**
    * Open Settings where model providers are added.
    *
@@ -113,7 +116,19 @@ const PAGE = 200;
 type State = 'setup' | 'checking' | 'live' | 'failed';
 
 /** What came back: the words, and a translation of them when one was asked for. */
-interface Said { text: string; translation: string }
+/** `lang` is the language the words were heard in, when it is one of ours. */
+interface Said { text: string; translation: string; lang: VoiceLang }
+
+/**
+ * Each language in its own words, on the buttons that re-hear a voice note:
+ * somebody who can read only one of them can still find it.
+ */
+const NATIVE_NAME: Readonly<Record<SpokenLang, string>> = { ar: 'العربية', ckb: 'سۆرانی', kmr: 'بادینی', en: 'English' };
+
+/** A language's name in the interface's language, for a button's title. */
+function heardName(code: SpokenLang, t: (s: string) => string): string {
+  return code === 'ar' ? t('Arabic') : code === 'ckb' ? t('Kurdish — Sorani') : code === 'kmr' ? t('Kurdish — Badini') : t('English');
+}
 
 /**
  * The clock on a message, in the reader's own locale.
@@ -279,7 +294,7 @@ function Ticks({ status, t }: { status: Status; t: (s: string) => string }) {
   );
 }
 
-export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
+export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
   const [conn, setConn] = useState<Conn>(() => read(localStorage.getItem(KEY)));
   const [form, setForm] = useState<Conn>(conn);
   const [state, setState] = useState<State>(() => (ready(conn) ? 'live' : 'setup'));
@@ -436,8 +451,17 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
    * the message, it is something this app asked a third party for, and the two
    * are stored apart so nothing can mistake one for the other.
    */
-  const [said, setSaid] = useState<Record<string, { text: string; translation: string }>>({});
+  const [said, setSaid] = useState<Record<string, Said>>({});
   const [saying, setSaying] = useState('');
+
+  /**
+   * The language picked for each chat, after a transcript came back in the
+   * wrong one. Kept, so the next voice note in that chat is heard right the
+   * first time; it is the person's correction, and it outranks every guess.
+   */
+  const [noteLangs, setNoteLangs] = useState<Record<string, SpokenLang>>(() => {
+    try { return readNoteLangs(localStorage.getItem(NOTE_LANG_KEY)); } catch { return {}; }
+  });
 
   /** The Vylo Voice connection, which is the one with Kurdish engines. */
   const [vc, setVc] = useState<Voice>(() => readVoice(localStorage.getItem(VOICE_KEY)));
@@ -904,25 +928,38 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
    * a voice note that leaves this machine does so because somebody decided it
    * should, one at a time.
    */
-  async function transcribe(m: Msg) {
+  async function transcribe(m: Msg, pick?: SpokenLang) {
     if (!voice || saying) return;
     const media = await grab(m);
     if (!media) return;
     const name = nameFor(m, media);
+    // Picked on a transcript that came back in the wrong language: that
+    // language, and from now on for this chat.
+    if (pick) {
+      const next = withNoteLang(noteLangs, m.jid, pick);
+      setNoteLangs(next);
+      try { localStorage.setItem(NOTE_LANG_KEY, JSON.stringify(next)); } catch { /* private mode */ }
+    }
+    // What the chat wrote, theirs first: a voice note is usually in the
+    // language its sender types in.
+    const written = msgs.filter((x) => x.jid === m.jid && x.kind === 'text' && x.text.trim());
+    const theirs = written.filter((x) => !x.fromMe);
+    const texts = (theirs.length ? theirs : written).slice(-40).map((x) => x.text);
+    const spoken = pick ?? noteLang({ chat: noteLangs[m.jid], setting: vc.lang, texts, kurdish: lang === 'kmr' ? 'kmr' : 'ckb' });
     setSaying(m.id);
     setWhy('');
     try {
       const blob = blobOf(media.base64, displayMime(media, m.kind));
       const words = voice.kind === 'vylo'
-        ? await viaVylo(voice.voice, blob, name)
-        : await viaProvider(voice.provider, blob, name);
+        ? await viaVylo({ ...voice.voice, lang: spoken }, blob, name)
+        : await viaProvider(voice.provider, blob, name, spoken);
       if (words === null) return;
       // An empty transcript is an answer: silence, or speech nothing could make
       // out. Recorded as such, so the button does not look unpressed and invite
       // a second upload of the same audio.
       setSaid((p) => ({
         ...p,
-        [m.id]: { text: words.text || t('Nothing could be made out.'), translation: words.translation },
+        [m.id]: { text: words.text || t('Nothing could be made out.'), translation: words.translation, lang: words.lang },
       }));
     } catch (e) {
       setWhy(e instanceof Error ? e.message : t('Could not reach that server.'));
@@ -968,18 +1005,19 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
       const state = jobState(await r.json());
       if (!state.done) continue;
       if ('failed' in state) { setWhy(state.failed); return null; }
-      return { text: state.text, translation: state.translation };
+      // The language asked for, or — when the server was left to guess — the one it heard.
+      return { text: state.text, translation: state.translation, lang: v.lang !== 'auto' ? v.lang : state.heard };
     }
     setWhy(t('That is taking longer than expected. It may still finish — try again shortly.'));
     return null;
   }
 
   /** An OpenAI-shaped service: one round trip, no Kurdish. */
-  async function viaProvider(p: Provider, blob: Blob, name: string): Promise<Said | null> {
+  async function viaProvider(p: Provider, blob: Blob, name: string, spoken: VoiceLang): Promise<Said | null> {
     const r = await fetch(endpointOf(p), {
       method: 'POST',
       headers: uploadHeaders(p),
-      body: formFor(blob, name, modelFor(p), vc.lang),
+      body: formFor(blob, name, modelFor(p), spoken),
     });
     if (!r.ok) {
       setWhy(fill(t('The server answered {n}.'), { n: r.status }));
@@ -988,7 +1026,8 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
     // This path transcribes and does not translate: the endpoint has no target
     // to give one, and inventing a second round trip to a chat model would be a
     // different service doing a different job under the same button.
-    return { text: textFrom(await r.json()), translation: '' };
+    // Kurdish is not sent on this path (see `formFor`), so it was not heard as Kurdish either.
+    return { text: textFrom(await r.json()), translation: '', lang: spoken === 'ar' || spoken === 'en' ? spoken : 'auto' };
   }
 
   function toggle(id: string) {
@@ -1194,6 +1233,26 @@ export function WhatsAppPanel({ t, onSendToChat, onProviders }: Props) {
                 <span className="wa-said tr" dir="auto">
                   <em>{t('Translated')}</em>
                   {said[m.id].translation}
+                </span>
+              )}
+              {/* The language it was heard in, and the others one press away.
+                  A wrong one is the usual failure — two seconds of Arabic heard
+                  as English — and the fix is to say which it was, which is
+                  then remembered for the chat. Another press is another upload
+                  to the same service, so each names it. */}
+              {voice && (
+                <span className="wa-relang">
+                  {saying === m.id ? (
+                    <span className="wa-relang-wait"><Icon name="clock" size={10} />{t('Transcribing…')}</span>
+                  ) : (voice.kind === 'vylo' ? SPOKEN : SPOKEN.filter((c) => c === 'ar' || c === 'en')).map((code) => (
+                    <button key={code} type="button" lang={code}
+                            className={said[m.id].lang === code ? 'on' : ''}
+                            disabled={said[m.id].lang === code || Boolean(saying)}
+                            title={fill(t('Transcribe again as {lang} with {name}'), { lang: heardName(code, t), name: voice.name })}
+                            onClick={() => void transcribe(m, code)}>
+                      {NATIVE_NAME[code]}
+                    </button>
+                  ))}
                 </span>
               )}
             </>
