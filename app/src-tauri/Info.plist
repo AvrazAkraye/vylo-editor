@@ -16,11 +16,16 @@
   happens and nothing more flattering: the words go into the message box to be
   read and edited, nothing is sent until the person sends it, and the listening
   is Apple's, which may use Apple's servers.
+
+  The Slides chat's microphone (slidesvoice.ts) is the one place the app
+  records audio itself: only while that button is on, sent to the
+  transcription service the person set up, and not kept. The microphone
+  reason says so, because it is the same permission.
 -->
 <plist version="1.0">
 <dict>
   <key>NSMicrophoneUsageDescription</key>
-  <string>Vylo Editor listens only while you are dictating into the message box. Nothing is recorded or kept.</string>
+  <string>Vylo Editor listens only while you dictate into a message box, or while the microphone in the Slides chat is on. What you say there is sent to the transcription service you set up, to be written down. Nothing is kept.</string>
   <key>NSSpeechRecognitionUsageDescription</key>
   <string>Vylo Editor turns what you say into text in the message box, for you to read and edit before you send it. Apple's speech recognition does the listening.</string>
 </dict>

@@ -23,6 +23,10 @@ import { loadDocs } from './researchstore';
 import { LOGO_KEY, PROFILE_KEY, logoFor, readLogos, readProfile, type Doc } from './research';
 import { brandFromLogo, paletteOfImage, type Swatch } from './videopalette';
 import { SlideCanvas, SlideView } from './SlideView';
+import { kindAbout, kindName, langName, slideKindName, themeName } from './slidesnames';
+import { deckHistory } from './slideshistory';
+import { SlidesChat } from './SlidesChat';
+import { IS_MAC } from './Welcome';
 import './slides.css';
 
 /**
@@ -106,6 +110,41 @@ function keep(d: Deck) {
 function update(id: string, change: (d: Deck) => Deck) {
   const d = known.get(id);
   if (d) keep({ ...change(d), updated: Date.now() });
+}
+
+/**
+ * A change the person made, by hand or through the Chat tab: kept, and
+ * remembered for undo (slideshistory.ts). A run's own changes — the slides
+ * written, one slide rewritten — go through `update` and are not; the history
+ * notices them and starts again from what they left. `alone` makes the change
+ * its own step, never joined to typing: a whole chat message is one undo.
+ */
+function edit(id: string, next: Partial<Deck>, alone = false) {
+  const before = known.get(id);
+  if (!before) return;
+  update(id, (d) => ({ ...d, ...next }));
+  const after = known.get(id);
+  if (after && after !== before) deckHistory.record(id, before, after, alone);
+}
+
+/** One step back or forward, when no run is changing the deck. */
+function stepHistory(id: string, back: boolean) {
+  const d = known.get(id);
+  if (!d || jobs.has(id)) return;
+  const snap = back ? deckHistory.undo(id, d) : deckHistory.redo(id, d);
+  if (snap) update(id, (x) => ({ ...x, ...snap }));
+}
+
+const UNDO_GLYPH = 'M9.5 6.5 5 11l4.5 4.5M5.5 11H15a4.5 4.5 0 0 1 0 9h-3';
+const REDO_GLYPH = 'M14.5 6.5 19 11l-4.5 4.5M18.5 11H9a4.5 4.5 0 0 0 0 9h3';
+
+function Glyph({ d }: { d: string }) {
+  return (
+    <svg className="ic" width={14} height={14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d={d} />
+    </svg>
+  );
 }
 
 const newId = () => {
@@ -336,53 +375,6 @@ function useTick(on: boolean) {
 }
 
 // ── names ─────────────────────────────────────────────────────────────────
-
-function kindName(k: DeckKind, t: T): string {
-  if (k === 'defense') return t('Thesis defence');
-  if (k === 'lecture') return t('Lecture');
-  if (k === 'class') return t('Class presentation');
-  if (k === 'conference') return t('Conference talk');
-  if (k === 'pitch') return t('Business pitch');
-  return t('General');
-}
-
-function kindAbout(k: DeckKind, t: T): string {
-  if (k === 'defense') return t('Before an examining committee: the problem, the method, the results, the conclusions.');
-  if (k === 'lecture') return t('A class taught step by step, with examples and a summary.');
-  if (k === 'class') return t('A student’s talk or seminar.');
-  if (k === 'conference') return t('A research talk of ten to fifteen minutes.');
-  if (k === 'pitch') return t('A problem, a solution, and what you are asking for.');
-  return t('Any subject, clearly built.');
-}
-
-function themeName(th: Theme, t: T): string {
-  if (th === 'academic') return t('Academic');
-  if (th === 'modern') return t('Modern');
-  if (th === 'elegant') return t('Elegant');
-  if (th === 'bold') return t('Bold');
-  if (th === 'minimal') return t('Minimal');
-  return t('Warm');
-}
-
-function slideKindName(k: SlideKind, t: T): string {
-  if (k === 'title') return t('Title slide');
-  if (k === 'section') return t('Section divider');
-  if (k === 'bullets') return t('Points');
-  if (k === 'two') return t('Two columns');
-  if (k === 'stat') return t('Big numbers');
-  if (k === 'table') return t('Table');
-  if (k === 'timeline') return t('Steps in order');
-  if (k === 'quote') return t('Quotation');
-  if (k === 'references') return t('References');
-  return t('Closing slide');
-}
-
-function langName(l: DeckLang, t: T): string {
-  if (l === 'ar') return t('Arabic');
-  if (l === 'ckb') return t('Kurdish — Sorani');
-  if (l === 'kmr') return t('Kurdish — Badini');
-  return t('English');
-}
 
 function errorText(e: string, t: T): string {
   if (e === UNREADABLE_PLAN) return t('The slides could not be read from the model’s reply. Try again, or try another model.');
@@ -741,8 +733,8 @@ export function SlidesPanel({ t, lang, gw, efforts, plan, providers, choice, gat
       )}
       {unkept && <p className="vid-warn">{t('Presentations cannot be kept on this machine right now. Save them before you close the app.')}</p>}
       {open
-        ? <DeckView key={open.id} t={t} deck={open} current={current} routes={routes} efforts={efforts} plan={plan} ready={ready} inFull={full}
-                    onSelect={setSelected} onBack={() => setOpenId(null)} begin={begin} onError={report}
+        ? <DeckView key={open.id} t={t} lang={lang} deck={open} current={current} routes={routes} efforts={efforts} plan={plan} ready={ready} inFull={full}
+                    onSelect={setSelected} onBack={() => setOpenId(null)} begin={begin} onError={report} onSettings={onProviders}
                     onPresent={(at) => setPresenting({ id: open.id, at })} onPdf={(path) => pdfDeck(open, path)} />
         : <Home t={t} lang={lang} routes={routes} efforts={efforts} plan={plan} ready={ready} decks={decks}
                 onOpen={(id) => { setSelected(null); setOpenId(id); }}
@@ -1064,7 +1056,7 @@ function DeckRow({ t, deck, onOpen }: { t: T; deck: Deck; onOpen: () => void }) 
 
 // ── one deck ──────────────────────────────────────────────────────────────
 
-type Tab = 'slide' | 'deck';
+type Tab = 'slide' | 'chat' | 'deck';
 
 /** The slides as small pictures to click through; a grid under the preview in the full window. */
 function Strip({ t, deck, current, onSelect, grid }: { t: T; deck: Deck; current: string; onSelect: (id: string) => void; grid?: boolean }) {
@@ -1084,8 +1076,9 @@ function Strip({ t, deck, current, onSelect, grid }: { t: T; deck: Deck; current
   );
 }
 
-function DeckView({ t, deck, current, routes, efforts, plan, ready, inFull, onSelect, onBack, begin, onError, onPresent, onPdf }: {
+function DeckView({ t, lang, deck, current, routes, efforts, plan, ready, inFull, onSelect, onBack, begin, onError, onPresent, onPdf, onSettings }: {
   t: T;
+  lang: Lang;
   deck: Deck;
   current: Slide | null;
   routes: Routes;
@@ -1099,18 +1092,35 @@ function DeckView({ t, deck, current, routes, efforts, plan, ready, inFull, onSe
   onError: (m: string) => void;
   onPresent: (at: number) => void;
   onPdf: (path: string) => Promise<void>;
+  onSettings: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('slide');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
   const job = jobs.get(deck.id);
   const busy = !!job;
-  const change = (next: Partial<Deck>) => update(deck.id, (d) => ({ ...d, ...next }));
+  // Every change made here by hand is remembered for undo; a run's own changes are not (see `edit`).
+  const change = (next: Partial<Deck>) => edit(deck.id, next);
   const at = current ? deck.slides.findIndex((s) => s.id === current.id) : -1;
   const target = targetOf(deck, routes);
   const level = effortOf(bookFor(deck, target, efforts), target.model);
 
-  const setSlide = (id: string, patch: Partial<Slide>) => update(deck.id, (d) => ({ ...d, slides: d.slides.map((s) => (s.id === id ? { ...s, ...patch } : s)) }));
+  const setSlide = (id: string, patch: Partial<Slide>) => {
+    const d = known.get(deck.id);
+    if (d) edit(deck.id, { slides: d.slides.map((s) => (s.id === id ? { ...s, ...patch } : s)) });
+  };
+  const canUndo = !busy && deckHistory.canUndo(deck.id, deck);
+  const canRedo = !busy && deckHistory.canRedo(deck.id, deck);
+  // ⌘Z and ⇧⌘Z (Ctrl+Z, Ctrl+Y) anywhere in the deck's view but a field, which keeps its own undo.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const mod = IS_MAC ? e.metaKey : e.ctrlKey;
+    if (!mod || e.altKey) return;
+    const el = e.target as HTMLElement;
+    if (el.closest('input, textarea, select, [contenteditable="true"]')) return;
+    const k = e.key.toLowerCase();
+    if (k === 'z' && !e.shiftKey) { e.preventDefault(); stepHistory(deck.id, true); }
+    else if ((k === 'z' && e.shiftKey) || (k === 'y' && !IS_MAC)) { e.preventDefault(); stepHistory(deck.id, false); }
+  };
   const setSlides = (slides: Slide[]) => change({ slides });
 
   const remove = async () => {
@@ -1124,6 +1134,7 @@ function DeckView({ t, deck, current, routes, efforts, plan, ready, inFull, onSe
     gone.add(deck.id);
     stop(deck.id);
     known.delete(deck.id);
+    deckHistory.forget(deck.id);
     void deleteDeck(deck.id);
     notify();
     onBack();
@@ -1199,7 +1210,8 @@ function DeckView({ t, deck, current, routes, efforts, plan, ready, inFull, onSe
   };
 
   return (
-    <div className="vid-view sl-view">
+    // Focusable, so a click anywhere in the deck's view puts ⌘Z to work.
+    <div className="vid-view sl-view" tabIndex={-1} onKeyDown={onKeyDown}>
       <div className="vid-top">
         <button className="sb-act vid-back" onClick={onBack} title={t('Back')} aria-label={t('Back')}>
           <Icon name="chevron" size={14} />
@@ -1208,6 +1220,18 @@ function DeckView({ t, deck, current, routes, efforts, plan, ready, inFull, onSe
           <b dir="auto">{deck.title || deck.request}</b>
           <span>{kindName(deck.kind, t)} · {themeName(deck.theme, t)} · {langName(deck.lang, t)}{deck.slides.length ? ` · ${fill(t('{n} slides'), { n: deck.slides.length })}` : ''}</span>
         </div>
+        {deck.slides.length > 0 && (
+          <span className="sl-undo">
+            <button type="button" className="sb-act" disabled={!canUndo} onClick={() => stepHistory(deck.id, true)}
+                    title={`${t('Undo')} (${IS_MAC ? '⌘Z' : 'Ctrl+Z'})`} aria-label={t('Undo')}>
+              <Glyph d={UNDO_GLYPH} />
+            </button>
+            <button type="button" className="sb-act" disabled={!canRedo} onClick={() => stepHistory(deck.id, false)}
+                    title={`${t('Redo')} (${IS_MAC ? '⇧⌘Z' : 'Ctrl+Y'})`} aria-label={t('Redo')}>
+              <Glyph d={REDO_GLYPH} />
+            </button>
+          </span>
+        )}
         {!inFull && (
           <button className="sb-act" onClick={() => toggleSlidesFull(true)} title={t('Full screen')} aria-label={t('Full screen')}>
             <Icon name="maximise" size={14} />
@@ -1259,9 +1283,9 @@ function DeckView({ t, deck, current, routes, efforts, plan, ready, inFull, onSe
           {!inFull && <Strip t={t} deck={deck} current={current.id} onSelect={onSelect} />}
 
           <div className="vid-tabs" role="tablist">
-            {(['slide', 'deck'] as const).map((x) => (
+            {(['slide', 'chat', 'deck'] as const).map((x) => (
               <button key={x} role="tab" aria-selected={tab === x} className={tab === x ? 'on' : ''} onClick={() => setTab(x)}>
-                {x === 'slide' ? fill(t('Slide {n}'), { n: at + 1 }) : t('Presentation')}
+                {x === 'slide' ? fill(t('Slide {n}'), { n: at + 1 }) : x === 'chat' ? t('Chat') : t('Presentation')}
               </button>
             ))}
           </div>
@@ -1271,6 +1295,13 @@ function DeckView({ t, deck, current, routes, efforts, plan, ready, inFull, onSe
                          rewriting={job?.how === 'slide' && job.slideId === current.id}
                          onChange={(patch) => setSlide(current.id, patch)}
                          onSlides={setSlides} onSelect={onSelect} onRewrite={() => void rewrite(current)} onAdd={add} />
+          )}
+          {tab === 'chat' && (
+            <SlidesChat t={t} lang={lang} deck={deck} locked={busy} ready={ready} target={target}
+                        efforts={bookFor(deck, target, efforts)} providers={routes.providers}
+                        onChange={(next) => edit(deck.id, next, true)} onSelect={onSelect} onPresent={onPresent}
+                        onSavePptx={() => void savePptx()} onSavePdf={() => void savePdf()} saving={saving}
+                        onSettings={onSettings} current={() => known.get(deck.id)} />
           )}
           {tab === 'deck' && (
             <div className="vid-look">
