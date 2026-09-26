@@ -1,7 +1,7 @@
 {
   "name": "vylo-editor",
   "private": true,
-  "version": "0.120.0",
+  "version": "0.121.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

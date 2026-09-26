@@ -1344,6 +1344,13 @@ const ar: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'البحث العلمي',
   // Research: researchers' manner, originality, the module's tabs.
+  'Words on screen': 'كلمات على الشاشة',
+  'Numbers and data': 'الأرقام والبيانات',
+  'A video from one sentence': 'فيديو من جملة واحدة',
+  'Real facts, photographs and logos': 'حقائق وصور وشعارات حقيقية',
+  'Open a video and tell it what to change — a scene, the words, the colours, the music — typed or spoken.': 'افتح فيديو وقل له ما يجب تغييره — مشهدًا أو الكلمات أو الألوان أو الموسيقى — كتابةً أو صوتًا.',
+  'Open the latest video': 'افتح أحدث فيديو',
+  'The model builds every video from these scenes. Ask for one by name, or leave it to the storyboard.': 'يبني النموذج كل فيديو من هذه المشاهد. اطلب أحدها باسمه، أو اتركه لخطة المشاهد.',
   'Theses': 'الرسائل والأطاريح',
   'Reviews and plans': 'المراجعات والخطط',
   'Paper': 'بحث',
@@ -3742,6 +3749,13 @@ const ckb: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'توێژینەوە',
   // Research: researchers' manner, originality, the module's tabs.
+  'Words on screen': 'وشە لەسەر شاشە',
+  'Numbers and data': 'ژمارە و داتا',
+  'A video from one sentence': 'ڤیدیۆیەک لە یەک ڕستە',
+  'Real facts, photographs and logos': 'ڕاستی، وێنە و لۆگۆی ڕاستەقینە',
+  'Open a video and tell it what to change — a scene, the words, the colours, the music — typed or spoken.': 'ڤیدیۆیەک بکەرەوە و پێی بڵێ چی بگۆڕێت — دیمەنێک، وشەکان، ڕەنگەکان، مۆسیقا — بە نووسین یان بە دەنگ.',
+  'Open the latest video': 'نوێترین ڤیدیۆ بکەرەوە',
+  'The model builds every video from these scenes. Ask for one by name, or leave it to the storyboard.': 'مۆدێلەکە هەموو ڤیدیۆیەک لەم دیمەنانە دروست دەکات. داوای یەکێکیان بە ناو بکە، یان بۆ نەخشەی دیمەنەکانی جێبهێڵە.',
   'Theses': 'نامەکان',
   'Reviews and plans': 'پێداچوونەوە و پلانەکان',
   'Paper': 'توێژینەوە',
@@ -6145,6 +6159,13 @@ const kmr: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'ڤەکولین',
   // Research: researchers' manner, originality, the module's tabs.
+  'Words on screen': 'پەیڤ ل سەر شاشێ',
+  'Numbers and data': 'ژمارە و داتا',
+  'A video from one sentence': 'ڤیدیۆیەک ژ ئێک رستێ',
+  'Real facts, photographs and logos': 'راستی، وێنە و لۆگۆیێن راستەقینە',
+  'Open a video and tell it what to change — a scene, the words, the colours, the music — typed or spoken.': 'ڤیدیۆیەکێ ڤەکە و بێژێ کا چ بگوهۆڕیت — دیمەنەک، پەیڤ، رەنگ، مۆسیقا — ب نڤیسین یان ب دەنگ.',
+  'Open the latest video': 'نوترین ڤیدیۆیێ ڤەکە',
+  'The model builds every video from these scenes. Ask for one by name, or leave it to the storyboard.': 'مۆدێل هەر ڤیدیۆیەکێ ژ ڤان دیمەنان چێدکەت. داخوازا ئێکێ ب ناڤێ وێ بکە، یان بۆ نەخشەیا دیمەنان بهێلە.',
   'Theses': 'نامە',
   'Reviews and plans': 'پێداچوون و پلان',
   'Paper': 'ڤەکولین',

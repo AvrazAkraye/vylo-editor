@@ -1,8 +1,9 @@
-import { useState, type CSSProperties } from 'react';
-import { Icon, type IconName } from './Icon';
+import { useState } from 'react';
+import { Icon } from './Icon';
+import { GalleryChips, GalleryHero, hue, type Slide } from './Gallery';
 import { fill } from './i18n';
 import { KINDS, type Doc, type Kind } from './research';
-import { GROUP, HUE, KindArt, SCENE_HUE, SceneArt, type Group, type Scene } from './ResearchArt';
+import { GROUP, HUE, KindArt, SCENE_HUE, SceneArt, type Group } from './ResearchArt';
 
 /**
  * Research's home in the full window, before a document is open: a gallery.
@@ -30,8 +31,6 @@ interface Names {
   live: (d: Doc) => boolean;
 }
 
-const hue = (h: number) => ({ '--h': h } as CSSProperties);
-
 function groupName(g: Group | 'all', t: T): string {
   if (g === 'paper') return t('Papers');
   if (g === 'thesis') return t('Theses');
@@ -53,22 +52,20 @@ export function SkillCard({ kind, t, names, on, onPick, count, compact }: {
 }) {
   const g = GROUP[kind];
   return (
-    <button type="button" className={`rsch-skill-card${on ? ' on' : ''}${compact ? ' is-compact' : ''}`} style={hue(HUE[kind])} onClick={() => onPick(kind)}>
-      <span className="rsch-skill-art">
+    <button type="button" className={`gal-card${on ? ' on' : ''}${compact ? ' is-compact' : ''}`} style={hue(HUE[kind])} onClick={() => onPick(kind)}>
+      <span className="gal-card-art">
         <KindArt kind={kind} />
-        <span className="rsch-badge-dot"><i />{badgeName(g, t)}</span>
-        {!!count && <span className="rsch-skill-count" title={t('Your documents')}><Icon name="file" size={10} />{count}</span>}
-        <b className="rsch-skill-name">{names.kind(kind)}</b>
+        <span className="gal-badge"><i />{badgeName(g, t)}</span>
+        {!!count && <span className="gal-count" title={t('Your documents')}><Icon name="file" size={10} />{count}</span>}
+        <b className="gal-card-name">{names.kind(kind)}</b>
       </span>
-      <span className="rsch-skill-body">
-        <span className="rsch-skill-about">{names.about(kind)}</span>
+      <span className="gal-card-body">
+        <span className="gal-card-about">{names.about(kind)}</span>
         <span className="rsch-says">{names.samples(kind).map((p) => <code key={p} dir="auto">{p}</code>)}</span>
       </span>
     </button>
   );
 }
-
-interface Slide { scene: Scene; tag: string; title: string; text: string; go: string; icon: IconName; to: () => void }
 
 export function ResearchHome({ t, docs, people, names, onOpen, onPick, onTab }: {
   t: T;
@@ -79,90 +76,62 @@ export function ResearchHome({ t, docs, people, names, onOpen, onPick, onTab }: 
   onPick: (k: Kind) => void;
   onTab: (where: Where) => void;
 }) {
-  const [at, setAt] = useState(0);
   const [group, setGroup] = useState<Group | 'all'>('all');
   const latest = docs.find((d) => d.sections.some((s) => s.state === 'done')) ?? docs[0];
   const slides: Slide[] = [
-    { scene: 'write', tag: t('Write'), title: t('Theses, papers and dissertations'), icon: 'pencil',
+    { key: 'write', hue: SCENE_HUE.write, art: <SceneArt scene="write" />, tag: t('Write'), title: t('Theses, papers and dissertations'), icon: 'pencil',
       text: t('Name what you need — in Arabic, Kurdish or English — and it is planned, sourced and written, with footnotes and a reference list.'),
       go: t('Start writing'), to: () => onTab('write') },
-    { scene: 'voice', tag: t('Researchers'), title: t('Write in a researcher’s style'), icon: 'person',
+    { key: 'voice', hue: SCENE_HUE.voice, art: <SceneArt scene="voice" />, tag: t('Researchers'), title: t('Write in a researcher’s style'), icon: 'person',
       text: people
         ? fill(t('{n} researchers saved. Any document can be written in the manner of one of them.'), { n: people })
         : t('Save a researcher and their papers; any document can then be written in their manner.'),
       go: t('Open Researchers'), to: () => onTab('people') },
-    { scene: 'check', tag: t('Originality'), title: t('Check originality'), icon: 'shield',
+    { key: 'check', hue: SCENE_HUE.check, art: <SceneArt scene="check" />, tag: t('Originality'), title: t('Check originality'), icon: 'shield',
       text: t('Compare a document with its sources, your other work and the catalogues, and fix what is too close.'),
       go: t('Check a document'), to: () => onTab('check') },
-    { scene: 'chat', tag: t('Chat'), title: t('Talk to your research'), icon: 'chat',
+    { key: 'chat', hue: SCENE_HUE.chat, art: <SceneArt scene="chat" />, tag: t('Chat'), title: t('Talk to your research'), icon: 'chat',
       text: t('Ask your latest document what it argues, or tell it what to change.'),
       go: latest ? t('Open the latest document') : t('Start writing'), to: () => (latest ? onOpen(latest.id) : onTab('write')) },
   ];
-  const slide = slides[at];
   const count = (k: Kind) => docs.filter((d) => d.kind === k).length;
   const kinds = KINDS.filter((k) => group === 'all' || GROUP[k.id] === group);
 
   return (
-    <div className="rsch-home">
-      <section className="rsch-hero" style={hue(SCENE_HUE[slide.scene])} aria-roledescription="carousel" aria-label={t('Research')}>
-        <span className="rsch-hero-art" key={slide.scene}><SceneArt scene={slide.scene} /></span>
-        <span className="rsch-hero-num" aria-hidden="true">{String(at + 1).padStart(2, '0')}</span>
-        <div className="rsch-hero-text" aria-live="polite">
-          <span className="rsch-hero-tag"><Icon name={slide.icon} size={11} />{slide.tag}</span>
-          <h2>{slide.title}</h2>
-          <p>{slide.text}</p>
-          <button type="button" className="rsch-hero-go" onClick={slide.to}>
-            {slide.go}<Icon name="chevron" size={12} className="rsch-flip" />
-          </button>
-        </div>
-        <button type="button" className="rsch-hero-arrow is-prev" onClick={() => setAt((at + slides.length - 1) % slides.length)}
-                title={t('Previous')} aria-label={t('Previous')}><Icon name="chevron" size={16} /></button>
-        <button type="button" className="rsch-hero-arrow is-next" onClick={() => setAt((at + 1) % slides.length)}
-                title={t('Next')} aria-label={t('Next')}><Icon name="chevron" size={16} /></button>
-        <span className="rsch-hero-dots">
-          {slides.map((s, i) => (
-            <button key={s.scene} type="button" className={i === at ? 'on' : ''} onClick={() => setAt(i)} aria-label={s.title} aria-current={i === at} />
-          ))}
-        </span>
-      </section>
+    <div className="gal-home">
+      <GalleryHero slides={slides} label={t('Research')} prev={t('Previous')} next={t('Next')} />
 
-      <div className="rsch-home-head">
+      <div className="gal-head">
         <h3>{t('What do you need?')} <small>{fill(t('{n} kinds of document'), { n: KINDS.length })}</small></h3>
         <p>{t('Each kind of document is a skill. Name it in your request — in Arabic, Kurdish or English — and it switches on.')}</p>
       </div>
-      <div className="rsch-chiprow" role="group" aria-label={t('Kinds')}>
-        <span className="rsch-chiprow-label">{t('Kinds')}</span>
-        {(['all', 'paper', 'thesis', 'plan'] as const).map((g) => (
-          <button key={g} type="button" className={`rsch-gchip${group === g ? ' on' : ''}`} style={g === 'all' ? undefined : hue(GROUP_HUE[g])}
-                  onClick={() => setGroup(g)} aria-pressed={group === g}>
-            {g !== 'all' && <i />}
-            {groupName(g, t)}
-            <small>{g === 'all' ? KINDS.length : KINDS.filter((k) => GROUP[k.id] === g).length}</small>
-          </button>
-        ))}
-      </div>
-      <div className="rsch-skill-grid">
+      <GalleryChips label={t('Kinds')} value={group} onChange={setGroup}
+                    chips={(['all', 'paper', 'thesis', 'plan'] as const).map((g) => ({
+                      id: g, label: groupName(g, t), hue: g === 'all' ? undefined : GROUP_HUE[g],
+                      count: g === 'all' ? KINDS.length : KINDS.filter((k) => GROUP[k.id] === g).length,
+                    }))} />
+      <div className="gal-grid">
         {kinds.map((k) => <SkillCard key={k.id} kind={k.id} t={t} names={names} onPick={onPick} count={count(k.id)} />)}
       </div>
 
       {docs.length > 0 && (
         <>
-          <div className="rsch-home-head">
+          <div className="gal-head">
             <h3>{t('Your documents')} <small>{docs.length}</small></h3>
           </div>
-          <div className="rsch-cover-grid">
+          <div className="gal-covers">
             {docs.map((d) => (
-              <button key={d.id} type="button" className="rsch-cover" style={hue(HUE[d.kind])} onClick={() => onOpen(d.id)}>
-                <span className="rsch-cover-art">
-                  <span className="rsch-cover-page" dir={d.lang === 'en' ? 'ltr' : 'rtl'}>
+              <button key={d.id} type="button" className="gal-cover" style={hue(HUE[d.kind])} onClick={() => onOpen(d.id)}>
+                <span className="gal-cover-art">
+                  <span className="gal-cover-page" dir={d.lang === 'en' ? 'ltr' : 'rtl'}>
                     <small>{names.kind(d.kind)}</small>
                     <b>{d.meta.title || d.request}</b>
                     <i /><i /><i />
                   </span>
-                  <span className="rsch-badge-dot"><i />{badgeName(GROUP[d.kind], t)}</span>
-                  {d.voice && <span className="rsch-cover-voice" title={fill(t('In the style of {name}'), { name: d.voice.name })}><Icon name="person" size={10} /></span>}
+                  <span className="gal-badge"><i />{badgeName(GROUP[d.kind], t)}</span>
+                  {d.voice && <span className="gal-cover-mark" title={fill(t('In the style of {name}'), { name: d.voice.name })}><Icon name="person" size={10} /></span>}
                 </span>
-                <span className="rsch-cover-foot">
+                <span className="gal-cover-foot">
                   <span className={`rsch-dot ${names.live(d) ? 'is-live' : d.stage === 'done' ? 'is-done' : d.error ? 'is-bad' : ''}`} aria-hidden="true" />
                   <span>{names.status(d)}</span>
                   <small>{names.when(d.updated)}</small>

@@ -2873,7 +2873,7 @@ function Cover({ doc }: { doc: Doc }) {
   const years = yearsOf(doc);
   const loc = (text: string) => localDigits(text, doc);
   return (
-    <header className={`rsch-cover ${k.cover === 'thesis' ? 'is-full' : ''}`}>
+    <header className={`gal-cover ${k.cover === 'thesis' ? 'is-full' : ''}`}>
       {k.cover === 'thesis' && (
         <div className="rsch-cover-top">
           <div>
@@ -2904,7 +2904,7 @@ function Cover({ doc }: { doc: Doc }) {
         </>
       )}
       {k.cover === 'thesis' && (years.start || years.end) && (
-        <div className="rsch-cover-foot"><span>{loc(years.start)}</span><span>{loc(years.end)}</span></div>
+        <div className="gal-cover-foot"><span>{loc(years.start)}</span><span>{loc(years.end)}</span></div>
       )}
     </header>
   );

@@ -10,7 +10,7 @@ import { MODELS, modelName } from './models';
 import { EFFORTS, effortLabel, effortOf, effortsFor, type Effort, type EffortBook } from './effort';
 import { generate, type Target } from './generate';
 import {
-  FPS, SCENE_KINDS, type Brand, type Format, type LookSettings, type Scene, type SceneKind, type Style, type Video, type VideoLang,
+  FPS, type Brand, type Format, type LookSettings, type Scene, type SceneKind, type Style, type Video, type VideoLang,
 } from './videotypes';
 import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalLook } from './videolook';
 import {
@@ -27,6 +27,7 @@ import {
 import { VideoFacts } from './VideoFacts';
 import { VideoSound } from './VideoSound';
 import { VideoChat } from './VideoChat';
+import { VideoHome } from './VideoHome';
 import { RowDownload, VideoDownloads, forgetDownloads, useDownloading } from './VideoDownloads';
 import { UndoRedo, VideoTimeline, selectScene, useVideoKeys } from './VideoTimeline';
 import { videoHistory } from './videohistory';
@@ -847,7 +848,12 @@ export function VideoPanel({ t, lang, gw, efforts, plan, providers, choice, gate
               <main className="vid-full-stage">
                 {open
                   ? <Stage t={t} video={open} seek={seek} onSeek={(i) => seekTo(open, i)} />
-                  : <FullWelcome t={t} videos={videos} onOpen={setOpenId} />}
+                  : <VideoHome t={t} videos={videos} onOpen={setOpenId}
+                               onFocus={() => document.getElementById('vid-request')?.focus()}
+                               names={{
+                                 kind: (k) => kindName(k, t), about: (k) => kindAbout(k, t), format: (v) => formatName(v.format, t),
+                                 status: (v) => videoStatus(v, t), when: whenOf, live: (v) => jobs.has(v.id), seconds: (v) => (v.scenes.length ? lengthOf(v) : 0),
+                               }} />}
               </main>
             </div>
           </div>,
@@ -889,29 +895,6 @@ function Stage({ t, video, seek, onSeek }: { t: T; video: Video; seek?: { frame:
           <summary>{fill(t('Picture credits ({n})'), { n: credits.length })}</summary>
           <ul>{credits.map((c) => <li key={c} dir="auto">{c}</li>)}</ul>
         </details>
-      )}
-    </div>
-  );
-}
-
-function FullWelcome({ t, videos, onOpen }: { t: T; videos: Video[]; onOpen: (id: string) => void }) {
-  return (
-    <div className="vid-welcome">
-      <h2>{t('Describe a video')}</h2>
-      <p>{t('Say what it is for, how long, and in which language. The model plans a storyboard from the scenes below; you edit every word, preview it, and export an MP4.')}</p>
-      <div className="vid-welcome-grid">
-        {SCENE_KINDS.map((k) => (
-          <div key={k} className="vid-card">
-            <b>{kindName(k, t)}</b>
-            <span>{kindAbout(k, t)}</span>
-          </div>
-        ))}
-      </div>
-      {videos.length > 0 && (
-        <>
-          <h3>{t('Your videos')}</h3>
-          <ul className="vid-list">{videos.map((v) => <VideoRow key={v.id} t={t} video={v} onOpen={() => onOpen(v.id)} />)}</ul>
-        </>
       )}
     </div>
   );
@@ -1035,7 +1018,7 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
                         onClick={() => pickTemplate(tpl)} title={templateAbout(tpl.id, t)}>
                   <span className="vid-tpl-thumb" style={{ background: sw.bg, color: sw.accent }} aria-hidden="true">
                     <i className={tpl.format === 'portrait' ? 'vid-tpl-frame is-portrait' : tpl.format === 'square' ? 'vid-tpl-frame is-square' : 'vid-tpl-frame is-landscape'} />
-                    <Icon name={tpl.icon} size={14} />
+                    <Icon name={tpl.icon} size={12} />
                   </span>
                   <b>{templateName(tpl.id, t)}</b>
                   <small>{formatName(tpl.format, t)} · {fill(t('{n} s'), { n: tpl.seconds })}</small>
@@ -1106,6 +1089,14 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
   );
 }
 
+/** Where a video is, in words: planning, finding pictures, its scenes and length, or not planned. */
+function videoStatus(video: Video, t: T): string {
+  const job = jobs.get(video.id);
+  return job ? (job.stage === 'planning' ? t('Planning') : t('Finding pictures'))
+    : video.scenes.length ? fill(t('{n} scenes · {s} s'), { n: video.scenes.length, s: Math.round(lengthOf(video)) })
+    : t('Not planned');
+}
+
 function VideoRow({ t, video, onOpen }: { t: T; video: Video; onOpen: () => void }) {
   const job = jobs.get(video.id);
   const out = useDownloading(video.id);
@@ -1118,10 +1109,7 @@ function VideoRow({ t, video, onOpen }: { t: T; video: Video; onOpen: () => void
           <span>
             {formatName(video.format, t)}
             {' · '}
-            {out ? t('Exporting')
-              : job ? (job.stage === 'planning' ? t('Planning') : t('Finding pictures'))
-              : video.scenes.length ? fill(t('{n} scenes · {s} s'), { n: video.scenes.length, s: Math.round(lengthOf(video)) })
-              : t('Not planned')}
+            {out ? t('Exporting') : videoStatus(video, t)}
             {' · '}
             {whenOf(video.created)}
           </span>
