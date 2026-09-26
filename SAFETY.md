@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.118.0.
+version 0.119.0.
 
 ---
 
@@ -190,7 +190,7 @@ to your own speech provider, one for fonts and one to Remotion:
 | `app/src/inline.ts` | `POST {gateway}/v1/messages` | ⌘K rewrite, apply-from-chat |
 | `app/src/complete.ts` | `POST {gateway}/v1/complete` | inline (ghost-text) completion |
 | `app/src/gateway.ts` | `POST {gateway}/v1/messages` | checking a key you just pasted |
-| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again, and answering what you say or write in its Chat tab; and learning a researcher's style from their papers |
+| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again, and answering what you say or write in its Chat tab; and learning a researcher's style from their papers; and answering what you ask in a Research document's Chat tab |
 | `app/src/account.ts` | `POST {gateway}/app/api/auth/login` | signing in — `/auth/register` and `/auth/logout` are the same shape |
 | `app/src/account.ts` | `GET {gateway}/app/api/me` | the plan balance: on launch, when a turn ends, otherwise every five minutes |
 | `app/src/account.ts` | `POST {gateway}/app/api/keys` | minting this app's own key, once, at the end of a sign-in |
@@ -520,6 +520,17 @@ changes the slides only through the operations `app/src/slideschatops.ts` checks
 which one undo takes back. It can open a slide or start the presentation; it
 cannot save a file, only offer the button that does. With no such service set
 up, the Chat tab uses the dictation below instead.
+
+**A Research document's Chat tab records the same way.** Its microphone
+(`app/src/ResearchChat.tsx`) goes through `app/src/slidesvoice.ts` exactly as
+the Slides chat's does, under the same rules. Its messages go to the
+document's model with the outline, the text written so far (up to 60,000
+characters), the sources' records and your notes. Its answer changes the
+document only through the operations `app/src/researchchatops.ts` checks — a
+heading, a brief, a length, a part added or removed, the title, the citation
+style, a note — and a part's text is only ever written again by the document's
+own writer, as the Outline tab's rewrite does. It cannot save a file, only
+offer the button that does.
 
 ### Dictation is the one thing that is not ours
 
@@ -966,7 +977,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.118.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.119.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -991,6 +1002,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.118.0. Every statement above was read out of the code. If
+*Last checked against 0.119.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

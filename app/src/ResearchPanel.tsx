@@ -32,6 +32,8 @@ import { readPicked } from './researchfiles';
 import { MIN_WORDS, voiceIn, voiceOf, type Researcher } from './researchers';
 import { ResearchPeople, personOf, usePeople } from './ResearchPeople';
 import { ResearchOriginality } from './ResearchOriginality';
+import { ResearchChat } from './ResearchChat';
+import type { ChatTab, Work as ChatWork } from './researchchatops';
 import { fold } from './settings';
 
 /**
@@ -185,11 +187,23 @@ const newId = () => {
  */
 const get: Get = (url, signal) => fetch(url, { signal });
 
+/**
+ * A run's copy of the document with the conversation as it is now. A run
+ * takes its copy when it starts and saves the whole of it as it goes; the
+ * Chat tab keeps talking meanwhile, and a question asked during chapter two
+ * must not vanish when chapter three is saved over it. Runs never change the
+ * chat, so the newest one is always the one kept.
+ */
+function withChat(d: Doc): Doc {
+  const k = known.get(d.id);
+  return k && k.chat !== d.chat ? { ...d, chat: k.chat } : d;
+}
+
 function depsFor(gw: Target, efforts: EffortBook): Deps {
   return {
     generate: (o) => generate(gw, { ...o, efforts }),
     search: (queries, want, signal) => search(queries, want, get, { signal }),
-    save: keep,
+    save: (d) => keep(withChat(d)),
     now: () => Date.now(),
     newId,
   };
@@ -218,7 +232,7 @@ function start(doc: Doc, gw: Target, efforts: EffortBook, work: Work, onFail: (e
   const deps = depsFor(gw, efforts);
   const onChange = (d: Doc, p: Progress) => {
     if (gone.has(d.id)) return;
-    known.set(d.id, d);
+    known.set(d.id, withChat(d));
     // What changed since the last report, as the run's activity: a stage
     // begun, the sources kept once the search and the screen are over, the
     // outline, each part as it is finished, anything the run had to say.
@@ -246,18 +260,61 @@ function start(doc: Doc, gw: Target, efforts: EffortBook, work: Work, onFail: (e
     : work.how === 'abstract' ? redoAbstract(doc, deps, o)
     : run(doc, deps, { ...o, stopBefore: work.stopBefore });
   going
-    .then((d) => keep(d))
+    .then((d) => keep(withChat(d)))
     .catch((e: unknown) => {
       if ((e as { name?: string })?.name !== 'AbortError') onFail(e);
     })
     .finally(() => {
       jobs.delete(doc.id);
+      // What the chat queued behind this run starts now, unless it failed:
+      // a failure is the researcher's to read before anything else is written.
+      if (known.get(doc.id)?.error) chatQueue.delete(doc.id);
+      else next(doc.id);
       notify();
     });
 }
 
 function stop(id: string) {
+  // Stop now stops what the chat queued behind it too.
+  chatQueue.delete(id);
   jobs.get(id)?.ctl.abort();
+}
+
+/**
+ * Runs the chat asked for, by document, waiting for the one in flight to end.
+ * A part is named by its id and found when its turn comes, so a part removed
+ * or moved meanwhile is skipped or still found.
+ */
+const chatQueue = new Map<string, { work: ChatWork; gw: Target; efforts: EffortBook; onFail: (e: unknown) => void }[]>();
+
+function workOf(doc: Doc, w: ChatWork): Work | null {
+  if (w.how === 'rewrite') {
+    const index = doc.sections.findIndex((s) => s.id === w.id);
+    return index < 0 ? null : { how: 'rewrite', index, redo: w.redo };
+  }
+  return w.how === 'run' ? { how: 'run' } : { how: 'abstract' };
+}
+
+/** Start the next chatQueue run of a document, if nothing is running on it. */
+function next(id: string) {
+  if (jobs.has(id)) return;
+  const q = chatQueue.get(id);
+  while (q?.length) {
+    const item = q.shift()!;
+    const doc = known.get(id);
+    if (!doc || gone.has(id)) { chatQueue.delete(id); return; }
+    const w = workOf(doc, item.work);
+    if (!w) continue;
+    start(doc, item.gw, item.efforts, w, item.onFail);
+    if (jobs.has(id)) return;
+  }
+  chatQueue.delete(id);
+}
+
+function enqueue(id: string, works: ChatWork[], gw: Target, efforts: EffortBook, onFail: (e: unknown) => void) {
+  chatQueue.set(id, [...(chatQueue.get(id) ?? []), ...works.map((work) => ({ work, gw, efforts, onFail }))]);
+  next(id);
+  notify();
 }
 
 /** Ask a run to pause: the parts being written are finished and kept, and it ends there. */
@@ -1189,7 +1246,11 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
 
       {open
         ? <DocView key={open.id} doc={open} t={t} routes={routes} efforts={efforts} plan={plan} ready={ready} inFull={full}
-                   docs={docs} people={people}
+                   docs={docs} people={people} lang={lang} onProviders={onProviders}
+                   onQueue={(doc, works) => {
+                     const target = targetOf(doc, routes);
+                     enqueue(doc.id, works, target, bookFor(doc, target, efforts), fail(t('write the document')));
+                   }}
                    onBack={() => setOpenId(null)}
                    onRead={(at) => {
                      if (!full) setReading({ id: open.id, at });
@@ -1721,15 +1782,19 @@ function DocRow({ doc, t, onOpen }: { doc: Doc; t: (s: string) => string; onOpen
 
 // ── one document ──────────────────────────────────────────────────────────
 
-type Tab = 'outline' | 'sources' | 'check' | 'details';
+type Tab = 'outline' | 'sources' | 'chat' | 'check' | 'details';
 
 /** The tab a document was left on, by document: coming back to a thesis comes back to where it was. */
 const docTabs = new Map<string, Tab>();
 
-function DocView({ doc, t, routes, efforts, plan, ready, inFull, docs, people, onBack, onRead, onPdf, begin, onError }: {
+function DocView({ doc, t, routes, efforts, plan, ready, inFull, docs, people, lang, onProviders, onQueue, onBack, onRead, onPdf, begin, onError }: {
   doc: Doc;
   docs: Doc[];
   people: Researcher[];
+  lang: Lang;
+  onProviders: () => void;
+  /** Runs the chat asked for, started in order behind the one in flight. */
+  onQueue: (doc: Doc, works: ChatWork[]) => void;
   t: (s: string) => string;
   routes: Routes;
   efforts: EffortBook;
@@ -1943,9 +2008,9 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, docs, people, o
       {saved && /\.docx$/i.test(saved) && <p className="rsch-lede">{t('Word asks to update the fields when it opens the file: say yes, and the table of contents gets its page numbers.')}</p>}
 
       <div className="rsch-tabs" role="tablist">
-        {(['outline', 'sources', 'check', 'details'] as const).map((x) => (
+        {(['outline', 'sources', 'chat', 'check', 'details'] as const).map((x) => (
           <button key={x} role="tab" aria-selected={tab === x} className={tab === x ? 'on' : ''} onClick={() => setTab(x)}>
-            {x === 'outline' ? t('Outline') : x === 'sources' ? t('Sources') : x === 'check' ? t('Originality') : t('Details')}
+            {x === 'outline' ? t('Outline') : x === 'sources' ? t('Sources') : x === 'chat' ? t('Chat') : x === 'check' ? t('Originality') : t('Details')}
           </button>
         ))}
       </div>
@@ -1955,6 +2020,15 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, docs, people, o
                     onChange={change} onRewrite={(index, redo) => begin(doc, { how: 'rewrite', index, redo })} ready={ready && !loading} />
       )}
       {tab === 'sources' && <SourcesTab doc={doc} t={t} busy={busy} onChange={change} onError={onError} />}
+      {tab === 'chat' && (
+        <ResearchChat t={t} lang={lang} doc={doc} busy={() => jobs.has(doc.id)} ready={ready && !loading}
+                      target={target} book={bookFor(doc, target, efforts)} providers={routes.providers} onSettings={onProviders}
+                      current={() => known.get(doc.id)}
+                      onChange={(next) => { const cur = known.get(doc.id); if (cur && !gone.has(doc.id)) keep({ ...cur, ...next, updated: Date.now() }); }}
+                      onWork={(works) => onQueue(known.get(doc.id) ?? doc, works)}
+                      onOpen={(id) => onRead(id)} onTab={(x: ChatTab) => setTab(x)}
+                      onSaveWord={() => void saveWord()} onSavePdf={() => void savePdf()} saving={saving} />
+      )}
       {tab === 'check' && (
         <ResearchOriginality t={t} doc={doc} docs={docs} people={people} lang={doc.lang} target={target} book={bookFor(doc, target, efforts)}
                              canRewrite={ready && !busy && !loading} onRead={(id) => onRead(id)}

@@ -286,7 +286,26 @@ export interface Doc {
   files?: DataFile[];
   /** Whose way of writing it is written in, when one was chosen (researchers.ts). */
   voice?: Voice;
+  /** The conversation in its Chat tab (researchchat.ts), oldest first. */
+  chat?: ChatTurn[];
   error?: string;
+}
+
+/** One turn of a document's Chat tab. */
+export interface ChatTurn {
+  role: 'you' | 'model';
+  text: string;
+  at: number;
+  /** What the model's turn changed or started, in plain words, one line each. */
+  changes?: string[];
+  /** What it asked for and did not get, one line each. */
+  skipped?: string[];
+  /** The model's answer could not be read. */
+  failed?: boolean;
+  /** Buttons offered under the answer, for what only the person may press: saving a file. */
+  offer?: ('docx' | 'pdf')[];
+  /** Spoken rather than typed. */
+  spoken?: boolean;
 }
 
 /**
