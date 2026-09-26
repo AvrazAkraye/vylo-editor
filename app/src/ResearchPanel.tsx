@@ -33,6 +33,7 @@ import { MIN_WORDS, voiceIn, voiceOf, type Researcher } from './researchers';
 import { ResearchPeople, personOf, usePeople } from './ResearchPeople';
 import { ResearchOriginality } from './ResearchOriginality';
 import { ResearchChat } from './ResearchChat';
+import { ResearchHome, SkillCard } from './ResearchHome';
 import type { ChatTab, Work as ChatWork } from './researchchatops';
 import { fold } from './settings';
 
@@ -1299,7 +1300,8 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
               <main className="rsch-full-doc">
                 {open
                   ? <Reader key={open.id} doc={open} t={t} mode="inline" at={jump?.at} nonce={jump?.n} onClose={() => setJump(null)} begin={begin} />
-                  : <FullWelcome t={t} docs={docs} onOpen={setOpenId} />}
+                  : <ResearchHome t={t} docs={docs} people={people.length} names={namesFor(t)} onOpen={setOpenId}
+                                  onPick={(k) => pickSkill(k, lang)} onTab={(where) => { if (where === 'write') focusAsk = true; toTab(where); }} />}
               </main>
             </div>
           </div>,
@@ -1321,31 +1323,6 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
       )}
       {printView}
     </>
-  );
-}
-
-/** The large side of the full window before a document is open: the skills, and the documents so far. */
-function FullWelcome({ t, docs, onOpen }: { t: (s: string) => string; docs: Doc[]; onOpen: (id: string) => void }) {
-  return (
-    <div className="rsch-welcome">
-      <h2>{t('What do you need?')}</h2>
-      <p>{t('Each kind of document is a skill. Name it in your request — in Arabic, Kurdish or English — and it switches on.')}</p>
-      <div className="rsch-welcome-grid">
-        {KINDS.map((k) => (
-          <div key={k.id} className="rsch-card">
-            <b>{kindName(k.id, t)}</b>
-            <span>{kindAbout(k.id, t)}</span>
-            <span className="rsch-says">{samplesOf(k.id).map((p) => <code key={p} dir="auto">{p}</code>)}</span>
-          </div>
-        ))}
-      </div>
-      {docs.length > 0 && (
-        <>
-          <h3>{t('Your documents')}</h3>
-          <ul className="rsch-docs">{docs.map((d) => <DocRow key={d.id} doc={d} t={t} onOpen={() => onOpen(d.id)} />)}</ul>
-        </>
-      )}
-    </div>
   );
 }
 
@@ -1448,36 +1425,40 @@ function DocList({ t, docs, onOpen }: { t: (s: string) => string; docs: Doc[]; o
  * the language the researcher is likely to write the rest in, and goes to
  * the Write tab.
  */
-function Skills({ t, lang }: { t: (s: string) => string; lang: Lang }) {
-  const pick = (k: Kind) => {
-    draft.kind = k;
-    if (!draft.request.trim()) {
-      const s = samplesOf(k);
-      // In Badini, a Badini phrase: the Kurdish sample is Sorani, and a
-      // Sorani phrase would make the document Sorani.
-      const badini = lang === 'kmr' ? kindOf(k).triggers.find((x) => docLangOf(x, 'kmr') === 'kmr') : undefined;
-      const phrase = lang === 'en' ? s[s.length - 1] : lang === 'ar' ? s[0] : badini ?? s[1] ?? s[0];
-      draft.request = `${phrase} `;
-    }
-    focusAsk = true;
-    toTab('write');
+function pickSkill(k: Kind, lang: Lang) {
+  draft.kind = k;
+  if (!draft.request.trim()) {
+    const s = samplesOf(k);
+    // In Badini, a Badini phrase: the Kurdish sample is Sorani, and a
+    // Sorani phrase would make the document Sorani.
+    const badini = lang === 'kmr' ? kindOf(k).triggers.find((x) => docLangOf(x, 'kmr') === 'kmr') : undefined;
+    const phrase = lang === 'en' ? s[s.length - 1] : lang === 'ar' ? s[0] : badini ?? s[1] ?? s[0];
+    draft.request = `${phrase} `;
+  }
+  focusAsk = true;
+  toTab('write');
+}
+
+/** The words the gallery (ResearchHome.tsx) shows, in the interface's language. */
+function namesFor(t: (s: string) => string) {
+  return {
+    kind: (k: Kind) => kindName(k, t),
+    about: (k: Kind) => kindAbout(k, t),
+    samples: samplesOf,
+    status: (d: Doc) => docStatus(d, t),
+    when: whenOf,
+    live: (d: Doc) => jobs.has(d.id),
   };
+}
+
+function Skills({ t, lang }: { t: (s: string) => string; lang: Lang }) {
+  const names = namesFor(t);
   return (
     <>
       <p className="rsch-lede">{t('Each kind of document is a skill. Name it in your request — in Arabic, Kurdish or English — and it switches on.')}</p>
-      <ul className="rsch-skills">
-        {KINDS.map((k) => (
-          <li key={k.id}>
-            <button className={`rsch-card ${draft.kind === k.id ? 'on' : ''}`} onClick={() => pick(k.id)}>
-              <b>{kindName(k.id, t)}</b>
-              <span>{kindAbout(k.id, t)}</span>
-              <span className="rsch-says">
-                {samplesOf(k.id).map((x) => <code key={x} dir="auto">{x}</code>)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <div className="rsch-skill-list">
+        {KINDS.map((k) => <SkillCard key={k.id} kind={k.id} t={t} names={names} compact on={draft.kind === k.id} onPick={(x) => pickSkill(x, lang)} />)}
+      </div>
     </>
   );
 }
@@ -1755,9 +1736,18 @@ function VoicePicker({ t, people, value, named, onChange, disabled, kept, onPeop
   );
 }
 
-function DocRow({ doc, t, onOpen }: { doc: Doc; t: (s: string) => string; onOpen: () => void }) {
+/** Where a document is, in words: the stage a run is at, finished, or how much is written. */
+function docStatus(doc: Doc, t: (s: string) => string): string {
   const job = jobs.get(doc.id);
   const written = doc.sections.filter((s) => s.state === 'done').length;
+  return job ? stageName(job.progress.stage, t)
+    : doc.stage === 'done' ? t('Finished')
+    : doc.sections.length ? fill(t('{done} of {n} written'), { done: written, n: doc.sections.length })
+    : stageName(doc.stage, t);
+}
+
+function DocRow({ doc, t, onOpen }: { doc: Doc; t: (s: string) => string; onOpen: () => void }) {
+  const job = jobs.get(doc.id);
   return (
     <li>
       <button className="rsch-doc" onClick={onOpen}>
@@ -1767,10 +1757,7 @@ function DocRow({ doc, t, onOpen }: { doc: Doc; t: (s: string) => string; onOpen
           <span>
             {kindName(doc.kind, t)}
             {' · '}
-            {job ? stageName(job.progress.stage, t)
-              : doc.stage === 'done' ? t('Finished')
-              : doc.sections.length ? fill(t('{done} of {n} written'), { done: written, n: doc.sections.length })
-              : stageName(doc.stage, t)}
+            {docStatus(doc, t)}
             {' · '}
             {whenOf(doc.updated)}
           </span>

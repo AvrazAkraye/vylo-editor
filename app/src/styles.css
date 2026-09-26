@@ -5077,19 +5077,40 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 }
 .rsch-bad{ margin:0; font-size:var(--fs-2); color:var(--err); line-height:1.5; }
 
-/* The skills: what each kind is, and the words that ask for it. The phrases
-   are the point of the card — they are what to type. */
-.rsch-skills{ list-style:none; margin:var(--sp-3) 0 0; padding:0 var(--sp-6); display:grid; gap:var(--sp-3); }
-.rsch-card{
-  inline-size:100%; display:grid; gap:var(--sp-2); text-align:start;
-  padding:var(--sp-4) var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-2);
-  background:var(--panel); color:inherit; font:inherit; cursor:pointer;
-  transition:border-color .15s ease, background .15s ease;
+/* The skills: a card for each kind of document — its picture and colour
+   (`--h`, the kind's hue from ResearchArt.tsx), a badge for its group, and the
+   phrases that ask for it, which are the point of the card: they are what to
+   type. The same card in the sidebar's Skills tab, shorter. */
+.rsch-skill-list{ display:grid; gap:var(--sp-4); padding:var(--sp-3) var(--sp-6) 0; }
+.rsch-skill-card{
+  --h:220; position:relative; display:flex; flex-direction:column; inline-size:100%; padding:0; overflow:hidden;
+  border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel);
+  color:inherit; font:inherit; text-align:start; cursor:pointer;
+  transition:transform .18s ease, border-color .18s ease, box-shadow .18s ease;
 }
-.rsch-card:hover{ border-color:var(--rule-2); background:var(--panel-2); }
-.rsch-card.on{ border-color:var(--brand); background:var(--brand-wash); }
-.rsch-card b{ font-size:var(--fs-4); font-weight:600; color:var(--ink); }
-.rsch-card > span{ font-size:var(--fs-2); color:var(--mute); line-height:1.5; }
+.rsch-skill-card:hover{ transform:translateY(-2px); border-color:hsl(var(--h) 70% 55% / .7); box-shadow:0 10px 28px -12px hsl(var(--h) 80% 40% / .55); }
+.rsch-skill-card:focus-visible{ outline:2px solid hsl(var(--h) 80% 60%); outline-offset:2px; }
+.rsch-skill-card.on{ border-color:hsl(var(--h) 75% 55%); box-shadow:0 0 0 1px hsl(var(--h) 75% 55%); }
+.rsch-skill-art{ position:relative; display:block; block-size:150px; overflow:hidden; }
+.rsch-skill-card.is-compact .rsch-skill-art{ block-size:104px; }
+.rsch-art-svg{ display:block; inline-size:100%; block-size:100%; transition:transform .4s ease; }
+.rsch-skill-card:hover .rsch-art-svg, .rsch-cover:hover .rsch-art-svg{ transform:scale(1.05); }
+.rsch-skill-art::after{ content:""; position:absolute; inset:0; background:linear-gradient(180deg, transparent 40%, rgb(0 0 0 / .72)); pointer-events:none; }
+.rsch-skill-name{ position:absolute; z-index:1; inset-inline:var(--sp-5); inset-block-end:var(--sp-4); color:#fff; font-size:var(--fs-5); font-weight:700; text-shadow:0 1px 8px rgb(0 0 0 / .5); }
+.rsch-badge-dot{
+  position:absolute; z-index:1; inset-block-start:var(--sp-3); inset-inline-end:var(--sp-3);
+  display:inline-flex; align-items:center; gap:var(--sp-2); padding:2px var(--sp-3); border-radius:10px;
+  background:rgb(10 8 20 / .62); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  color:#fff; font-size:10px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+}
+.rsch-badge-dot i{ inline-size:7px; block-size:7px; border-radius:50%; background:hsl(var(--h) 90% 62%); box-shadow:0 0 8px hsl(var(--h) 90% 62%); }
+.rsch-skill-count{
+  position:absolute; z-index:1; inset-block-start:var(--sp-3); inset-inline-start:var(--sp-3); display:inline-flex; align-items:center; gap:4px;
+  padding:2px var(--sp-3); border-radius:10px; background:rgb(255 255 255 / .16); color:#fff; font-size:10px; font-weight:600;
+}
+.rsch-skill-body{ display:flex; flex-direction:column; gap:var(--sp-3); padding:var(--sp-4) var(--sp-5) var(--sp-5); }
+.rsch-skill-about{ font-size:var(--fs-2); color:var(--mute); line-height:1.5; }
+.rsch-skill-card .rsch-says code{ background:hsl(var(--h) 70% 55% / .14); color:var(--ink); }
 .rsch-says{ display:flex; flex-wrap:wrap; gap:var(--sp-2); margin-block-start:var(--sp-1); }
 .rsch-says code{
   padding:1px var(--sp-3); border-radius:var(--r-1);
@@ -5792,14 +5813,116 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   inline-size:100%; block-size:100%; border:0; border-radius:0; box-shadow:none; animation:none;
 }
 .rsch-away{ text-align:center; }
-.rsch-welcome{ flex:1; overflow-y:auto; padding:var(--sp-10) 48px; }
-.rsch-welcome > *{ max-inline-size:980px; margin-inline:auto; }
-.rsch-welcome h2{ font-size:22px; margin-block:var(--sp-4) var(--sp-3); color:var(--ink); }
-.rsch-welcome h3{ font-size:var(--fs-6); margin-block:var(--sp-10) var(--sp-4); color:var(--ink); }
-.rsch-welcome > p{ font-size:var(--fs-4); color:var(--mute); line-height:1.6; }
-.rsch-welcome-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:var(--sp-5); margin-block-start:var(--sp-8); }
-.rsch-welcome-grid .rsch-card{ cursor:default; }
-.rsch-welcome .rsch-docs{ padding:0; }
+.rsch-home{ flex:1; overflow-y:auto; padding:var(--sp-8) 40px 56px; }
+.rsch-home > *{ max-inline-size:1180px; margin-inline:auto; }
+
+/* The banner: a scene drawn full-bleed, its words over a scrim on the
+   reading side, a big faint number, arrows and dots. RTL mirrors the scene
+   so the words and the picture keep their sides. */
+.rsch-hero{
+  --h:262; position:relative; display:flex; align-items:center; min-block-size:300px; overflow:hidden;
+  border-radius:18px; background:hsl(var(--h) 40% 8%); isolation:isolate;
+  box-shadow:0 24px 60px -30px hsl(var(--h) 80% 30% / .8);
+}
+.rsch-hero-art{ position:absolute; inset-block:0; inset-inline-start:34%; inset-inline-end:0; z-index:-2; animation:rsch-fade .5s ease; }
+.rsch-hero-art .rsch-art-svg{ inline-size:100%; block-size:100%; }
+/* The scene fades in from the words' side rather than starting at a hard edge. */
+.rsch-hero-art{ -webkit-mask-image:linear-gradient(90deg, transparent, #000 30%); mask-image:linear-gradient(90deg, transparent, #000 30%); }
+[dir="rtl"] .rsch-hero-art{ transform:scaleX(-1); }
+.rsch-hero::before{
+  content:""; position:absolute; inset:0; z-index:-1;
+  background:linear-gradient(90deg, hsl(var(--h) 45% 6% / .96) 0%, hsl(var(--h) 45% 6% / .75) 38%, transparent 70%);
+}
+[dir="rtl"] .rsch-hero::before{ background:linear-gradient(270deg, hsl(var(--h) 45% 6% / .96) 0%, hsl(var(--h) 45% 6% / .75) 38%, transparent 70%); }
+@keyframes rsch-fade{ from{ opacity:0; } to{ opacity:1; } }
+.rsch-hero-num{
+  position:absolute; inset-block-start:6px; inset-inline-start:28px; z-index:-1;
+  font-size:120px; font-weight:800; line-height:1; color:transparent; -webkit-text-stroke:1.5px rgb(255 255 255 / .16);
+  font-variant-numeric:tabular-nums; pointer-events:none;
+}
+.rsch-hero-text{ display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-4); max-inline-size:min(460px, 60%); padding-block:48px 56px; padding-inline:72px 44px; }
+.rsch-hero-tag{
+  display:inline-flex; align-items:center; gap:var(--sp-2); padding:3px var(--sp-4); border-radius:12px;
+  background:rgb(255 255 255 / .12); border:1px solid rgb(255 255 255 / .18); color:#fff; font-size:var(--fs-1); font-weight:600;
+}
+.rsch-hero h2{ margin:0; color:#fff; font-size:34px; line-height:1.15; font-weight:800; letter-spacing:-.01em; }
+.rsch-hero p{ margin:0; color:rgb(255 255 255 / .78); font-size:var(--fs-4); line-height:1.6; }
+.rsch-hero-go{
+  display:inline-flex; align-items:center; gap:var(--sp-3); margin-block-start:var(--sp-2); padding:10px 22px;
+  border:0; border-radius:22px; background:#fff; color:#15121f; font:inherit; font-size:var(--fs-3); font-weight:700; cursor:pointer;
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.rsch-hero-go:hover{ transform:translateY(-1px); box-shadow:0 8px 24px -8px rgb(255 255 255 / .5); }
+.rsch-flip{ transform:scaleX(1); }
+[dir="rtl"] .rsch-flip{ transform:scaleX(-1); }
+.rsch-hero-arrow{
+  position:absolute; inset-block-start:50%; z-index:2; display:grid; place-items:center; inline-size:40px; block-size:40px; margin-block-start:-20px;
+  border:1px solid rgb(255 255 255 / .22); border-radius:50%; background:rgb(10 8 20 / .55); color:#fff; cursor:pointer;
+  backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); transition:background .15s ease;
+}
+.rsch-hero-arrow:hover{ background:rgb(255 255 255 / .18); }
+.rsch-hero-arrow.is-prev{ inset-inline-start:14px; }
+.rsch-hero-arrow.is-prev svg{ transform:scaleX(-1); }
+[dir="rtl"] .rsch-hero-arrow.is-prev svg{ transform:none; }
+.rsch-hero-arrow.is-next{ inset-inline-end:14px; }
+[dir="rtl"] .rsch-hero-arrow.is-next svg{ transform:scaleX(-1); }
+.rsch-hero-dots{ position:absolute; inset-block-end:16px; inset-inline-start:72px; display:flex; gap:6px; }
+.rsch-hero-dots button{ inline-size:8px; block-size:8px; padding:0; border:0; border-radius:4px; background:rgb(255 255 255 / .35); cursor:pointer; transition:inline-size .2s ease, background .2s ease; }
+.rsch-hero-dots button.on{ inline-size:22px; background:#fff; }
+
+.rsch-home-head{ margin-block:var(--sp-10) var(--sp-4); }
+.rsch-home-head h3{ display:flex; align-items:baseline; gap:var(--sp-4); margin:0; font-size:22px; font-weight:800; color:var(--ink); }
+.rsch-home-head h3 small{ font-size:var(--fs-2); font-weight:500; color:var(--mute); font-family:var(--mono, ui-monospace, monospace); }
+.rsch-home-head p{ margin:var(--sp-2) 0 0; font-size:var(--fs-3); color:var(--mute); line-height:1.6; }
+
+/* Chips that filter the kinds by group, each with its colour's dot. */
+.rsch-chiprow{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); margin-block-end:var(--sp-6); }
+.rsch-chiprow-label{ margin-inline-end:var(--sp-3); font-size:var(--fs-1); font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--mute); }
+.rsch-gchip{
+  --h:220; display:inline-flex; align-items:center; gap:var(--sp-2); padding:5px var(--sp-5);
+  border:1px solid var(--rule-2); border-radius:16px; background:var(--panel); color:var(--ink);
+  font:inherit; font-size:var(--fs-2); cursor:pointer; transition:border-color .15s ease, background .15s ease;
+}
+.rsch-gchip i{ inline-size:8px; block-size:8px; border-radius:50%; background:hsl(var(--h) 85% 58%); }
+.rsch-gchip small{ color:var(--mute); font-variant-numeric:tabular-nums; }
+.rsch-gchip:hover{ border-color:hsl(var(--h) 70% 55% / .7); }
+.rsch-gchip.on{ border-color:var(--brand); background:var(--brand-wash); color:var(--brand); font-weight:600; }
+.rsch-skill-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(220px, 1fr)); gap:var(--sp-5); }
+
+/* The documents as covers: a page on the kind's colour, its title in its own direction. */
+.rsch-cover-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(210px, 1fr)); gap:var(--sp-6); }
+.rsch-cover{
+  --h:220; display:flex; flex-direction:column; padding:0; overflow:hidden;
+  border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel);
+  color:inherit; font:inherit; text-align:start; cursor:pointer; transition:transform .18s ease, box-shadow .18s ease, border-color .18s ease;
+}
+.rsch-cover:hover{ transform:translateY(-2px); border-color:hsl(var(--h) 70% 55% / .7); box-shadow:0 10px 28px -12px hsl(var(--h) 80% 40% / .55); }
+.rsch-cover-art{
+  position:relative; display:flex; justify-content:center; align-items:flex-end; block-size:150px; padding:22px 26px 0; overflow:hidden;
+  background:radial-gradient(circle at 75% 20%, hsl(var(--h) 90% 60% / .5), transparent 55%), linear-gradient(135deg, hsl(var(--h) 45% 22%), hsl(calc(var(--h) + 40) 55% 8%));
+}
+.rsch-cover-page{
+  position:relative; display:flex; flex-direction:column; gap:6px; inline-size:100%; block-size:100%; padding:14px 14px 0;
+  border-start-start-radius:6px; border-start-end-radius:6px; background:#F7F5FB; color:#1b1726; box-shadow:0 -4px 24px rgb(0 0 0 / .35);
+  transition:transform .3s ease;
+}
+.rsch-cover:hover .rsch-cover-page{ transform:translateY(-4px); }
+.rsch-cover-page small{ font-size:9px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:hsl(var(--h) 70% 42%); }
+.rsch-cover-page b{ font-size:13px; line-height:1.45; font-weight:700; display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+.rsch-cover-page i{ display:block; block-size:4px; border-radius:2px; background:#D6D1E2; }
+.rsch-cover-page i:nth-of-type(2){ inline-size:80%; }
+.rsch-cover-page i:nth-of-type(3){ inline-size:60%; }
+.rsch-cover-voice{
+  position:absolute; inset-block-start:var(--sp-3); inset-inline-start:var(--sp-3); display:grid; place-items:center;
+  inline-size:20px; block-size:20px; border-radius:50%; background:rgb(10 8 20 / .6); color:#fff;
+}
+.rsch-cover-foot{ display:flex; align-items:center; gap:var(--sp-3); padding:var(--sp-4) var(--sp-5); font-size:var(--fs-2); color:var(--ink); }
+.rsch-cover-foot > span:nth-child(2){ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.rsch-cover-foot small{ color:var(--mute); font-size:var(--fs-1); }
+@media (prefers-reduced-motion: reduce){
+  .rsch-skill-card, .rsch-cover, .rsch-cover-page, .rsch-art-svg, .rsch-hero-art{ transition:none; animation:none; }
+  .rsch-skill-card:hover, .rsch-cover:hover{ transform:none; }
+}
 
 /* ── paper, for the PDF ──
    A4 sheets drawn by `Paper` in ResearchPanel.tsx, each with its own
