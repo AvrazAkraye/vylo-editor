@@ -2788,6 +2788,19 @@ export function App() {
     setRailOpen(true);
   }
 
+  /**
+   * Research, Video and Slides from the title bar's switch: the module shown
+   * in its sidebar — which is what mounts its panel — and then opened over
+   * the whole window, as its own full-screen button does.
+   */
+  function openStudio(id: 'research' | 'video' | 'slides') {
+    if (dockOf(modules, id) === 'other') { setRightRail(id); setRightOpen(true); }
+    else { setRail(id); setRailOpen(true); }
+    if (id === 'research') toggleResearchFull(true);
+    else if (id === 'video') void import('./VideoPanel').then((m) => m.toggleVideoFull(true));
+    else void import('./SlidesPanel').then((m) => m.toggleSlidesFull(true));
+  }
+
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
   function pickRail(id: ModuleId) {
     if (dockOf(modules, id) === 'other') {
@@ -4733,6 +4746,18 @@ export function App() {
                       : sp === 'chat' ? 'A conversation not tied to a project'
                       : 'A shell, filling the window')}>
               {t(sp === 'code' ? 'Code' : sp === 'chat' ? 'Chat' : 'Terminal')}
+            </button>
+          ))}
+          {/* The studios, each while its module is on: they open over the
+              whole window, so they sit in the same switch as the ways of
+              working, after a rule. */}
+          {(['research', 'video', 'slides'] as const).some((id) => enabledModules(modules).some((m) => m.id === id)) && <i className="seg-cut" aria-hidden="true" />}
+          {(['research', 'video', 'slides'] as const).filter((id) => enabledModules(modules).some((m) => m.id === id)).map((id) => (
+            <button key={id} className="seg-studio" onClick={() => openStudio(id)}
+                    aria-label={t(id === 'research' ? 'Research' : id === 'video' ? 'Video' : 'Slides')}
+                    title={t(id === 'research' ? 'Research — open over the whole window' : id === 'video' ? 'Video — open over the whole window' : 'Slides — open over the whole window')}>
+              <Icon name={id === 'research' ? 'book' : id === 'video' ? 'film' : 'slides'} size={12} />
+              <span className="seg-studio-name">{t(id === 'research' ? 'Research' : id === 'video' ? 'Video' : 'Slides')}</span>
             </button>
           ))}
         </span>

@@ -1344,6 +1344,9 @@ const ar: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'البحث العلمي',
   // Research: researchers' manner, originality, the module's tabs.
+  'Research — open over the whole window': 'البحث العلمي — يُفتح على النافذة كلها',
+  'Video — open over the whole window': 'الفيديو — يُفتح على النافذة كلها',
+  'Slides — open over the whole window': 'الشرائح — تُفتح على النافذة كلها',
   'Words on screen': 'كلمات على الشاشة',
   'Numbers and data': 'الأرقام والبيانات',
   'A video from one sentence': 'فيديو من جملة واحدة',
@@ -3749,6 +3752,9 @@ const ckb: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'توێژینەوە',
   // Research: researchers' manner, originality, the module's tabs.
+  'Research — open over the whole window': 'توێژینەوە — بەسەر هەموو پەنجەرەکەدا دەکرێتەوە',
+  'Video — open over the whole window': 'ڤیدیۆ — بەسەر هەموو پەنجەرەکەدا دەکرێتەوە',
+  'Slides — open over the whole window': 'سلاید — بەسەر هەموو پەنجەرەکەدا دەکرێتەوە',
   'Words on screen': 'وشە لەسەر شاشە',
   'Numbers and data': 'ژمارە و داتا',
   'A video from one sentence': 'ڤیدیۆیەک لە یەک ڕستە',
@@ -6159,6 +6165,9 @@ const kmr: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'ڤەکولین',
   // Research: researchers' manner, originality, the module's tabs.
+  'Research — open over the whole window': 'ڤەکولین — ل سەر هەمی پەنجەرێ ڤەدبیت',
+  'Video — open over the whole window': 'ڤیدیۆ — ل سەر هەمی پەنجەرێ ڤەدبیت',
+  'Slides — open over the whole window': 'سلاید — ل سەر هەمی پەنجەرێ ڤەدبن',
   'Words on screen': 'پەیڤ ل سەر شاشێ',
   'Numbers and data': 'ژمارە و داتا',
   'A video from one sentence': 'ڤیدیۆیەک ژ ئێک رستێ',

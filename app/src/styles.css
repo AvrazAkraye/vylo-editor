@@ -4670,6 +4670,10 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    what-column that ellipsises, a trailing act cluster, a hover wash. The
    dashboard's facts are the one place a number is allowed to be big. */
 .seg.space button{ padding:3px var(--sp-5); font-weight:500; }
+/* Research, Video and Slides in the same switch: an icon, and they open over the window. */
+.seg.space button.seg-studio{ display:inline-flex; align-items:center; gap:var(--sp-2); }
+/* A narrower window keeps their icons and drops their names; the title still says them. */
+@media (max-width: 1180px){ .seg-studio-name{ display:none; } }
 /* One segment, two halves: the digits say how many panes, the icons say how
    they are arranged, and the hairline is the join. It replaced three separate
    controls — a ladder, six word-buttons and a loose split icon — that between
