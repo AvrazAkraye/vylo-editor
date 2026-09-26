@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from '
 import { createPortal } from 'react-dom';
 import { invoke } from '@tauri-apps/api/core';
 import { open as openPanel, save as savePanel } from '@tauri-apps/plugin-dialog';
-import { Icon } from './Icon';
+import { Icon, type IconName } from './Icon';
 import { IS_MAC } from './Welcome';
 import * as ask from './ask';
 import { fill, type Lang } from './i18n';
@@ -27,9 +27,12 @@ import {
 } from './researchrun';
 import { breaksOf, docxBase64, fileNameFor } from './researchdocx';
 import { deleteDoc, loadDocs, saveDoc } from './researchstore';
-import {
-  DATA_EXTENSIONS, bytesOf, fromDocx, fromPdf, fromText, fromXlsx, inflateRaw, kindOfName, pdfPrompt, textOfBytes,
-} from './researchdata';
+import { DATA_EXTENSIONS, kindOfName } from './researchdata';
+import { readPicked } from './researchfiles';
+import { MIN_WORDS, voiceIn, voiceOf, type Researcher } from './researchers';
+import { ResearchPeople, personOf, usePeople } from './ResearchPeople';
+import { ResearchOriginality } from './ResearchOriginality';
+import { fold } from './settings';
 
 /**
  * Research, in the sidebar: say what you need, and get a document.
@@ -303,12 +306,32 @@ interface Draft {
   pause: boolean;
   caption: boolean;
   more: boolean;
+  /**
+   * Whose manner to write in: a researcher's id, '' for nobody, or `null` to
+   * follow the request — "بأسلوب د. أحمد" chooses Dr Ahmed when he is saved.
+   */
+  voice: string | null;
 }
 
 const draft: Draft = {
   request: '', kind: null, lang: null, style: null, set: {}, files: [],
-  cover: { title: '', venue: '', presented: '' }, notes: '', pause: false, caption: false, more: false,
+  cover: { title: '', venue: '', presented: '' }, notes: '', pause: false, caption: false, more: false, voice: null,
 };
+
+/**
+ * The module's tabs before a document is open. Out here so a click on
+ * another module and back, or the move to the full window, comes back to the
+ * same tab.
+ */
+type HomeTab = 'write' | 'docs' | 'people' | 'check' | 'skills';
+let homeTab: HomeTab = 'write';
+/** The request box takes the focus when the Write tab is next drawn: a skill or a researcher was just chosen for it. */
+let focusAsk = false;
+
+function toTab(tab: HomeTab) {
+  homeTab = tab;
+  notify();
+}
 
 /** A piece of the request form's state, written through to `draft` so it outlives the form. */
 function useDraft<K extends keyof Draft>(k: K): [Draft[K], (v: Draft[K]) => void] {
@@ -737,24 +760,6 @@ function WriteSettings({ t, value, onChange, routes, efforts, plan, disabled }: 
   );
 }
 
-/**
- * A text file, as the app reads text: UTF-8, checked and limited in Rust.
- * Excel's "Unicode Text" — the usual way to keep Arabic letters out of an
- * older Excel — is UTF-16, which that refuses as binary; it is read again as
- * bytes and decoded here, and refused only if it is not text in either.
- */
-async function readText(id: string, path: string): Promise<DataFile> {
-  try {
-    const r = await invoke<{ name: string; text: string; bytes: number; truncated: boolean }>('read_text_attachment', { path });
-    return fromText({ id, name: r.name, text: r.text, bytes: r.bytes, truncated: r.truncated });
-  } catch (e) {
-    const r = await invoke<{ data: string; name: string; bytes: number }>('read_any_file', { path }).catch(() => null);
-    const text = r ? textOfBytes(bytesOf(r.data)) : null;
-    if (!r || text === null) throw e;
-    return fromText({ id, name: r.name, text, bytes: r.bytes, truncated: false });
-  }
-}
-
 /** A number as typed, with nothing taken out of it; `undefined` for an empty field. */
 const typed = (text: string): number | undefined => clampTo(text, { min: 0, max: Number.MAX_SAFE_INTEGER }) ?? undefined;
 
@@ -827,34 +832,12 @@ function DataField({ t, owner, files, onChange, onAdd, target, book, lang, disab
     const got: DataFile[] = [];
     for (const path of paths) {
       const name = path.split(/[\\/]/).pop() ?? path;
-      const kind = kindOfName(name);
-      if (!kind) { onError(fill(t('{name} cannot be read. Save it as .docx, .xlsx, .csv, .txt or .pdf and attach that.'), { name })); continue; }
+      if (!kindOfName(name)) { onError(fill(t('{name} cannot be read. Save it as .docx, .xlsx, .csv, .txt or .pdf and attach that.'), { name })); continue; }
       markRead(owner, name, true);
       try {
-        const id = newId();
-        if (kind === 'text') {
-          got.push(await readText(id, path));
-        } else if (kind === 'docx' || kind === 'xlsx') {
-          const r = await invoke<{ data: string; name: string; bytes: number }>('read_any_file', { path });
-          const bytes = bytesOf(r.data);
-          got.push(kind === 'docx'
-            ? await fromDocx({ id, name: r.name, bytes, size: r.bytes }, inflateRaw)
-            : await fromXlsx({ id, name: r.name, bytes, size: r.bytes }, inflateRaw));
-        } else {
-          // A PDF has no text to take out here: the document's own model
-          // transcribes it once, and the transcript is what is kept.
-          const r = await invoke<{ data: string; name: string; bytes: number }>('read_document', { path });
-          const out = await generate(target, {
-            system: 'You transcribe documents faithfully. You add nothing and leave nothing out.',
-            user: [
-              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: r.data } },
-              { type: 'text', text: pdfPrompt(r.name, lang) },
-            ],
-            maxTokens: 32_000,
-            efforts: book,
-          });
-          got.push(fromPdf({ id, name: r.name, text: out.text, bytes: r.bytes, truncated: out.stopReason === 'max_tokens' }));
-        }
+        // A PDF is transcribed once by the document's own model.
+        const f = await readPicked(path, { id: newId(), target, book, lang });
+        if (f) got.push(f);
       } catch (e) {
         onError(explain(e, fill(t('read {name}'), { name })));
       } finally {
@@ -1077,6 +1060,7 @@ function RunStatus({ t, doc, job, rows = 5 }: { t: (s: string) => string; doc: D
 
 export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, gateway, onProviders, onError }: Props) {
   useWatch();
+  const people = usePeople();
   const [openId, setOpenNow] = useState<string | null>(null);
   const [reading, setReading] = useState<{ id: string; at?: string } | null>(null);
   // In the full window the reader is already open beside the controls, and a
@@ -1205,15 +1189,16 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
 
       {open
         ? <DocView key={open.id} doc={open} t={t} routes={routes} efforts={efforts} plan={plan} ready={ready} inFull={full}
+                   docs={docs} people={people}
                    onBack={() => setOpenId(null)}
                    onRead={(at) => {
                      if (!full) setReading({ id: open.id, at });
                      else if (at) setJump((j) => ({ at, n: (j?.n ?? 0) + 1 }));
                    }}
                    onPdf={(path) => pdfDoc(open, path)} begin={begin} onError={report} />
-        : <Home t={t} lang={lang} routes={routes} efforts={efforts} plan={plan} ready={ready} docs={docs}
-                onOpen={setOpenId} onError={report}
-                onStart={(doc) => { keep(doc); setOpenId(doc.id); begin(doc, { how: 'run', stopBefore: doc.pause ? 'writing' : undefined }); }} />}
+        : <HomeTabs t={t} lang={lang} routes={routes} efforts={efforts} plan={plan} ready={ready} docs={docs} people={people}
+                    onOpen={setOpenId} onError={report}
+                    onStart={(doc) => { keep(doc); setOpenId(doc.id); begin(doc, { how: 'run', stopBefore: doc.pause ? 'writing' : undefined }); }} />}
     </div>
   );
 
@@ -1303,9 +1288,9 @@ function FullWelcome({ t, docs, onOpen }: { t: (s: string) => string; docs: Doc[
   );
 }
 
-// ── asking for a document ─────────────────────────────────────────────────
+// ── the module's tabs ─────────────────────────────────────────────────────
 
-function Home({ t, lang, routes, efforts, plan, ready, docs, onOpen, onStart, onError }: {
+interface HomeProps {
   t: (s: string) => string;
   lang: Lang;
   routes: Routes;
@@ -1313,10 +1298,132 @@ function Home({ t, lang, routes, efforts, plan, ready, docs, onOpen, onStart, on
   plan: PlanSummary | null;
   ready: boolean;
   docs: Doc[];
+  people: Researcher[];
   onOpen: (id: string) => void;
   onStart: (doc: Doc) => void;
   onError: (m: string) => void;
-}) {
+}
+
+/**
+ * Before a document is open, the module is five tabs: Write a new one, the
+ * Documents so far, the Researchers whose manner a document can be written
+ * in, the Originality check, and the Skills — each kind of document. Before
+ * this they were one long column, and the Documents list was under the form
+ * where nobody with a thesis to open wanted to scroll for it.
+ */
+function HomeTabs(p: HomeProps) {
+  const { t, lang, docs, people, routes, efforts, ready, onOpen, onError } = p;
+  const tab = homeTab;
+  const target = targetOf(draft.set, routes);
+  const book = bookFor(draft.set, target, efforts);
+  const tabs: { id: HomeTab; icon: IconName; label: string; n?: number }[] = [
+    { id: 'write', icon: 'pencil', label: t('Write') },
+    { id: 'docs', icon: 'list', label: t('Documents'), n: docs.length },
+    { id: 'people', icon: 'person', label: t('Researchers'), n: people.length },
+    { id: 'check', icon: 'shield', label: t('Originality') },
+    { id: 'skills', icon: 'book', label: t('Skills') },
+  ];
+  return (
+    <>
+      <div className="rsch-home-tabs" role="tablist" aria-label={t('Research')}>
+        {tabs.map((x) => (
+          <button key={x.id} role="tab" aria-selected={tab === x.id} className={tab === x.id ? 'on' : ''} onClick={() => toTab(x.id)}
+                  title={x.label}>
+            <Icon name={x.icon} size={14} />
+            <span>{x.label}</span>
+            {!!x.n && <small>{x.n}</small>}
+          </button>
+        ))}
+      </div>
+      {tab === 'write' && <Home {...p} />}
+      {tab === 'docs' && <DocList t={t} docs={docs} onOpen={onOpen} />}
+      {tab === 'people' && (
+        <ResearchPeople t={t} lang={lang} target={target} book={book} ready={ready} onError={onError}
+                        onWrite={(id) => { draft.voice = id; focusAsk = true; toTab('write'); }} />
+      )}
+      {tab === 'check' && (
+        <ResearchOriginality t={t} docs={docs} people={people} lang={lang} target={target} book={book}
+                             canRewrite={false} onOpenDoc={onOpen} onError={onError} />
+      )}
+      {tab === 'skills' && <Skills t={t} lang={lang} />}
+    </>
+  );
+}
+
+/** Every document, newest first, with a box to find one by its title or request. */
+function DocList({ t, docs, onOpen }: { t: (s: string) => string; docs: Doc[]; onOpen: (id: string) => void }) {
+  const [q, setQ] = useState('');
+  const terms = fold(q).split(/\s+/).filter(Boolean);
+  const shown = terms.length
+    ? docs.filter((d) => { const hay = fold(`${d.meta.title} ${d.request} ${d.voice?.name ?? ''}`); return terms.every((w) => hay.includes(w)); })
+    : docs;
+  if (!docs.length) {
+    return (
+      <div className="sb-cta">
+        <p className="ft-empty">{t('No documents yet. Ask for one in the Write tab.')}</p>
+        <button className="ghost bordered" onClick={() => toTab('write')}>
+          <Icon name="pencil" size={13} />
+          <span className="cta-label">{t('Write')}</span>
+        </button>
+      </div>
+    );
+  }
+  return (
+    <>
+      <div className="rsch-find">
+        <Icon name="search" size={12} />
+        <input value={q} onChange={(e) => setQ(e.target.value)} dir="auto" placeholder={t('Find a document')} aria-label={t('Find a document')} />
+      </div>
+      <ul className="rsch-docs">
+        {shown.map((d) => <DocRow key={d.id} doc={d} t={t} onOpen={() => onOpen(d.id)} />)}
+      </ul>
+      {!shown.length && <p className="rsch-lede">{t('No document matches.')}</p>}
+    </>
+  );
+}
+
+/**
+ * The skills as cards. Choosing one puts its phrase in the request box, in
+ * the language the researcher is likely to write the rest in, and goes to
+ * the Write tab.
+ */
+function Skills({ t, lang }: { t: (s: string) => string; lang: Lang }) {
+  const pick = (k: Kind) => {
+    draft.kind = k;
+    if (!draft.request.trim()) {
+      const s = samplesOf(k);
+      // In Badini, a Badini phrase: the Kurdish sample is Sorani, and a
+      // Sorani phrase would make the document Sorani.
+      const badini = lang === 'kmr' ? kindOf(k).triggers.find((x) => docLangOf(x, 'kmr') === 'kmr') : undefined;
+      const phrase = lang === 'en' ? s[s.length - 1] : lang === 'ar' ? s[0] : badini ?? s[1] ?? s[0];
+      draft.request = `${phrase} `;
+    }
+    focusAsk = true;
+    toTab('write');
+  };
+  return (
+    <>
+      <p className="rsch-lede">{t('Each kind of document is a skill. Name it in your request — in Arabic, Kurdish or English — and it switches on.')}</p>
+      <ul className="rsch-skills">
+        {KINDS.map((k) => (
+          <li key={k.id}>
+            <button className={`rsch-card ${draft.kind === k.id ? 'on' : ''}`} onClick={() => pick(k.id)}>
+              <b>{kindName(k.id, t)}</b>
+              <span>{kindAbout(k.id, t)}</span>
+              <span className="rsch-says">
+                {samplesOf(k.id).map((x) => <code key={x} dir="auto">{x}</code>)}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+// ── asking for a document ─────────────────────────────────────────────────
+
+function Home({ t, lang, routes, efforts, plan, ready, people, onStart, onError }: HomeProps) {
   // Everything in the form is kept in `draft` as it is set, so the move to the
   // full window and back does not throw any of it away. What the researcher
   // chose by hand wins over what the words say, and stays chosen while they
@@ -1332,6 +1439,7 @@ function Home({ t, lang, routes, efforts, plan, ready, docs, onOpen, onStart, on
   const [notes, setNotes] = useDraft('notes');
   const [pause, setPause] = useDraft('pause');
   const [more, setMore] = useDraft('more');
+  const [voiceSet, setVoiceSet] = useDraft('voice');
   // Files arrive after a read that may outlast this form, so they are drawn
   // from `draft` itself rather than from a copy of it.
   const files = draft.files;
@@ -1350,6 +1458,15 @@ function Home({ t, lang, routes, efforts, plan, ready, docs, onOpen, onStart, on
   const box = useRef<HTMLTextAreaElement>(null);
 
   const found = useMemo(() => detect(request), [request]);
+  // The researcher the request names, while none was chosen by hand.
+  const named = useMemo(() => (voiceSet === null ? voiceIn(request, people) : null), [voiceSet, request, people]);
+  const writer = voiceSet === null ? named : voiceSet ? personOf(voiceSet) ?? null : null;
+  const voice = useMemo(() => (writer ? voiceOf(writer) : null), [writer]);
+  useEffect(() => {
+    if (!focusAsk) return;
+    focusAsk = false;
+    box.current?.focus();
+  }, []);
   const kind: Kind = kindSet ?? found?.kind ?? 'article';
   const docLang: DocLang = langSet ?? docLangOf(request, lang);
   // Footnotes are how Arab and Kurdish universities cite; APA is how English-language journals do.
@@ -1390,28 +1507,15 @@ function Home({ t, lang, routes, efforts, plan, ready, docs, onOpen, onStart, on
       notes,
       pause,
     });
-    onStart({ ...doc, ...set, files: files.length ? files : undefined, logoCaption: caption || undefined });
+    onStart({ ...doc, ...set, files: files.length ? files : undefined, logoCaption: caption || undefined, voice: voice ?? undefined });
     setRequest('');
     setKindSet(null);
     setLangSet(null);
     setStyleSet(null);
+    setVoiceSet(null);
     setFiles([]);
     setCover({ title: '', venue: '', presented: '' });
     setNotes('');
-  };
-
-  const pickSkill = (k: Kind) => {
-    setKindSet(k);
-    if (!request.trim()) {
-      // Say it in the language the researcher is likely to write the rest in.
-      const s = samplesOf(k);
-      // In Badini, a Badini phrase: the Kurdish sample is Sorani, and a
-      // Sorani phrase would make the document Sorani.
-      const badini = lang === 'kmr' ? kindOf(k).triggers.find((p) => docLangOf(p, 'kmr') === 'kmr') : undefined;
-      const phrase = lang === 'en' ? s[s.length - 1] : lang === 'ar' ? s[0] : badini ?? s[1] ?? s[0];
-      setRequest(`${phrase} `);
-    }
-    box.current?.focus();
   };
 
   const field = (k: keyof Profile, label: string, wide = false) => (
@@ -1451,6 +1555,9 @@ function Home({ t, lang, routes, efforts, plan, ready, docs, onOpen, onStart, on
         </div>
 
         <LangSwitch t={t} value={docLang} onChange={(l) => setLangSet(l)} />
+
+        <VoicePicker t={t} people={people} value={voiceSet === null ? named?.id ?? '' : voiceSet} named={!!named && voiceSet === null}
+                     onChange={(id) => setVoiceSet(id)} onPeople={() => toTab('people')} />
 
         <div className="rsch-opts">
           <select value={kind} onChange={(e) => setKindSet(e.target.value as Kind)} aria-label={t('Kind of document')}>
@@ -1532,31 +1639,58 @@ function Home({ t, lang, routes, efforts, plan, ready, docs, onOpen, onStart, on
         </button>
       </div>
 
-      {docs.length > 0 && (
-        <>
-          <div className="sb-sub">{t('Your documents')}</div>
-          <ul className="rsch-docs">
-            {docs.map((d) => <DocRow key={d.id} doc={d} t={t} onOpen={() => onOpen(d.id)} />)}
-          </ul>
-        </>
-      )}
-
-      <div className="sb-sub">{t('Skills')}</div>
-      <p className="rsch-lede">{t('Each kind of document is a skill. Name it in your request — in Arabic, Kurdish or English — and it switches on.')}</p>
-      <ul className="rsch-skills">
-        {KINDS.map((k) => (
-          <li key={k.id}>
-            <button className={`rsch-card ${kind === k.id && (found || kindSet) ? 'on' : ''}`} onClick={() => pickSkill(k.id)}>
-              <b>{kindName(k.id, t)}</b>
-              <span>{kindAbout(k.id, t)}</span>
-              <span className="rsch-says">
-                {samplesOf(k.id).map((p) => <code key={p} dir="auto">{p}</code>)}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
     </>
+  );
+}
+
+/**
+ * Whose manner to write in. The researchers come from the Researchers tab;
+ * one the request names is chosen until another is chosen by hand, and the
+ * line under the menu says which did it, as the skill chip does for kinds.
+ */
+function VoicePicker({ t, people, value, named, onChange, disabled, kept, onPeople }: {
+  t: (s: string) => string;
+  people: Researcher[];
+  value: string;
+  /** The choice came from the request's words. */
+  named?: boolean;
+  onChange: (id: string) => void;
+  disabled?: boolean;
+  /**
+   * A document's own copy of a voice, listed even when its researcher is
+   * gone or has too little to write from — or it could never be taken off.
+   */
+  kept?: { id: string; name: string };
+  /** Where to add researchers; without it, an empty list shows nothing. */
+  onPeople?: () => void;
+}) {
+  // What `voiceOf` will accept, without measuring every paper on every
+  // keystroke: a learned guide, or enough words to measure.
+  const usable = people.filter((r) => r.guide || r.samples.reduce((n, x) => n + x.words, 0) >= MIN_WORDS);
+  const orphan = kept && !usable.some((r) => r.id === kept.id) ? kept : undefined;
+  const who = usable.find((r) => r.id === value) ?? (orphan && orphan.id === value ? orphan : undefined);
+  if (!usable.length && !orphan) {
+    if (!onPeople) return null;
+    return (
+      <button type="button" className="rsch-voice-empty" onClick={onPeople} disabled={disabled}>
+        <Icon name="person" size={12} />
+        <span>{t('Write in a researcher’s style — add them in Researchers')}</span>
+      </button>
+    );
+  }
+  return (
+    <div className={`rsch-voice ${who ? 'on' : ''}`}>
+      <Icon name="person" size={12} />
+      <select value={who ? value : ''} disabled={disabled} onChange={(e) => onChange(e.target.value)} aria-label={t('Writing style')}>
+        <option value="">{t('In your own style')}</option>
+        {orphan && <option value={orphan.id}>{fill(t('In the style of {name}'), { name: orphan.name })}</option>}
+        {usable.map((r) => (
+          <option key={r.id} value={r.id}>{fill(t('In the style of {name}'), { name: `${r.title} ${r.name}`.trim() })}</option>
+        ))}
+      </select>
+      {who && named && <small>{t('named in your request')}</small>}
+      {who && who !== orphan && !(who as Researcher).guide && <small>{t('measured only — learn the style for a closer match')}</small>}
+    </div>
   );
 }
 
@@ -1587,10 +1721,15 @@ function DocRow({ doc, t, onOpen }: { doc: Doc; t: (s: string) => string; onOpen
 
 // ── one document ──────────────────────────────────────────────────────────
 
-type Tab = 'outline' | 'sources' | 'details';
+type Tab = 'outline' | 'sources' | 'check' | 'details';
 
-function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead, onPdf, begin, onError }: {
+/** The tab a document was left on, by document: coming back to a thesis comes back to where it was. */
+const docTabs = new Map<string, Tab>();
+
+function DocView({ doc, t, routes, efforts, plan, ready, inFull, docs, people, onBack, onRead, onPdf, begin, onError }: {
   doc: Doc;
+  docs: Doc[];
+  people: Researcher[];
   t: (s: string) => string;
   routes: Routes;
   efforts: EffortBook;
@@ -1605,7 +1744,8 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
   begin: (doc: Doc, work: Work) => void;
   onError: (m: string) => void;
 }) {
-  const [tab, setTab] = useState<Tab>('outline');
+  const [tab, setTabNow] = useState<Tab>(docTabs.get(doc.id) ?? 'outline');
+  const setTab = (x: Tab) => { docTabs.set(doc.id, x); setTabNow(x); };
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState('');
   const job = jobs.get(doc.id);
@@ -1701,6 +1841,7 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
         <div className="rsch-title">
           <b dir="auto">{doc.meta.title || doc.request}</b>
           <span>{kindName(doc.kind, t)} · {langName(doc.lang, t)} · {styleName(doc.style, t)}</span>
+          {doc.voice && <span className="rsch-voice-line"><Icon name="person" size={11} />{fill(t('In the style of {name}'), { name: doc.voice.name })}</span>}
         </div>
         {!inFull && (
           <button className="sb-act" onClick={() => toggleResearchFull(true)} title={t('Full screen')} aria-label={t('Full screen')}>
@@ -1802,9 +1943,9 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
       {saved && /\.docx$/i.test(saved) && <p className="rsch-lede">{t('Word asks to update the fields when it opens the file: say yes, and the table of contents gets its page numbers.')}</p>}
 
       <div className="rsch-tabs" role="tablist">
-        {(['outline', 'sources', 'details'] as const).map((x) => (
+        {(['outline', 'sources', 'check', 'details'] as const).map((x) => (
           <button key={x} role="tab" aria-selected={tab === x} className={tab === x ? 'on' : ''} onClick={() => setTab(x)}>
-            {x === 'outline' ? t('Outline of the document') : x === 'sources' ? t('Sources') : t('Details')}
+            {x === 'outline' ? t('Outline') : x === 'sources' ? t('Sources') : x === 'check' ? t('Originality') : t('Details')}
           </button>
         ))}
       </div>
@@ -1814,8 +1955,13 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, onBack, onRead,
                     onChange={change} onRewrite={(index, redo) => begin(doc, { how: 'rewrite', index, redo })} ready={ready && !loading} />
       )}
       {tab === 'sources' && <SourcesTab doc={doc} t={t} busy={busy} onChange={change} onError={onError} />}
+      {tab === 'check' && (
+        <ResearchOriginality t={t} doc={doc} docs={docs} people={people} lang={doc.lang} target={target} book={bookFor(doc, target, efforts)}
+                             canRewrite={ready && !busy && !loading} onRead={(id) => onRead(id)}
+                             onRewrite={(index, redo) => begin(doc, { how: 'rewrite', index, redo })} onError={onError} />
+      )}
       {tab === 'details' && (
-        <DetailsTab doc={doc} t={t} busy={busy} onChange={change} routes={routes} efforts={efforts} plan={plan}
+        <DetailsTab doc={doc} t={t} busy={busy} onChange={change} routes={routes} efforts={efforts} plan={plan} people={people}
                     onAbstract={() => begin(doc, { how: 'abstract' })} ready={ready && !loading} onError={onError} />
       )}
 
@@ -2130,8 +2276,9 @@ function SourcesTab({ doc, t, busy, onChange, onError }: {
   );
 }
 
-function DetailsTab({ doc, t, busy, onChange, onAbstract, ready, routes, efforts, plan, onError }: {
+function DetailsTab({ doc, t, busy, onChange, onAbstract, ready, routes, efforts, plan, people, onError }: {
   doc: Doc;
+  people: Researcher[];
   t: (s: string) => string;
   busy: boolean;
   onChange: (next: Partial<Doc>) => void;
@@ -2171,6 +2318,32 @@ function DetailsTab({ doc, t, busy, onChange, onAbstract, ready, routes, efforts
       <div className="rsch-wide">
         <WriteSettings t={t} value={doc} routes={routes} efforts={efforts} plan={plan} disabled={busy}
                        onChange={(next) => onChange(next)} />
+      </div>
+      <div className="rsch-wide">
+        {/* A copy is taken when chosen: relearning the researcher later
+            does not change a document half-written in their manner. */}
+        <VoicePicker t={t} people={people} value={doc.voice?.id ?? ''} disabled={busy}
+                     kept={doc.voice ? { id: doc.voice.id, name: doc.voice.name } : undefined}
+                     onChange={(id) => {
+                       const r = personOf(id);
+                       onChange({ voice: r ? voiceOf(r) ?? undefined : undefined });
+                     }} />
+        {/* The copy was taken when the style was chosen; a style learned
+            again since reaches the document only when asked. */}
+        {doc.voice && personOf(doc.voice.id) && (
+          <button type="button" className="ghost rsch-voice-refresh" disabled={busy}
+                  onClick={() => {
+                    const r = personOf(doc.voice?.id);
+                    const v = r ? voiceOf(r) : null;
+                    if (v) onChange({ voice: v });
+                  }}>
+            <Icon name="sparkle" size={11} />{t('Use their latest style')}
+          </button>
+        )}
+        {doc.voice && !people.some((r) => r.id === doc.voice?.id) && (
+          <p className="rsch-lede">{fill(t('Written in the style of {name}, who is no longer in your researchers. The style stays with this document.'), { name: doc.voice.name })}</p>
+        )}
+        {doc.sections.some((s) => s.state === 'done') && <p className="rsch-lede">{t('A new style applies to the parts written from now on, and to any part written again.')}</p>}
       </div>
       <DataField t={t} owner={doc.id} files={doc.files ?? []} onChange={(files) => onChange({ files })}
                  onAdd={(got) => {

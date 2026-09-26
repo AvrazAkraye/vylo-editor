@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.117.0.
+version 0.118.0.
 
 ---
 
@@ -190,11 +190,11 @@ to your own speech provider, one for fonts and one to Remotion:
 | `app/src/inline.ts` | `POST {gateway}/v1/messages` | ⌘K rewrite, apply-from-chat |
 | `app/src/complete.ts` | `POST {gateway}/v1/complete` | inline (ghost-text) completion |
 | `app/src/gateway.ts` | `POST {gateway}/v1/messages` | checking a key you just pasted |
-| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again, and answering what you say or write in its Chat tab |
+| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again, and answering what you say or write in its Chat tab; and learning a researcher's style from their papers |
 | `app/src/account.ts` | `POST {gateway}/app/api/auth/login` | signing in — `/auth/register` and `/auth/logout` are the same shape |
 | `app/src/account.ts` | `GET {gateway}/app/api/me` | the plan balance: on launch, when a turn ends, otherwise every five minutes |
 | `app/src/account.ts` | `POST {gateway}/app/api/keys` | minting this app's own key, once, at the end of a sign-in |
-| `app/src/scholar.ts` | `GET https://api.openalex.org/works`, or `GET https://api.crossref.org/works` when OpenAlex refuses or fails | finding references for a Research document you started |
+| `app/src/scholar.ts` | `GET https://api.openalex.org/works`, or `GET https://api.crossref.org/works` when OpenAlex refuses or fails | finding references for a Research document you started, or searching a few sentences of a text you check for originality, when you ask |
 | `app/src/scholar.ts` | `GET https://api.openalex.org/works/doi:{doi}`, `GET https://api.crossref.org/works/{doi}` | looking up a DOI you added to a Research document |
 | `app/src/videomedia.ts` | `GET https://api.openverse.org/v1/images/`, then the picture chosen, from the address Openverse gives for it | finding a picture for a scene of a video you started, or when you ask for other pictures |
 | `app/src/videomedia.ts` | `GET https://commons.wikimedia.org/w/api.php`, then the picture chosen, from `upload.wikimedia.org` | the same, when Openverse refuses, fails or finds nothing |
@@ -233,6 +233,20 @@ your request, your notes and data, the text of the data files you attached, the
 outline, the text written so far, and the records of the references found. A
 PDF you attach as data is sent once to that same model, to be transcribed, and
 what comes back is kept as the file's text.
+
+**Researchers and the originality check.** A researcher you save in the
+Researchers tab (`app/src/ResearchPeople.tsx`) is measured on this machine;
+only **Learn the style** sends their papers — up to 60,000 characters of them —
+to the model you chose, once, through `app/src/generate.ts`, and a PDF paper is
+transcribed as a data file is. A document written in a researcher's manner
+then carries, in every request it makes, the style guide learned and up to
+three short passages of their papers. The originality check
+(`app/src/ResearchOriginality.tsx`, `app/src/originality.ts`) compares on this
+machine and sends nothing, unless you press **Search the catalogues too**: then
+up to eight sentences of the text being checked go to the same two catalogues,
+in the same plain GETs through `app/src/scholar.ts`, and the abstracts they
+return are compared here. That is the one exception to "nothing else is ever
+sent to either" above, and it happens only on that press.
 
 **The Video panel looks for pictures in two places you did not name.** A video
 is planned by the model you chose in the panel, through `app/src/generate.ts`
@@ -861,7 +875,10 @@ request, your notes and data, the text of your data files, a copy of the cover
 details, the outline, the text written so far and the references found — is
 kept in the webview's IndexedDB, in a database named `vylo-research`, on this
 machine (`app/src/researchstore.ts`). Deleting a document in the panel deletes
-it there. The cover details a researcher fills in once — name, supervisor,
+it there. Researchers you save — the name, title, field and note, the text of
+each paper attached, and the style learned — are kept in the same database, in
+a store named `people`; deleting a researcher deletes them there, and a
+document written in their manner keeps its own copy of it. The cover details a researcher fills in once — name, supervisor,
 university and the like — are kept in `localStorage` under
 `vylo.research.profile.v1` (`PROFILE_KEY` in `app/src/research.ts`).
 University logos, if you add them, are pictures you choose yourself with the
@@ -949,7 +966,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.117.0 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.118.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -974,6 +991,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.117.0. Every statement above was read out of the code. If
+*Last checked against 0.118.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

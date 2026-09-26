@@ -284,7 +284,28 @@ export interface Doc {
   sourcesWanted?: number;
   /** The researcher's own data, read from files they attached. */
   files?: DataFile[];
+  /** Whose way of writing it is written in, when one was chosen (researchers.ts). */
+  voice?: Voice;
   error?: string;
+}
+
+/**
+ * A researcher's way of writing, as a document carries it: a copy made when
+ * the voice was chosen, not a link to the researcher. A document half-written
+ * in one voice must not change manner in chapter three because the profile
+ * was relearned, and a researcher deleted from the list must not take the
+ * voice out of a thesis written in it. `researchers.ts` builds it.
+ */
+export interface Voice {
+  /** The researcher it was learned from, in the Researchers tab. */
+  id: string;
+  name: string;
+  /** How they write, as the model is told it. English: it is instructions, not text anybody prints. */
+  guide: string;
+  /** A few short passages of their own, to show the manner. Never text to reuse. */
+  excerpts: string[];
+  /** The language their papers are in, which may not be the document's. */
+  lang: DocLang;
 }
 
 // ── the skills ────────────────────────────────────────────────────────────
@@ -1309,7 +1330,7 @@ const LANGUAGE_NAME: Readonly<Record<DocLang, string>> = {
  * time rather than trusted to carry over: cite only through markers, invent no
  * data, and write only the part that was asked for.
  */
-export function systemFor(doc: Pick<Doc, 'kind' | 'lang'>): string {
+export function systemFor(doc: Pick<Doc, 'kind' | 'lang'> & Partial<Pick<Doc, 'voice'>>): string {
   const k = kindOf(doc.kind);
   return [
     `You are an experienced academic writer and research supervisor, helping a researcher write a ${k.label.toLowerCase()} in ${LANGUAGE_NAME[doc.lang]}.`,
@@ -1326,7 +1347,51 @@ export function systemFor(doc: Pick<Doc, 'kind' | 'lang'>): string {
     '3. Format. Plain paragraphs separated by a blank line. "### " for a subheading inside the section and "#### " below that. "- " for a bulleted list and "1. " for a numbered one. **Bold** sparingly, for a term being defined. A table only where it genuinely compares things, as a pipe table with a header row. No other markdown, no code blocks, no horizontal rules.' + (doc.lang === 'en' ? '' : ' Number subheadings with ordinal words, the way Arab and Kurdish universities do — ' + ORDINAL_EXAMPLE[doc.lang] + '.'),
     '',
     '4. Voice. Scholarly, precise and cohesive; every paragraph earns its place. Do not repeat the heading you were given. Do not talk about yourself or the writing. Do not end every section by summarising the whole document.',
+    ...voiceRules(doc.voice, doc.lang),
   ].join('\n');
+}
+
+/** The most of a voice's passages that goes into every request: a system prompt is paid for on each one. */
+export const VOICE_BUDGET = { guide: 4_000, excerpts: 3_600 } as const;
+
+/**
+ * Rule 5, when the document is written in a researcher's voice.
+ *
+ * The four rules above come first and say so: a voice changes how a thing is
+ * said, never what may be cited or claimed. And the passages are there for
+ * their manner only. A model shown three paragraphs of somebody's paper and
+ * asked to write "like this" will, left to itself, lift phrases from them —
+ * which is plagiarism of the very person being imitated, and the Originality
+ * tab compares the document with their papers for exactly that reason.
+ */
+export function voiceRules(voice: Voice | undefined, lang: DocLang): string[] {
+  if (!voice || (!voice.guide.trim() && !voice.excerpts.length)) return [];
+  // The passages are somebody else's text and the guide a model's: neither
+  // may open or close the tags that fence the passages in.
+  const unfenced = (x: string) => x.replace(/<\s*\/?\s*passage[^>]*>/gi, ' ');
+  const guide = unfenced(voice.guide.trim()).slice(0, VOICE_BUDGET.guide);
+  const passages: string[] = [];
+  let left: number = VOICE_BUDGET.excerpts;
+  for (const e of voice.excerpts) {
+    const x = unfenced(e).trim();
+    if (!x || left <= 0) continue;
+    const cut = x.length > left ? `${x.slice(0, left - 1)}…` : x;
+    passages.push(cut);
+    left -= cut.length;
+  }
+  const other = voice.lang !== lang;
+  return [
+    '',
+    `5. Manner. Write in the manner of ${voice.name.trim() || 'the researcher'}: the researcher wants this document to read as if they had written it. Rules 1 to 4 come first — the manner changes how things are said, never what may be cited, claimed or invented.`,
+    other
+      ? `   Their papers are in ${LANGUAGE_NAME[voice.lang]} and this document is in ${LANGUAGE_NAME[lang]}: carry the manner over — the build of the sentences, the way the argument moves, the tone, how claims are hedged and how parts open and close — in natural ${LANGUAGE_NAME[lang]}, not their words translated.`
+      : '',
+    guide ? `   How they write:\n${guide.split('\n').map((l) => `   ${l}`).join('\n')}` : '',
+    passages.length
+      ? '   Passages from their own papers, to show the manner and nothing else. Never copy a sentence or a phrase of more than four words from them, never reuse their content, examples or data, and never cite them: they are not sources of this document.'
+      : '',
+    ...passages.map((x, i) => `   <passage ${i + 1}>\n${x}\n   </passage ${i + 1}>`),
+  ].filter((l) => l !== '');
 }
 
 /** A source as the model reads it: its marker, who and when, what, and — when asked — what it says. */
