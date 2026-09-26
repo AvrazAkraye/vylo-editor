@@ -74,7 +74,16 @@ interface Trouble { message: string; spoken: boolean; error: string }
 const runs = new Map<string, Run>();
 const troubles = new Map<string, Trouble>();
 const drafts = new Map<string, string>();
+/** Documents with a message from Ask Vylo, sent when their Chat tab can send it. */
+const waiting = new Set<string>();
 const listeners = new Set<() => void>();
+
+/** Ask Vylo: put the words in a document's chat box, and send them when the tab is drawn and ready. */
+export function sendWhenOpen(id: string, text: string) {
+  drafts.set(id, text);
+  waiting.add(id);
+  ping();
+}
 
 function ping() {
   for (const l of listeners) l();
@@ -328,6 +337,14 @@ export function ResearchChat({
   };
   const goRef = useRef(go);
   goRef.current = go;
+  // A message Ask Vylo left here goes as soon as it can; without a key it stays in the box.
+  useEffect(() => {
+    if (!waiting.has(id) || !can || runs.has(id)) return;
+    waiting.delete(id);
+    const said = drafts.get(id) ?? '';
+    if (said.trim()) go(said);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [can, id]);
   const textRef = useRef(text);
   textRef.current = text;
 

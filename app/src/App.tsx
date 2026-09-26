@@ -169,7 +169,9 @@ import { watch as watchDoc } from './docs';
 import { SkillsPanel } from './SkillsPanel';
 import { UsagePanel } from './UsagePanel';
 import { WhatsAppPanel } from './WhatsAppPanel';
-import { ResearchPanel, toggleResearchFull } from './ResearchPanel';
+import { ResearchPanel, askResearch, askResearchDoc, toggleResearchFull } from './ResearchPanel';
+import { AskVylo } from './AskVylo';
+import type { Dest } from './askroute';
 import { KEY as WA_KEY, read as readWa } from './whatsapp';
 import { callerFor } from './whatsappwire';
 import { runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
@@ -245,6 +247,8 @@ const RAIL_W = 46;
 
 /** Shown in the composer, so the shortcut is learnable without a manual. */
 const SEND_KEY = IS_MAC ? '⌘↵' : 'Ctrl+↵';
+/** Ask Vylo, from anywhere. */
+const ASK_KEY = IS_MAC ? '⌘⇧A' : 'Ctrl+Shift+A';
 
 /**
  * Searches that found something, newest first.
@@ -636,6 +640,8 @@ export function App() {
   const [full, setFull] = useState(false);
   const [showTerm, setShowTerm] = useState(false);
   const [palette, setPalette] = useState<'all' | 'open' | 'find' | 'symbols' | 'fileSymbols' | 'defs' | null>(null);
+  /** Ask Vylo's box (AskVylo.tsx), open or not. */
+  const [askVylo, setAskVylo] = useState(false);
   // What the search palette opens with. Every route in sets it, so ⌘⇧F always
   // starts on a blank field and only a recent search seeds one.
   const [findSeed, setFindSeed] = useState('');
@@ -1542,6 +1548,9 @@ export function App() {
       } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && k === 'f') {
         e.preventDefault();
         openFind();
+      } else if ((e.metaKey || e.ctrlKey) && e.shiftKey && !e.altKey && k === 'a') {
+        e.preventDefault();
+        setAskVylo(true);
       } else if ((e.metaKey || e.ctrlKey) && !e.shiftKey && k === 'j') {
         // Where VS Code puts the same idea: the panel at the bottom, away and
         // back. Through the ref, because this handler is installed once.
@@ -2799,6 +2808,22 @@ export function App() {
     if (id === 'research') toggleResearchFull(true);
     else if (id === 'video') void import('./VideoPanel').then((m) => m.toggleVideoFull(true));
     else void import('./SlidesPanel').then((m) => m.toggleSlidesFull(true));
+  }
+
+  /**
+   * What Ask Vylo sends, taken where it goes: a studio opened with the words
+   * in its form and started as the form would start it, a document's chat,
+   * or the chat box — where the person sends it, as with anything typed there.
+   */
+  function askSend(dest: Dest, text: string, docId?: string) {
+    if (dest === 'research') { openStudio('research'); askResearch(text); return; }
+    if (dest === 'doc-chat' && docId) { openStudio('research'); askResearchDoc(docId, text); return; }
+    if (dest === 'video') { openStudio('video'); void import('./VideoPanel').then((m) => m.askVideo(text)); return; }
+    if (dest === 'slides') { openStudio('slides'); void import('./SlidesPanel').then((m) => m.askSlides(text, docId)); return; }
+    goTo('chat');
+    setPrompt(text);
+    setAskOpen(true);
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.composer textarea')?.focus());
   }
 
   /** Clicking the section you are on collapses the sidebar, as VS Code does. */
@@ -4738,6 +4763,11 @@ export function App() {
         {/* Agent · Code · Chat · Terminal. In the title bar because it is about
             the whole window, not about the next message — that toggle stays in
             the composer. */}
+        <button className="ask-vylo" onClick={() => setAskVylo(true)} title={`${t('Ask Vylo')} · ${ASK_KEY}`} aria-label={t('Ask Vylo')}>
+          <Icon name="sparkle" size={13} />
+          <span>{t('Ask')}</span>
+          <kbd>{ASK_KEY}</kbd>
+        </button>
         <span className="seg space" role="group" aria-label={t('Way of working')}>
           {(['code', 'chat', 'terminal'] as Space[]).map((sp) => (
             <button key={sp} className={space === sp ? 'on' : ''} aria-pressed={space === sp}
@@ -4803,6 +4833,10 @@ export function App() {
           WKWebView's JavaScript panels — so thirteen actions silently did
           nothing, or silently answered no. */}
       <AskHost t={t} />
+      {askVylo && (
+        <AskVylo t={t} onClose={() => setAskVylo(false)} onSend={askSend}
+                 on={new Set((['research', 'video', 'slides'] as const).filter((id) => enabledModules(modules).some((m) => m.id === id)))} />
+      )}
       {canDictate && (
         <PushToTalk
           t={t}

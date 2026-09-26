@@ -240,6 +240,24 @@ interface Draft {
   /** Start from words, or from a Research document. */
   from: 'words' | 'doc';
   docId: string | null;
+  /** Ask Vylo sent these words: make it as soon as the form can, as if the button were pressed. */
+  autostart?: boolean;
+}
+
+/** Ask Vylo's way in: `askNonce` draws the form again from the draft it filled. */
+let askNonce = 0;
+let askHome = false;
+
+/** A new presentation from these words, or from one of your Research documents, made as the form would make it. */
+export function askSlides(text: string, docId?: string) {
+  Object.assign(draft, {
+    request: docId ? '' : text, kind: null, count: null, theme: null, lang: null,
+    from: docId ? 'doc' : 'words', docId: docId ?? null, autostart: true,
+  });
+  askHome = true;
+  askNonce += 1;
+  toggleSlidesFull(true);
+  window.setTimeout(() => { draft.autostart = false; }, 8000);
 }
 
 const draft: Draft = { request: '', kind: null, count: null, theme: null, lang: null, set: {}, more: false, from: 'words', docId: null };
@@ -626,6 +644,11 @@ function JobStatus({ t, deck, job }: { t: T; deck: Deck; job: Job }) {
 export function SlidesPanel({ t, lang, gw, efforts, plan, providers, choice, gateway, onProviders, onError }: Props) {
   useWatch();
   const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!askHome) return;
+    askHome = false;
+    setOpenId(null);
+  }, [askNonce]);
   const [selected, setSelected] = useState<string | null>(null);
   const [presenting, setPresenting] = useState<{ id: string; at: number } | null>(null);
   const [printing, setPrinting] = useState<string | null>(null);
@@ -736,7 +759,7 @@ export function SlidesPanel({ t, lang, gw, efforts, plan, providers, choice, gat
         ? <DeckView key={open.id} t={t} lang={lang} deck={open} current={current} routes={routes} efforts={efforts} plan={plan} ready={ready} inFull={full}
                     onSelect={setSelected} onBack={() => setOpenId(null)} begin={begin} onError={report} onSettings={onProviders}
                     onPresent={(at) => setPresenting({ id: open.id, at })} onPdf={(path) => pdfDeck(open, path)} />
-        : <Home t={t} lang={lang} routes={routes} efforts={efforts} plan={plan} ready={ready} decks={decks}
+        : <Home key={askNonce} t={t} lang={lang} routes={routes} efforts={efforts} plan={plan} ready={ready} decks={decks}
                 onOpen={(id) => { setSelected(null); setOpenId(id); }}
                 onStart={(d) => { keep(d); setSelected(null); setOpenId(d.id); begin(d, { how: 'plan' }); }} />}
     </div>
@@ -883,6 +906,15 @@ function Home({ t, lang, routes, efforts, plan, ready, decks, onOpen, onStart }:
   const onPlan = chosen.provider !== BUILT_IN || allows(plan, target.model);
   const level = target.wire === 'anthropic' && effortsFor(target.model).length ? effortOf(book, target.model) : null;
   const canGo = ready && onPlan && (from === 'doc' ? !!doc : !!request.trim());
+  // Ask Vylo filled the form: make it once it can — for a document, once the documents are read.
+  useEffect(() => {
+    if (!draft.autostart || !canGo) return;
+    draft.autostart = false;
+    // A tick later: the panel's own effect, which runs after this one, shows
+    // the form for a new request, and would close what `go` opens.
+    window.setTimeout(go, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canGo]);
 
   const setCover = (c: Cover) => {
     setCoverNow(c);

@@ -309,6 +309,21 @@ interface Draft {
   more: boolean;
   /** Look the subject up on the web before planning (videoresearch.ts). */
   lookup: boolean;
+  /** Ask Vylo sent these words: make it as soon as the form can, as if the button were pressed. */
+  autostart?: boolean;
+}
+
+/** Ask Vylo's way in: `askNonce` draws the form again from the draft it filled. */
+let askNonce = 0;
+let askHome = false;
+
+/** A new video from these words, planned as the form would plan it. */
+export function askVideo(text: string) {
+  Object.assign(draft, { request: text, format: null, seconds: null, style: null, lang: null, autostart: true });
+  askHome = true;
+  askNonce += 1;
+  toggleVideoFull(true);
+  window.setTimeout(() => { draft.autostart = false; }, 8000);
 }
 
 const draft: Draft = { request: '', format: null, seconds: null, style: null, lang: null, set: {}, more: false, lookup: true };
@@ -726,6 +741,11 @@ export function VideoPanel({ t, lang, gw, efforts, plan, providers, choice, gate
   useWatch();
   const [openId, setOpenId] = useState<string | null>(null);
   const [seek, setSeek] = useState<{ frame: number; n: number } | undefined>(undefined);
+  useEffect(() => {
+    if (!askHome) return;
+    askHome = false;
+    setOpenId(null);
+  }, [askNonce]);
   const fullBox = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -808,7 +828,7 @@ export function VideoPanel({ t, lang, gw, efforts, plan, providers, choice, gate
         ? <VideoView key={open.id} t={t} video={open} routes={routes} efforts={efforts} plan={plan} ready={ready} inFull={full}
                      seek={seek} onSeek={(i) => seekTo(open, i)}
                      onBack={() => setOpenId(null)} begin={begin} onError={report} />
-        : <Home t={t} lang={lang} routes={routes} efforts={efforts} plan={plan} ready={ready} videos={videos}
+        : <Home key={askNonce} t={t} lang={lang} routes={routes} efforts={efforts} plan={plan} ready={ready} videos={videos}
                 onOpen={setOpenId}
                 onStart={(v) => { keep(v); setOpenId(v.id); begin(v, { how: 'plan' }); }} />}
     </div>
@@ -942,6 +962,15 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
     setBrandNow(b);
     try { localStorage.setItem(BRAND_KEY, JSON.stringify(b)); setBrandUnkept(false); } catch { setBrandUnkept(true); }
   };
+
+  useEffect(() => {
+    if (!draft.autostart || !request.trim() || !ready || !onPlan) return;
+    draft.autostart = false;
+    // A tick later: the panel's own effect, which runs after this one, shows
+    // the form for a new request, and would close what `go` opens.
+    window.setTimeout(go, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, onPlan]);
 
   const go = () => {
     if (!request.trim() || !ready || !onPlan) return;

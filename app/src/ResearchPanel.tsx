@@ -32,7 +32,7 @@ import { readPicked } from './researchfiles';
 import { MIN_WORDS, voiceIn, voiceOf, type Researcher } from './researchers';
 import { ResearchPeople, personOf, usePeople } from './ResearchPeople';
 import { ResearchOriginality } from './ResearchOriginality';
-import { ResearchChat } from './ResearchChat';
+import { ResearchChat, sendWhenOpen } from './ResearchChat';
 import { ResearchHome, SkillCard } from './ResearchHome';
 import type { ChatTab, Work as ChatWork } from './researchchatops';
 import { fold } from './settings';
@@ -369,6 +369,8 @@ interface Draft {
    * follow the request — "بأسلوب د. أحمد" chooses Dr Ahmed when he is saved.
    */
   voice: string | null;
+  /** Ask Vylo sent these words: write it as soon as the form can, as if Write were pressed. */
+  autostart?: boolean;
 }
 
 const draft: Draft = {
@@ -385,6 +387,35 @@ type HomeTab = 'write' | 'docs' | 'people' | 'check' | 'skills';
 let homeTab: HomeTab = 'write';
 /** The request box takes the focus when the Write tab is next drawn: a skill or a researcher was just chosen for it. */
 let focusAsk = false;
+
+/**
+ * Ask Vylo's way in (AskVylo.tsx). `askNonce` draws the form again from the
+ * draft it filled, and `askOpen` says which document the panel should show —
+ * none for a new one.
+ */
+let askNonce = 0;
+let askOpen: { id: string | null } | null = null;
+
+/** A new document from these words, started as the Write form would start it. */
+export function askResearch(text: string) {
+  Object.assign(draft, { request: text, kind: null, lang: null, style: null, voice: null, autostart: true });
+  homeTab = 'write';
+  askOpen = { id: null };
+  askNonce += 1;
+  toggleResearchFull(true);
+  // A form that cannot start — no key, a plan without the model — is left
+  // filled in, for the person to see why, and does not start later by surprise.
+  window.setTimeout(() => { draft.autostart = false; }, 8000);
+}
+
+/** A message to one of your documents, sent from its Chat tab. */
+export function askResearchDoc(id: string, text: string) {
+  docTabs.set(id, 'chat');
+  sendWhenOpen(id, text);
+  askOpen = { id };
+  askNonce += 1;
+  toggleResearchFull(true);
+}
 
 function toTab(tab: HomeTab) {
   homeTab = tab;
@@ -1120,6 +1151,12 @@ export function ResearchPanel({ t, lang, gw, efforts, plan, providers, choice, g
   useWatch();
   const people = usePeople();
   const [openId, setOpenNow] = useState<string | null>(null);
+  // Ask Vylo chose what to show: a document, or the form for a new one.
+  useEffect(() => {
+    if (!askOpen) return;
+    setOpenNow(askOpen.id);
+    askOpen = null;
+  }, [askNonce]);
   const [reading, setReading] = useState<{ id: string; at?: string } | null>(null);
   // In the full window the reader is already open beside the controls, and a
   // part chosen in the outline is scrolled to there; `n` scrolls to it again
@@ -1373,7 +1410,7 @@ function HomeTabs(p: HomeProps) {
           </button>
         ))}
       </div>
-      {tab === 'write' && <Home {...p} />}
+      {tab === 'write' && <Home key={askNonce} {...p} />}
       {tab === 'docs' && <DocList t={t} docs={docs} onOpen={onOpen} />}
       {tab === 'people' && (
         <ResearchPeople t={t} lang={lang} target={target} book={book} ready={ready} onError={onError}
@@ -1534,6 +1571,16 @@ function Home({ t, lang, routes, efforts, plan, ready, people, onStart, onError 
     // a restart is a cover printed without it.
     try { localStorage.setItem(LOGO_KEY, JSON.stringify(next)); setLogoUnkept(false); } catch { setLogoUnkept(true); }
   };
+
+  // Ask Vylo filled the form: write it once the form can — files read, a key, a plan that has the model.
+  useEffect(() => {
+    if (!draft.autostart || !request.trim() || !ready || !onPlan || loading) return;
+    draft.autostart = false;
+    // A tick later: the panel's own effect, which runs after this one, shows
+    // the form for a new request, and would close what `go` opens.
+    window.setTimeout(go, 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, onPlan, loading]);
 
   const go = () => {
     if (!request.trim() || !ready || !onPlan || loading) return;
