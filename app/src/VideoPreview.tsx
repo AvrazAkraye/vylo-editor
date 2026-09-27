@@ -92,6 +92,9 @@ export default function VideoPreview({ video, t, at, maxBlock }: {
               compositionWidth={comp.width} compositionHeight={comp.height}
               controls loop clickToPlay spaceKeyToPlayOrPause={false} doubleClickToFullscreen={false}
               acknowledgeRemotionLicense
+              // No shared <audio> tags: the film's sound plays through Web Audio (videospeaker.ts), and an
+              // <audio> played in the macOS webview goes through AVFoundation, which can freeze the window.
+              numberOfSharedAudioTags={0}
               style={{ inlineSize: '100%', blockSize: '100%' }} />
     </div>
   );

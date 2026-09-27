@@ -9,10 +9,11 @@
  * its scene's start as the composition places scenes (transitions
  * overlapping). This file only decides who hears that mix and how:
  *
- * - **In the player** it is one WAV, from a blob: URL, under one
- *   `<Html5Audio>` for the whole film — the player seeks and plays it with
- *   the frames. A blob: URL because the app's CSP has `media-src 'self'
- *   blob:` and no `data:`.
+ * - **In the player** it is one buffer played through Web Audio
+ *   (videospeaker.ts), started, stopped and started again at the right
+ *   place to follow the player's frames. Not an `<audio>` element: in the
+ *   macOS webview that goes through AVFoundation, which can deadlock and
+ *   freeze the window.
  * - **In an export** (`renderMediaOnWeb`) there is no audio element to
  *   capture. The web renderer builds its audio track from `inline-audio`
  *   render assets — the samples each frame contributes — which only
@@ -44,73 +45,84 @@
 import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { flushSync } from 'react-dom';
-import { Html5Audio, Internals, useCurrentFrame, useDelayRender, useRemotionEnvironment, useVideoConfig } from 'remotion';
+import { Internals, useCurrentFrame, useDelayRender, useRemotionEnvironment, useVideoConfig } from 'remotion';
 import type { Format, Video } from './videotypes';
 import { isRtl } from './video';
 import { boxOf, contrast, fitText, fontsReady, sceneTheme } from './videotheme';
 import { dirOf, watermarkOn, watermarkSpot } from './videoscenebits';
 import { lookFor } from './videolook';
-import { captionAt, captionPages, encodeWav, frameSamples, mixVideo, planKey, soundPlan, type SoundPlan } from './videomix';
+import { bufferOf, speaker } from './videospeaker';
+import { captionAt, captionPages, frameSamples, mixVideo, planKey, soundPlan, type SoundPlan } from './videomix';
 
 /** Whether a plan has anything to hear (captions alone are silent). */
 const audible = (p: SoundPlan) => Boolean(p.music) || p.lines.some((l) => l.src);
 
-/**
- * The player's mix rate: the renderer's default, so the player and the file
- * are mixed from the same decoded samples (decoded once, videomix.ts caches
- * them by rate).
- */
-const PREVIEW_RATE = 48000;
 
 // ── the player's mix ──────────────────────────────────────────────────────
 
-/** Mixed WAVs as blob: URLs, newest last. A few are kept so two players and an undo do not mix again. */
-const previews = new Map<string, Promise<string>>();
+/** Mixed buffers, newest last. A few are kept so two players and an undo do not mix again. */
+const previews = new Map<string, Promise<AudioBuffer | null>>();
 const KEEP_PREVIEWS = 4;
 
-function previewUrl(plan: SoundPlan, key: string): Promise<string> {
+function previewBuffer(plan: SoundPlan, key: string, rate: number): Promise<AudioBuffer | null> {
   const hit = previews.get(key);
   if (hit) {
     previews.delete(key);
     previews.set(key, hit);
     return hit;
   }
-  const made = mixVideo(plan, PREVIEW_RATE).then((mix) => {
-    const wav = encodeWav(mix, PREVIEW_RATE);
-    return URL.createObjectURL(new Blob([wav.buffer as ArrayBuffer], { type: 'audio/wav' }));
-  });
+  const made = mixVideo(plan, rate).then((mix) => bufferOf(mix, rate));
   previews.set(key, made);
   made.catch(() => previews.delete(key));
-  while (previews.size > KEEP_PREVIEWS) {
-    const oldest = previews.keys().next().value as string;
-    const gone = previews.get(oldest);
-    previews.delete(oldest);
-    // Revoked a little later, so a player still holding it can let go first.
-    gone?.then((u) => setTimeout(() => URL.revokeObjectURL(u), 10_000), () => undefined);
-  }
+  while (previews.size > KEEP_PREVIEWS) previews.delete(previews.keys().next().value as string);
   return made;
 }
 
+/** How far the sound may drift from the picture before it is started again at the right place, in seconds. */
+const DRIFT = 0.2;
+
+/** The Player's playback rate; 1 where there is no Player around (a thumbnail). */
+function usePlaybackRate(): number {
+  try {
+    return Internals.Timeline.usePlaybackRate().playbackRate;
+  } catch {
+    return 1;
+  }
+}
+
 /**
- * The mix under `<Html5Audio>`, remade a moment after the sound changes —
- * a slider being dragged, a scene being lengthened — and swapped in when it
- * is ready. Until the first one is, the preview is silent.
+ * The mix under the preview, through Web Audio (videospeaker.ts says why
+ * not `<audio>`): remade a moment after the sound changes — a slider being
+ * dragged, a scene being lengthened — and swapped in when it is ready; until
+ * the first one is, the preview is silent. It follows the player: it starts
+ * at the frame shown when the player plays, stops when it pauses, and starts
+ * again at the right place when the frame and the sound drift apart (a seek,
+ * a loop, a stall), at the player's speed, volume and mute.
  */
-function PreviewSound({ plan }: { plan: SoundPlan }): JSX.Element | null {
+function PreviewSound({ plan }: { plan: SoundPlan }): null {
   const key = audible(plan) ? planKey(plan) : '';
-  const [url, setUrl] = useState<{ key: string; url: string } | null>(null);
+  const [buf, setBuf] = useState<{ key: string; buffer: AudioBuffer } | null>(null);
   const planRef = useRef(plan);
   planRef.current = plan;
+  const frame = useCurrentFrame();
+  const { fps } = useVideoConfig();
+  const playing = Internals.Timeline.usePlaying();
+  const speed = usePlaybackRate();
+  const [volume] = Internals.useMediaVolumeState();
+  const [muted] = Internals.usePlayerMutedState();
+  const run = useRef<{ src: AudioBufferSourceNode; gain: GainNode; at: number; offset: number; speed: number; buffer: AudioBuffer } | null>(null);
+
   useEffect(() => {
-    if (!key) {
-      setUrl(null);
+    const c = speaker();
+    if (!key || !c) {
+      setBuf(null);
       return;
     }
     let live = true;
     const timer = setTimeout(() => {
-      previewUrl(planRef.current, key).then(
-        (u) => { if (live) setUrl({ key, url: u }); },
-        () => { if (live) setUrl(null); },
+      previewBuffer(planRef.current, key, c.sampleRate).then(
+        (b) => { if (live) setBuf(b ? { key, buffer: b } : null); },
+        () => { if (live) setBuf(null); },
       );
     }, previews.has(key) ? 0 : 250);
     return () => {
@@ -118,8 +130,43 @@ function PreviewSound({ plan }: { plan: SoundPlan }): JSX.Element | null {
       clearTimeout(timer);
     };
   }, [key]);
-  if (!key || !url) return null;
-  return <Html5Audio src={url.url} pauseWhenBuffering={false} />;
+
+  const stop = () => {
+    const r = run.current;
+    run.current = null;
+    if (!r) return;
+    try { r.src.stop(); } catch { /* not started */ }
+    r.src.disconnect();
+    r.gain.disconnect();
+  };
+
+  useEffect(() => {
+    const c = speaker();
+    const b = buf && buf.key === key ? buf.buffer : null;
+    const want = frame / fps;
+    if (!c || !b || !playing || speed <= 0 || want >= b.duration) {
+      stop();
+      return;
+    }
+    if (c.state !== 'running') void c.resume().catch(() => undefined);
+    const r = run.current;
+    const at = r ? r.offset + (c.currentTime - r.at) * r.speed : NaN;
+    if (!r || r.buffer !== b || r.speed !== speed || !(Math.abs(at - want) <= DRIFT)) {
+      stop();
+      const gain = c.createGain();
+      gain.connect(c.destination);
+      const src = c.createBufferSource();
+      src.buffer = b;
+      src.playbackRate.value = speed;
+      src.connect(gain);
+      src.start(0, want);
+      run.current = { src, gain, at: c.currentTime, offset: want, speed, buffer: b };
+    }
+    if (run.current) run.current.gain.gain.value = muted ? 0 : Math.max(0, Math.min(1, volume));
+  });
+
+  useEffect(() => stop, []);
+  return null;
 }
 
 // ── the file's mix ────────────────────────────────────────────────────────

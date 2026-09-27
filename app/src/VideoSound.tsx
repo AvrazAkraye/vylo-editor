@@ -11,9 +11,10 @@ import type { MusicSpec, Track, Video, VideoAudio } from './videotypes';
 import { durationInFrames, isRtl } from './video';
 import { FPS } from './videotypes';
 import { kindName } from './VideoStoryboard';
+import { playSound, playingKey, stopSound, wake } from './videospeaker';
 import { KEY_NAMES, MUSIC_MOODS, arrange, composeMusic, moodForStyle, moodTempo, musicCues, type Mood as SynthMood } from './videosynth';
 import {
-  MOODS, MusicError, VOICES, audioSeconds, dataUrlBytes, encodeWav, fetchTrackBytes, fingerprint, fitScenesToVoice,
+  MOODS, MusicError, VOICES, audioSeconds, dataUrlBytes, fetchTrackBytes, fingerprint, fitScenesToVoice,
   isAbort, linesOver, moodFor, musicVolumeOf, narrationPrompt, parseNarration, searchMusic, speakLine, speakerFor,
   staleVoices, toDataUrl, trackOf, voiceForScenes, wordBudget, wordsIn, type Mood, type TrackCandidate, type VoiceFit,
 } from './videomix';
@@ -176,69 +177,31 @@ function bytesOf(c: TrackCandidate): Promise<Uint8Array> {
 // ── listening ─────────────────────────────────────────────────────────────
 
 /**
- * One player for the whole tab, so only one thing is heard at a time. It
- * plays blob: URLs — the CSP's `media-src` allows `blob:` and not `data:`.
+ * One sound at a time for the whole tab, played through Web Audio
+ * (videospeaker.ts says why not an `<audio>` element).
  */
-let player: HTMLAudioElement | null = null;
 let playing = '';
-const blobUrls = new Map<string, string>();
 
-function audioEl(): HTMLAudioElement {
-  if (!player) {
-    player = new Audio();
-    player.preload = 'auto';
-    player.addEventListener('ended', () => { playing = ''; ping(); });
-  }
-  return player;
-}
-
-/** A blob: URL for bytes, made once per sound. */
-function blobUrlOf(key: string, bytes: () => Uint8Array | null, type: string): string | null {
-  const hit = blobUrls.get(key);
-  if (hit) return hit;
-  const b = bytes();
-  if (!b) return null;
-  const url = URL.createObjectURL(new Blob([b.buffer as ArrayBuffer], { type }));
-  blobUrls.set(key, url);
-  while (blobUrls.size > 24) {
-    const [k, u] = blobUrls.entries().next().value as [string, string];
-    blobUrls.delete(k);
-    if (playing !== k) URL.revokeObjectURL(u);
-  }
-  return url;
-}
-
-let silent: string | null = null;
-
-/**
- * Called in the click itself: WebKit lets an element play later, after an
- * await, only if it was started inside a gesture. A few silent samples do it.
- */
+/** Called in the click itself, so WebKit lets the sound start after an await. */
 function unlock() {
-  const el = audioEl();
-  if (!silent) silent = URL.createObjectURL(new Blob([encodeWav([new Float32Array(64)], 8000).buffer as ArrayBuffer], { type: 'audio/wav' }));
-  if (!el.src || el.paused) {
-    el.src = silent;
-    el.play().catch(() => undefined);
-  }
+  wake();
 }
 
 function stopAll() {
   try { window.speechSynthesis?.cancel(); } catch { /* none */ }
-  if (player) player.pause();
+  stopSound();
   playing = '';
   ping();
 }
 
-async function playUrl(key: string, url: string) {
-  const el = audioEl();
-  el.pause();
+/** Play encoded audio under `key`, decoded once. */
+async function play(key: string, bytes: () => Uint8Array | null) {
   try { window.speechSynthesis?.cancel(); } catch { /* none */ }
   playing = key;
   ping();
-  el.src = url;
   try {
-    await el.play();
+    await playSound(key, bytes, () => { if (playing === key) { playing = ''; ping(); } });
+    if (playingKey() !== key && playing === key) { playing = ''; ping(); }
   } catch {
     if (playing === key) { playing = ''; ping(); }
   }
@@ -421,8 +384,7 @@ function MusicCard({ t, video, audio, setAudio, onError }: {
     setLoading(c.url);
     try {
       const bytes = await bytesOf(c);
-      const url = blobUrlOf(key, () => bytes, 'audio/mpeg');
-      if (url) await playUrl(key, url);
+      await play(key, () => bytes);
     } catch (e) {
       onError(sayMusic(t, e, t('fetch the music')));
     } finally {
@@ -451,8 +413,7 @@ function MusicCard({ t, video, audio, setAudio, onError }: {
     if (!track) return;
     const key = `track:${fingerprint(track.src)}`;
     if (playing === key) { stopAll(); return; }
-    const url = blobUrlOf(key, () => dataUrlBytes(track.src), track.src.startsWith('data:audio/wav') ? 'audio/wav' : 'audio/mpeg');
-    if (url) void playUrl(key, url);
+    void play(key, () => dataUrlBytes(track.src));
   };
 
   // Composed music follows the video's length; when the video has changed since, it can be composed again to fit.
@@ -641,8 +602,7 @@ function ComposeCard({ t, video, audio, setAudio, onUsed }: {
   const hear = () => {
     if (!made) return;
     if (playing === hearKey) { stopAll(); return; }
-    const url = blobUrlOf(hearKey, () => dataUrlBytes(made.src), 'audio/wav');
-    if (url) void playUrl(hearKey, url);
+    void play(hearKey, () => dataUrlBytes(made.src));
   };
   const use = () => {
     if (!made) return;
@@ -845,8 +805,7 @@ function VoiceCard({ t, video, audio, setAudio, onChange, run, rtl, locked, prov
     const key = line ? `voice:${fingerprint(line.src)}` : `say:${sceneId}:${text}`;
     if (playing === key) { stopAll(); return; }
     if (line) {
-      const url = blobUrlOf(key, () => dataUrlBytes(line.src), 'audio/mpeg');
-      if (url) void playUrl(key, url);
+      void play(key, () => dataUrlBytes(line.src));
       return;
     }
     if (!speaker) { speakSystem(key, text); return; }
@@ -855,8 +814,7 @@ function VoiceCard({ t, video, audio, setAudio, onChange, run, rtl, locked, prov
     setLoading(sceneId);
     speakLine(speaker, text).then(
       (bytes) => {
-        const url = blobUrlOf(key, () => bytes, 'audio/mpeg');
-        if (url) void playUrl(key, url);
+        void play(key, () => bytes);
       },
       (e: unknown) => onError(explain(e, t('make the voice'))),
     ).finally(() => setLoading(null));

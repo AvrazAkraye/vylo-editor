@@ -1060,7 +1060,7 @@ export function ArtShape() {
       break;
     }
     case 'wave': {
-      const period = Math.round(S * 0.5);
+      const period = Math.max(2, Math.round(S * 0.5));
       const amp = S * 0.05;
       const w = period * 4;
       const h = Math.round(S * 0.2);
