@@ -5044,7 +5044,6 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .us-bar.out i{ background:var(--err); }
 
 .us-flat{ margin:0; font-size:var(--fs-2); color:var(--mute); }
-.us-quiet{ color:var(--ink-3, var(--mute)); opacity:.85; }
 
 /* The one number a glance is for. Tabular so it does not jitter as it climbs. */
 .us-big{ display:flex; align-items:baseline; gap:var(--sp-2);
@@ -5110,11 +5109,6 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .us-what em{ flex:none; font-style:normal; font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
 
-.us-note{
-  display:flex; gap:var(--sp-2); align-items:flex-start;
-  margin:var(--sp-2) var(--sp-4) 0; font-size:var(--fs-1); color:var(--mute);
-}
-.us-note svg{ flex:none; margin-block-start:2px; }
 
 /* ── Research: working papers, theses, dissertations ─────────────────────────
    Two places. The sidebar is where a document is asked for and watched; the

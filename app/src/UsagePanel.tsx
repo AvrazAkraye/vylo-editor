@@ -1,6 +1,6 @@
 import { Icon } from './Icon';
 import { fill } from './i18n';
-import { across, compact, counted, heaviest, percentOf, total, type Usage } from './usage';
+import { across, compact, heaviest, percentOf, total, type Usage } from './usage';
 import { daysLeft } from './session';
 import { cheapestWith, money, type PlanOffer, type PlanSummary } from './account';
 import { MODELS, modelName } from './models';
@@ -135,7 +135,6 @@ function Split({ t, u }: { t: Props['t']; u: Usage }) {
 
 export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen, onSettings }: Props) {
   const project = across(chats);
-  const withFigures = counted(chats);
   const top = heaviest(chats, 5);
   const biggest = top.length ? top[0].used : 0;
   const ctxPercent = ctx ? percentOf(ctx.used, ctx.limit) : null;
@@ -273,8 +272,7 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
         <div className="us-card us-ctx">
           <div className="us-head"><b>{t('Context window')}</b><em>{ctxPercent}%</em></div>
           <Bar percent={ctxPercent} tone={ctxPercent >= 85 ? 'low' : ''} />
-          <p className="us-flat">{fill(t('{used} of {limit} tokens. Past this the oldest turns are summarised to make room.'),
-            { used: compact(ctx.used), limit: compact(ctx.limit) })}</p>
+          <p className="us-flat" dir="ltr">{compact(ctx.used)} / {compact(ctx.limit)}</p>
         </div>
       )}
 
@@ -285,15 +283,6 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
       ) : (
         <div className="us-card">
           <div className="us-big">{compact(total(project))}<span>{t('tokens')}</span></div>
-          <p className="us-flat">{withFigures === 1
-            ? t('From 1 conversation that recorded what it cost.')
-            : fill(t('From {n} conversations that recorded what they cost.'), { n: withFigures })}</p>
-          {withFigures < chats.length && (
-            <p className="us-flat us-quiet">{chats.length - withFigures === 1
-              ? t('1 older conversation was saved before this was recorded and is not counted.')
-              : fill(t('{n} older conversations were saved before this was recorded and are not counted.'),
-                     { n: chats.length - withFigures })}</p>
-          )}
           {top.length > 1 && (
             <>
               <div className="us-mini">{t('Where it went')}</div>
@@ -315,11 +304,6 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
           )}
         </div>
       )}
-
-      <p className="us-note">
-        <Icon name="bolt" size={12} />
-        {t('Prices are what this gateway charges for a plan. Tokens have no price of their own here, so no conversation is shown as money.')}
-      </p>
     </div>
   );
 }
