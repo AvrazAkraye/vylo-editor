@@ -46,6 +46,25 @@ export type Theme = 'academic' | 'modern' | 'elegant' | 'bold' | 'minimal' | 'wa
 export const THEMES: readonly Theme[] = ['academic', 'modern', 'elegant', 'bold', 'minimal', 'warm'];
 
 /**
+ * A look the model designed for this presentation, instead of one of the six:
+ * a name, why it suits the subject, and four colours. The app derives the
+ * rest — muted text, cards, rules, the text on the band — and checks every
+ * pair can be read (`readDesign` in slideslayout.ts).
+ */
+export interface Design {
+  name: string;
+  why: string;
+  /** Behind a content slide. */
+  bg: string;
+  /** The text on it. */
+  ink: string;
+  /** Behind the title, section and closing slides. */
+  band: string;
+  /** Bullets, figures, the timeline — what draws the eye. */
+  accent: string;
+}
+
+/**
  * The kinds of slide. `references` is the app's alone: it is written from a
  * Research document's sources, never by the model.
  */
@@ -143,6 +162,13 @@ export interface Deck {
   logoRatio?: number;
   /** Colours that replace the theme's: the band behind titles, and the accent. */
   brand?: { primary?: string; accent?: string };
+  /**
+   * The look is the model's to design (`design`), rather than `theme`'s.
+   * `theme` stays as the tone the words are written in.
+   */
+  ai?: boolean;
+  /** The look the model designed, used while `ai` is on. */
+  design?: Design;
   slides: Slide[];
   stage: DeckStage;
   error?: string;
@@ -212,7 +238,7 @@ export function countFor(kind: DeckKind): number {
 
 export function newDeck(o: {
   id: string; now: number; request: string; lang: DeckLang; kind: DeckKind; theme: Theme; count: number;
-  meta?: Partial<DeckMeta>; logo?: string; logoRatio?: number;
+  meta?: Partial<DeckMeta>; logo?: string; logoRatio?: number; ai?: boolean;
 }): Deck {
   const count = Number.isFinite(o.count) ? clampNum(Math.round(o.count), COUNT.min, COUNT.max) : countFor(o.kind);
   return {
@@ -228,6 +254,7 @@ export function newDeck(o: {
     title: '',
     meta: { ...EMPTY_META, ...(o.meta ?? {}) },
     ...(o.logo ? { logo: o.logo, ...(o.logoRatio ? { logoRatio: o.logoRatio } : {}) } : {}),
+    ...(o.ai ? { ai: true } : {}),
     slides: [],
     stage: 'new',
   };
@@ -447,9 +474,51 @@ export function modelCount(deck: Pick<Deck, 'count' | 'refs'>): number {
   return clampNum(deck.count - refs, COUNT.min, COUNT.max);
 }
 
+/**
+ * How the model designs a look. Colours only, as hex, and the rules that make
+ * a deck readable from the back of a room; the app checks the contrast again
+ * and fixes what fails, so a rule broken here costs a colour, not a slide.
+ */
+const DESIGN_RULES = [
+  'Design the look of this presentation for its subject, its audience and its occasion: a palette a good designer would choose for exactly this talk.',
+  '- "bg": the background of the content slides — usually a light, calm colour (white, a warm or cool off-white, a pale tint); a dark background only when the subject clearly calls for it.',
+  '- "ink": the text on "bg", with strong contrast to it (at least 7:1).',
+  '- "band": the colour behind the title, section and closing slides — the look\'s signature colour, rich enough to carry white or near-black text.',
+  '- "accent": bullets, big figures and the timeline — clearly different from "band", readable on "bg".',
+  '- If the request names an institution, a brand or a country, you may draw on its well-known colours. No neon, no pure primaries, no more than these four colours.',
+  '- "name": two or three words naming the look, in the presentation\'s language. "why": one short sentence, in that language, on why it suits the talk.',
+  'Colours as #RRGGBB.',
+].join('\n');
+
+const DESIGN_SHAPE = '{"name":"…","why":"…","bg":"#RRGGBB","ink":"#RRGGBB","band":"#RRGGBB","accent":"#RRGGBB"}';
+
+/**
+ * A look on its own, for a deck that exists: its request, its title and its
+ * slide titles are what it is about. With `other`, a different look from that
+ * one — "design again" means another idea, not the same one reworded.
+ */
+export function designPrompt(deck: Deck, other?: Design): { system: string; user: string } {
+  const titles = deck.slides.map((s) => s.title).filter(Boolean).slice(0, 20).join(' · ');
+  const user = [
+    quoted('The request, as the person wrote it', deck.request),
+    deck.title ? `Title: ${deck.title}` : '',
+    titles ? `Slides: ${titles}` : '',
+    `Kind of presentation: ${ARC[deck.kind] ?? ARC.general}`,
+    `Language: ${LANGUAGE_NAME[deck.lang]}.`,
+    '',
+    DESIGN_RULES,
+    other ? `\nA look was already designed: "${other.name}" (${other.band} band, ${other.accent} accent on ${other.bg}). Design a clearly different one.` : '',
+    '',
+    `Reply with one JSON object and nothing else: ${DESIGN_SHAPE}`,
+  ].filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n');
+  return { system: 'You design the visual look of presentations. You reply with JSON only.', user };
+}
+
 export function planPrompt(deck: Deck): { system: string; user: string } {
   const lang = LANGUAGE_NAME[deck.lang];
   const n = modelCount(deck);
+  // A look to design as well, in the same reply: one request, not two.
+  const design = !!deck.ai && !deck.design;
   const user = [
     quoted('The request, as the person wrote it', deck.request),
     '',
@@ -463,8 +532,12 @@ export function planPrompt(deck: Deck): { system: string; user: string } {
     factsRule(deck),
     ...(deck.source?.trim() ? ['', quoted('The document the presentation is made from', deck.source.trim())] : []),
     '',
+    ...(design ? ['', DESIGN_RULES] : []),
+    '',
     'Reply with one JSON object and nothing else — no explanation before or after it:',
-    `{"title":"the presentation's title, in ${lang}","slides":[slide, slide, …]}`,
+    design
+      ? `{"title":"the presentation's title, in ${lang}","design":${DESIGN_SHAPE},"slides":[slide, slide, …]}`
+      : `{"title":"the presentation's title, in ${lang}","slides":[slide, slide, …]}`,
     '',
     SCHEMA,
   ].join('\n');

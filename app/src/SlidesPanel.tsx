@@ -13,10 +13,10 @@ import { EFFORTS, effortLabel, effortOf, effortsFor, type Effort, type EffortBoo
 import { generate, type Target } from './generate';
 import {
   COUNTS, DECK_KINDS, THEMES, WRITTEN_KINDS, blankSlide, countFor, countIn, deckLangOf, fileNameFor, fromResearch,
-  isRtl, kindIn, newDeck, parsePlan, parseSlide, planPrompt, slidePrompt, themeIn,
-  type Deck, type DeckKind, type DeckLang, type DeckMeta, type Pair, type Slide, type SlideKind, type Theme,
+  designPrompt, isRtl, kindIn, newDeck, parsePlan, parseSlide, planPrompt, slidePrompt, themeIn,
+  type Deck, type Design, type DeckKind, type DeckLang, type DeckMeta, type Pair, type Slide, type SlideKind, type Theme,
 } from './slides';
-import { PALETTES } from './slideslayout';
+import { PALETTES, designIn, paletteOf, readDesign, textOn } from './slideslayout';
 import { pptxBase64 } from './slidespptx';
 import { deleteDeck, loadDecks, saveDeck } from './slidestore';
 import { loadDocs } from './researchstore';
@@ -66,7 +66,7 @@ type T = (s: string) => string;
 
 // ── runs, outside React ───────────────────────────────────────────────────
 
-type Work = { how: 'plan' } | { how: 'slide'; id: string; instruction: string };
+type Work = { how: 'plan' } | { how: 'slide'; id: string; instruction: string } | { how: 'design' };
 
 interface Job {
   ctl: AbortController;
@@ -156,6 +156,7 @@ const newId = () => {
 /** Said by the run as codes, so the sentence is chosen where `t` is. */
 const UNREADABLE_PLAN = 'slides:unreadable-plan';
 const UNREADABLE_SLIDE = 'slides:unreadable-slide';
+const UNREADABLE_DESIGN = 'slides:unreadable-design';
 
 function start(deck: Deck, gw: Target, efforts: EffortBook, work: Work, say: (e: unknown) => string, report: (m: string) => void) {
   if (jobs.has(deck.id)) return;
@@ -180,7 +181,25 @@ function start(deck: Deck, gw: Target, efforts: EffortBook, work: Work, say: (e:
       const now = known.get(id) ?? cur;
       const plan = parsePlan(out.text, now, newId);
       if (!plan) throw new Error(UNREADABLE_PLAN);
-      keep({ ...now, title: now.title || plan.title, slides: plan.slides, stage: 'ready', updated: Date.now() });
+      // The look the model designed, when it was asked for one in the same reply.
+      const design = now.ai && !now.design ? designIn(out.text) ?? undefined : now.design;
+      keep({ ...now, title: now.title || plan.title, slides: plan.slides, ...(design ? { design } : {}), stage: 'ready', updated: Date.now() });
+      // Asked for and not given: one short request of its own.
+      if (now.ai && !design) {
+        const d = known.get(id);
+        if (d) {
+          const q = designPrompt(d);
+          const got = designIn((await call(q.system, q.user, 1200)).text);
+          if (got) update(id, (x) => ({ ...x, design: got }));
+        }
+      }
+    } else if (work.how === 'design') {
+      const cur = known.get(id);
+      if (!cur) return;
+      const q = designPrompt(cur, cur.design);
+      const got = designIn((await call(q.system, q.user, 1200)).text);
+      if (!got) throw new Error(UNREADABLE_DESIGN);
+      edit(id, { ai: true, design: got }, true);
     } else {
       const cur = known.get(id);
       const index = cur ? cur.slides.findIndex((s) => s.id === work.id) : -1;
@@ -240,6 +259,8 @@ interface Draft {
   /** Start from words, or from a Research document. */
   from: 'words' | 'doc';
   docId: string | null;
+  /** The look is the model's to design. */
+  ai: boolean;
   /** Ask Vylo sent these words: make it as soon as the form can, as if the button were pressed. */
   autostart?: boolean;
 }
@@ -260,7 +281,7 @@ export function askSlides(text: string, docId?: string) {
   window.setTimeout(() => { draft.autostart = false; }, 8000);
 }
 
-const draft: Draft = { request: '', kind: null, count: null, theme: null, lang: null, set: {}, more: false, from: 'words', docId: null };
+const draft: Draft = { request: '', kind: null, count: null, theme: null, lang: null, set: {}, more: false, from: 'words', docId: null, ai: false };
 
 function useDraft<K extends keyof Draft>(k: K): [Draft[K], (v: Draft[K]) => void] {
   const [v, setV] = useState<Draft[K]>(draft[k]);
@@ -397,6 +418,7 @@ function useTick(on: boolean) {
 function errorText(e: string, t: T): string {
   if (e === UNREADABLE_PLAN) return t('The slides could not be read from the model’s reply. Try again, or try another model.');
   if (e === UNREADABLE_SLIDE) return t('The new slide could not be read from the model’s reply. Try again, or say it differently.');
+  if (e === UNREADABLE_DESIGN) return t('The look could not be read from the model’s reply. Try Design again.');
   return e;
 }
 
@@ -497,15 +519,34 @@ function CountPicker({ t, value, onChange, disabled }: { t: T; value: number; on
   );
 }
 
-/** The looks as swatches: the band and its accent are most of what a look is. */
-function ThemePicker({ t, value, onChange, disabled }: { t: T; value: Theme; onChange: (th: Theme) => void; disabled?: boolean }) {
+/**
+ * The looks as swatches: the band and its accent are most of what a look is.
+ * The first is the model's own design for this deck, when `ai` is given —
+ * drawn in its colours once there is one, and as a promise before.
+ */
+function ThemePicker({ t, value, onChange, disabled, ai }: {
+  t: T; value: Theme; onChange: (th: Theme) => void; disabled?: boolean;
+  ai?: { on: boolean; design?: Design; onPick: () => void };
+}) {
+  const d = ai?.design ? readDesign(ai.design) : null;
   return (
     <div className="vid-styles" role="radiogroup" aria-label={t('Look')}>
+      {ai && (
+        <button type="button" role="radio" aria-checked={ai.on} disabled={disabled}
+                className={`sl-ai-look${ai.on ? ' on' : ''}`} onClick={ai.onPick}
+                title={d?.why || t('The model designs colours for this presentation’s subject and audience.')}>
+          <span className="vid-swatch sl-ai-swatch" style={d ? { background: d.band, color: textOn(d.band) } : undefined} aria-hidden="true">
+            <Icon name="sparkle" size={13} />
+            {d && <i style={{ background: d.accent }} />}
+          </span>
+          <span dir="auto">{d?.name || t('Designed by AI')}</span>
+        </button>
+      )}
       {THEMES.map((th) => {
         const p = PALETTES[th];
         return (
-          <button key={th} type="button" role="radio" aria-checked={value === th} disabled={disabled}
-                  className={value === th ? 'on' : ''} onClick={() => onChange(th)}>
+          <button key={th} type="button" role="radio" aria-checked={!ai?.on && value === th} disabled={disabled}
+                  className={!ai?.on && value === th ? 'on' : ''} onClick={() => onChange(th)}>
             <span className="vid-swatch" style={{ background: p.band, color: p.onBand }} aria-hidden="true">
               Aa<i style={{ background: p.accent }} />
             </span>
@@ -566,7 +607,8 @@ function CoverFields({ t, value, onChange, disabled }: { t: T; value: Cover; onC
 
 /** The brand's colours over the look's, with the logo's own offered. */
 function BrandColours({ t, deck, onChange, disabled }: { t: T; deck: Deck; onChange: (next: Partial<Deck>) => void; disabled?: boolean }) {
-  const p = PALETTES[deck.theme] ?? PALETTES.academic;
+  // The look's own colours — a designed look's too — are what a cleared brand colour falls back to.
+  const p = paletteOf({ theme: deck.theme, ai: deck.ai, design: deck.design });
   const brand = deck.brand ?? {};
   const [swatches, setSwatches] = useState<Swatch[] | null>(null);
   useEffect(() => {
@@ -622,6 +664,7 @@ function JobStatus({ t, deck, job }: { t: T; deck: Deck; job: Job }) {
   const elapsed = Date.now() - job.started;
   const line = job.how === 'slide'
     ? fill(t('Writing slide {n} again…'), { n: deck.slides.findIndex((s) => s.id === job.slideId) + 1 })
+    : job.how === 'design' ? t('Designing the look…')
     : job.chars ? t('Writing the slides…') : `${thinkingVerb(elapsed, t)}…`;
   return (
     <div className="vid-status" role="status">
@@ -717,7 +760,7 @@ export function SlidesPanel({ t, lang, gw, efforts, plan, providers, choice, gat
   };
   const begin = (d: Deck, work: Work) => {
     const target = targetOf(d, routes);
-    const doing = work.how === 'plan' ? t('write the slides') : t('write the slide again');
+    const doing = work.how === 'plan' ? t('write the slides') : work.how === 'design' ? t('design the look') : t('write the slide again');
     start(d, target, bookFor(d, target, efforts), work, (e) => explain(e, doing), report);
   };
 
@@ -875,7 +918,9 @@ function Home({ t, lang, routes, efforts, plan, ready, decks, onOpen, onStart }:
   const [request, setRequest] = useDraft('request');
   const [kindSet, setKindSet] = useDraft('kind');
   const [countSet, setCountSet] = useDraft('count');
-  const [themeSet, setThemeSet] = useDraft('theme');
+  const [themeSet, setThemeSetNow] = useDraft('theme');
+  const [ai, setAi] = useDraft('ai');
+  const setThemeSet = (th: Theme | null) => { setThemeSetNow(th); setAi(false); };
   const [langSet, setLangSet] = useDraft('lang');
   const [set, putSet] = useDraft('set');
   const [more, setMore] = useDraft('more');
@@ -923,7 +968,7 @@ function Home({ t, lang, routes, efforts, plan, ready, decks, onOpen, onStart }:
 
   const go = () => {
     if (!canGo) return;
-    const base = { id: newId(), now: Date.now(), kind, theme, count, lang: dlang };
+    const base = { id: newId(), now: Date.now(), kind, theme, count, lang: dlang, ai };
     let d: Deck;
     if (doc && fromDoc) {
       const r = fromDoc;
@@ -1031,7 +1076,8 @@ function Home({ t, lang, routes, efforts, plan, ready, decks, onOpen, onStart }:
         </div>
         <div className="vid-group">
           <span className="vid-group-label">{t('Look')}</span>
-          <ThemePicker t={t} value={theme} onChange={setThemeSet} />
+          <ThemePicker t={t} value={theme} onChange={setThemeSet} ai={{ on: ai, onPick: () => setAi(true) }} />
+          {ai && <small className="sl-ai-note">{t('The model designs the colours for your subject while it writes the slides. Change them afterwards in the Deck tab.')}</small>}
         </div>
         <div className="vid-group">
           <span className="vid-group-label">{t('Language of the slides')}</span>
@@ -1250,7 +1296,7 @@ function DeckView({ t, lang, deck, current, routes, efforts, plan, ready, inFull
         </button>
         <div className="vid-title">
           <b dir="auto">{deck.title || deck.request}</b>
-          <span>{kindName(deck.kind, t)} · {themeName(deck.theme, t)} · {langName(deck.lang, t)}{deck.slides.length ? ` · ${fill(t('{n} slides'), { n: deck.slides.length })}` : ''}</span>
+          <span>{kindName(deck.kind, t)} · {deck.ai ? (deck.design?.name || t('Designed by AI')) : themeName(deck.theme, t)} · {langName(deck.lang, t)}{deck.slides.length ? ` · ${fill(t('{n} slides'), { n: deck.slides.length })}` : ''}</span>
         </div>
         {deck.slides.length > 0 && (
           <span className="sl-undo">
@@ -1343,7 +1389,23 @@ function DeckView({ t, lang, deck, current, routes, efforts, plan, ready, inFull
               </label>
               <div className="vid-group vid-pad">
                 <span className="vid-group-label">{t('Look')}</span>
-                <ThemePicker t={t} value={deck.theme} onChange={(theme) => change({ theme })} />
+                <ThemePicker t={t} value={deck.theme} onChange={(theme) => change({ theme, ai: false })} disabled={!!job}
+                             ai={{
+                               on: !!deck.ai, design: deck.design,
+                               // Designed once already: that look again. Not yet: design one.
+                               onPick: () => (deck.design ? change({ ai: true }) : begin(deck, { how: 'design' })),
+                             }} />
+                {deck.ai && deck.design && (
+                  <div className="sl-ai-card">
+                    <span className="sl-ai-dots" aria-hidden="true">
+                      {[deck.design.band, deck.design.accent, deck.design.bg, deck.design.ink].map((c, i) => <i key={i} style={{ background: c }} />)}
+                    </span>
+                    <span className="sl-ai-what" dir="auto"><b>{deck.design.name || t('Designed by AI')}</b>{deck.design.why && <small>{deck.design.why}</small>}</span>
+                    <button type="button" className="ghost bordered" disabled={!!job || !ready} onClick={() => begin(deck, { how: 'design' })}>
+                      <Icon name="sparkle" size={11} />{t('Design again')}
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="vid-group vid-pad">
                 <span className="vid-group-label">{t('Colours')}</span>

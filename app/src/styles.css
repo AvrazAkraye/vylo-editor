@@ -6380,6 +6380,20 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .vid-credits{ inline-size:100%; max-inline-size:1100px; font-size:var(--fs-2); color:var(--mute); }
 .vid-credits summary{ cursor:pointer; font-weight:500; color:var(--ink); }
 .vid-credits ul{ margin:var(--sp-3) 0 0; padding-inline-start:var(--sp-8); line-height:1.6; overflow-wrap:anywhere; }
+.sl-ai-look .sl-ai-swatch{ display:grid; place-items:center; background:conic-gradient(from 200deg, #6d4aff, #ec4899, #f59e0b, #10b981, #3b82f6, #6d4aff); color:#fff; }
+.sl-ai-note{ display:block; margin-block-start:var(--sp-2); font-size:var(--fs-1); color:var(--mute); line-height:1.45; }
+/* The designed look, named, with its four colours and why it suits the talk. */
+.sl-ai-card{
+  display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-4); margin-block-start:var(--sp-3); padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel);
+}
+.sl-ai-dots{ display:flex; flex:none; }
+.sl-ai-dots i{ inline-size:18px; block-size:18px; border-radius:50%; border:2px solid var(--panel); margin-inline-start:-6px; }
+.sl-ai-dots i:first-child{ margin-inline-start:0; }
+.sl-ai-what{ flex:1 1 150px; min-inline-size:0; display:flex; flex-direction:column; }
+.sl-ai-what b{ font-size:var(--fs-3); color:var(--ink); }
+.sl-ai-what small{ font-size:var(--fs-1); color:var(--mute); line-height:1.4; }
+.sl-ai-card .ghost{ display:inline-flex; align-items:center; gap:var(--sp-2); flex:0 0 auto; inline-size:auto; margin-inline-start:auto; }
 .vid-welcome{ flex:1; overflow-y:auto; padding:var(--sp-10) 48px; }
 .vid-welcome > *{ max-inline-size:980px; margin-inline:auto; }
 .vid-welcome h2{ font-size:22px; margin-block:var(--sp-4) var(--sp-3); color:var(--ink); }

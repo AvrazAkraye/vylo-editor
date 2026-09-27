@@ -10,8 +10,9 @@
 import {
   COUNT, WRITTEN_KINDS, blankSlide, clean, countIn, deckLangOf, digitsOf, fileNameFor, fromResearch, kindIn,
   modelCount, newDeck, parsePlan, parseSlide, planPrompt, refLine, refSlides, sanitizeSlide, slidePrompt, themeIn,
+  designPrompt,
 } from '../.test-build/slides.js';
-import { H, PALETTES, W, contain, dirOf, fit, layout, linesOf, paletteOf } from '../.test-build/slideslayout.js';
+import { H, PALETTES, W, contain, contrast, designIn, dirOf, fit, layout, linesOf, paletteOf, readDesign, textOn } from '../.test-build/slideslayout.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -246,6 +247,43 @@ ok('a paragraph’s direction follows its letters', dirOf('Smith (2020).', true)
   ok('content slides carry a bullet in the accent', layout(bullets, deckOf(), 1).boxes.some((b) => b.t === 'text' && b.paras.some((p) => p.bullet === PALETTES.academic.accent)));
   const table = layout(slides[5], deckOf(), 5).boxes.find((b) => b.t === 'table');
   ok('a table is one box with its rows', table && table.rows.length === 2);
+}
+
+// ── a look the model designs ──────────────────────────────────────────────
+// The model chooses the colours; the app makes sure they can be read.
+{
+  const good = { name: 'Kurdistan Sun', why: 'Warm and official.', bg: '#FFFDF7', ink: '#1C1A17', band: '#B8312F', accent: '#B45309' };
+  ok('a pale gold accent on off-white is darkened until it reads', contrast(readDesign({ ...{ name: 'n', why: 'w', bg: '#FFFDF7', ink: '#1C1A17', band: '#B8312F' }, accent: '#E0A100' }).accent, '#FFFDF7') >= 3);
+  ok('a good design is kept as given', JSON.stringify(readDesign(good)) === JSON.stringify(good));
+  ok('three-digit and hashless colours are read', readDesign({ ...good, bg: 'fff', ink: '#111' })?.bg === '#FFFFFF');
+  ok('a design missing a colour is no design', readDesign({ ...good, accent: 'orange' }) === null && readDesign(null) === null);
+  const pale = readDesign({ ...good, bg: '#FFFFFF', ink: '#DDDDDD' });
+  ok('text that cannot be read on its background is made readable', contrast(pale.ink, pale.bg) >= 7);
+  const faint = readDesign({ ...good, bg: '#FFFFFF', accent: '#F4F4F4' });
+  ok('an accent too close to the background is moved until it shows', contrast(faint.accent, faint.bg) >= 3);
+  ok('names and reasons are kept short', readDesign({ ...good, name: 'x'.repeat(200), why: 'y'.repeat(900) }).name.length <= 40);
+  ok('white or near-black, whichever reads', textOn('#111111') === '#FFFFFF' && textOn('#F5F5F5') === '#111111');
+  ok('a design inside a whole plan', designIn(JSON.stringify({ title: 'T', design: good, slides: [] }))?.band === '#B8312F');
+  ok('a reply that is only a design', designIn('Here it is: ' + JSON.stringify(good))?.accent === '#B45309');
+  ok('no design in a plain plan', designIn(JSON.stringify({ title: 'T', slides: [] })) === null);
+
+  const base = { theme: 'modern', brand: undefined };
+  const p = paletteOf({ ...base, ai: true, design: good });
+  ok('the designed look replaces the theme', p.band === '#B8312F' && p.bg === '#FFFDF7' && p.accent === '#B45309');
+  ok('with the rest derived from it', p.onBand === '#FFFFFF' && p.muted !== p.ink && p.soft !== p.bg);
+  ok('a design kept while another look is chosen is not used', paletteOf({ ...base, ai: false, design: good }).band === PALETTES.modern.band);
+  ok('asked for and not yet designed: the theme', paletteOf({ ...base, ai: true }).band === PALETTES.modern.band);
+  ok('the brand still wins over a designed look', paletteOf({ ...base, ai: true, design: good, brand: { primary: '#003366' } }).band === '#003366');
+
+  const deck = { ...newDeck({ id: 'd', now: 0, request: 'a lecture on Kurdish poetry', lang: 'en', kind: 'lecture', theme: 'modern', count: 8, ai: true }) };
+  ok('a new deck can ask for a designed look', deck.ai === true && newDeck({ id: 'e', now: 0, request: 'x', lang: 'en', kind: 'general', theme: 'modern', count: 8 }).ai === undefined);
+  ok('the plan asks for the design in the same reply', planPrompt(deck).user.includes('"design":{"name"'));
+  ok('and says the contrast it needs', /at least 7:1/.test(planPrompt(deck).user));
+  ok('once designed, the plan does not ask again', !planPrompt({ ...deck, design: good }).user.includes('"design"'));
+  ok('without ai, no design is asked for', !planPrompt({ ...deck, ai: false }).user.includes('"design"'));
+  const again = designPrompt({ ...deck, title: 'Kurdish poetry', design: good }, good);
+  ok('designing again asks for a clearly different look', again.user.includes('Kurdistan Sun') && /clearly different/.test(again.user));
+  ok('and carries the title', again.user.includes('Kurdish poetry') && /JSON only/.test(again.system));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

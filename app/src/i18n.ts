@@ -1344,6 +1344,13 @@ const ar: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'البحث العلمي',
   // Research: researchers' manner, originality, the module's tabs.
+  'The look could not be read from the model’s reply. Try Design again.': 'تعذّرت قراءة المظهر من رد النموذج. جرّب «صمّمه مجددًا».',
+  'The model designs colours for this presentation’s subject and audience.': 'يصمّم النموذج ألوانًا تناسب موضوع هذا العرض وجمهوره.',
+  'Designed by AI': 'من تصميم الذكاء الاصطناعي',
+  'Designing the look…': 'جارٍ تصميم المظهر…',
+  'design the look': 'تصميم المظهر',
+  'The model designs the colours for your subject while it writes the slides. Change them afterwards in the Deck tab.': 'يصمّم النموذج الألوان لموضوعك أثناء كتابة الشرائح. غيّرها لاحقًا من تبويب العرض.',
+  'Design again': 'صمّمه مجددًا',
   'Ask Vylo': 'اسأل Vylo',
   'New research document': 'مستند بحثي جديد',
   'Ask one of your documents': 'اسأل أحد مستنداتك',
@@ -3774,6 +3781,13 @@ const ckb: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'توێژینەوە',
   // Research: researchers' manner, originality, the module's tabs.
+  'The look could not be read from the model’s reply. Try Design again.': 'ڕووکارەکە لە وەڵامی مۆدێلەکە نەخوێندرایەوە. «دووبارە دیزاینی بکە» تاقی بکەرەوە.',
+  'The model designs colours for this presentation’s subject and audience.': 'مۆدێلەکە ڕەنگ بۆ بابەت و بینەرانی ئەم پێشکەشکردنە دیزاین دەکات.',
+  'Designed by AI': 'دیزاینی زیرەکی دەستکرد',
+  'Designing the look…': 'دیزاینکردنی ڕووکار…',
+  'design the look': 'دیزاینکردنی ڕووکار',
+  'The model designs the colours for your subject while it writes the slides. Change them afterwards in the Deck tab.': 'مۆدێلەکە لە کاتی نووسینی سلایدەکاندا ڕەنگەکان بۆ بابەتەکەت دیزاین دەکات. دواتر لە تابی پێشکەشکردن بیانگۆڕە.',
+  'Design again': 'دووبارە دیزاینی بکە',
   'Ask Vylo': 'لە Vylo بپرسە',
   'New research document': 'بەڵگەنامەیەکی توێژینەوەی نوێ',
   'Ask one of your documents': 'لە یەکێک لە بەڵگەنامەکانت بپرسە',
@@ -6209,6 +6223,13 @@ const kmr: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'ڤەکولین',
   // Research: researchers' manner, originality, the module's tabs.
+  'The look could not be read from the model’s reply. Try Design again.': 'رووکار ژ بەرسڤا مۆدێلی نەهاتە خواندن. «دووبارە دیزاین بکە» تاقی بکە.',
+  'The model designs colours for this presentation’s subject and audience.': 'مۆدێل رەنگان بۆ بابەت و بینەرێن ڤێ پێشکێشکرنێ دیزاین دکەت.',
+  'Designed by AI': 'دیزاینا زیرەکیا دەستکرد',
+  'Designing the look…': 'دیزاینکرنا رووکاری…',
+  'design the look': 'دیزاینکرنا رووکاری',
+  'The model designs the colours for your subject while it writes the slides. Change them afterwards in the Deck tab.': 'مۆدێل دەمێ سلایدان دنڤیسیت رەنگان بۆ بابەتێ تە دیزاین دکەت. پاشان د تابا پێشکێشکرنێ دا بگوهۆڕە.',
+  'Design again': 'دووبارە دیزاین بکە',
   'Ask Vylo': 'ژ Vylo بپرسە',
   'New research document': 'بەلگەنامەکا ڤەکولینێ یا نوی',
   'Ask one of your documents': 'ژ ئێک ژ بەلگەنامێن خۆ بپرسە',

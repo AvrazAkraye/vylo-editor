@@ -28,8 +28,9 @@
  * those languages; that is the renderer's to know from `rtl`.
  */
 
-import type { Deck, Slide, Theme } from './slides';
+import type { Deck, Design, Slide, Theme } from './slides';
 import { byWords, digitsOf, isRtl } from './slides';
+import { jsonIn } from './researchrun';
 
 export const W = 1280;
 export const H = 720;
@@ -84,14 +85,91 @@ function mix(a: string, b: string, t: number): string {
   return `#${x.map((c, i) => Math.round(c + (y[i] - c) * t).toString(16).padStart(2, '0')).join('').toUpperCase()}`;
 }
 
+/** The contrast ratio of two colours, as WCAG defines it: 1 to 21. */
+export function contrast(a: string, b: string): number {
+  const [x, y] = [luminance(a), luminance(b)].sort((m, n) => n - m);
+  return (x + 0.05) / (y + 0.05);
+}
+
+const hexOf = (v: unknown): string | null => {
+  if (typeof v !== 'string') return null;
+  const s = v.trim();
+  const long = /^#?([0-9a-f]{6})$/i.exec(s);
+  if (long) return `#${long[1].toUpperCase()}`;
+  const short = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(s);
+  return short ? `#${short.slice(1).map((c) => c + c).join('').toUpperCase()}` : null;
+};
+
+const line1 = (v: unknown, cap: number) => (typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, cap) : '');
+
 /**
- * The deck's colours: its theme's, with the brand's in place of the band and
- * the accent. Text on a brand band is white or near-black, whichever reads —
- * a university's pale gold under white text is a slide nobody at the back of
+ * A designed look, read and made readable: `null` unless all four colours
+ * are there. Text that fails on its background is replaced by near-black or
+ * white, whichever reads; an accent too close to the background is moved
+ * toward the text until it can be seen. The model's taste is kept; its
+ * mistakes are not shipped to the back of a lecture hall.
+ */
+export function readDesign(v: unknown): Design | null {
+  if (!v || typeof v !== 'object') return null;
+  const o = v as Record<string, unknown>;
+  const bg = hexOf(o.bg ?? o.background);
+  let ink = hexOf(o.ink ?? o.text);
+  const band = hexOf(o.band ?? o.primary);
+  let accent = hexOf(o.accent);
+  if (!bg || !ink || !band || !accent) return null;
+  if (contrast(ink, bg) < 7) {
+    const dark = '#111111';
+    const light = '#FFFFFF';
+    const better = contrast(dark, bg) >= contrast(light, bg) ? dark : light;
+    // Keep the model's hue when a darker or lighter version of it reads.
+    const tuned = mix(ink, better, 0.6);
+    ink = contrast(tuned, bg) >= 7 ? tuned : better;
+  }
+  for (let t = 0.2; contrast(accent, bg) < 3 && t <= 1; t += 0.2) accent = mix(accent, ink, t);
+  return {
+    name: line1(o.name, 40), why: line1(o.why ?? o.reason, 160),
+    bg, ink, band, accent,
+  };
+}
+
+/** Near-black or white, whichever reads on `hex`. */
+export function textOn(hex: string): string {
+  return luminance(hex) > 0.45 ? '#111111' : '#FFFFFF';
+}
+
+/** The design in a model's reply: the `design` of a whole plan, or a reply that is only a design. */
+export function designIn(reply: string): Design | null {
+  const o = jsonIn(reply) as Record<string, unknown> | null;
+  if (!o) return null;
+  return readDesign(o.design) ?? readDesign(o);
+}
+
+/** A whole palette from a designed look's four colours. */
+function paletteOfDesign(d: Design): Palette {
+  const onBand = luminance(d.band) > 0.45 ? '#111111' : '#FFFFFF';
+  return {
+    bg: d.bg,
+    ink: d.ink,
+    muted: mix(d.ink, d.bg, 0.4),
+    accent: d.accent,
+    band: d.band,
+    onBand,
+    onBandMuted: mix(onBand, d.band, 0.28),
+    soft: mix(d.bg, d.accent, luminance(d.bg) > 0.5 ? 0.08 : 0.16),
+    line: mix(d.bg, d.ink, 0.18),
+  };
+}
+
+/**
+ * The deck's colours: its theme's — or the look the model designed, while
+ * the deck asks for that — with the brand's in place of the band and the
+ * accent. Text on a brand band is white or near-black, whichever reads — a
+ * university's pale gold under white text is a slide nobody at the back of
  * the room can read.
  */
-export function paletteOf(deck: Pick<Deck, 'theme' | 'brand'>): Palette {
-  const p = PALETTES[deck.theme] ?? PALETTES.academic;
+export function paletteOf(deck: Pick<Deck, 'theme' | 'brand'> & Partial<Pick<Deck, 'ai' | 'design'>>): Palette {
+  const designed = deck.ai && deck.design ? readDesign(deck.design) : null;
+  const p = designed ? paletteOfDesign(designed) : PALETTES[deck.theme] ?? PALETTES.academic;
   const band = deck.brand?.primary && HEX.test(deck.brand.primary) ? deck.brand.primary.toUpperCase() : null;
   const accent = deck.brand?.accent && HEX.test(deck.brand.accent) ? deck.brand.accent.toUpperCase() : null;
   if (!band && !accent) return p;
