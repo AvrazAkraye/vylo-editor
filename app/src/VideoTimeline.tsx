@@ -201,6 +201,9 @@ const KIND_COLOUR: Readonly<Record<string, string>> = {
   stat: '#1E9E57', chart: '#5E9E1B', compare: '#0F9488',
   image: '#E0931A', split: '#E0662A', gallery: '#C98612', people: '#D8456B',
   outro: '#6B7486', logo: '#56607A', qr: '#40495E',
+  // The creative kinds: the poster and the scrolling words are words; the
+  // features a list; the device a picture.
+  bigtype: '#7B3FE4', marquee: '#B84FE0', features: '#3A58D6', device: '#D9733A',
 };
 
 const PAD = 12;

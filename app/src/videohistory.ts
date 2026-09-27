@@ -36,7 +36,7 @@ import { TRANSITION_FRAMES, sceneFrames } from './video';
 // ── snapshots ─────────────────────────────────────────────────────────────
 
 /** The fields undo gives back. */
-export const TRACKED = ['scenes', 'brand', 'style', 'format', 'title', 'credits', 'audio', 'watermark', 'look', 'lang', 'seconds'] as const;
+export const TRACKED = ['scenes', 'brand', 'style', 'format', 'title', 'credits', 'audio', 'watermark', 'look', 'lang', 'seconds', 'ai', 'design'] as const;
 export type Tracked = Pick<Video, (typeof TRACKED)[number]>;
 
 /** Typing in one field within this long of the last keystroke is the same step. */
@@ -61,6 +61,8 @@ export function snapshotOf(v: Tracked): Tracked {
   return {
     scenes: v.scenes, brand: v.brand, style: v.style, format: v.format, title: v.title, credits: v.credits,
     audio: v.audio, watermark: v.watermark, lang: v.lang, seconds: v.seconds, look: v.look,
+    // A designed look, and whether it is on: "Design again" and a style picked instead are undone like any change of look.
+    ai: v.ai, design: v.design,
   };
 }
 

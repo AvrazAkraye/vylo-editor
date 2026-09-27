@@ -10,19 +10,20 @@ import { MODELS, modelName } from './models';
 import { EFFORTS, effortLabel, effortOf, effortsFor, type Effort, type EffortBook } from './effort';
 import { generate, type Target } from './generate';
 import {
-  FPS, type Brand, type Format, type LookSettings, type Scene, type SceneKind, type Style, type Video, type VideoLang,
+  FPS, type Brand, type Format, type LookSettings, type Scene, type SceneKind, type Style, type Video, type VideoDesign, type VideoLang,
 } from './videotypes';
 import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalLook } from './videolook';
 import {
-  LENGTHS, TRANSITION_FRAMES, blankScene, durationInFrames, formatIn, isRtl, newVideo, parsePlan, parseScene,
+  LENGTHS, TRANSITION_FRAMES, artPrompt, blankScene, designPrompt, durationInFrames, formatIn, isRtl, newVideo, parseArt, parsePlan, parseScene,
   planPrompt, sceneFrames, scenePrompt, secondsIn, styleIn, videoLangOf,
 } from './video';
+import { designIn } from './videodesign';
 import { deleteVideo, loadVideos, saveVideo } from './videostore';
 import { creditsOf, fillPictures, needsPictures, picturesOf, withPicturesOf } from './videomedia';
 import { factsBlock, placeBriefPictures, researchVideo, wantsLookup, withSiteLogo, type Ask } from './videoresearch';
 import { STYLE_SWATCH } from './VideoScenes';
 import {
-  AlignPicker, LookColour, LookSlider, PICTURED, Storyboard, WatermarkSwitch, cornerName, fontName, kindAbout, kindName, lookValueName,
+  AlignPicker, LookColour, LookSlider, Storyboard, WatermarkSwitch, cornerName, fontName, kindAbout, kindName, lookValueName, wantsPicture,
 } from './VideoStoryboard';
 import { VideoFacts } from './VideoFacts';
 import { VideoSound } from './VideoSound';
@@ -48,12 +49,19 @@ import { locale, dateText } from './fmt';
  *
  * What comes back from the model is a storyboard in JSON: scenes of fixed
  * kinds with plain fields. video.ts reads and repairs it; the app's own
- * components draw it (VideoScenes.tsx). Nothing the model wrote is run, and
- * nothing it wrote reaches a file except through a download the person
- * presses — **Download MP4** into their Downloads folder under a name that
- * never replaces a file, or **Save as…** at a path they choose — rendering
- * what is on screen at that moment (VideoDownloads.tsx). That is SAFETY.md's
- * rule, kept here.
+ * components draw it (VideoScenes.tsx). The model is the video's art director
+ * too — how each scene's words arrive, what is behind them, how the frame
+ * moves (`art`), and while `ai` is on the whole look: five colours, a
+ * typeface, a motif and a pace (`design`, read by videodesign.ts). Every one
+ * of those is a word from a fixed list or a checked colour, so directing the
+ * art is choosing, never writing code. Restyle asks for the art again with
+ * the words untouched, and lands as one edit, so one undo takes it back.
+ *
+ * Nothing the model wrote is run, and nothing it wrote reaches a file except
+ * through a download the person presses — **Download MP4** into their
+ * Downloads folder under a name that never replaces a file, or **Save as…**
+ * at a path they choose — rendering what is on screen at that moment
+ * (VideoDownloads.tsx). That is SAFETY.md's rule, kept here.
  *
  * ## Pictures
  *
@@ -82,13 +90,17 @@ interface Props {
 type Work =
   | { how: 'plan' }
   | { how: 'scene'; id: string; instruction: string }
-  | { how: 'pictures' };
+  | { how: 'pictures' }
+  /** A look designed by the model — a first one, or "Design again" for a different one. */
+  | { how: 'design' }
+  /** Restyle: the model art-directs every scene again, its words untouched. */
+  | { how: 'art' };
 
 interface Job {
   ctl: AbortController;
   how: Work['how'];
   /** What it is doing now. */
-  stage: 'planning' | 'pictures' | 'scene';
+  stage: 'planning' | 'pictures' | 'scene' | 'design' | 'art';
   started: number;
   /** Characters of the model's answer so far, so a long wait visibly moves. */
   chars: number;
@@ -151,18 +163,24 @@ const newId = () => {
 /** Said by the run as codes, so the sentence is chosen where `t` is. */
 const UNREADABLE_PLAN = 'video:unreadable-plan';
 const UNREADABLE_SCENE = 'video:unreadable-scene';
+const UNREADABLE_DESIGN = 'video:unreadable-design';
+const UNREADABLE_ART = 'video:unreadable-art';
 
 /**
  * Fetch the pictures the scenes asked for and have not got, one at a time,
  * each kept as it arrives — a scene edited meanwhile keeps its edit, because
- * only the picture is written into it, by the scene's id.
+ * only the picture is written into it, by the scene's id. `only` is one scene
+ * (a scene written again) or a few (the photos a restyle put behind words).
  */
-async function picturesFor(id: string, job: Job, only?: string) {
+async function picturesFor(id: string, job: Job, only?: string | ReadonlySet<string>) {
   const v = known.get(id);
   if (!v) return;
-  // A gallery's pictures and each person's portrait are searched for too (videomedia's needsPictures).
-  const want = v.scenes.filter((s) => (s.kind === 'gallery' || s.kind === 'people' || PICTURED.has(s.kind)) && needsPictures(s) && (!only || s.id === only));
-  job.stage = only ? 'scene' : 'pictures';
+  const mine = (s: Scene) => !only || (typeof only === 'string' ? s.id === only : only.has(s.id));
+  // A gallery's pictures and each person's portrait are searched for too
+  // (videomedia's needsPictures), and so is the photo a scene's art direction
+  // puts behind its words.
+  const want = v.scenes.filter((s) => (s.kind === 'gallery' || s.kind === 'people' || wantsPicture(s)) && needsPictures(s) && mine(s));
+  job.stage = typeof only === 'string' ? 'scene' : 'pictures';
   job.pics = { done: 0, of: want.length };
   notify();
   if (!want.length) return;
@@ -184,7 +202,8 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
   if (jobs.has(v.id)) return;
   const ctl = new AbortController();
   const job: Job = {
-    ctl, how: work.how, stage: work.how === 'plan' ? 'planning' : work.how === 'scene' ? 'scene' : 'pictures',
+    ctl, how: work.how,
+    stage: work.how === 'plan' ? 'planning' : work.how === 'scene' ? 'scene' : work.how === 'design' ? 'design' : work.how === 'art' ? 'art' : 'pictures',
     started: Date.now(), chars: 0, pics: { done: 0, of: 0 }, sceneId: work.how === 'scene' ? work.id : undefined,
   };
   jobs.set(v.id, job);
@@ -240,7 +259,28 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
       if (!plan || !plan.scenes.length) throw new Error(UNREADABLE_PLAN);
       // The subject's own pictures go in first; the search fills what is left.
       const scenes = cur.lookup !== false ? placeBriefPictures(plan.scenes, cur.brief, cur.format) : plan.scenes;
-      keep({ ...cur, title: plan.title || cur.title, scenes, stage: 'pictures', updated: Date.now() });
+      // The look the model designed, when it was asked for one in the same
+      // reply (video.ts asks while `ai` is on and there is none yet).
+      const design = cur.ai && !cur.design ? designIn(out.text) ?? undefined : cur.design;
+      keep({ ...cur, title: plan.title || cur.title, scenes, ...(design ? { design } : {}), stage: 'pictures', updated: Date.now() });
+      // Asked for and not given: one short request of its own. A look that
+      // still does not come is not a failed video — the style draws it until
+      // Design again in the Look tab — so only stopping ends the run here.
+      if (cur.ai && !design) {
+        job.stage = 'design';
+        job.chars = 0;
+        notify();
+        try {
+          const d = known.get(id);
+          if (d) {
+            const q = designPrompt(d);
+            const got = designIn((await call(q.system, q.user, 1200)).text);
+            if (got) update(id, (x) => ({ ...x, design: got }));
+          }
+        } catch (e) {
+          if (ctl.signal.aborted || (e as { name?: string })?.name === 'AbortError') throw e;
+        }
+      }
       await picturesFor(id, job);
     } else if (work.how === 'scene') {
       const cur = known.get(id);
@@ -253,13 +293,78 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
       const next = parseScene(out.text, old, now, newId);
       if (!next) throw new Error(UNREADABLE_SCENE);
       // The picture stays when the scene still wants the same one.
-      const same = old.picture && PICTURED.has(next.kind) && (!next.imageQuery || next.imageQuery === old.imageQuery || next.imageQuery === old.picture.query);
+      const same = old.picture && wantsPicture(next) && (!next.imageQuery || next.imageQuery === old.imageQuery || next.imageQuery === old.picture.query);
       const pictured: Scene = next.picture || !same ? next : { ...next, picture: old.picture };
       // The scene's own look (its size, alignment, colours) is the person's, not the model's: it stays.
       const kept: Scene = old.look && !pictured.look ? { ...pictured, look: old.look } : pictured;
       update(id, (x) => ({ ...x, scenes: x.scenes.map((s) => (s.id === old.id ? kept : s)) }));
       job.sceneId = kept.id;
       await picturesFor(id, job, kept.id);
+    } else if (work.how === 'design') {
+      // A look for the video as it is now; a second one is asked to differ
+      // from the first. It is a change of the look, so it switches `ai` on.
+      const cur = known.get(id);
+      if (!cur) return;
+      const q = designPrompt(cur, cur.design);
+      const got = designIn((await call(q.system, q.user, 1200)).text);
+      if (!got) throw new Error(UNREADABLE_DESIGN);
+      edit(id, { ai: true, design: got });
+    } else if (work.how === 'art') {
+      // Restyle: every scene's art direction again, the words untouched. The
+      // answer is read against the scenes as they were asked about (`parseArt`
+      // checks each scene's emphasis against its own words), and written by
+      // id into the video as it is now — a scene edited meanwhile keeps its
+      // edit, and its art. A photo the new direction puts behind a scene's
+      // words is found first, and goes in with the art: one edit for all of
+      // it, so one undo takes it back (a picture fetched afterwards would be
+      // a change the history did not make, and undo would stop there). A
+      // picture the person took out elsewhere is not fetched back.
+      const cur = known.get(id);
+      if (!cur) return;
+      const q = artPrompt(cur);
+      const out = await call(q.system, q.user, 4000);
+      const arts = parseArt(out.text, cur);
+      if (!arts) throw new Error(UNREADABLE_ART);
+      const byId = new Map(cur.scenes.map((s, i) => [s.id, { was: s, art: arts[i] }]));
+      const wanting = new Map<string, Scene>();
+      cur.scenes.forEach((s, i) => {
+        const art = arts[i];
+        if (!art || art.ground !== 'photo' || s.art?.ground === 'photo') return;
+        const next = { ...s, art } as Scene;
+        if (needsPictures(next)) wanting.set(s.id, next);
+      });
+      const found = new Map<string, Scene>();
+      if (wanting.size) {
+        job.stage = 'pictures';
+        job.pics = { done: 0, of: wanting.size };
+        notify();
+        try {
+          // The scenes that have a picture go too, so no photograph is chosen twice.
+          const asked = cur.scenes.map((s) => wanting.get(s.id) ?? s).filter((s) => wanting.has(s.id) || picturesOf(s).length > 0);
+          const got = await fillPictures(asked, {
+            format: cur.format,
+            signal: job.ctl.signal,
+            onScene: (_i, scene) => {
+              if (wanting.has(scene.id)) found.set(scene.id, scene);
+              job.pics.done = Math.min(job.pics.of, found.size);
+              notifySoon();
+            },
+          });
+          for (const g of got) if (wanting.has(g.id)) found.set(g.id, g);
+        } catch (e) {
+          // No photo is not a failed restyle: the scene keeps its style's ground until one is found.
+          if (ctl.signal.aborted || (e as { name?: string })?.name === 'AbortError') throw e;
+        }
+      }
+      const now = known.get(id) ?? cur;
+      const scenes = now.scenes.map((s) => {
+        const got = byId.get(s.id);
+        if (!got || !got.art || got.was !== s) return s;
+        const next = { ...s, art: got.art } as Scene;
+        const pic = found.get(s.id);
+        return pic ? withPicturesOf(next, pic) : next;
+      });
+      if (scenes.some((s, i) => s !== now.scenes[i])) edit(id, { scenes });
     } else {
       await picturesFor(id, job);
     }
@@ -310,6 +415,13 @@ interface Draft {
   more: boolean;
   /** Look the subject up on the web before planning (videoresearch.ts). */
   lookup: boolean;
+  /**
+   * The model designs the look (`Video.ai`) — the default, because most
+   * videos are not a template: the six styles are there to choose instead.
+   */
+  ai: boolean;
+  /** The templates' row is open: folded away at the end of the form until asked for. */
+  templates: boolean;
   /** Ask Vylo sent these words: make it as soon as the form can, as if the button were pressed. */
   autostart?: boolean;
 }
@@ -320,14 +432,14 @@ let askHome = false;
 
 /** A new video from these words, planned as the form would plan it. */
 export function askVideo(text: string) {
-  Object.assign(draft, { request: text, format: null, seconds: null, style: null, lang: null, autostart: true });
+  Object.assign(draft, { request: text, format: null, seconds: null, style: null, lang: null, ai: true, autostart: true });
   askHome = true;
   askNonce += 1;
   toggleVideoFull(true);
   window.setTimeout(() => { draft.autostart = false; }, 8000);
 }
 
-const draft: Draft = { request: '', format: null, seconds: null, style: null, lang: null, set: {}, more: false, lookup: true };
+const draft: Draft = { request: '', format: null, seconds: null, style: null, lang: null, set: {}, more: false, lookup: true, ai: true, templates: false };
 
 function useDraft<K extends keyof Draft>(k: K): [Draft[K], (v: Draft[K]) => void] {
   const [v, setV] = useState<Draft[K]>(draft[k]);
@@ -448,9 +560,22 @@ function langName(l: VideoLang, t: T): string {
 const FORMATS_LIST: readonly Format[] = ['landscape', 'portrait', 'square'];
 const STYLES_LIST: readonly Style[] = ['modern', 'bold', 'elegant', 'neon', 'minimal', 'warm'];
 
+/** The colours a video is drawn in, for a swatch or a field's fallback: its designed look while that is on, else its style's. */
+function swatchOf(v: Partial<Pick<Video, 'style' | 'ai' | 'design'>>): { bg: string; fg: string; accent: string } {
+  if (v.ai && v.design) return { bg: v.design.bg, fg: v.design.fg, accent: v.design.accent };
+  return STYLE_SWATCH[v.style ?? 'modern'] ?? STYLE_SWATCH.modern;
+}
+
+/** The name of a video's look: the design's own, "Designed by AI" before it has one, or the style's. */
+function lookName(v: Pick<Video, 'style'> & Partial<Pick<Video, 'ai' | 'design'>>, t: T): string {
+  return v.ai ? (v.design?.name || t('Designed by AI')) : styleName(v.style, t);
+}
+
 function errorText(e: string, t: T): string {
   if (e === UNREADABLE_PLAN) return t('The storyboard could not be read from the model’s reply. Try again, or try another model.');
   if (e === UNREADABLE_SCENE) return t('The new scene could not be read from the model’s reply. Try again, or say it differently.');
+  if (e === UNREADABLE_DESIGN) return t('The look could not be read from the model’s reply. Try Design again.');
+  if (e === UNREADABLE_ART) return t('The new art direction could not be read from the model’s reply. Try Restyle again.');
   return e;
 }
 
@@ -571,15 +696,37 @@ function FormatPicker({ t, value, onChange, disabled }: { t: T; value: Format; o
   );
 }
 
-/** The styles as swatches: the palette is most of what a style is. */
-function StylePicker({ t, value, onChange, disabled }: { t: T; value: Style; onChange: (s: Style) => void; disabled?: boolean }) {
+/**
+ * The styles as swatches: the palette is most of what a style is. The first
+ * is the model's own design for this video, when `ai` is given — drawn in its
+ * colours and named once there is one, and as a promise before (the same
+ * tile as Slides' "Designed by AI"). Choosing a style turns the design off
+ * and keeps it, so choosing the tile again brings the same look back.
+ */
+function StylePicker({ t, value, onChange, disabled, ai }: {
+  t: T; value: Style; onChange: (s: Style) => void; disabled?: boolean;
+  ai?: { on: boolean; design?: VideoDesign; onPick: () => void; disabled?: boolean };
+}) {
+  const d = ai?.design;
   return (
     <div className="vid-styles" role="radiogroup" aria-label={t('Style')}>
+      {ai && (
+        <button type="button" role="radio" aria-checked={ai.on} disabled={disabled || ai.disabled}
+                className={`sl-ai-look vid-ai-look${ai.on ? ' on' : ''}`} onClick={ai.onPick}
+                title={d?.why || t('The model designs the colours, the typeface and the motion for this video’s subject.')}>
+          <span className="vid-swatch sl-ai-swatch" style={d ? { background: `linear-gradient(135deg, ${d.bg}, ${d.bg2})`, color: d.fg } : undefined} aria-hidden="true">
+            <Icon name="sparkle" size={13} />
+            {d && <i style={{ background: d.accent }} />}
+          </span>
+          <span dir="auto">{d?.name || t('Designed by AI')}</span>
+        </button>
+      )}
       {STYLES_LIST.map((s) => {
         const sw = STYLE_SWATCH[s];
+        const on = !ai?.on && value === s;
         return (
-          <button key={s} type="button" role="radio" aria-checked={value === s} disabled={disabled}
-                  className={value === s ? 'on' : ''} onClick={() => onChange(s)}>
+          <button key={s} type="button" role="radio" aria-checked={on} disabled={disabled}
+                  className={on ? 'on' : ''} onClick={() => onChange(s)}>
             <span className="vid-swatch" style={{ background: sw.bg, color: sw.fg }} aria-hidden="true">
               Aa<i style={{ background: sw.accent }} />
             </span>
@@ -621,15 +768,17 @@ function LengthPicker({ t, value, onChange, disabled }: { t: T; value: number; o
 }
 
 /** The brand's name, colours and logo. Colours override the style's; the logo is on the title and the close. */
-function BrandFields({ t, value, style, onChange, disabled }: {
+function BrandFields({ t, value, swatch: sw, designed, onChange, disabled }: {
   t: T;
   value: Brand;
-  style: Style;
+  /** The look's own colours, which the brand's replace: the style's, or the design's (`swatchOf`). */
+  swatch: { bg: string; accent: string };
+  /** The colours are a designed look's, and are called so. */
+  designed?: boolean;
   onChange: (b: Brand) => void;
   disabled?: boolean;
 }) {
   const [bad, setBad] = useState(false);
-  const sw = STYLE_SWATCH[style];
   // The logo's own colours, read on this machine (videopalette.ts) and offered —
   // never put in place of colours the person chose until they press for it.
   const [swatches, setSwatches] = useState<Swatch[] | null>(null);
@@ -650,8 +799,9 @@ function BrandFields({ t, value, style, onChange, disabled }: {
       </label>
       {value[key]
         ? <button type="button" className="sb-act" disabled={disabled} onClick={() => onChange({ ...value, [key]: undefined })}
-                  title={t('Use the style’s colour')} aria-label={t('Use the style’s colour')}><Icon name="close" size={11} /></button>
-        : <small>{t('the style’s')}</small>}
+                  title={designed ? t('Use the design’s colour') : t('Use the style’s colour')}
+                  aria-label={designed ? t('Use the design’s colour') : t('Use the style’s colour')}><Icon name="close" size={11} /></button>
+        : <small>{designed ? t('the design’s') : t('the style’s')}</small>}
     </div>
   );
   return (
@@ -708,6 +858,10 @@ function JobStatus({ t, video, job }: { t: T; video: Video; job: Job }) {
   let pct: number | null = null;
   if (job.stage === 'planning') {
     line = job.looking ? t('Looking it up on the web…') : job.chars ? t('Writing the storyboard…') : `${thinkingVerb(elapsed, t)}…`;
+  } else if (job.stage === 'design') {
+    line = t('Designing the look…');
+  } else if (job.stage === 'art') {
+    line = t('Art-directing every scene…');
   } else if (job.stage === 'pictures') {
     pct = job.pics.of ? Math.round((100 * job.pics.done) / job.pics.of) : 100;
     line = job.pics.of
@@ -729,7 +883,9 @@ function JobStatus({ t, video, job }: { t: T; video: Video; job: Job }) {
       </div>
       <p className="vid-clock">
         <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
-        {job.stage === 'planning' && job.chars > 0 && <span>{fill(t('{n} characters'), { n: job.chars.toLocaleString(locale()) })}</span>}
+        {(job.stage === 'planning' || job.stage === 'design' || job.stage === 'art') && job.chars > 0 && (
+          <span>{fill(t('{n} characters'), { n: job.chars.toLocaleString(locale()) })}</span>
+        )}
         {job.retry && <span>{fill(t('Trying again ({n} of {of})…'), { n: job.retry.attempt, of: job.retry.of })}</span>}
       </p>
     </div>
@@ -805,8 +961,15 @@ export function VideoPanel({ t, lang, gw, efforts, plan, providers, choice, gate
   };
   const begin = (v: Video, work: Work) => {
     const target = targetOf(v, routes);
-    const doing = work.how === 'plan' ? t('plan the video') : work.how === 'scene' ? t('write the scene again') : t('find pictures');
-    start(v, target, bookFor(v, target, efforts), work, (e) => explain(e, doing), report);
+    const doing = work.how === 'plan' ? t('plan the video') : work.how === 'scene' ? t('write the scene again')
+      : work.how === 'design' ? t('design the look') : work.how === 'art' ? t('restyle the scenes') : t('find pictures');
+    // A reply that could not be read is said in the run's own sentence, not as its code.
+    const say = (e: unknown) => {
+      const code = e instanceof Error ? e.message : '';
+      const own = code.startsWith('video:') ? errorText(code, t) : code;
+      return own !== code ? own : explain(e, doing);
+    };
+    start(v, target, bookFor(v, target, efforts), work, say, report);
   };
   const seekTo = (v: Video, i: number) => setSeek((s) => ({ frame: frameOf(v, i), n: (s?.n ?? 0) + 1 }));
 
@@ -942,6 +1105,10 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
   const [set, putSet] = useDraft('set');
   const [more, setMore] = useDraft('more');
   const [lookup, setLookup] = useDraft('lookup');
+  const [ai, setAi] = useDraft('ai');
+  const [tplOpen, setTplOpen] = useDraft('templates');
+  // Choosing one of the six styles is choosing it over a designed look.
+  const pickStyle = (s: Style | null) => { setStyleSet(s); setAi(false); };
   const [brand, setBrandNow] = useState<Brand>(readBrand);
   const [brandUnkept, setBrandUnkept] = useState(false);
   const [picked, setPicked] = useState<Template['id'] | null>(null);
@@ -975,13 +1142,15 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
 
   const go = () => {
     if (!request.trim() || !ready || !onPlan) return;
-    const v = newVideo({ id: newId(), now: Date.now(), request: request.trim(), lang: vlang, format, style, seconds, brand });
+    // With `ai`, `style` is still the tone of the words; the model designs the look.
+    const v = newVideo({ id: newId(), now: Date.now(), request: request.trim(), lang: vlang, format, style, seconds, brand, ...(ai ? { ai: true } : {}) });
     onStart({ ...v, ...set, credits: v.credits ?? true, lookup });
     setRequest('');
     setFormatSet(null);
     setSecondsSet(null);
     setStyleSet(null);
     setLangSet(null);
+    setAi(true);
     setPicked(null);
   };
 
@@ -991,7 +1160,8 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
     setRequest(text);
     setFormatSet(tpl.format);
     setSecondsSet(tpl.seconds);
-    setStyleSet(tpl.style);
+    // A template's look is part of it: its style, not a designed one (the tile above brings that back).
+    pickStyle(tpl.style);
     // Sorani and Badini are told apart by a few words, and a short request may not have them.
     if (langSet === null && videoLangOf(text, lang) !== lang) setLangSet(lang);
     setPicked(tpl.id);
@@ -1034,37 +1204,8 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
         <div className="vid-chips" aria-label={t('What your request asks for')}>
           {chip('grid', formatName(format, t), byOf(formatSet, found.format))}
           {chip('clock', fill(t('{n} s'), { n: seconds }), byOf(secondsSet, found.seconds))}
-          {chip('sparkle', styleName(style, t), byOf(styleSet, found.style))}
+          {ai ? chip('sparkle', t('Designed by AI'), 'default') : chip('sparkle', styleName(style, t), byOf(styleSet, found.style))}
           {chip('chat', langName(vlang, t), langBy)}
-        </div>
-
-        <div className="vid-group">
-          <span className="vid-group-label">{t('Start from a template')}</span>
-          <div className="vid-tpl-row" role="group" aria-label={t('Start from a template')}>
-            {TEMPLATES.map((tpl) => {
-              const sw = STYLE_SWATCH[tpl.style];
-              return (
-                <button key={tpl.id} type="button" className={`vid-tpl-card ${picked === tpl.id ? 'on' : ''}`} aria-pressed={picked === tpl.id}
-                        onClick={() => pickTemplate(tpl)} title={templateAbout(tpl.id, t)}>
-                  <span className="vid-tpl-thumb" style={{ background: sw.bg, color: sw.accent }} aria-hidden="true">
-                    <i className={tpl.format === 'portrait' ? 'vid-tpl-frame is-portrait' : tpl.format === 'square' ? 'vid-tpl-frame is-square' : 'vid-tpl-frame is-landscape'} />
-                    <Icon name={tpl.icon} size={12} />
-                  </span>
-                  <b>{templateName(tpl.id, t)}</b>
-                  <small>{formatName(tpl.format, t)} · {fill(t('{n} s'), { n: tpl.seconds })}</small>
-                </button>
-              );
-            })}
-          </div>
-          {pickedTpl && (
-            <div className="vid-tpl-picked">
-              <span>{templateAbout(pickedTpl.id, t)} {t('Change any word above, then make it — or see a sample first.')}</span>
-              <button type="button" className="ghost" onClick={() => openSample(pickedTpl)}>
-                <Icon name="play" size={11} />{t('Open a sample storyboard')}
-              </button>
-              <small>{t('Placeholder words, ready to preview and edit. No model is asked.')}</small>
-            </div>
-          )}
         </div>
 
         <div className="vid-group">
@@ -1077,7 +1218,8 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
         </div>
         <div className="vid-group">
           <span className="vid-group-label">{t('Style')}</span>
-          <StylePicker t={t} value={style} onChange={setStyleSet} />
+          <StylePicker t={t} value={style} onChange={pickStyle} ai={{ on: ai, onPick: () => setAi(true) }} />
+          {ai && <small className="sl-ai-note">{t('The model designs the colours, the typeface and the motion for your subject, and art-directs every scene. Change any of it afterwards.')}</small>}
         </div>
         <div className="vid-group">
           <span className="vid-group-label">{t('Language of the words')}</span>
@@ -1090,7 +1232,7 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
           <Icon name="chevron" size={11} />
           {brand.name || brand.logo || brand.primary ? fill(t('Brand: {name}'), { name: brand.name || t('your colours') }) : t('Brand')}
         </button>
-        {more && <BrandFields t={t} value={brand} style={style} onChange={setBrand} />}
+        {more && <BrandFields t={t} value={brand} swatch={swatchOf({ style })} onChange={setBrand} />}
         {more && brandUnkept && <p className="vid-bad">{t('The brand could not be kept on this machine. It goes on this video only.')}</p>}
 
         <label className="vid-check vid-facts-ask">
@@ -1106,7 +1248,45 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
           <Icon name="film" size={13} />
           {fill(t('Make it with {model}'), { model: label })}
         </button>
-        <p className="vid-note">{t('The model writes a storyboard — words and timings only. The pictures are openly licensed and credited; you check everything before you export.')}</p>
+        <p className="vid-note">{t('The model writes the storyboard and art-directs it, choosing only from the app’s own effects, colours and typefaces — never code. The pictures are openly licensed and credited; you check everything before you export.')}</p>
+
+        {/* Templates, folded away at the end: most videos are not one, and a
+            designed look is the default. Everything a template did stays —
+            it fills the form above, or opens a sample storyboard. */}
+        <button className="vid-more vid-tpl-more" onClick={() => setTplOpen(!tplOpen)} aria-expanded={tplOpen} aria-controls="vid-tpl-group">
+          <Icon name="chevron" size={11} />
+          {t('Start from a template')}
+          {pickedTpl && <small dir="auto">{templateName(pickedTpl.id, t)}</small>}
+        </button>
+        {tplOpen && (
+          <div className="vid-group" id="vid-tpl-group">
+            <div className="vid-tpl-row" role="group" aria-label={t('Start from a template')}>
+              {TEMPLATES.map((tpl) => {
+                const sw = STYLE_SWATCH[tpl.style];
+                return (
+                  <button key={tpl.id} type="button" className={`vid-tpl-card ${picked === tpl.id ? 'on' : ''}`} aria-pressed={picked === tpl.id}
+                          onClick={() => pickTemplate(tpl)} title={templateAbout(tpl.id, t)}>
+                    <span className="vid-tpl-thumb" style={{ background: sw.bg, color: sw.accent }} aria-hidden="true">
+                      <i className={tpl.format === 'portrait' ? 'vid-tpl-frame is-portrait' : tpl.format === 'square' ? 'vid-tpl-frame is-square' : 'vid-tpl-frame is-landscape'} />
+                      <Icon name={tpl.icon} size={12} />
+                    </span>
+                    <b>{templateName(tpl.id, t)}</b>
+                    <small>{formatName(tpl.format, t)} · {fill(t('{n} s'), { n: tpl.seconds })}</small>
+                  </button>
+                );
+              })}
+            </div>
+            {pickedTpl && (
+              <div className="vid-tpl-picked">
+                <span>{templateAbout(pickedTpl.id, t)} {t('Change any word above, then make it — or see a sample first.')}</span>
+                <button type="button" className="ghost" onClick={() => openSample(pickedTpl)}>
+                  <Icon name="play" size={11} />{t('Open a sample storyboard')}
+                </button>
+                <small>{t('Placeholder words, ready to preview and edit. No model is asked.')}</small>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {videos.length > 0 && (
@@ -1122,7 +1302,7 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
 /** Where a video is, in words: planning, finding pictures, its scenes and length, or not planned. */
 function videoStatus(video: Video, t: T): string {
   const job = jobs.get(video.id);
-  return job ? (job.stage === 'planning' ? t('Planning') : t('Finding pictures'))
+  return job ? (job.stage === 'planning' ? t('Planning') : job.stage === 'design' ? t('Designing the look…') : job.stage === 'art' ? t('Restyling…') : t('Finding pictures'))
     : video.scenes.length ? fill(t('{n} scenes · {s} s'), { n: video.scenes.length, s: Math.round(lengthOf(video)) })
     : t('Not planned');
 }
@@ -1169,6 +1349,48 @@ function edit(id: string, next: Partial<Video>) {
 }
 
 /**
+ * The look the model designed, said plainly: its name and why it suits the
+ * video, its five colours, its typeface and its pace — and Design again, for
+ * a clearly different one. Before there is one (the plan's reply had none and
+ * the request after it failed), a way to ask for it.
+ */
+function DesignCard({ t, video, busy, ready, onDesign }: { t: T; video: Video; busy: boolean; ready: boolean; onDesign: () => void }) {
+  const d = video.design;
+  const designing = jobs.get(video.id)?.how === 'design';
+  if (!d) {
+    return (
+      <div className="sl-ai-card vid-ai-card">
+        <span className="vid-ai-empty" aria-hidden="true"><Icon name="sparkle" size={14} /></span>
+        <span className="sl-ai-what">
+          <b>{designing ? t('Designing the look…') : t('No look has been designed yet')}</b>
+          <small>{t('Until there is one, the style below draws the video.')}</small>
+        </span>
+        <button type="button" className="ghost bordered" disabled={busy || !ready} onClick={onDesign}>
+          <Icon name="sparkle" size={11} />{t('Design the look')}
+        </button>
+      </div>
+    );
+  }
+  const pace = d.energy === 'calm' ? t('Calm and slow') : d.energy === 'punchy' ? t('Fast and punchy') : t('Lively');
+  return (
+    <div className="sl-ai-card vid-ai-card">
+      <span className="sl-ai-dots vid-ai-dots" aria-hidden="true">
+        {[d.bg, d.bg2, d.fg, d.accent, d.accent2].map((c, i) => <i key={i} style={{ background: c }} title={c} />)}
+      </span>
+      <span className="sl-ai-what" dir="auto">
+        <b>{d.name || t('Designed by AI')}</b>
+        {d.why && <small>{d.why}</small>}
+        <small className="vid-ai-meta">{fill(t('Typeface: {font} · Pace: {pace}'), { font: fontName(d.font, t), pace })}</small>
+      </span>
+      <button type="button" className="ghost bordered" disabled={busy || !ready} onClick={onDesign}
+              title={t('Ask the model for a clearly different look for this video.')}>
+        <Icon name="sparkle" size={11} />{designing ? t('Designing the look…') : t('Design again')}
+      </button>
+    </div>
+  );
+}
+
+/**
  * The Look tab's own controls: the parts of the look the Chat tab sets ("make
  * the logo bigger", "black background"), by hand — sizes, where the words
  * sit, colours, the typeface, the backdrop, the watermark. Values are checked
@@ -1184,13 +1406,15 @@ function LookFields({ t, video, onLook, onScenes }: {
 }) {
   const own = normalLook(video.look ?? {});
   const eff = lookFor(video);
-  const sw = STYLE_SWATCH[video.style] ?? STYLE_SWATCH.modern;
+  const sw = swatchOf(video);
   const rtl = isRtl(video.lang);
   const set = (patch: Partial<LookSettings>) => {
     const next = normalLook({ ...own, ...patch });
     onLook(Object.keys(next).length ? next : undefined);
   };
-  const styles = t('the style’s');
+  // While a designed look is on, what is not set here is the design's, and is called so.
+  const designed = !!(video.ai && video.design);
+  const styles = designed ? t('the design’s') : t('the style’s');
   const ownScenes = video.scenes.filter((s) => s.look && Object.keys(s.look).length).length;
   const limit = (k: keyof typeof LOOK_LIMITS) => ({ min: LOOK_LIMITS[k].min, max: LOOK_LIMITS[k].max });
   const face = (f: (typeof FONT_CHOICES)[number]) => (rtl ? `"${f.arabic}", "${f.latin}"` : `"${f.latin}", "${f.arabic}"`);
@@ -1213,7 +1437,7 @@ function LookFields({ t, video, onLook, onScenes }: {
           <span>{t('Font')}</span>
           <div className="vid-look-fonts" role="radiogroup" aria-label={t('Font')}>
             <button type="button" role="radio" aria-checked={!own.font} className={own.font ? '' : 'on'} onClick={() => set({ font: undefined })}>
-              {t('The style’s own')}
+              {designed ? t('The design’s own') : t('The style’s own')}
             </button>
             {FONT_CHOICES.map((f) => (
               <button key={f.id} type="button" role="radio" aria-checked={own.font === f.id} className={own.font === f.id ? 'on' : ''}
@@ -1309,7 +1533,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
   useVideoKeys({ video, scope: viewRef, locked: busy, onScenes: (scenes) => change({ scenes }), onSeek: seekScene, onUndo: undo, onRedo: redoEdit });
   const sample = sampleOf(video);
   // Montages and people count too: videomedia's needsPictures is the same test the search runs.
-  const missing = video.scenes.filter((s) => (s.kind === 'gallery' || s.kind === 'people' || PICTURED.has(s.kind)) && needsPictures(s)).length;
+  const missing = video.scenes.filter((s) => (s.kind === 'gallery' || s.kind === 'people' || wantsPicture(s)) && needsPictures(s)).length;
   const credits = creditsOf(video.scenes);
   const target = targetOf(video, routes);
   const level = effortOf(bookFor(video, target, efforts), target.model);
@@ -1368,7 +1592,12 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
   };
 
   const ORDER = ['planning', 'pictures', 'ready'] as const;
-  const now = job ? (job.stage === 'planning' ? 'planning' : 'pictures') : video.scenes.length ? 'ready' : 'new';
+  // A look designed as part of planning is the storyboard's step; one asked
+  // for later, and a restyle, are work on a video that is ready.
+  const now = job
+    ? job.stage === 'planning' || (job.how === 'plan' && job.stage === 'design') ? 'planning'
+      : job.stage === 'design' || job.stage === 'art' ? 'ready' : 'pictures'
+    : video.scenes.length ? 'ready' : 'new';
   const at = now === 'new' ? -1 : ORDER.indexOf(now);
 
   return (
@@ -1380,7 +1609,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
         </button>
         <div className="vid-title">
           <b dir="auto">{video.title || video.request}</b>
-          <span>{formatName(video.format, t)} · {styleName(video.style, t)} · {langName(video.lang, t)}{video.scenes.length ? ` · ${fill(t('{n} s'), { n: Math.round(lengthOf(video)) })}` : ''}</span>
+          <span>{formatName(video.format, t)} · <bdi>{lookName(video, t)}</bdi> · {langName(video.lang, t)}{video.scenes.length ? ` · ${fill(t('{n} s'), { n: Math.round(lengthOf(video)) })}` : ''}</span>
         </div>
         {video.scenes.length > 0 && (
           <UndoRedo t={t} canUndo={!busy && videoHistory.canUndo(video.id, video)} canRedo={!busy && videoHistory.canRedo(video.id, video)}
@@ -1470,6 +1699,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
 
           {tab === 'scenes' && (
             <Storyboard t={t} video={video} redoingId={job?.how === 'scene' ? job.sceneId : undefined} locked={busy || !ready}
+                        restyling={job?.how === 'art'} onRestyle={() => begin(video, { how: 'art' })}
                         onScenes={(scenes) => change({ scenes })} onRedo={(id) => void redo(id)} onSeek={seekScene} onAdd={add} onError={onError} />
           )}
           {tab === 'chat' && (
@@ -1485,12 +1715,20 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
               </label>
               <div className="vid-group vid-pad">
                 <span className="vid-group-label">{t('Style')}</span>
-                <StylePicker t={t} value={video.style} onChange={(style) => change({ style })} />
+                {/* A style chosen keeps the design stored, off; the tile brings it back. */}
+                <StylePicker t={t} value={video.style} onChange={(style) => change({ style, ai: false })} disabled={job?.how === 'design'}
+                             ai={{
+                               on: !!video.ai, design: video.design,
+                               // Designed once already: that look again. Not yet: design one — which needs the model, and no other run.
+                               disabled: !video.design && (busy || !ready),
+                               onPick: () => (video.design ? change({ ai: true }) : begin(video, { how: 'design' })),
+                             }} />
+                {video.ai && <DesignCard t={t} video={video} busy={busy} ready={ready} onDesign={() => begin(video, { how: 'design' })} />}
               </div>
               <LookFields t={t} video={video} onLook={(look) => change({ look })} onScenes={(scenes) => change({ scenes })} />
               <div className="vid-group vid-pad">
                 <span className="vid-group-label">{t('Brand')}</span>
-                <BrandFields t={t} value={video.brand} style={video.style} onChange={(brand) => change({ brand })} />
+                <BrandFields t={t} value={video.brand} swatch={swatchOf(video)} designed={!!(video.ai && video.design)} onChange={(brand) => change({ brand })} />
                 <WatermarkSwitch t={t} video={video} onChange={(watermark) => change({ watermark })} />
               </div>
               <label className="vid-check vid-pad">

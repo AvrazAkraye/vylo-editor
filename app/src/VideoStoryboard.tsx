@@ -4,10 +4,12 @@ import { fill } from './i18n';
 import { explain } from './errors';
 import { SCENE_KINDS, type Picture, type Scene, type SceneKind, type Transition, type Video } from './videotypes';
 import type { CompareScene, GalleryScene, LookSettings, PeopleScene, SceneLook, TimelineScene } from './videotypes';
+import { ICON_IDS, TEXT_EFFECTS, type Camera, type FeaturesScene, type Ground, type IconId, type SceneArt, type Shape, type TextEffect } from './videotypes';
 import { searchPictures, fetchPicture, type Candidate } from './videomedia';
 import { STYLE_SWATCH, SceneThumb } from './VideoScenes';
-import { isRtl, pictureSlots, qrText, withPicture } from './video';
+import { MAX_BIGTYPE_LINES, MAX_FEATURES, artOf, isRtl, mainTextOf, pictureSlots, qrText, withPicture } from './video';
 import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalSceneLook } from './videolook';
+import { VideoIcon } from './videoicons';
 
 /**
  * The storyboard, as the person edits it: one card a scene.
@@ -21,7 +23,17 @@ import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalSceneLook } from './videolook
 type T = (s: string) => string;
 
 /** The kinds that show a picture, and so get "Change the picture". */
-export const PICTURED: ReadonlySet<SceneKind> = new Set<SceneKind>(['title', 'image', 'split']);
+export const PICTURED: ReadonlySet<SceneKind> = new Set<SceneKind>(['title', 'image', 'split', 'device']);
+
+/**
+ * A scene that shows a picture of its own: a kind that always can, or any
+ * scene whose art direction puts a photo behind its words — video.ts's own
+ * test, where a montage's tiles and people's portraits are theirs, not this
+ * one. Both get the picture controls on their card, and both are searched
+ * for when the video's pictures are found (VideoPanel.tsx).
+ */
+export const wantsPicture = (s: Scene): boolean =>
+  PICTURED.has(s.kind) || (s.art?.ground === 'photo' && s.kind !== 'gallery' && s.kind !== 'people');
 
 /** A kind's name, written out as calls so the catalogue scanner sees each one. */
 export function kindName(k: SceneKind, t: T): string {
@@ -40,6 +52,10 @@ export function kindName(k: SceneKind, t: T): string {
   if (k === 'people') return t('People');
   if (k === 'logo') return t('Logo reveal');
   if (k === 'qr') return t('QR code');
+  if (k === 'bigtype') return t('Big type');
+  if (k === 'features') return t('Features');
+  if (k === 'device') return t('Phone or laptop');
+  if (k === 'marquee') return t('Scrolling words');
   return t('Closing');
 }
 
@@ -59,6 +75,10 @@ export function kindAbout(k: SceneKind, t: T): string {
   if (k === 'people') return t('Up to four real people, with their photo or their initials.');
   if (k === 'logo') return t('The brand logo revealed — or its name, when there is no logo.');
   if (k === 'qr') return t('A code a phone scans to open your web address.');
+  if (k === 'bigtype') return t('One to four short lines, huge, stacked like a poster.');
+  if (k === 'features') return t('Two to four features, each an icon with a short label.');
+  if (k === 'device') return t('Your picture on a phone or laptop screen, with a heading beside it.');
+  if (k === 'marquee') return t('One short phrase, huge, scrolling across the frame again and again.');
   return t('The brand, what to do next, and where.');
 }
 
@@ -90,6 +110,10 @@ export function gistOf(s: Scene): string {
     case 'people': return s.heading || s.people.map((p) => p.name).join(', ');
     case 'logo': return s.tagline ?? '';
     case 'qr': return s.heading || s.url;
+    case 'bigtype': return s.lines.join(' ');
+    case 'features': return s.heading || s.items.map((x) => x.label).join(' · ');
+    case 'device': return s.heading;
+    case 'marquee': return s.text;
     default: return s.headline;
   }
 }
@@ -672,6 +696,310 @@ function SceneLookFields({ t, video, scene, onChange, disabled }: {
   );
 }
 
+// ── the art direction, by hand ────────────────────────────────────────────
+//
+// What the model chose for a scene as its art director (videotypes.ts,
+// `SceneArt`): how the words arrive, what is behind them, how the frame moves,
+// a shape in the free space, which words carry the accent, the size and side
+// of the words. Every choice is one of a fixed list, so the controls are
+// selects and segments of those lists and nothing else; the empty choice is
+// "as the style", which is also what an absent field is. The emphasis is the
+// one typed field, and it is read through `artOf` (video.ts) against the
+// scene's main text (`mainTextOf`) — the check the model's own choices go
+// through — so a word the scene does not say is not kept.
+
+/** How the words arrive, named. */
+export function effectName(e: TextEffect, t: T): string {
+  if (e === 'rise') return t('Rise');
+  if (e === 'mask') return t('Mask reveal');
+  if (e === 'pop') return t('Pop');
+  if (e === 'fade') return t('Fade');
+  if (e === 'type') return t('Typewriter');
+  if (e === 'highlight') return t('Highlight');
+  if (e === 'scale') return t('Scale down');
+  if (e === 'slide') return t('Slide in');
+  return t('Glitch');
+}
+
+/** What is behind the words, named. `style` is the style's own background. */
+export function groundName(g: Ground, t: T): string {
+  if (g === 'accent') return t('Accent colour');
+  if (g === 'gradient') return t('Gradient');
+  if (g === 'dark') return t('Dark');
+  if (g === 'light') return t('Light');
+  if (g === 'photo') return t('Photo behind the words');
+  return t('As the style');
+}
+
+/** How the frame moves, named. Still is the style's own: no style moves its camera. */
+export function cameraName(c: Camera, t: T): string {
+  if (c === 'push') return t('Push in');
+  if (c === 'pull') return t('Pull out');
+  if (c === 'drift') return t('Drift');
+  if (c === 'tilt') return t('Tilt');
+  return t('Still');
+}
+
+/** The decorative shape, named. None is the style's own: no style draws one. */
+export function shapeName(x: Shape, t: T): string {
+  if (x === 'circle') return t('Circle');
+  if (x === 'ring') return t('Ring');
+  if (x === 'dots') return t('Dots');
+  if (x === 'lines') return t('Lines');
+  if (x === 'wave') return t('Wave');
+  if (x === 'burst') return t('Burst');
+  if (x === 'arrow') return t('Arrow');
+  if (x === 'grid') return t('Grid');
+  if (x === 'blob') return t('Blob');
+  return t('None');
+}
+
+export function artSizeName(z: NonNullable<SceneArt['size']>, t: T): string {
+  if (z === 'quiet') return t('Quiet');
+  if (z === 'hero') return t('Hero');
+  return t('As the style');
+}
+
+/**
+ * An icon's name, for its button's label and title — written out as calls so
+ * the catalogue scanner sees every one, and typed by `IconId` so an icon
+ * added to the list without a name is a type error rather than an unlabelled
+ * button.
+ */
+const ICON_NAME: Readonly<Record<IconId, (t: T) => string>> = {
+  star: (t) => t('Star'), heart: (t) => t('Heart'), check: (t) => t('Tick'), clock: (t) => t('Clock'), calendar: (t) => t('Calendar'),
+  phone: (t) => t('Phone'), mail: (t) => t('Envelope'), pin: (t) => t('Map pin'), globe: (t) => t('Globe'), home: (t) => t('House'),
+  building: (t) => t('Building'), school: (t) => t('School'), book: (t) => t('Book'), graduation: (t) => t('Graduation cap'), users: (t) => t('Group of people'),
+  user: (t) => t('One person'), chat: (t) => t('Speech bubble'), shield: (t) => t('Shield'), lock: (t) => t('Padlock'), leaf: (t) => t('Leaf'),
+  sun: (t) => t('Sun'), moon: (t) => t('Moon'), bolt: (t) => t('Lightning'), flame: (t) => t('Flame'), drop: (t) => t('Drop'),
+  tooth: (t) => t('Tooth'), stethoscope: (t) => t('Stethoscope'), pulse: (t) => t('Heartbeat'), car: (t) => t('Car'), truck: (t) => t('Truck'),
+  plane: (t) => t('Plane'), cart: (t) => t('Shopping cart'), bag: (t) => t('Shopping bag'), gift: (t) => t('Gift'), tag: (t) => t('Price tag'),
+  money: (t) => t('Money'), chart: (t) => t('Bar chart'), trend: (t) => t('Rising line'), target: (t) => t('Target'), rocket: (t) => t('Rocket'),
+  bulb: (t) => t('Light bulb'), gear: (t) => t('Gear'), wrench: (t) => t('Wrench'), camera: (t) => t('Camera'), music: (t) => t('Music'),
+  play: (t) => t('Play button'), wifi: (t) => t('Wi-Fi'), code: (t) => t('Code'), coffee: (t) => t('Coffee'), food: (t) => t('Food'),
+  sparkle: (t) => t('Sparkle'), trophy: (t) => t('Trophy'), handshake: (t) => t('Handshake'), medal: (t) => t('Medal'), search: (t) => t('Search'),
+  doc: (t) => t('Document'), pen: (t) => t('Pen'), palette: (t) => t('Palette'), ruler: (t) => t('Ruler'), smile: (t) => t('Smile'),
+};
+
+export const iconName = (id: IconId, t: T): string => (ICON_NAME[id] ?? ICON_NAME.sparkle)(t);
+
+/** Whether the Creative group was last left open, for the next card opened: someone art-directing goes scene by scene. */
+let artOpen = false;
+
+/** A select of one art vocabulary, its first choice "as the style". */
+function ArtSelect<V extends string>({ t, label, value, options, name, onChange, disabled }: {
+  t: T;
+  label: string;
+  /** The choice now; `undefined` is the style's own. */
+  value: V | undefined;
+  options: readonly V[];
+  name: (v: V) => string;
+  onChange: (v: V | undefined) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="vid-art-line">
+      <span>{label}</span>
+      <select value={value ?? ''} disabled={disabled} className={value ? 'is-set' : ''}
+              onChange={(e) => onChange(e.target.value ? (e.target.value as V) : undefined)}>
+        <option value="">{t('As the style')}</option>
+        {options.map((o) => <option key={o} value={o}>{name(o)}</option>)}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * The words set in the accent, typed with commas between them. What is typed
+ * stays as typed while the field has the focus; leaving it (or Enter) reads
+ * it through `artOf`, which keeps whole words of the scene's text, three at
+ * most — and the ones it did not keep are said, so nothing vanishes unseen.
+ */
+function EmphasisField({ t, scene, onChange, disabled }: {
+  t: T;
+  scene: Scene;
+  onChange: (words: string[] | undefined) => void;
+  disabled?: boolean;
+}) {
+  const now = scene.art?.emphasis ?? [];
+  const [text, setText] = useState(now.join(', '));
+  const [dropped, setDropped] = useState<string[]>([]);
+  useEffect(() => { setText(now.join(', ')); }, [now.join('\u0000')]); // eslint-disable-line react-hooks/exhaustive-deps
+  const commit = () => {
+    // Commas as English and Arabic script write them.
+    const typed = text.split(/[,،]/).map((w) => w.trim()).filter(Boolean);
+    const words = mainTextOf(scene);
+    const kept = typed.length ? artOf({ emphasis: typed }, words)?.emphasis ?? [] : [];
+    // Each typed word on its own, so one the scene does not say is named — kept ones come back in the text's own spelling.
+    setDropped(typed.filter((w) => !artOf({ emphasis: [w] }, words)?.emphasis?.length));
+    setText(kept.join(', '));
+    if (kept.join('\u0000') !== now.join('\u0000')) onChange(kept.length ? kept : undefined);
+  };
+  return (
+    <div className="vid-art-emphasis">
+      <label className="vid-art-line">
+        <span>{t('Emphasis')}</span>
+        <input value={text} dir="auto" disabled={disabled} placeholder={t('Words from the text, with commas between')}
+               className={now.length ? 'is-set' : ''}
+               onChange={(e) => setText(e.target.value)} onBlur={commit}
+               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } }} />
+      </label>
+      <small className={dropped.length ? 'is-bad' : ''} dir="auto">
+        {dropped.length
+          ? fill(t('Not in this scene’s words, so not kept: {words}'), { words: dropped.join(' · ') })
+          : t('Up to three words of this scene, set in the accent colour.')}
+      </small>
+    </div>
+  );
+}
+
+/**
+ * One scene's art direction, folded under its fields like its look: the
+ * model's creative choices for the scene, each one changeable, each with a
+ * way back to the style's own.
+ */
+function SceneArtFields({ t, video, scene, onChange, disabled }: {
+  t: T;
+  video: Video;
+  scene: Scene;
+  onChange: (patch: Partial<Scene>) => void;
+  disabled?: boolean;
+}) {
+  const [open, setOpenNow] = useState(artOpen);
+  const setOpen = (o: boolean) => { artOpen = o; setOpenNow(o); };
+  const art = scene.art ?? {};
+  // The neutral values are the style's own, and shown as it: a ground of the
+  // style, a still camera, no shape, the normal size.
+  const ground = art.ground && art.ground !== 'style' ? art.ground : undefined;
+  const camera = art.camera && art.camera !== 'still' ? art.camera : undefined;
+  const shape = art.shape && art.shape !== 'none' ? art.shape : undefined;
+  const size = art.size && art.size !== 'normal' ? art.size : undefined;
+  const count = [art.effect, ground, camera, shape, size, art.align, art.emphasis?.length ? 'x' : undefined].filter(Boolean).length;
+  const set = (patch: Partial<SceneArt>) => {
+    const next: SceneArt = { ...art, ...patch };
+    for (const k of Object.keys(next) as (keyof SceneArt)[]) if (next[k] === undefined) delete next[k];
+    onChange({ art: Object.keys(next).length ? next : undefined });
+  };
+  return (
+    <div className="vid-look-scene vid-art">
+      <button type="button" className="vid-more" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Icon name="chevron" size={11} />
+        <span className="vid-art-mark" aria-hidden="true"><Icon name="sparkle" size={11} /></span>
+        {count ? fill(t('Creative · {n} set'), { n: count }) : t('Creative')}
+      </button>
+      {open && (
+        <div className="vid-look-box is-scene vid-art-box">
+          <div className="vid-art-grid">
+            <ArtSelect t={t} label={t('Effect')} value={art.effect} options={TEXT_EFFECTS} name={(e) => effectName(e, t)}
+                       disabled={disabled} onChange={(effect) => set({ effect })} />
+            <ArtSelect t={t} label={t('Background')} value={ground} options={['accent', 'gradient', 'dark', 'light', 'photo'] as const}
+                       name={(g) => groundName(g, t)} disabled={disabled} onChange={(g) => set({ ground: g })} />
+            <ArtSelect t={t} label={t('Camera')} value={camera} options={['push', 'pull', 'drift', 'tilt'] as const}
+                       name={(c) => cameraName(c, t)} disabled={disabled} onChange={(c) => set({ camera: c })} />
+            <ArtSelect t={t} label={t('Shape')} value={shape} options={['circle', 'ring', 'dots', 'lines', 'wave', 'burst', 'arrow', 'grid', 'blob'] as const}
+                       name={(x) => shapeName(x, t)} disabled={disabled} onChange={(x) => set({ shape: x })} />
+          </div>
+          {ground === 'photo' && !scene.picture && (
+            <p className="vid-note vid-art-hint">
+              <Icon name="image" size={11} />
+              {t('A photo behind the words needs a picture: choose one below. Until then the style’s background shows.')}
+            </p>
+          )}
+          <div className="vid-look-line">
+            <span>{t('Size')}</span>
+            <span className="vid-seg" role="radiogroup" aria-label={t('Size')}>
+              {([undefined, 'quiet', 'hero'] as const).map((z) => (
+                <button key={z ?? 'style'} type="button" role="radio" aria-checked={size === z} className={size === z ? 'on' : ''} disabled={disabled}
+                        onClick={() => set({ size: z })}>
+                  {z ? artSizeName(z, t) : t('As the style')}
+                </button>
+              ))}
+            </span>
+          </div>
+          <div className="vid-look-line">
+            <span>{t('Alignment')}</span>
+            <span className="vid-art-align">
+              <AlignPicker t={t} value={art.align} rtl={isRtl(video.lang)} disabled={disabled} onChange={(align) => set({ align })} />
+              {!art.align && <small>{t('As the style')}</small>}
+            </span>
+          </div>
+          <EmphasisField t={t} scene={scene} disabled={disabled} onChange={(emphasis) => set({ emphasis })} />
+          <div className="vid-look-foot">
+            <small>{t('The model chose these as the video’s art director; change any of them. What is not set follows the style.')}</small>
+            <button type="button" className="ghost" disabled={disabled || !scene.art} onClick={() => onChange({ art: undefined })}>
+              {t('Reset the creative choices')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The icons, as a grid to choose one from. Drawn by videoicons.tsx, the drawing's own. */
+function IconGrid({ t, value, onPick, onClose }: { t: T; value: IconId; onPick: (id: IconId) => void; onClose: () => void }) {
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { box.current?.querySelector<HTMLButtonElement>('button[aria-checked="true"]')?.focus(); }, []);
+  return (
+    <div className="vid-icon-pick" ref={box} role="radiogroup" aria-label={t('Choose an icon')}
+         onKeyDown={(e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onClose(); } }}>
+      <div className="vid-icon-grid">
+        {ICON_IDS.map((id) => (
+          <button key={id} type="button" role="radio" aria-checked={value === id} className={value === id ? 'on' : ''}
+                  title={iconName(id, t)} aria-label={iconName(id, t)} onClick={() => { onPick(id); onClose(); }}>
+            <VideoIcon id={id} size={20} color="currentColor" />
+          </button>
+        ))}
+      </div>
+      <div className="vid-pick-foot">
+        <small>{t('Simple line icons, drawn in the video’s own colours.')}</small>
+        <button type="button" className="ghost" onClick={onClose}>{t('Close')}</button>
+      </div>
+    </div>
+  );
+}
+
+/** A features scene's items: an icon and a label each, two to four. */
+function FeaturesFields({ t, scene, onChange, disabled }: {
+  t: T;
+  scene: FeaturesScene;
+  onChange: (patch: Partial<Scene>) => void;
+  disabled?: boolean;
+}) {
+  const [picking, setPicking] = useState<number | null>(null);
+  const items = scene.items;
+  const put = (next: FeaturesScene['items']) => onChange({ items: next } as Partial<Scene>);
+  return (
+    <div className="vid-f vid-wide">
+      <span>{t('Features, an icon and a label each (two to four)')}</span>
+      <ul className="vid-sb-rows vid-sb-features">
+        {items.map((it, i) => (
+          <li key={i}>
+            <button type="button" className={`vid-icon-btn${picking === i ? ' on' : ''}`} disabled={disabled} aria-expanded={picking === i}
+                    title={fill(t('Icon: {name} — choose another'), { name: iconName(it.icon, t) })}
+                    aria-label={fill(t('Icon: {name} — choose another'), { name: iconName(it.icon, t) })}
+                    onClick={() => setPicking(picking === i ? null : i)}>
+              <VideoIcon id={it.icon} size={18} color="currentColor" />
+            </button>
+            <input value={it.label} dir="auto" disabled={disabled} aria-label={t('Label')} placeholder={t('Label')}
+                   onChange={(e) => put(items.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))} />
+            <button type="button" className="sb-act" disabled={disabled || items.length <= 2} title={t('Remove this feature')} aria-label={t('Remove this feature')}
+                    onClick={() => { put(items.filter((_, j) => j !== i)); setPicking(null); }}><Icon name="close" size={11} /></button>
+          </li>
+        ))}
+      </ul>
+      {picking !== null && items[picking] && (
+        <IconGrid key={picking} t={t} value={items[picking].icon} onClose={() => setPicking(null)}
+                  onPick={(icon) => put(items.map((x, j) => (j === picking ? { ...x, icon } : x)))} />
+      )}
+      {items.length < MAX_FEATURES && (
+        <button type="button" className="ghost vid-add-bar" disabled={disabled}
+                onClick={() => put([...items, { icon: 'sparkle', label: '' }])}><Icon name="plus" size={11} />{t('Add a feature')}</button>
+      )}
+    </div>
+  );
+}
+
 /** One scene's own fields, by kind. */
 function SceneFields({ t, scene, video, onChange, onError, disabled }: {
   t: T;
@@ -787,6 +1115,34 @@ function SceneFields({ t, scene, video, onChange, onError, disabled }: {
       </>
     );
   }
+  if (s.kind === 'bigtype') {
+    return (
+      <LinesField label={t('Lines, one per line (up to four) — the first is the biggest')} value={s.lines} max={MAX_BIGTYPE_LINES} disabled={disabled}
+                  onChange={(lines) => onChange({ lines } as Partial<Scene>)} />
+    );
+  }
+  if (s.kind === 'features') return <>{text(t('Heading'), s.heading, 'heading', true)}<FeaturesFields t={t} scene={s} onChange={onChange} disabled={disabled} /></>;
+  if (s.kind === 'device') {
+    return (
+      <>
+        <div className="vid-f vid-wide">
+          <span>{t('Shown on')}</span>
+          <span className="vid-seg vid-art-device" role="radiogroup" aria-label={t('Shown on')}>
+            {(['phone', 'laptop'] as const).map((d) => (
+              <button key={d} type="button" role="radio" aria-checked={s.device === d} className={s.device === d ? 'on' : ''} disabled={disabled}
+                      onClick={() => onChange({ device: d } as Partial<Scene>)}>
+                {d === 'phone' ? t('Phone') : t('Laptop')}
+              </button>
+            ))}
+          </span>
+        </div>
+        {text(t('Heading'), s.heading, 'heading', true)}
+        {text(t('Sentence'), s.text, 'text', true, true)}
+        <p className="vid-note vid-wide">{t('The scene’s picture is shown on the screen — choose it below.')}</p>
+      </>
+    );
+  }
+  if (s.kind === 'marquee') return <>{text(t('Words that scroll'), s.text, 'text', true)}{text(t('Line under it'), s.sub, 'sub', true)}</>;
   return (
     <>
       {text(t('Headline'), s.headline, 'headline', true)}
@@ -863,7 +1219,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
               </select>
             </label>
           </div>
-          {PICTURED.has(scene.kind) && (
+          {wantsPicture(scene) && (
             <div className="vid-pic">
               {scene.picture
                 ? <img src={scene.picture.src} alt="" />
@@ -882,6 +1238,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
                             onPick={(picture) => onChange({ picture, ...(picture ? { imageQuery: picture.query } : {}) })}
                             onClose={() => setPicking(false)} />
           )}
+          <SceneArtFields t={t} video={video} scene={scene} onChange={onChange} disabled={redoing} />
           <SceneLookFields t={t} video={video} scene={scene} onChange={onChange} disabled={redoing} />
           <div className="vid-scene-foot">
             <button type="button" className="ghost" disabled={locked || redoing} onClick={onRedo}
@@ -899,13 +1256,17 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
  * The storyboard: the cards, and a way to add one. Changes are handed up as
  * whole scene lists, and the panel keeps the video.
  */
-export function Storyboard({ t, video, redoingId, locked, onScenes, onRedo, onSeek, onAdd, onError }: {
+export function Storyboard({ t, video, redoingId, restyling, locked, onScenes, onRedo, onRestyle, onSeek, onAdd, onError }: {
   t: T;
   video: Video;
   redoingId?: string;
+  /** The model is art-directing every scene again. */
+  restyling?: boolean;
   locked: boolean;
   onScenes: (scenes: Scene[]) => void;
   onRedo: (id: string) => void;
+  /** Ask the model to art-direct every scene again, words untouched (VideoPanel.tsx's `art` run). */
+  onRestyle?: () => void;
   onSeek: (index: number) => void;
   onAdd: (kind: SceneKind) => void;
   onError: (m: string) => void;
@@ -924,6 +1285,15 @@ export function Storyboard({ t, video, redoingId, locked, onScenes, onRedo, onSe
   };
   return (
     <div className="vid-board">
+      {onRestyle && (
+        <div className={`vid-restyle${restyling ? ' is-live' : ''}`}>
+          <button type="button" className="ghost bordered" disabled={locked} onClick={onRestyle}
+                  title={t('The model art-directs every scene again; your words stay.')}>
+            <Icon name="sparkle" size={12} />{restyling ? t('Restyling…') : t('Restyle')}
+          </button>
+          <small>{t('The model art-directs every scene again; your words stay.')}</small>
+        </div>
+      )}
       <ol className="vid-scenes">
         {scenes.map((s, i) => (
           <SceneCard key={s.id} t={t} video={video} scene={s} index={i} count={scenes.length}

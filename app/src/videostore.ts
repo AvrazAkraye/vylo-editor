@@ -1,4 +1,6 @@
-import type { Video } from './videotypes';
+import type { Scene, Video } from './videotypes';
+import { artOf, mainTextOf } from './video';
+import { readDesign } from './videodesign';
 
 /**
  * Where videos are kept between sessions: the webview's IndexedDB, database
@@ -77,6 +79,29 @@ function isVideo(x: unknown): x is Video {
   return !!v && typeof v.id === 'string' && Array.isArray(v.scenes);
 }
 
+/**
+ * A stored video with its designed parts read again — the look the model
+ * designed (`readDesign`) and each scene's art (`artOf`, against the scene's
+ * own words): a record from a hand-edited file or an older build may hold
+ * anything there, and the panel shows both as they are. What does not read
+ * is left out, and the style's own look applies.
+ */
+function checked(v: Video): Video {
+  let out = v;
+  if (v.design !== undefined) {
+    const design = readDesign(v.design) ?? undefined;
+    out = { ...out, design };
+  }
+  if (v.scenes.some((s) => s && typeof s === 'object' && s.art !== undefined)) {
+    const scenes = v.scenes.map((s) => {
+      if (!s || typeof s !== 'object' || s.art === undefined) return s;
+      return { ...s, art: artOf(s.art, mainTextOf(s)) } as Scene;
+    });
+    out = { ...out, scenes };
+  }
+  return out;
+}
+
 /** Every kept video, most recently changed first. */
 export async function loadVideos(): Promise<Video[]> {
   const d = await db();
@@ -85,6 +110,7 @@ export async function loadVideos(): Promise<Video[]> {
     const all = await done(d.transaction(STORE, 'readonly').objectStore(STORE).getAll());
     return ((all ?? []) as unknown[])
       .filter(isVideo)
+      .map(checked)
       .sort((a, b) => (Number(b.updated) || 0) - (Number(a.updated) || 0));
   } catch {
     return [];

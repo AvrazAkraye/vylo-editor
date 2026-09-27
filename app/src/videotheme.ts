@@ -23,6 +23,30 @@
  * it, another typeface pair, a set alignment. With no look it is the style
  * exactly as it always was.
  *
+ * ## A designed look
+ *
+ * A video whose look the model designed (`video.ai` with a `video.design`)
+ * is drawn from that design instead of one of the six styles: its five
+ * colours (repaired by videodesign.ts `readDesign`, contrast included), its
+ * typeface, its background motif and its pace. The motif also says whose
+ * manner the scenes are drawn in — a 'frame' design lays its lists and
+ * montages out as elegant does, a 'slab' one as bold does — because each
+ * style's markers, montage and story bar were drawn for its own motif.
+ * `video.style` stays what it always was for the words' tone. The brand's
+ * colours and the person's look still win over the design, as they win over
+ * a style.
+ *
+ * ## Art direction
+ *
+ * A scene's `art` (videotypes.ts) feeds the theme in two places: its ground
+ * — the accent as a solid ground, an accent gradient, a dark or light ground,
+ * or the scene's picture — replaces the scene's colours here, with words and
+ * accents re-checked for contrast; and its alignment sits between the style's
+ * and the person's. `sceneArtOf` reads a stored `art` into the fixed
+ * vocabularies again, so nothing unchecked reaches the renderer. The rest of
+ * the art (how words arrive, the camera, the shape) is drawn by
+ * videoscenebits.tsx.
+ *
  * ## Text fitting
  *
  * Headlines are broken into lines here, not by the browser: the scenes render
@@ -35,9 +59,12 @@
  */
 
 import { Easing } from 'remotion';
-import type { Brand, Format, SceneLook, Style, Video, VideoLang } from './videotypes';
-import { FONT_CHOICES, LEGIBLE, contrast, legible, lookFor, luminance, mix, rgbOf } from './videolook';
+import type { Brand, Format, Ground, Scene, SceneArt, SceneKind, SceneLook, Style, Video, VideoDesign, VideoLang } from './videotypes';
+import { CAMERAS, GROUNDS, SHAPES, TEXT_EFFECTS } from './videotypes';
+import { FONT_CHOICES, LEGIBLE, contrast, legible, lookFor, luminance, mix, normalSceneLook, rgbOf } from './videolook';
 import type { Align } from './videolook';
+import { readDesign } from './videodesign';
+import { phraseOf } from './videoemphasis';
 import { loadFont as loadAmiri } from '@remotion/google-fonts/Amiri';
 import { loadFont as loadAnton } from '@remotion/google-fonts/Anton';
 import { loadFont as loadArchivo } from '@remotion/google-fonts/Archivo';
@@ -278,16 +305,105 @@ export const SWATCHES: Readonly<Record<Style, { bg: string; fg: string; accent: 
 const styleOf = (s: Style): StyleDef => STYLES[s] ?? STYLES.modern;
 const rtlLang = (l: VideoLang) => l !== 'en';
 
+// ---------------------------------------------------------------------------
+// A designed look
+
+/**
+ * The style whose manner each background motif is drawn in: a designed look
+ * takes its motif's markers, montage, reveal and story bar, in its own
+ * colours, typeface and pace.
+ */
+const DECO_STYLE: Readonly<Record<Deco, Style>> = { mesh: 'modern', slab: 'bold', frame: 'elegant', glow: 'neon', rule: 'minimal', sun: 'warm' };
+
+/** How a designed look moves, by its energy: eased and slow as elegant, springy as modern, quick as bold. */
+const ENERGY_MOTION: Readonly<Record<VideoDesign['energy'], Motion>> = {
+  calm: STYLES.elegant.motion,
+  lively: STYLES.modern.motion,
+  punchy: STYLES.bold.motion,
+};
+
+const designs = new WeakMap<object, VideoDesign | null>();
+
+/**
+ * The look the model designed, as it is drawn: `video.design` read and
+ * repaired by `readDesign` (colours legible, a known typeface and motif),
+ * while `video.ai` is on; null for a video drawn in one of the six styles.
+ * Read once per stored design — themes are built every frame.
+ */
+export function designOf(v: Pick<Video, 'ai' | 'design'>): VideoDesign | null {
+  if (!v.ai || !v.design || typeof v.design !== 'object') return null;
+  const hit = designs.get(v.design);
+  if (hit !== undefined) return hit;
+  let d: VideoDesign | null = null;
+  try {
+    d = readDesign(v.design);
+  } catch {
+    d = null;
+  }
+  designs.set(v.design, d);
+  return d;
+}
+
+/**
+ * A designed look as a style: its colours, a quieter shade of its words for
+ * secondary lines (still 4.5:1), a surface for cards between its two
+ * grounds, its typeface, its motif with that motif's corners and grain, and
+ * its pace — capitals for Latin headlines when it is punchy, words centred
+ * for the two motifs that frame the middle (frame, sun).
+ */
+function designDef(d: VideoDesign): StyleDef {
+  const base = styleOf(DECO_STYLE[d.deco] ?? 'modern');
+  const dark = inkOn(d.bg) === '#FFFFFF';
+  const surface = dark
+    ? mix(mix(d.bg, d.bg2, 0.5), '#FFFFFF', 0.06)
+    : luminance(d.bg) > 0.9 ? mix(d.bg, d.bg2, 0.7) : mix(d.bg, '#FFFFFF', 0.65);
+  return {
+    dark,
+    bg: d.bg,
+    bg2: d.bg2,
+    fg: d.fg,
+    muted: legible(mix(d.fg, d.bg, 0.3), d.bg),
+    accent: d.accent,
+    accent2: d.accent2,
+    surface,
+    font: FONTS[d.font] ? d.font : 'geometric',
+    upper: d.energy === 'punchy',
+    motion: ENERGY_MOTION[d.energy] ?? ENERGY_MOTION.lively,
+    align: d.deco === 'frame' || d.deco === 'sun' ? 'center' : 'start',
+    radius: base.radius,
+    grain: base.grain,
+    deco: VIDEO_DECO_SET.has(d.deco) ? d.deco : 'mesh',
+  };
+}
+
+const VIDEO_DECO_SET = new Set<string>(Object.keys(DECO_STYLE));
+
+/** The style a video is drawn in the manner of: its own, or its designed look's motif's. */
+export function drawStyleOf(v: Pick<Video, 'style' | 'ai' | 'design'>): Style {
+  const d = designOf(v);
+  return d ? DECO_STYLE[d.deco] ?? 'modern' : v.style;
+}
+
 /** Re-exported for the Look tab and the chat: the typefaces `look.font` names, each with every Kurdish letter. */
 export { FONT_CHOICES };
 
-/** The typeface a video is set in: its `look.font` when that is a known choice, else its style's own. */
-function fontIdOf(v: Pick<Video, 'style' | 'look'>): string {
+/** What the fonts of a video depend on: its script, its style, its look and its design. */
+type FontSource = Pick<Video, 'lang' | 'style' | 'look' | 'ai' | 'design'>;
+
+/**
+ * The typeface a video is set in: its `look.font` when that is a known
+ * choice (the person's word wins), else its designed look's, else its
+ * style's own.
+ */
+function fontIdOf(v: Pick<Video, 'style' | 'look' | 'ai' | 'design'>): string {
   const chosen = lookFor(v).font;
-  return chosen && FONTS[chosen] ? chosen : styleOf(v.style).font;
+  if (chosen && FONTS[chosen]) return chosen;
+  const d = designOf(v);
+  if (d && FONTS[d.font]) return d.font;
+  return styleOf(v.style).font;
 }
 
-const fontDefOf = (v: Pick<Video, 'style' | 'look'>): FontDef => FONTS[fontIdOf(v)] ?? FONTS.geometric;
+const fontDefOf = (v: Pick<Video, 'style' | 'look' | 'ai' | 'design'>): FontDef => FONTS[fontIdOf(v)] ?? FONTS.geometric;
 
 /** The two families a video uses, per its language, style and chosen typeface. */
 export function fontPair(lang: VideoLang, style: Style, font?: string): Pair {
@@ -299,19 +415,20 @@ const loaded = new Set<string>();
 const loading = new Map<string, Promise<void>>();
 
 /** What a video's fonts are cached under: the typeface and the script, so two styles that share a pair share a load. */
-export const fontKeyOf = (v: Pick<Video, 'lang' | 'style' | 'look'>) => `${fontIdOf(v)}:${rtlLang(v.lang) ? 'arabic' : 'latin'}`;
+export const fontKeyOf = (v: FontSource) => `${fontIdOf(v)}:${rtlLang(v.lang) ? 'arabic' : 'latin'}`;
 
 /** Whether the fonts for this language, style and typeface have finished loading. */
-export const fontsReady = (v: Pick<Video, 'lang' | 'style' | 'look'>) => loaded.has(fontKeyOf(v));
+export const fontsReady = (v: FontSource) => loaded.has(fontKeyOf(v));
 
 /**
- * Loads the video's pair for its script — the style's own, or the one
- * `look.font` chose: only the two or three weights used, only the subsets
- * needed (Arabic-script videos also take the Latin subset of the same
- * families, for a brand name or a web address). Every family in `FONTS` has
- * those subsets in those weights; a missing one would make the loader throw.
+ * Loads the video's pair for its script — the style's own, the designed
+ * look's, or the one `look.font` chose: only the two or three weights used,
+ * only the subsets needed (Arabic-script videos also take the Latin subset of
+ * the same families, for a brand name or a web address). Every family in
+ * `FONTS` has those subsets in those weights; a missing one would make the
+ * loader throw.
  */
-export function loadFonts(v: Pick<Video, 'lang' | 'style' | 'look'>): Promise<void> {
+export function loadFonts(v: FontSource): Promise<void> {
   const key = fontKeyOf(v);
   const done = loading.get(key);
   if (done) return done;
@@ -406,6 +523,17 @@ export interface Theme {
   textSet?: string;
   /** The look replaced the style's background. */
   groundSet: boolean;
+  /**
+   * The scene's art ground in effect ('style' when it has none, when the
+   * person's background replaced it, or when the scene's kind shows its
+   * picture itself): what videoscenebits.tsx `Backdrop` draws instead of the
+   * style's moving background.
+   */
+  ground: Ground;
+  /** Drawn from the model's designed look rather than one of the six styles. */
+  designed: boolean;
+  /** A loud look — bold, or a design with punchy energy — where a poster may outline alternate lines. */
+  punchy: boolean;
 }
 
 const FALLBACK_LATIN = "'Helvetica Neue', Arial, sans-serif";
@@ -425,9 +553,20 @@ const FALLBACK_ARABIC = "'Geeza Pro', 'Noto Sans Arabic', Tahoma, sans-serif";
  * near-black or white. An accent that would vanish into the new background
  * gives way to the second accent for shapes. `look.font` swaps the families
  * and their Latin tracking and leading; capitals stay the style's.
+ *
+ * A designed look (`designOf`) stands in for the style: its colours and
+ * typeface, its motif's manner (`theme.style` is that style), its pace; bold's
+ * alternating accent scenes are the style's habit, not a design's — a
+ * designed film puts an accent ground where its art says so.
+ *
+ * `art` is the scene's direction, from `sceneTheme`: its ground (already
+ * resolved by `groundOf`) and its alignment. A colour ground gives way to a
+ * background the person chose; alignment goes style < art < the person's.
  */
-export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand' | 'look'>, sceneIndex = 0, allowInvert = true, sceneLook?: SceneLook): Theme {
-  const d = styleOf(v.style);
+export function themeOf(v: ThemeSource, sceneIndex = 0, allowInvert = true, sceneLook?: SceneLook, art?: SceneDirection): Theme {
+  const design = designOf(v);
+  const d = design ? designDef(design) : styleOf(v.style);
+  const style: Style = design ? DECO_STYLE[design.deco] ?? 'modern' : v.style;
   const rtl = rtlLang(v.lang);
   const look = lookFor(v, sceneLook ? { look: sceneLook } : undefined);
   const fontId = fontIdOf(v);
@@ -448,13 +587,16 @@ export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand' | 'look'>, sce
     bg = ground;
     bg2 = mix(mix(ground, darkGround ? '#FFFFFF' : '#000000', 0.08), accent, 0.08);
     surface = darkGround ? mix(ground, '#FFFFFF', 0.07) : mix(ground, '#FFFFFF', 0.6);
-  } else if (validHex(brand.primary) && d.dark && v.style !== 'bold') {
-    // A brand colour tints the dark grounds a little, so the film feels like the brand's.
+  } else if (!design && validHex(brand.primary) && d.dark && v.style !== 'bold') {
+    // A brand colour tints the dark grounds a little, so the film feels like the brand's. (A design was made with the brand's colours in mind.)
     bg = mix(d.bg, accent, 0.06);
     bg2 = mix(d.bg2, accent, 0.18);
   }
-  // A background the person chose is kept on every scene: bold does not swap it for its accent.
-  const inverted = allowInvert && v.style === 'bold' && sceneIndex % 2 === 1 && !ground;
+  // The scene's art ground: a photograph is the scene's own picture and stays (groundOf let a scene's own
+  // background win already); a colour ground gives way to a background the person chose.
+  const artGround: Ground = art?.ground === 'photo' ? 'photo' : !ground && art?.ground && GROUND_SET.has(art.ground) ? art.ground : 'style';
+  // A background the person chose is kept on every scene: bold does not swap it for its accent — nor where the art chose a ground.
+  const inverted = allowInvert && !design && v.style === 'bold' && sceneIndex % 2 === 1 && !ground && artGround === 'style';
   if (inverted) {
     const ink = inkOn(accent);
     bg = accent;
@@ -465,18 +607,21 @@ export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand' | 'look'>, sce
     accent2 = ink === '#FFFFFF' ? '#0C0C0E' : '#FFFFFF';
     accent = ink;
   }
-  if (ground || look.text) {
+  const coloured = artGround === 'accent' || artGround === 'gradient' || artGround === 'dark' || artGround === 'light';
+  if (coloured) ({ bg, bg2, fg, muted, surface, accent, accent2 } = groundColours(artGround, { fg, accent, accent2 }));
+  if (ground || look.text || coloured) {
     fg = look.text ? legible(look.text, bg) : contrast(fg, bg) >= LEGIBLE ? fg : legible(inkOn(bg), bg);
     muted = !look.text && validHex(muted) && contrast(muted, bg) >= 3 ? muted : legible(mix(fg, bg, 0.3), bg, 3);
   }
-  if (ground && contrast(accent, bg) < 1.5) accent = contrast(accent2, bg) >= 1.5 ? accent2 : fg;
+  if ((ground || design) && contrast(accent, bg) < 1.5) accent = contrast(accent2, bg) >= 1.5 ? accent2 : fg;
   const fam = (f: Face) => `'${FAMILIES[f.key].family}', ${rtl ? FALLBACK_ARABIC : FALLBACK_LATIN}`;
   const accentText = contrast(accent, bg) >= 2.6 ? accent : fg;
-  return {
-    style: v.style,
+  const artAlign = art?.align && ALIGN_SET.has(art.align) ? art.align : undefined;
+  const theme: Theme = {
+    style,
     lang: v.lang,
     rtl,
-    dark: ground || inverted ? luminance(bg) < 0.4 : d.dark,
+    dark: ground || inverted || design || coloured ? luminance(bg) < 0.4 : d.dark,
     bg, bg2, fg, muted, accent, accent2, accentText,
     onAccent: inkOn(accent),
     surface,
@@ -497,22 +642,228 @@ export function themeOf(v: Pick<Video, 'lang' | 'style' | 'brand' | 'look'>, sce
       leading: rtl ? 1.6 : 1.38,
     },
     motion: d.motion,
-    align: look.align ?? d.align,
-    alignSet: !!look.align,
+    align: look.align ?? artAlign ?? d.align,
+    alignSet: !!(look.align ?? artAlign),
     radius: d.radius,
     grain: d.grain,
     deco: d.deco,
     inverted,
     displayOnly: rtl && !!fd.displayOnly,
-    ownFont: fontId === d.font,
+    ownFont: fontId === styleOf(style).font,
     textSet: look.text,
     groundSet: !!ground,
+    ground: artGround,
+    designed: !!design,
+    punchy: design ? design.energy === 'punchy' : v.style === 'bold',
+  };
+  return artGround === 'photo' ? onPhotoTheme(theme) : theme;
+}
+
+/** What a theme is built from: the video's script, style, brand, look and designed look. */
+export type ThemeSource = Pick<Video, 'lang' | 'style' | 'brand' | 'look' | 'ai' | 'design'>;
+
+/** A scene's art as the theme takes it: its ground (resolved by `groundOf`) and its alignment. */
+export interface SceneDirection { ground?: Ground; align?: Align }
+
+const GROUND_SET = new Set<string>(GROUNDS);
+const ALIGN_SET = new Set<string>(['start', 'center', 'end']);
+
+/** The theme scene `index` of a video is drawn in: the video's look with that scene's art and look over it. */
+export function sceneTheme(v: Pick<Video, 'lang' | 'style' | 'brand' | 'look' | 'scenes' | 'ai' | 'design'>, index: number, allowInvert = true): Theme {
+  const scene = v.scenes?.[index];
+  if (!scene) return themeOf(v, index, allowInvert);
+  return themeOf(v, index, allowInvert, scene.look, { ground: groundOf(scene), align: sceneArtOf(scene).align });
+}
+
+/**
+ * Near-black and white, the two inks words take on a coloured ground.
+ * `inkOn` picks between them by contrast.
+ */
+const INK_DARK = '#0C0C0E';
+const INK_LIGHT = '#FFFFFF';
+
+/**
+ * A scene's colours on a colour ground its art chose, from the colours it
+ * would otherwise have (`c`, after the brand's and any inversion):
+ *
+ * - accent: the accent itself, deepened or lightened just enough for its ink
+ *   (near-black or white) to read at 4.5:1; shapes take the second accent
+ *   when it shows on it, else the ink.
+ * - gradient: the two accents from one corner to the other, each moved until
+ *   the one ink that suits both reads on both at 4.5:1 (two accents too alike
+ *   to show a gradient get a deeper second stop); shapes are the ink.
+ * - dark / light: a near-black or near-white ground touched by the accents;
+ *   the words keep their colour when it reads at 7:1, else take the ink, and
+ *   accents that would vanish are moved until they show at 3:1.
+ *
+ * Secondary words (`muted`) stay at 4.5:1 on every one.
+ */
+function groundColours(g: 'accent' | 'gradient' | 'dark' | 'light', c: { fg: string; accent: string; accent2: string }): {
+  bg: string; bg2: string; fg: string; muted: string; surface: string; accent: string; accent2: string;
+} {
+  switch (g) {
+    case 'accent': {
+      const ink = inkOn(c.accent, INK_DARK, INK_LIGHT);
+      const bg = legible(c.accent, ink);
+      const shape = contrast(c.accent2, bg) >= 2.5 ? c.accent2 : ink;
+      return {
+        bg,
+        bg2: mix(bg, ink, 0.1),
+        fg: ink,
+        muted: legible(mix(ink, bg, 0.25), bg),
+        surface: mix(bg, ink, 0.1),
+        accent: shape,
+        accent2: shape === ink ? mix(bg, ink, 0.35) : ink,
+      };
+    }
+    case 'gradient': {
+      const score = (ink: string) => Math.min(contrast(c.accent, ink), contrast(c.accent2, ink));
+      const ink = score(INK_LIGHT) >= score(INK_DARK) ? INK_LIGHT : INK_DARK;
+      const a = legible(c.accent, ink);
+      let b = legible(c.accent2, ink);
+      if (contrast(a, b) < 1.15) b = legible(mix(a, ink === INK_LIGHT ? '#000000' : '#FFFFFF', 0.3), ink);
+      const mid = mix(a, b, 0.5);
+      const soft = mix(ink, mid, 0.2);
+      return {
+        bg: a,
+        bg2: b,
+        fg: ink,
+        muted: Math.min(contrast(soft, a), contrast(soft, b)) >= LEGIBLE ? soft : ink,
+        surface: mix(mid, ink, 0.12),
+        accent: ink,
+        accent2: mix(ink, mid, 0.45),
+      };
+    }
+    case 'dark': {
+      const bg = mix('#0B0B10', c.accent, 0.08);
+      const fg = contrast(c.fg, bg) >= 7 ? c.fg : '#F4F4F6';
+      const lift = (x: string) => (contrast(x, bg) >= 3 ? x : legible(x, bg, 3));
+      return {
+        bg,
+        bg2: mix('#16151D', c.accent2, 0.14),
+        fg,
+        muted: legible(mix(fg, bg, 0.32), bg),
+        surface: mix(bg, '#FFFFFF', 0.07),
+        accent: lift(c.accent),
+        accent2: lift(c.accent2),
+      };
+    }
+    case 'light': {
+      const bg = mix('#FAF9F6', c.accent, 0.05);
+      const fg = contrast(c.fg, bg) >= 7 ? c.fg : '#111114';
+      const lift = (x: string) => (contrast(x, bg) >= 3 ? x : legible(x, bg, 3));
+      return {
+        bg,
+        bg2: mix('#ECEBE6', c.accent2, 0.1),
+        fg,
+        muted: legible(mix(fg, bg, 0.35), bg),
+        surface: '#FFFFFF',
+        accent: lift(c.accent),
+        accent2: lift(c.accent2),
+      };
+    }
+  }
+}
+
+/**
+ * A theme for words over a picture: always light words on a darkened
+ * picture, whatever the style — a light scrim over a photograph looks
+ * washed out. The look's words colour stays when it reads on a darkened
+ * picture; the accent stays for words when it reads there too.
+ */
+export function onPhotoTheme(theme: Theme): Theme {
+  const dark = '#0B0B0E';
+  const set = theme.textSet && contrast(theme.textSet, dark) >= 4.5 ? theme.textSet : null;
+  const ink = set ?? '#FFFFFF';
+  return {
+    ...theme,
+    fg: ink,
+    muted: set ? alpha(set, 0.82) : 'rgba(255, 255, 255, 0.82)',
+    accentText: contrast(theme.accent, dark) >= 3 ? theme.accent : ink,
+    dark: true,
   };
 }
 
-/** The theme scene `index` of a video is drawn in: the video's look with that scene's over it. */
-export function sceneTheme(v: Pick<Video, 'lang' | 'style' | 'brand' | 'look' | 'scenes'>, index: number, allowInvert = true): Theme {
-  return themeOf(v, index, allowInvert, v.scenes?.[index]?.look);
+// ---------------------------------------------------------------------------
+// Art direction
+
+const NO_ART: SceneArt = Object.freeze({}) as SceneArt;
+const arts = new WeakMap<object, SceneArt>();
+
+const pick = <T extends string>(x: unknown, list: readonly T[]): T | undefined =>
+  typeof x === 'string' && (list as readonly string[]).includes(x) ? (x as T) : undefined;
+
+/**
+ * A scene's art as the renderer draws it: every field one of its words again
+ * (a stored scene from a hand-edited file or an older build cannot reach the
+ * renderer unchecked), the emphasis as at most three short strings. Absent
+ * fields are the style's. Read once per stored `art` object.
+ */
+export function sceneArtOf(scene: { art?: SceneArt } | null | undefined): SceneArt {
+  const a = scene?.art as unknown;
+  if (!a || typeof a !== 'object' || Array.isArray(a)) return NO_ART;
+  const hit = arts.get(a);
+  if (hit) return hit;
+  const x = a as Record<string, unknown>;
+  const out: SceneArt = {};
+  const effect = pick(x.effect, TEXT_EFFECTS);
+  if (effect) out.effect = effect;
+  const ground = pick(x.ground, GROUNDS);
+  if (ground) out.ground = ground;
+  const camera = pick(x.camera, CAMERAS);
+  if (camera) out.camera = camera;
+  const shape = pick(x.shape, SHAPES);
+  if (shape) out.shape = shape;
+  const align = pick(x.align, ['start', 'center', 'end'] as const);
+  if (align) out.align = align;
+  const size = pick(x.size, ['quiet', 'normal', 'hero'] as const);
+  if (size) out.size = size;
+  if (Array.isArray(x.emphasis)) {
+    const words = x.emphasis
+      .filter((w): w is string => typeof w === 'string')
+      .map((w) => w.replace(/\s+/g, ' ').trim())
+      .filter((w) => w && w.length <= 30)
+      .slice(0, 3);
+    if (words.length) out.emphasis = words;
+  }
+  arts.set(a, out);
+  return out;
+}
+
+/** Kinds that place their picture themselves, where a photo ground would only repeat it. */
+const OWN_PICTURE = new Set<SceneKind>(['image', 'title', 'split', 'device', 'gallery']);
+
+/**
+ * The art ground a scene is drawn on. 'photo' needs the scene's own picture,
+ * on a kind whose words sit on the ground (a picture scene, a split, a
+ * device and a montage show their pictures their own way), and gives way to
+ * a background the person set on the scene. A colour ground is not drawn
+ * under a picture that fills the frame already (a picture scene, a title
+ * with one); `themeOf` also lets a background the person chose win over it.
+ */
+export function groundOf(scene: Scene | null | undefined): Ground {
+  const g = sceneArtOf(scene).ground;
+  if (!scene || !g || g === 'style') return 'style';
+  const pictured = !!scene.picture?.src;
+  if (g === 'photo') return pictured && !OWN_PICTURE.has(scene.kind) && !normalSceneLook(scene.look).background ? 'photo' : 'style';
+  if (pictured && (scene.kind === 'image' || scene.kind === 'title')) return 'style';
+  return g;
+}
+
+/** A scene's emphasis as phrases, each its folded words in order (videoemphasis.ts `phraseOf`). */
+export type Emphasis = readonly (readonly string[])[];
+
+const emphasisLists = new WeakMap<object, Emphasis>();
+const NO_PHRASES: Emphasis = Object.freeze([]) as Emphasis;
+
+/** The phrases a scene's art sets in the accent, each lit only where its words stand together (`markPhrases`). */
+export function emphasisOf(art: SceneArt): Emphasis {
+  if (!art.emphasis?.length) return NO_PHRASES;
+  const hit = emphasisLists.get(art);
+  if (hit) return hit;
+  const out = art.emphasis.map(phraseOf).filter((p) => p.length);
+  emphasisLists.set(art, out);
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -604,6 +955,8 @@ export interface Fit {
   lines: string[];
   /** The widest line, in pixels, at `size`. */
   width: number;
+  /** The width the lines were fitted into — how wide a line may grow as it arrives (the 'scale' effect). */
+  room?: number;
 }
 
 export interface FitOptions {
@@ -708,7 +1061,7 @@ export function fitText(text: string, o: FitOptions): Fit {
     }
     best = chosen;
   }
-  const fit: Fit = { size, lines: best.lines, width: best.widest || Math.max(...best.lines.map((l) => widthAt100(l, o.face, !!o.bold, o.ready) * k)) };
+  const fit: Fit = { size, lines: best.lines, width: best.widest || Math.max(...best.lines.map((l) => widthAt100(l, o.face, !!o.bold, o.ready) * k)), room: o.maxWidth };
   if (o.ready) fitCache.set(key, fit);
   return fit;
 }
@@ -757,6 +1110,10 @@ export function numeralsOf(v: Pick<Video, 'lang' | 'scenes' | 'title'>): Numeral
       case 'people': words.push(s.heading, ...s.people.flatMap((x) => [x.name, x.role ?? ''])); break;
       case 'logo': words.push(s.tagline ?? ''); break;
       case 'qr': words.push(s.heading); break;
+      case 'bigtype': words.push(...(s.lines ?? [])); break;
+      case 'features': words.push(s.heading ?? '', ...(s.items ?? []).map((x) => x?.label ?? '')); break;
+      case 'device': words.push(s.heading, s.text ?? ''); break;
+      case 'marquee': words.push(s.text, s.sub ?? ''); break;
     }
   }
   const text = words.filter((w) => typeof w === 'string').join(' ');

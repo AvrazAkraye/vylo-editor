@@ -55,6 +55,10 @@ export function VideoHome({ t, videos, names, onOpen, onFocus }: {
       title: t('A video from one sentence'),
       text: t('Say what it is for, how long, and in which language. The model plans a storyboard from the scenes below; you edit every word, preview it, and export an MP4.'),
       go: t('Describe a video'), to: onFocus },
+    { key: 'art', hue: VIDEO_SCENE_HUE.art, art: <VideoSceneArt scene="art" rtl={rtl} />, mirror: false, icon: 'sparkle', tag: t('Designed by AI'),
+      title: t('Every video designed for its subject'),
+      text: t('The model is the art director: it chooses the colours and the typeface, how each scene’s words arrive and what moves behind them. Change any choice, or restyle every scene at once.'),
+      go: t('Describe a video'), to: onFocus },
     { key: 'web', hue: VIDEO_SCENE_HUE.web, art: <VideoSceneArt scene="web" rtl={rtl} />, mirror: false, icon: 'search', tag: t('Found on the web'),
       title: t('Real facts, photographs and logos'),
       text: t('Real facts, photographs and the logo from Wikipedia, Wikidata and Wikimedia Commons, given to the model before it plans. You see and check every one under “Found on the web”.'),
@@ -101,7 +105,8 @@ export function VideoHome({ t, videos, names, onOpen, onFocus }: {
           </div>
           <div className="gal-covers">
             {videos.map((v) => {
-              const sw = STYLE_SWATCH[v.style];
+              // A designed look is drawn in its own colours; a style in its swatch.
+              const sw = v.ai && v.design ? { bg: v.design.bg, fg: v.design.fg, accent: v.design.accent } : STYLE_SWATCH[v.style] ?? STYLE_SWATCH.modern;
               return (
                 <button key={v.id} type="button" className="gal-cover" style={hue(SCENE_HUE[v.scenes[0]?.kind ?? 'title'])} onClick={() => onOpen(v.id)}>
                   <span className="gal-cover-art vid-cover-art">

@@ -17,6 +17,14 @@
  * its effective look, its theme with the scene's colours over the video's,
  * its clock at the look's pace, and a box that keeps clear of the corner
  * mark and of the brand a scene asked to show.
+ *
+ * So is each scene's art direction (videotypes.ts `SceneArt`): its checked
+ * art and emphasis go into the scene's context for the drawing
+ * (videoscenebits.tsx), its ground and alignment into its theme
+ * (videotheme.ts `sceneTheme`), its size into the words' scale — hero 1.3×,
+ * quiet 0.85×, under a size the person set on the scene — and its camera
+ * into a safe box small enough that the move never carries a word out of
+ * the style's.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -32,21 +40,25 @@ import { Thumbnail } from '@remotion/player';
 import { FORMATS, FPS } from './videotypes';
 import type { Scene, Transition, Video } from './videotypes';
 import { TRANSITION_FRAMES, durationInFrames, isRtl, sceneFrames } from './video';
-import { SWATCHES, alpha, boxOf, fontKeyOf, fontsReady, loadFonts, numeralsOf, sceneTheme, themeOf } from './videotheme';
+import { SWATCHES, alpha, boxOf, emphasisOf, fontKeyOf, fontsReady, loadFonts, numeralsOf, sceneArtOf, sceneTheme, themeOf } from './videotheme';
 import type { Theme } from './videotheme';
 import { SceneBody } from './videoscenemore';
-import { watermarkOn, watermarkSpot } from './videoscenebits';
+import { cameraBox, watermarkOn, watermarkSpot } from './videoscenebits';
 import type { SceneInfo } from './videoscenebits';
-import { lookFor } from './videolook';
+import { lookFor, normalSceneLook } from './videolook';
 
 /** Background, text and accent of each style, for the panel's style picker. */
 export const STYLE_SWATCH = SWATCHES;
 
+/** What a video's fonts depend on: its script, its style, its look and its designed look. */
+type FontsOf = Pick<Video, 'lang' | 'style' | 'look' | 'ai' | 'design'>;
+
 /**
  * Resolves when the video's fonts for its script are loaded — its style's
- * pair, or the one its `look.font` chose (the export waits for this).
+ * pair, its designed look's, or the one its `look.font` chose (the export
+ * waits for this).
  */
-export function loadVideoFonts(v: Pick<Video, 'lang' | 'style' | 'look'>): Promise<void> {
+export function loadVideoFonts(v: FontsOf): Promise<void> {
   return loadFonts(v);
 }
 
@@ -54,7 +66,7 @@ export function loadVideoFonts(v: Pick<Video, 'lang' | 'style' | 'look'>): Promi
  * Loads the fonts and re-renders once they are ready; holds the web
  * renderer's frame until then, so no frame is drawn in a fallback face.
  */
-function useVideoFonts(v: Pick<Video, 'lang' | 'style' | 'look'>): boolean {
+function useVideoFonts(v: FontsOf): boolean {
   const key = fontKeyOf(v);
   const [readyKey, setReadyKey] = useState<string | null>(() => (fontsReady(v) ? key : null));
   const { delayRender, continueRender } = useDelayRender();
@@ -161,6 +173,15 @@ function infoFor(v: Video, index: number, width: number, height: number, starts:
     mark = { top: box.top, height: h };
     box = { ...box, top: box.top + h + gap, h: box.h - h - gap };
   }
+  // The art: a camera lays the words out in a box its move never carries them out of; a hero or
+  // quiet size scales them before fitting — under a size the person set on this scene, over one
+  // they set for the whole video.
+  const art = sceneArtOf(scene);
+  const groundBox = box;
+  box = cameraBox(box, art.camera);
+  const sized = art.size === 'hero' ? 1.3 : art.size === 'quiet' ? 0.85 : 1;
+  const own = normalSceneLook(scene?.look).textScale;
+  const textScale = own ?? Math.max(0.6, Math.min(1.95, look.textScale * sized));
   return {
     video: v,
     theme: sceneTheme(v, index),
@@ -173,8 +194,11 @@ function infoFor(v: Video, index: number, width: number, height: number, starts:
     total,
     ready,
     digits: numeralsOf(v),
-    look,
+    look: textScale === look.textScale ? look : { ...look, textScale },
     mark,
+    art,
+    emphasis: emphasisOf(art),
+    groundBox: groundBox === box ? undefined : groundBox,
   };
 }
 
@@ -325,11 +349,13 @@ function Watermark({ video, starts }: { video: Video; starts: number[] }) {
   const opacity = Math.min(1, weight) * interpolate(frame, [0, 10], [0, 1], { extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
   if (opacity <= 0.001) return null;
   const leadScene = video.scenes[lead];
-  // Ink for the scene under it: bold's accent scenes and a scene with its own background have their own.
+  // Ink for the scene under it: bold's accent scenes, a scene with its own background and one on an art ground have their own.
   const leadTh = sceneTheme(video, lead);
-  const own = leadTh.inverted || leadTh.groundSet;
-  const light = onPicture(leadScene) || (leadTh.groundSet ? leadTh.dark : th.dark || leadTh.inverted);
-  const ink = onPicture(leadScene) ? '#FFFFFF' : own ? leadTh.fg : th.fg;
+  const photo = onPicture(leadScene) || leadTh.ground === 'photo';
+  const art = leadTh.ground !== 'style' && leadTh.ground !== 'photo';
+  const own = leadTh.inverted || leadTh.groundSet || art;
+  const light = photo || (leadTh.groundSet || art ? leadTh.dark : th.dark || leadTh.inverted);
+  const ink = photo ? '#FFFFFF' : own ? leadTh.fg : th.fg;
   const logo = video.brand?.logo;
   const name = video.brand?.name?.trim() ?? '';
   // The corner and size the look chose; the style's own spot and size otherwise.
@@ -348,8 +374,8 @@ function Watermark({ video, starts }: { video: Video; starts: number[] }) {
   const latin = !/[\u0600-\u06FF]/.test(name);
   return (
     <div style={{ ...place, gap: 12 * u * k, flexDirection: 'row', direction: th.rtl ? 'rtl' : 'ltr' }}>
-      <div style={{ width: 10 * u * k, height: 10 * u * k, borderRadius: th.radius ? '50%' : 0, background: onPicture(leadScene) ? '#FFFFFF' : th.accent }} />
-      <div style={{ fontFamily: th.body.family, fontWeight: th.body.strong, fontSize: size, lineHeight: `${size * 1.3}px`, color: ink, whiteSpace: 'nowrap', letterSpacing: latin ? '0.14em' : undefined, textTransform: latin ? 'uppercase' : undefined, direction: latin ? 'ltr' : 'rtl', textShadow: onPicture(leadScene) ? `0 ${u}px ${8 * u}px rgba(0, 0, 0, 0.5)` : undefined }}>{name}</div>
+      <div style={{ width: 10 * u * k, height: 10 * u * k, borderRadius: th.radius ? '50%' : 0, background: photo ? '#FFFFFF' : art ? leadTh.accent : th.accent }} />
+      <div style={{ fontFamily: th.body.family, fontWeight: th.body.strong, fontSize: size, lineHeight: `${size * 1.3}px`, color: ink, whiteSpace: 'nowrap', letterSpacing: latin ? '0.14em' : undefined, textTransform: latin ? 'uppercase' : undefined, direction: latin ? 'ltr' : 'rtl', textShadow: photo ? `0 ${u}px ${8 * u}px rgba(0, 0, 0, 0.5)` : undefined }}>{name}</div>
     </div>
   );
 }

@@ -14,6 +14,11 @@
  * scaled words still fitted, a set alignment where there are words to move.
  * `SceneBody` also draws the brand at the head of a scene that asked for it
  * (`look.logo`), in the band `VideoScenes.tsx` kept clear above the words.
+ *
+ * They follow the scene's art as the first ten do; the views that lay out
+ * their own frame rather than using `Stage` move their words' layer with the
+ * art's camera themselves (the montage's heading, the logo's mark). The four
+ * kinds the art direction brought are in videoscenenew.tsx.
  */
 
 import type { CSSProperties, ReactNode } from 'react';
@@ -22,13 +27,14 @@ import type { CompareScene, Format, GalleryScene, LogoScene, PeopleScene, Pictur
 import { alpha, contrast, localDigits, mix } from './videotheme';
 import type { Numerals, Theme, TypeFace } from './videotheme';
 import {
-  Backdrop, Blob, BrandMark, Lines, Logo, Photo, Rule, SceneProvider, enterAt, flexOf, glowOf, onPhoto, progress, revealOf, revealStyle, ShineText, staggerFor, textStyle,
-  useEnter, useNaturalSize, useScene, useSceneFrame,
+  Backdrop, Blob, BrandMark, Lines, Logo, Photo, Rule, SceneProvider, enterAt, flexOf, glowOf, itemRevealOf, onPhoto, progress, revealStyle, ShineText, staggerFor, textStyle,
+  useCamera, useEnter, useNaturalSize, useScene, useSceneFrame,
 } from './videoscenebits';
 import type { SceneInfo } from './videoscenebits';
 import { Stage, firstKindView, fit, fitScaled, markHeight, per } from './videoscenekinds';
 import type { Align } from './videolook';
 import { qrModules, qrPath } from './videoqr';
+import { newKindView } from './videoscenenew';
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -194,6 +200,8 @@ function GalleryView({ scene }: { scene: GalleryScene }) {
   const markTop = headFit ? headTop - mark - 28 * u : H - box.bottom - mark;
   const shadeTop = Math.max(0, Math.min(headTop, mark ? markTop : headTop) - 260 * u);
   const edge: CSSProperties = align === 'center' ? { left: 0, width: W, justifyContent: 'center' } : { [(align === 'end') !== th0.rtl ? 'right' : 'left']: box.x };
+  // The art's camera moves the words; the tiles keep their own slow push.
+  const camera = useCamera();
   return (
     <AbsoluteFill style={{ direction: th0.rtl ? 'rtl' : 'ltr', background: th0.bg, overflow: 'hidden' }}>
       <Backdrop bare />
@@ -210,14 +218,14 @@ function GalleryView({ scene }: { scene: GalleryScene }) {
         <div style={{ position: 'absolute', left: 0, top: shadeTop, width: W, height: H - shadeTop, background: `linear-gradient(180deg, rgba(8, 8, 12, 0) 0%, rgba(8, 8, 12, 0.55) 45%, rgba(8, 8, 12, 0.78) 100%)` }} />
       ) : null}
       {mark ? (
-        <div style={{ position: 'absolute', top: markTop, height: mark, display: 'flex', ...edge }}>
+        <div style={{ position: 'absolute', top: markTop, height: mark, display: 'flex', ...edge, ...camera }}>
           <BrandMark height={mark} maxWidth={box.w * 0.5} theme={th} delay={8} />
         </div>
       ) : null}
       {headFit ? (
-        <div style={{ position: 'absolute', top: headTop, display: 'flex', flexDirection: align === 'end' ? 'row-reverse' : 'row', alignItems: 'stretch', gap: 28 * u, ...edge }}>
+        <div style={{ position: 'absolute', top: headTop, display: 'flex', flexDirection: align === 'end' ? 'row-reverse' : 'row', alignItems: 'stretch', gap: 28 * u, ...edge, ...camera }}>
           {align === 'center' ? null : <div style={{ width: Math.max(4, 9 * u), height: headH, background: th0.accent, transform: `scaleY(${Math.min(1, barP)})`, borderRadius: th0.radius ? 5 * u : 0, boxShadow: th0.style === 'neon' ? `0 0 ${18 * u}px ${th0.accent}` : undefined }} />}
-          <Lines fit={headFit} face={th.display} color={th.fg} delay={10 + n * st} stagger={th.motion.stagger * 1.5} shadow={glowOf(th0, u)} align={align} />
+          <Lines theme={th} fit={headFit} face={th.display} color={th.fg} delay={10 + n * st} stagger={th.motion.stagger * 1.5} shadow={glowOf(th0, u)} align={align} />
         </div>
       ) : null}
     </AbsoluteFill>
@@ -244,7 +252,8 @@ function TimelineDot(p: { th: Theme; size: number; on: number }) {
 }
 
 function TimelineView({ scene }: { scene: TimelineScene }) {
-  const { theme: th, box, frames, digits } = useScene();
+  const info = useScene();
+  const { theme: th, box, frames, digits } = info;
   const frame = useSceneFrame();
   const { fps } = useVideoConfig();
   const u = box.u;
@@ -296,7 +305,7 @@ function TimelineView({ scene }: { scene: TimelineScene }) {
               const f = fit(e.text, th.body, { max: textSize, min: textSize, width: col * 0.84, height: 999, lines: 3, bold: true });
               return (
                 <div key={i} style={{ width: col, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <div style={{ height: whenH, display: 'flex', alignItems: 'flex-end', ...revealStyle(revealOf(th) === 'pop' ? 'pop' : 'rise', on, 30 * u) }}>
+                  <div style={{ height: whenH, display: 'flex', alignItems: 'flex-end', ...revealStyle(itemRevealOf(info), on, 30 * u) }}>
                     <div style={{ ...textStyle(th.display, whenSize, th.accentText), lineHeight: `${whenSize * 1.2}px`, textShadow: glowOf(th, u * 0.8), direction: th.rtl ? 'rtl' : 'ltr' }}>{whens[i]}</div>
                   </div>
                   <div style={{ height: 40 * u }} />
@@ -763,11 +772,13 @@ function LogoView({ scene }: { scene: LogoScene }) {
   const glintT = progress(frame, 34, 64, Easing.inOut(Easing.cubic));
   const glintX = th.rtl ? markW * (1.1 - 1.4 * glintT) : markW * (-0.3 + 1.4 * glintT);
   const glint = glintT > 0 && glintT < 1 ? Math.sin(glintT * Math.PI) : 0;
+  // The art's camera, in place of the mark's own slow breath.
+  const camera = useCamera();
   return (
     <AbsoluteFill style={{ direction: th.rtl ? 'rtl' : 'ltr', background: th.bg, overflow: 'hidden' }}>
       <Backdrop intensity={0.7} />
       <Blob size={glowSize} color={th.accent} opacity={(th.dark ? 0.34 : 0.24) * settle} style={{ left: W / 2 - glowSize / 2, top: H / 2 - glowSize / 2 - (tagFit ? 40 * u : 0), transform: `scale(${0.6 + 0.4 * settle})` }} />
-      <div style={{ position: 'absolute', left: 0, top: box.top, width: W, height: box.h, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', transform: `scale(${breathe.toFixed(4)})` }}>
+      <div style={{ position: 'absolute', left: 0, top: box.top, width: W, height: box.h, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', ...(camera ?? { transform: `scale(${breathe.toFixed(4)})` }) }}>
         <div style={{ position: 'relative', width: markW, height: markH, direction: 'ltr' }}>
           {th.style !== 'minimal' ? (
             <div style={{ position: 'absolute', left: -padX, top: -padY, width: markW + 2 * padX, height: markH + 2 * padY }}>
@@ -926,6 +937,10 @@ function headingAlign(scene: Scene, th: Theme, format: Format): Align {
     case 'people': return th.align;
     case 'steps': return wide && scene.steps.filter((s) => s.trim()).length > 1 ? th.align : 'start';
     case 'timeline': return wide && scene.events.length > 1 && th.align === 'center' ? 'center' : 'start';
+    case 'bigtype': return th.align;
+    case 'marquee': return 'center';
+    case 'features': return format === 'portrait' ? 'start' : 'center';
+    case 'device': return wide ? 'start' : 'center';
     default: return 'start';
   }
 }
@@ -956,6 +971,10 @@ export function SceneBody({ info }: { info: SceneInfo }) {
       case 'people': body = <PeopleView scene={scene} />; break;
       case 'logo': body = <LogoView scene={scene} />; break;
       case 'qr': body = <QrView scene={scene} />; break;
+      case 'bigtype':
+      case 'features':
+      case 'device':
+      case 'marquee': body = newKindView(scene); break;
       default: body = firstKindView(scene);
     }
   }

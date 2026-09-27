@@ -32,14 +32,43 @@
  * while everything timed as a share of the scene (the close's fade, a Ken
  * Burns move, "all points in by half-way") keeps its place in the scene. The
  * film-wide background runs on the film's own frame, times the same pace.
+ *
+ * ## The art
+ *
+ * A scene's art direction (`SceneInfo.art`, read by videotheme.ts
+ * `sceneArtOf`) is drawn here, over the style and under the person's look:
+ *
+ * - its effect — how `Lines` brings words in: the four reveals the styles
+ *   always had, and typing (whole words one after another), a highlight
+ *   (an accent marker grows behind the emphasised words), scaling down into
+ *   place, sliding in from the reading-start side, and a short glitch (two
+ *   offset copies in the accents, jittering for a third of a second);
+ * - its emphasis — whole words of a line set in the accent: the line becomes
+ *   inline spans split at its spaces, never inside a word, laid out exactly as
+ *   the unsplit line (same face, weight and size), so fitting and line breaks
+ *   do not move; the exporter draws each text node in its own span's colour;
+ * - its ground — `Backdrop` draws the accent, the gradient, or the scene's
+ *   picture under a scrim instead of the style's background (a dark or light
+ *   ground is the style's motif in those colours);
+ * - its shape — `ArtShape`, one animated figure in the accents, in the
+ *   corner away from the words, drawn between the ground and the words;
+ * - its camera — `useCamera`, a slow push, pull, drift or tilt of the scene's
+ *   content layer; VideoScenes.tsx shrinks the safe box by as much as the
+ *   move can carry words, so they never leave it.
+ *
+ * Positioned spans (a marker, a caret) are drawn in DOM order by the exporter
+ * but above in-flow text by the browser, so the words over them are
+ * positioned too: both then paint in DOM order, and the Player and the file
+ * agree.
  */
 
 import { createContext, useContext, useEffect, useId, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { AbsoluteFill, Easing, Img, interpolate, random, spring, useCurrentFrame, useDelayRender, useVideoConfig } from 'remotion';
-import type { Video } from './videotypes';
-import { alpha, contrast, fitText, localDigits, luminance, mix } from './videotheme';
-import type { Box, Fit, Numerals, Theme, TypeFace } from './videotheme';
+import type { Camera, SceneArt, TextEffect, Video } from './videotypes';
+import { alpha, drawStyleOf, fitText, localDigits, luminance, mix, onPhotoTheme, textWidth } from './videotheme';
+import type { Box, Emphasis, Fit, Numerals, Theme, TypeFace } from './videotheme';
+import { markPhrases } from './videoemphasis';
 import { lookFor } from './videolook';
 import type { Align, EffectiveLook, PictureFit } from './videolook';
 
@@ -66,6 +95,16 @@ export interface SceneInfo {
   look: EffectiveLook;
   /** Where the brand heads this scene when its look asks for it and the scene has no place of its own: a band above `box`, which starts below it. */
   mark?: { top: number; height: number } | null;
+  /** The scene's art direction, checked (videotheme.ts `sceneArtOf`); empty when it has none. */
+  art: SceneArt;
+  /**
+   * The safe box before the art's camera took its allowance (`cameraBox`):
+   * the ground's ornaments — the frame, the rules — are placed by it, so they
+   * stay where every other scene has them. `box` when absent.
+   */
+  groundBox?: Box;
+  /** Its emphasis as phrases of folded words (videotheme.ts `emphasisOf`), which `Lines` sets in the accent where each stands. */
+  emphasis: Emphasis;
 }
 
 const SceneContext = createContext<SceneInfo | null>(null);
@@ -134,6 +173,70 @@ export function staggerFor(theme: Theme, frames: number, items: number, by = 0.4
 }
 
 // ---------------------------------------------------------------------------
+// Camera
+
+/** How far the camera moves: push and pull scale by 6%, drift travels 1.5% of the frame each way, tilt turns 1.2°. */
+const CAMERA_SCALE = 0.06;
+const CAMERA_DRIFT = 0.015;
+const CAMERA_TILT = 1.2;
+
+/**
+ * The safe box a scene lays its words out in under its camera: smaller by as
+ * much as the move can carry a word outward — at the end of a push (or the
+ * start of a pull) the content is 6% larger about the box's centre; a drift
+ * slides it 1.5% of the frame either way; a tilt lifts the ends of a line by
+ * the sine of the angle. Laid out in this box, the words stay inside the
+ * style's safe area at every frame of the move.
+ */
+export function cameraBox(box: Box, camera: Camera | undefined): Box {
+  const shrink = (dx: number, dy: number): Box => ({ ...box, x: box.x + dx, w: box.w - 2 * dx, top: box.top + dy, bottom: box.bottom + dy, h: box.h - 2 * dy });
+  switch (camera) {
+    case 'push':
+    case 'pull': {
+      const k = 1 / (1 + CAMERA_SCALE);
+      return shrink((box.w * (1 - k)) / 2, (box.h * (1 - k)) / 2);
+    }
+    case 'drift':
+      return shrink(box.width * CAMERA_DRIFT, 0);
+    case 'tilt': {
+      const s = Math.sin((CAMERA_TILT * Math.PI) / 180);
+      return shrink((s * box.h) / 2, (s * box.w) / 2);
+    }
+    default:
+      return box;
+  }
+}
+
+/**
+ * The scene's camera as a transform for its content layer, over the scene's
+ * progress (eased in and out, as a camera on a slider): push 1 → 1.06, pull
+ * 1.06 → 1, drift from 1.5% behind to 1.5% ahead in the direction the
+ * language reads, tilt from −1.2° (mirrored for right to left) to level.
+ * `null` when the art sets no camera — the kind keeps its own gentle drift —
+ * and no transform at all for 'still'.
+ */
+export function useCamera(): CSSProperties | null {
+  const { art, frames, box, theme } = useScene();
+  const frame = useSceneFrame();
+  const cam = art.camera;
+  if (!cam) return null;
+  if (cam === 'still') return {};
+  const t = interpolate(frame, [0, Math.max(1, frames)], [0, 1], { easing: Easing.bezier(0.37, 0, 0.63, 1), extrapolateLeft: 'clamp', extrapolateRight: 'clamp' });
+  switch (cam) {
+    case 'push':
+      return { transform: `scale(${(1 + CAMERA_SCALE * t).toFixed(5)})` };
+    case 'pull':
+      return { transform: `scale(${(1 + CAMERA_SCALE * (1 - t)).toFixed(5)})` };
+    case 'drift':
+      return { transform: `translateX(${((theme.rtl ? -1 : 1) * box.width * CAMERA_DRIFT * (2 * t - 1)).toFixed(2)}px)` };
+    case 'tilt':
+      return { transform: `rotate(${((theme.rtl ? 1 : -1) * CAMERA_TILT * (1 - t)).toFixed(4)}deg)` };
+    default:
+      return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Text
 
 export type RevealMode = 'mask' | 'rise' | 'pop' | 'fade';
@@ -152,8 +255,33 @@ export function revealOf(theme: Theme): RevealMode {
   }
 }
 
+/** How a scene's headlines arrive: its art's effect when it chose one, else its style's reveal. */
+export function effectOf(info: Pick<SceneInfo, 'theme' | 'art'>): TextEffect {
+  return info.art.effect ?? revealOf(info.theme);
+}
+
+/**
+ * The plain reveal a scene's list items, dates and labels take: the style's
+ * as always, or the nearest of three to the scene's effect — a list typed or
+ * glitched word by word would be noise, so its items fade or pop instead.
+ */
+export function itemRevealOf(info: Pick<SceneInfo, 'theme' | 'art'>): 'rise' | 'pop' | 'fade' {
+  switch (effectOf(info)) {
+    case 'pop':
+    case 'scale':
+    case 'glitch':
+      return 'pop';
+    case 'fade':
+    case 'type':
+      return 'fade';
+    default:
+      return 'rise';
+  }
+}
+
+/** Neon's glow around words — only on a dark ground, where light can glow; around dark words on a light one it is a smudge. */
 export function glowOf(theme: Theme, strength = 1): string | undefined {
-  if (theme.style !== 'neon' || theme.inverted) return undefined;
+  if (theme.style !== 'neon' || theme.inverted || !theme.dark) return undefined;
   const u = 1;
   return `0 0 ${14 * u * strength}px ${alpha(theme.accent, 0.75)}, 0 0 ${42 * u * strength}px ${alpha(theme.accent, 0.45)}`;
 }
@@ -218,15 +346,15 @@ export function sheenBands(theme: Theme, color: string, f: number): SheenBand[] 
  * A line of text with its sheen: the line itself, then the bands laid
  * exactly over it (same style, same box, later in the DOM so in front).
  */
-export function ShineText(p: { text: string; style: CSSProperties; color: string; sheenAt?: number }) {
+export function ShineText(p: { text: string; content?: ReactNode; style: CSSProperties; color: string; sheenAt?: number }) {
   const { theme } = useScene();
   const frame = useSceneFrame();
   const bands = p.sheenAt === undefined ? [] : sheenBands(theme, p.color, frame - p.sheenAt);
-  if (!bands.length) return <div style={p.style}>{p.text}</div>;
+  if (!bands.length) return <div style={p.style}>{p.content ?? p.text}</div>;
   const { transform, opacity, ...plain } = p.style;
   return (
     <div style={{ position: 'relative', transform, opacity }}>
-      <div style={plain}>{p.text}</div>
+      <div style={plain}>{p.content ?? p.text}</div>
       {bands.map((b, i) => (
         <div key={i} style={{ ...plain, position: 'absolute', left: 0, top: 0, width: '100%', color: b.color, opacity: b.opacity, textShadow: undefined, clipPath: b.clipPath }}>{p.text}</div>
       ))}
@@ -241,7 +369,8 @@ interface LinesProps {
   color: string;
   delay: number;
   stagger: number;
-  mode?: RevealMode;
+  /** How the lines arrive; the scene's effect (its art's, else the style's reveal) when absent. */
+  mode?: TextEffect;
   align?: Align;
   shadow?: string;
   /** Colour for one line (by index), e.g. to set the last line in the accent. */
@@ -250,43 +379,148 @@ interface LinesProps {
   slower?: number;
   /** A light that sweeps once across the lines, starting at this frame of the scene (styles that have one). */
   sheen?: number;
+  /** Leave the scene's emphasis out of these lines; set in the accent unless false. */
+  emphasis?: boolean;
+  /**
+   * The colours the lines are drawn in, where they differ from the scene's —
+   * words over a darkened picture (`onPhoto`) — so the emphasis and the
+   * marker read there too.
+   */
+  theme?: Theme;
+  /** A line drawn as an outline in this colour instead of filled (a poster's alternate lines). */
+  outline?: (i: number) => string | undefined;
+  /** A size for each line, when the lines were fitted one by one (a poster); `fit.size` otherwise. */
+  sizes?: number[];
+}
+
+const NO_MARKS: Emphasis = [];
+
+/**
+ * Which words of each line carry the scene's emphasis (null for a line with
+ * none): each phrase where its words stand together, across the lines the
+ * text was broken into. A highlight with no emphasis marks the whole first
+ * line, so the effect always has something to mark.
+ */
+function markWords(lines: string[][], emphasis: Emphasis, highlight: boolean): (boolean[] | null)[] {
+  const flat = markPhrases(lines.flat(), emphasis);
+  let at = 0;
+  const out = lines.map((ws) => {
+    const m = flat.slice(at, at + ws.length);
+    at += ws.length;
+    return m;
+  });
+  if (highlight && lines.length && !out.some((m) => m.some(Boolean))) out[0] = lines[0].map(() => true);
+  return out.map((m) => (m.some(Boolean) ? m : null));
+}
+
+/** Whether a scene's emphasis lights any of these lines' words. */
+export function emphasised(lines: readonly string[], emphasis: Emphasis): boolean {
+  return emphasis.length > 0 && markPhrases(lines.join(' ').split(' '), emphasis).some(Boolean);
 }
 
 /**
- * Fitted lines, one text node each, revealed one after another. In 'mask'
- * mode each line rises out of its own clipping box (padded so Arabic dots and
- * tall letters are not cut).
+ * Fitted lines, one text node each (or one span per word where the scene's
+ * art needs them), revealed one after another in the scene's effect. In
+ * 'mask' mode each line rises out of its own clipping box (padded so Arabic
+ * dots and tall letters are not cut); in 'type' the words of every line
+ * appear one after another, all in by about 40% of the scene; a highlight's
+ * marker grows once every line has arrived.
  */
 export function Lines(p: LinesProps) {
-  const { theme, box } = useScene();
-  const mode = p.mode ?? revealOf(theme);
+  const info = useScene();
+  const { box, frames } = info;
+  const theme = p.theme ?? info.theme;
+  const mode = p.mode ?? effectOf(info);
   const lh = p.face.leading;
+  const words = p.fit.lines.map((l) => l.split(' '));
+  const marks = markWords(words, p.emphasis === false ? NO_MARKS : info.emphasis, mode === 'highlight');
+  const count = words.reduce((s, w) => s + w.length, 0);
+  const gap = Math.max(2, Math.min(6, (frames * 0.4 - p.delay) / Math.max(1, count)));
+  const starts: number[] = [];
+  let typed = 0;
+  for (let i = 0; i < words.length; i++) {
+    starts.push(mode === 'type' ? p.delay + typed * gap : p.delay + i * p.stagger);
+    typed += words[i].length;
+  }
+  // 'scale': how large a line may start and still stay inside the width it was fitted into.
+  const growOf = (line: string, size: number) => {
+    if (mode !== 'scale' || !p.fit.room) return undefined;
+    const w = textWidth(line, p.face, size, !!p.bold, info.ready);
+    return w > 0 ? p.fit.room / w : undefined;
+  };
+  const allIn = mode === 'type' ? p.delay + count * gap : p.delay + Math.max(0, words.length - 1) * p.stagger + theme.motion.duration * 0.8;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: flexOf(p.align), ...p.style }}>
       {p.fit.lines.map((line, i) => (
         <Line
           key={i}
+          theme={theme}
           text={line}
-          size={p.fit.size}
+          words={words[i]}
+          marks={marks[i]}
+          size={p.sizes?.[i] ?? p.fit.size}
+          grow={growOf(line, p.sizes?.[i] ?? p.fit.size)}
           face={p.face}
           bold={p.bold}
           color={p.lineColor?.(i) ?? p.color}
           lh={lh}
-          delay={p.delay + i * p.stagger}
+          delay={starts[i]}
           mode={mode}
           align={p.align}
           shadow={p.shadow}
           travel={theme.motion.travel * box.u}
           slower={p.slower}
-          sheen={p.sheen === undefined ? undefined : p.sheen + i * 3}
+          sheen={p.sheen === undefined || p.outline?.(i) ? undefined : p.sheen + i * 3}
+          gap={gap}
+          caretUntil={i < words.length - 1 ? starts[i + 1] : allIn + 24}
+          markAt={allIn + 2 + i * 4}
+          outline={p.outline?.(i)}
         />
       ))}
     </div>
   );
 }
 
-function Line(p: { text: string; size: number; face: TypeFace; bold?: boolean; color: string; lh: number; delay: number; mode: RevealMode; align?: Align; shadow?: string; travel: number; slower?: number; sheen?: number }) {
+interface LineProps {
+  theme: Theme;
+  text: string;
+  words: string[];
+  marks: boolean[] | null;
+  size: number;
+  /** 'scale': the room the line has to grow into, as a multiple of its width (unlimited when absent). */
+  grow?: number;
+  face: TypeFace;
+  bold?: boolean;
+  color: string;
+  lh: number;
+  delay: number;
+  mode: TextEffect;
+  align?: Align;
+  shadow?: string;
+  travel: number;
+  slower?: number;
+  sheen?: number;
+  /** 'type': frames between words, and the frame the caret leaves this line. */
+  gap: number;
+  caretUntil: number;
+  /** 'highlight': the frame this line's marker starts growing. */
+  markAt: number;
+  outline?: string;
+}
+
+/** How large a line starts in the 'scale' effect, when its room allows. */
+const SCALE_FROM = 1.25;
+
+/** Frames a glitch lasts at the start of a line. */
+const GLITCH_FRAMES = 10;
+
+const isHex = (c: string) => /^#[0-9a-f]{6}$/i.test(c);
+
+function Line(p: LineProps) {
+  const th = p.theme;
+  const frame = useSceneFrame();
   const pr = useEnter(p.delay, p.slower);
+  const stroke = Math.max(1.5, p.size * 0.022);
   const text: CSSProperties = {
     fontFamily: p.face.family,
     fontWeight: p.bold ? p.face.strong : p.face.weight,
@@ -294,20 +528,138 @@ function Line(p: { text: string; size: number; face: TypeFace; bold?: boolean; c
     lineHeight: `${p.size * p.lh}px`,
     letterSpacing: p.face.tracking ? `${p.face.tracking}em` : undefined,
     textTransform: p.face.upper ? 'uppercase' : undefined,
-    color: p.color,
+    color: p.outline ? 'transparent' : p.color,
+    WebkitTextStroke: p.outline ? `${stroke.toFixed(2)}px ${p.outline}` : undefined,
     whiteSpace: 'nowrap',
-    textShadow: p.shadow,
+    textShadow: p.outline ? undefined : p.shadow,
     textAlign: textAlignOf(p.align),
   };
-  if (p.mode === 'mask') {
-    const pad = p.size * 0.28;
-    return (
-      <div style={{ overflow: 'hidden', paddingTop: pad, paddingBottom: pad, marginTop: -pad, marginBottom: -pad, paddingInline: pad * 0.4, marginInline: -pad * 0.4 }}>
-        <ShineText text={p.text} color={p.color} sheenAt={p.sheen} style={{ ...text, transform: `translateY(${(1 - pr) * 115}%)`, opacity: Math.min(1, pr * 2) }} />
-      </div>
+  const content = lineContent(p, th, frame, stroke);
+  switch (p.mode) {
+    case 'mask': {
+      const pad = p.size * 0.28;
+      return (
+        <div style={{ overflow: 'hidden', paddingTop: pad, paddingBottom: pad, marginTop: -pad, marginBottom: -pad, paddingInline: pad * 0.4, marginInline: -pad * 0.4 }}>
+          <ShineText text={p.text} content={content} color={p.color} sheenAt={p.sheen} style={{ ...text, transform: `translateY(${(1 - pr) * 115}%)`, opacity: Math.min(1, pr * 2) }} />
+        </div>
+      );
+    }
+    case 'type':
+      // The words themselves appear; the line does not move.
+      return <ShineText text={p.text} content={content} color={p.color} sheenAt={p.sheen} style={text} />;
+    case 'scale': {
+      // Settles from large — as large as the line's room allows; a line that already fills it grows into place instead.
+      const origin = p.align === 'center' ? 'center' : (p.align === 'end') !== th.rtl ? 'right' : 'left';
+      const big = Math.min(SCALE_FROM, (p.grow ?? SCALE_FROM) * 0.99);
+      const from = big >= 1.06 ? big : 0.86;
+      return <ShineText text={p.text} content={content} color={p.color} sheenAt={p.sheen} style={{ ...text, opacity: Math.max(0, Math.min(1, pr * 1.4)), transform: `scale(${(from + (1 - from) * pr).toFixed(4)})`, transformOrigin: `${origin} center` }} />;
+    }
+    case 'slide':
+      return <ShineText text={p.text} content={content} color={p.color} sheenAt={p.sheen} style={{ ...text, ...revealStyle('rise', pr, p.travel * 2.4, 'start', th.rtl) }} />;
+    case 'glitch': {
+      const f = frame - p.delay;
+      if (f < 0) return <div style={{ ...text, opacity: 0 }}>{p.text}</div>;
+      if (f >= GLITCH_FRAMES) return <ShineText text={p.text} content={content} color={p.color} sheenAt={p.sheen} style={text} />;
+      // Two copies in the accents, offset and sliced differently every frame, over a flickering line.
+      const k = 1 - f / GLITCH_FRAMES;
+      const j = (key: string) => (random(`${key}|${p.text}|${f}`) - 0.5) * 2;
+      const slice = (key: string) => {
+        const top = random(`${key}t|${p.text}|${f}`) * 62;
+        const tall = 14 + random(`${key}h|${p.text}|${f}`) * 34;
+        return `inset(${top.toFixed(1)}% 0% ${Math.max(0, 100 - top - tall).toFixed(1)}% 0%)`;
+      };
+      const copy = (key: string, color: string): CSSProperties => ({
+        ...text,
+        position: 'absolute', left: 0, top: 0, width: '100%',
+        color, WebkitTextStroke: undefined, textShadow: undefined,
+        transform: `translate(${(j(key + 'x') * p.size * 0.07 * k).toFixed(2)}px, ${(j(key + 'y') * p.size * 0.025 * k).toFixed(2)}px)`,
+        clipPath: slice(key),
+      });
+      return (
+        <div style={{ position: 'relative', opacity: random(`o|${p.text}|${f}`) > 0.22 ? 1 : 0.45 }}>
+          <div style={{ ...text, transform: `translateX(${(j('b') * p.size * 0.02 * k).toFixed(2)}px)` }}>{content ?? p.text}</div>
+          <div style={copy('a', th.accent)}>{p.text}</div>
+          <div style={copy('c', th.accent2)}>{p.text}</div>
+        </div>
+      );
+    }
+    case 'highlight':
+      return <ShineText text={p.text} content={content} color={p.color} sheenAt={p.sheen} style={{ ...text, ...revealStyle('rise', pr, p.travel * 0.6) }} />;
+    default:
+      return <ShineText text={p.text} content={content} color={p.color} sheenAt={p.sheen} style={{ ...text, ...revealStyle(p.mode, pr, p.travel * 0.6) }} />;
+  }
+}
+
+/**
+ * What a line shows: its text alone, or — when its words carry emphasis or
+ * arrive one by one — spans split at its spaces, so no word is ever broken
+ * and the line lays out exactly as its plain text does.
+ *
+ * Emphasis is the accent colour on the words; where the accent does not read
+ * as a colour of its own (an accent or gradient ground) and in a highlight,
+ * it is a marker in the accent behind them with the words in its ink. In a
+ * highlight the marker grows from the reading-start side once the lines are
+ * in. Typing shows the words up to the frame, with a caret after the last.
+ */
+function lineContent(p: LineProps, th: Theme, frame: number, stroke: number): ReactNode {
+  const typing = p.mode === 'type';
+  if (!p.marks && !typing) return undefined;
+  const marker = p.mode === 'highlight' || th.accentText === th.fg;
+  const pad = p.size * 0.08;
+  // The marker grows under the words, which keep their colour (so a letter not yet covered still reads on the
+  // ground), then settle into the marker's ink once it is whole.
+  const grow = (run: number) => (p.mode === 'highlight' ? progress(frame, p.markAt + run * 4, p.markAt + run * 4 + 12, Easing.out(Easing.cubic)) : 1);
+  const settle = (run: number) => (p.mode === 'highlight' ? progress(frame, p.markAt + run * 4 + 12, p.markAt + run * 4 + 18) : 1);
+  const inkOver = (t: number) => (isHex(p.color) && isHex(th.onAccent) ? mix(p.color, th.onAccent, t) : t > 0.5 ? th.onAccent : p.color);
+  const shownOf = (j: number) => !typing || frame >= p.delay + j * p.gap;
+  const nodes: ReactNode[] = [];
+  let run = 0;
+  let j = 0;
+  let lastShown = -1;
+  while (j < p.words.length) {
+    const marked = !!p.marks?.[j];
+    let k = j + 1;
+    // A run of marked words is one span, so its marker covers the spaces between them; typing keeps every word its own.
+    if (marked && !typing) while (k < p.words.length && p.marks?.[k]) k++;
+    const piece = p.words.slice(j, k).join(' ');
+    const shown = shownOf(j);
+    if (shown) lastShown = j;
+    if (j > 0) nodes.push(' ');
+    if (!marked) {
+      nodes.push(typing ? <span key={j} style={{ opacity: shown ? 1 : 0 }}>{piece}</span> : piece);
+    } else if (!marker) {
+      const word: CSSProperties = p.outline ? { WebkitTextStroke: `${stroke.toFixed(2)}px ${th.accentText}` } : { color: th.accentText };
+      nodes.push(<span key={j} style={{ ...word, opacity: shown ? 1 : 0 }}>{piece}</span>);
+    } else {
+      const g = shown ? grow(run) : 0;
+      const t = shown ? settle(run) : 0;
+      // An outlined word fills in with the marker's ink once the marker is under it; a filled one turns to that ink.
+      const ink: CSSProperties = p.outline
+        ? t > 0.5 ? { color: th.onAccent, WebkitTextStroke: '0px transparent' } : {}
+        : { color: inkOver(t) };
+      nodes.push(
+        <span key={j} style={{ position: 'relative', opacity: shown ? 1 : 0 }}>
+          {g > 0 ? (
+            <span style={{ position: 'absolute', [th.rtl ? 'right' : 'left']: -pad, top: '12%', height: '80%', width: `calc(${(g * 100).toFixed(2)}% + ${(2 * pad * g).toFixed(2)}px)`, background: th.accent, borderRadius: th.radius ? p.size * 0.08 : 0 }} />
+          ) : null}
+          <span style={{ position: 'relative', ...ink, textShadow: g > 0 ? 'none' : undefined }}>{piece}</span>
+        </span>,
+      );
+      run++;
+    }
+    j = k;
+  }
+  if (typing && lastShown >= 0 && frame < p.caretUntil) {
+    const typed = lastShown === p.words.length - 1;
+    const blink = !typed || Math.floor((frame - p.delay) / 8) % 2 === 0;
+    // A zero-width anchor right after the last word shown (word j is node 2j), so the caret takes no room in the line.
+    nodes.splice(2 * lastShown + 1, 0,
+      <span key="caret" style={{ position: 'relative' }}>
+        <span style={{ position: 'absolute', [th.rtl ? 'right' : 'left']: p.size * 0.06, top: '12%', height: '78%', width: Math.max(2, p.size * 0.055), background: th.accent, opacity: blink ? 1 : 0 }} />
+      </span>,
     );
   }
-  return <ShineText text={p.text} color={p.color} sheenAt={p.sheen} style={{ ...text, ...revealStyle(p.mode, pr, p.travel * 0.6) }} />;
+  return nodes;
 }
 
 /** Plain text style for a face at a size. */
@@ -392,22 +744,56 @@ export function Grain(p: { opacity: number; width: number; height: number; t: nu
  * The look's `backdrop`: 'moving' is this at the look's pace; 'still' is the
  * same picture held at the film's first frame, on every scene; 'plain' is the
  * background colour alone, flat.
+ *
+ * The scene's art ground (`theme.ground`) replaces it for that scene: the
+ * accent as a solid ground with a soft light across it, the two accents as a
+ * slowly turning gradient, or the scene's picture with its Ken Burns move
+ * under a dark scrim; a dark or light ground is this same motif in those
+ * colours (the theme carries them). The scene's shape (`ArtShape`) is drawn
+ * on top of whichever ground, under the grain — `shape={false}` leaves it
+ * out (the credits card), as `bare` does.
  */
-export function Backdrop(p: { bare?: boolean; intensity?: number }) {
-  const { theme: th, box, start, index, count, total, video, digits, look } = useScene();
+export function Backdrop(p: { bare?: boolean; intensity?: number; shape?: boolean }) {
+  const { theme: th, box: sceneBox, groundBox, start, index, count, total, video, digits, look, frames } = useScene();
+  const box = groundBox ?? sceneBox;
   const frame = useCurrentFrame();
-  if (look.backdrop === 'plain') return <AbsoluteFill style={{ background: th.bg }} />;
+  const shape = p.bare || p.shape === false ? null : <ArtShape />;
   // The film's own frame, for what tells the time (minimal's progress rule), and the backdrop's clock.
   const now = start + frame;
   const t = look.backdrop === 'still' ? 0 : look.motion === 1 ? now : now * look.motion;
   const { width: W, height: H, u } = box;
+  const s = (period: number, phase = 0) => Math.sin((t / period) * Math.PI * 2 + phase);
+  const big = Math.max(W, H);
+  const pic = th.ground === 'photo' ? video.scenes[index]?.picture?.src : undefined;
+  if (pic) {
+    return (
+      <AbsoluteFill style={{ background: '#0B0B0E', overflow: 'hidden' }}>
+        <Photo src={pic} seed={index} frames={frames} />
+        <div style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', background: 'linear-gradient(180deg, rgba(8, 8, 12, 0.52) 0%, rgba(8, 8, 12, 0.44) 45%, rgba(8, 8, 12, 0.76) 100%)' }} />
+        {shape}
+      </AbsoluteFill>
+    );
+  }
+  if (th.ground === 'accent' || th.ground === 'gradient') {
+    const flat = look.backdrop === 'plain';
+    const angle = (th.ground === 'gradient' ? 128 : 160) + (flat ? 0 : s(900) * 16);
+    const light = mix(th.bg, '#FFFFFF', 0.35);
+    return (
+      <AbsoluteFill style={{ background: th.ground === 'accent' && flat ? th.bg : `linear-gradient(${angle.toFixed(2)}deg, ${th.bg} 0%, ${th.bg2} 100%)`, overflow: 'hidden' }}>
+        {th.ground === 'accent' && !flat && !p.bare ? (
+          <Blob size={big * 0.95} color={light} opacity={0.3} style={{ left: -big * 0.3, top: -big * 0.42, transform: `translate(${(s(520) * 70 * u).toFixed(2)}px, ${(s(610, 1) * 50 * u).toFixed(2)}px)` }} />
+        ) : null}
+        {shape}
+        {th.grain > 0 && !flat ? <Grain opacity={th.grain * 0.8} width={W} height={H} t={t} dark={th.dark} /> : null}
+      </AbsoluteFill>
+    );
+  }
+  if (look.backdrop === 'plain') return <AbsoluteFill style={{ background: th.bg, overflow: 'hidden' }}>{shape}</AbsoluteFill>;
   // Over a background the person chose, the style's lights are quieter, so the colour they asked for is the one seen.
   const k = (p.intensity ?? 1) * (th.groundSet ? 0.5 : 1);
-  const s = (period: number, phase = 0) => Math.sin((t / period) * Math.PI * 2 + phase);
   const layers: ReactNode[] = [];
   const angle = 155 + s(900) * 18;
   const ground: CSSProperties = { background: `linear-gradient(${angle.toFixed(2)}deg, ${th.bg} 0%, ${th.bg2} 100%)` };
-  const big = Math.max(W, H);
 
   switch (th.deco) {
     case 'mesh': {
@@ -544,9 +930,225 @@ export function Backdrop(p: { bare?: boolean; intensity?: number }) {
   return (
     <AbsoluteFill style={{ ...ground, overflow: 'hidden' }}>
       {p.bare ? null : layers}
+      {shape}
       {th.grain > 0 ? <Grain opacity={th.grain} width={W} height={H} t={t} dark={th.dark} /> : null}
     </AbsoluteFill>
   );
+}
+
+// ---------------------------------------------------------------------------
+// The scene's shape
+
+/**
+ * The decorative shape a scene's art chose (`art.shape`), animated, in the
+ * accents, in the free space away from the words: a corner on the end side
+ * (the start side when the words are set to the end), at the top or the
+ * foot by turns, half off the frame — in a vertical frame that is the band
+ * phone apps draw over, where no words go. Its size follows the frame's unit,
+ * and it is drawn under the words at an opacity that leaves them reading.
+ *
+ * - circle: a disc in an accent gradient that swells in and breathes, a thin
+ *   ring round it and a small moon circling;
+ * - ring: an arc that draws itself in, then turns slowly, round a dotted one;
+ * - dots: a field of dots that pop in from the corner and ripple;
+ * - lines: parallel strokes that slide in on a slant and drift;
+ * - wave: three waves flowing toward the reading end;
+ * - burst: rays that pop out from a point and slowly turn;
+ * - arrow: an arrow in a ring pointing toward the reading end, nudging;
+ * - grid: hairlines that draw in, with cells that light up in turn;
+ * - blob: two soft lights wandering.
+ *
+ * Only the ring's arc changes its SVG while it draws; every other picture is
+ * static markup moved by CSS, which the exporter draws once.
+ */
+export function ArtShape() {
+  const { theme: th, box, frames, index, art, video, look } = useScene();
+  const frame = useSceneFrame();
+  const { fps } = useVideoConfig();
+  const kind = art.shape;
+  if (!kind || kind === 'none') return null;
+  const { width: W, height: H, u } = box;
+  const S = (box.format === 'landscape' ? 400 : box.format === 'portrait' ? 480 : 340) * u;
+  const scene = video.scenes[index];
+  // Words set to the end leave the start side free; a caption at the foot of a picture leaves the top.
+  const right = (th.align !== 'end') !== th.rtl;
+  const footWords = !!scene && (scene.kind === 'gallery' || ((scene.kind === 'image' || scene.kind === 'title') && !!scene.picture?.src));
+  // Never in the corner mark's corner; in a vertical frame, never under the story bar along the top.
+  const mark = watermarkOn(video) ? look.watermarkCorner : null;
+  const markRight = !!mark && mark.endsWith('end') !== th.rtl;
+  const markTop = !!mark && mark.startsWith('top');
+  let top = footWords || (box.format === 'portrait' ? false : index % 2 === 0);
+  if (mark && markRight === right) top = !markTop;
+  // How far in from the corner the shape's centre sits, as a share of its size: a ring or a light may run off the frame, an arrow must be whole.
+  const inset = kind === 'arrow' ? 0.5 : kind === 'ring' || kind === 'blob' ? 0.18 : 0.26;
+  const cx = right ? W - S * inset : S * inset;
+  const cy = top ? S * inset : H - S * inset;
+  const e = enterAt(frame - 4, fps, th, 1.4);
+  const inP = Math.max(0, Math.min(1, e));
+  const sec = frame / fps;
+  const dir = th.rtl ? -1 : 1;
+  const a1 = th.accent;
+  const a2 = th.accent2;
+  const wrap: CSSProperties = { position: 'absolute', left: cx - S / 2, top: cy - S / 2, width: S, height: S, opacity: th.ground === 'photo' ? 0.85 : th.dark ? 0.9 : 0.78 };
+  const abs = (x: number, y: number, w: number, h: number, extra: CSSProperties = {}): CSSProperties => ({ position: 'absolute', left: x, top: y, width: w, height: h, ...extra });
+  const line = Math.max(1, 1.6 * u);
+  let body: ReactNode = null;
+  switch (kind) {
+    case 'circle': {
+      const d = S * 0.62;
+      const orbit = sec * 0.7 * dir;
+      const moon = S * 0.1;
+      body = (
+        <>
+          <div style={abs(S * 0.04, S * 0.04, S * 0.92, S * 0.92, { borderRadius: '50%', border: `${line}px solid ${alpha(a2, 0.5)}`, transform: `scale(${(0.8 + 0.2 * inP).toFixed(4)})`, opacity: inP })} />
+          <div style={abs((S - d) / 2, (S - d) / 2, d, d, { borderRadius: '50%', background: `linear-gradient(${(135 + 40 * (frame / Math.max(1, frames))).toFixed(1)}deg, ${alpha(a1, 0.92)} 0%, ${alpha(a2, 0.7)} 100%)`, transform: `scale(${(e * (1 + 0.035 * Math.sin(sec * 1.4))).toFixed(4)})`, opacity: inP })} />
+          <div style={abs(S / 2 + Math.cos(orbit) * S * 0.46 - moon / 2, S / 2 + Math.sin(orbit) * S * 0.46 - moon / 2, moon, moon, { borderRadius: '50%', background: a2, transform: `scale(${inP.toFixed(4)})` })} />
+        </>
+      );
+      break;
+    }
+    case 'ring': {
+      const p = progress(frame, 4, 4 + Math.max(20, Math.min(44, frames * 0.3)), Easing.inOut(Easing.cubic));
+      const C = 2 * Math.PI * 42;
+      const arc = Math.round(C * 0.8 * p * 10) / 10;
+      const turn = (frame * 0.35 * dir).toFixed(2);
+      body = (
+        <>
+          <div style={abs(0, 0, S, S, { transform: th.rtl ? `rotate(${turn}deg) scaleX(-1)` : `rotate(${turn}deg)` })}>
+            <svg width={Math.round(S)} height={Math.round(S)} viewBox="0 0 100 100" style={{ display: 'block', width: Math.round(S), height: Math.round(S) }}>
+              <circle cx="50" cy="50" r="42" fill="none" stroke={a1} strokeWidth="3.4" strokeLinecap="round" strokeDasharray={`${arc} ${Math.ceil(C)}`} transform="rotate(-90 50 50)" />
+            </svg>
+          </div>
+          <div style={abs(S * 0.17, S * 0.17, S * 0.66, S * 0.66, { transform: `rotate(${(-frame * 0.2 * dir).toFixed(2)}deg) scale(${(0.85 + 0.15 * inP).toFixed(4)})`, opacity: inP })}>
+            <svg width={Math.round(S * 0.66)} height={Math.round(S * 0.66)} viewBox="0 0 100 100" style={{ display: 'block', width: Math.round(S * 0.66), height: Math.round(S * 0.66) }}>
+              <circle cx="50" cy="50" r="47" fill="none" stroke={a2} strokeOpacity="0.7" strokeWidth="2" strokeLinecap="round" strokeDasharray="0.5 7" />
+            </svg>
+          </div>
+        </>
+      );
+      break;
+    }
+    case 'dots': {
+      const n = 6;
+      const step = S / n;
+      const dot = S * 0.042;
+      const dots: ReactNode[] = [];
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j < n; j++) {
+          // Distance from the corner the shape sits in, so the field pops in from the frame's edge.
+          const di = right ? n - 1 - i : i;
+          const dj = top ? j : n - 1 - j;
+          const dist = di + dj;
+          const pop = Math.max(0, Math.min(1.15, enterAt(frame - 4 - dist * 1.6, fps, th)));
+          const ripple = 1 + 0.35 * Math.sin(sec * 2.2 - dist * 0.55);
+          dots.push(<div key={`${i}-${j}`} style={abs(i * step + (step - dot) / 2, j * step + (step - dot) / 2, dot, dot, { borderRadius: '50%', background: dist % 3 === 0 ? a2 : a1, transform: `scale(${(pop * ripple).toFixed(4)})` })} />);
+        }
+      }
+      body = <>{dots}</>;
+      break;
+    }
+    case 'lines': {
+      const bars: ReactNode[] = [];
+      const thick = S * 0.026;
+      for (let i = 0; i < 6; i++) {
+        const len = S * (0.42 + ((i * 37) % 10) / 20);
+        const p = Math.max(0, Math.min(1, enterAt(frame - 4 - i * 3, fps, th)));
+        const driftX = Math.sin(sec * 0.9 + i) * S * 0.05;
+        bars.push(<div key={i} style={abs(S * 0.5 - len / 2, S * 0.12 + i * S * 0.13, len, thick, { borderRadius: thick / 2, background: i % 2 ? alpha(a2, 0.85) : a1, transform: `translateX(${(((1 - p) * -S * 0.45 + driftX) * dir).toFixed(2)}px)`, opacity: p })} />);
+      }
+      body = <div style={abs(0, 0, S, S, { transform: `rotate(${(-32 * dir).toFixed(1)}deg)` })}>{bars}</div>;
+      break;
+    }
+    case 'wave': {
+      const period = Math.round(S * 0.5);
+      const amp = S * 0.05;
+      const w = period * 4;
+      const h = Math.round(S * 0.2);
+      const mid = h / 2;
+      let d = `M0 ${mid.toFixed(1)} Q${(period / 4).toFixed(1)} ${(mid - 2 * amp).toFixed(1)} ${(period / 2).toFixed(1)} ${mid.toFixed(1)}`;
+      for (let x = period; x <= w; x += period / 2) d += ` T${x.toFixed(1)} ${mid.toFixed(1)}`;
+      const waves: ReactNode[] = [];
+      for (let i = 0; i < 3; i++) {
+        const shift = ((frame * (1.4 + i * 0.5) * u + i * period * 0.3) % period);
+        const reveal = Math.max(0, Math.min(1, enterAt(frame - 4 - i * 4, fps, th)));
+        waves.push(
+          <div key={i} style={abs(0, S * 0.26 + i * S * 0.17, S, h, { overflow: 'hidden', clipPath: `inset(0% ${((1 - reveal) * 100).toFixed(2)}% 0% 0%)` })}>
+            <div style={abs(-period + shift, 0, w, h)}>
+              <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ display: 'block', width: w, height: h }}>
+                <path d={d} fill="none" stroke={i === 1 ? a2 : a1} strokeOpacity={i === 2 ? 0.55 : 0.9} strokeWidth={Math.max(2, S * 0.018)} strokeLinecap="round" />
+              </svg>
+            </div>
+          </div>,
+        );
+      }
+      // Flowing and revealed toward the reading end: mirrored as a whole for right to left.
+      body = <div style={abs(0, 0, S, S, th.rtl ? { transform: 'scaleX(-1)' } : {})}>{waves}</div>;
+      break;
+    }
+    case 'burst': {
+      const rays: ReactNode[] = [];
+      const n = 12;
+      const thick = S * 0.03;
+      const pulse = 1 + 0.06 * Math.sin(sec * 2.4);
+      const r = (S * 0.1 + S * 0.2 * Math.max(0, e)) * pulse;
+      const spin = sec * 6 * dir;
+      for (let i = 0; i < n; i++) {
+        const len = S * (i % 2 ? 0.11 : 0.18);
+        rays.push(<div key={i} style={abs(S / 2, S / 2 - thick / 2, len, thick, { borderRadius: thick / 2, background: i % 2 ? a2 : a1, transformOrigin: '0% 50%', transform: `rotate(${(i * (360 / n) + spin).toFixed(2)}deg) translateX(${r.toFixed(2)}px) scaleX(${inP.toFixed(4)})`, opacity: inP })} />);
+      }
+      const core = S * 0.08;
+      body = (
+        <>
+          {rays}
+          <div style={abs(S / 2 - core / 2, S / 2 - core / 2, core, core, { borderRadius: '50%', background: a1, transform: `scale(${Math.max(0, e).toFixed(4)})` })} />
+        </>
+      );
+      break;
+    }
+    case 'arrow': {
+      const nudge = Math.pow(Math.sin(sec * 2.2), 2) * S * 0.05;
+      const slide = (1 - inP) * -S * 0.3;
+      const inner = S * 0.62;
+      body = (
+        <>
+          <div style={abs(S * 0.06, S * 0.06, S * 0.88, S * 0.88, { borderRadius: '50%', border: `${Math.max(1, 2 * u)}px solid ${alpha(a2, 0.6)}`, transform: `scale(${(0.85 + 0.15 * inP).toFixed(4)})`, opacity: inP })} />
+          <div style={abs((S - inner) / 2, (S - inner) / 2, inner, inner, { transform: `translateX(${((slide + nudge) * dir).toFixed(2)}px)${th.rtl ? ' scaleX(-1)' : ''}`, opacity: inP })}>
+            <svg width={Math.round(inner)} height={Math.round(inner)} viewBox="0 0 100 100" style={{ display: 'block', width: Math.round(inner), height: Math.round(inner) }}>
+              <path d="M14 50H84 M58 24L85 50L58 76" fill="none" stroke={a1} strokeWidth="8" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </div>
+        </>
+      );
+      break;
+    }
+    case 'grid': {
+      const n = 5;
+      const cell = S / n;
+      const parts: ReactNode[] = [];
+      for (let i = 0; i <= n; i++) {
+        const p = Math.max(0, Math.min(1, progress(frame, 4 + i * 2, 22 + i * 2, Easing.out(Easing.cubic))));
+        parts.push(<div key={`v${i}`} style={abs(i * cell - line / 2, 0, line, S * p, { background: alpha(a1, 0.5) })} />);
+        parts.push(<div key={`h${i}`} style={abs(0, i * cell - line / 2, S * p, line, { background: alpha(a1, 0.5) })} />);
+      }
+      const lit = [[1, 1], [3, 2], [2, 4], [4, 0]];
+      lit.forEach(([ci, cj], k) => {
+        const on = Math.max(0, Math.sin(sec * 1.3 + k * 1.7)) * inP;
+        parts.push(<div key={`c${k}`} style={abs(ci * cell + line, cj * cell + line, cell - 2 * line, cell - 2 * line, { background: k % 2 ? a2 : a1, opacity: 0.75 * on })} />);
+      });
+      body = <div style={abs(0, 0, S, S, { transform: `translate(${(Math.sin(sec * 0.5) * S * 0.02).toFixed(2)}px, ${(Math.cos(sec * 0.4) * S * 0.02).toFixed(2)}px)` })}>{parts}</div>;
+      break;
+    }
+    case 'blob': {
+      body = (
+        <>
+          <Blob size={S * 1.2} color={a1} opacity={0.62 * inP} style={{ left: -S * 0.1, top: -S * 0.1, transform: `translate(${(Math.sin(sec * 0.6) * S * 0.08).toFixed(2)}px, ${(Math.cos(sec * 0.5) * S * 0.06).toFixed(2)}px) scale(${(0.7 + 0.3 * inP).toFixed(4)})` }} />
+          <Blob size={S * 0.7} color={a2} opacity={0.5 * inP} style={{ left: S * 0.35, top: S * 0.3, transform: `translate(${(Math.cos(sec * 0.7) * S * 0.1).toFixed(2)}px, ${(Math.sin(sec * 0.8) * S * 0.08).toFixed(2)}px)` }} />
+        </>
+      );
+      break;
+    }
+  }
+  return <div style={wrap}>{body}</div>;
 }
 
 // ---------------------------------------------------------------------------
@@ -615,21 +1217,10 @@ export function Photo(p: { src: string; seed: number; frames: number; style?: CS
 
 /**
  * Words over a picture are always light on a darkened picture, whatever the
- * style — a light scrim over a photograph looks washed out.
+ * style — a light scrim over a photograph looks washed out. (videotheme.ts
+ * `onPhotoTheme`, which a scene on a photo ground is already drawn in.)
  */
-export function onPhoto(theme: Theme): Theme {
-  const dark = '#0B0B0E';
-  // The look's words colour, when it reads on a darkened picture; white otherwise.
-  const set = theme.textSet && contrast(theme.textSet, dark) >= 4.5 ? theme.textSet : null;
-  const ink = set ?? '#FFFFFF';
-  return {
-    ...theme,
-    fg: ink,
-    muted: set ? alpha(set, 0.82) : 'rgba(255, 255, 255, 0.82)',
-    accentText: contrast(theme.accent, dark) >= 3 ? theme.accent : ink,
-    dark: true,
-  };
-}
+export const onPhoto = onPhotoTheme;
 
 /** A darkening gradient over a picture, towards the side the words are on. */
 export function Scrim(p: { theme: Theme; to: 'bottom' | 'top' | 'start' | 'end' | 'all'; strength?: number }) {
@@ -760,19 +1351,22 @@ export interface WatermarkSpot {
  * the top band or just above the bottom one where phone apps draw, and every
  * scene under it keeps a band clear. A wide or square frame puts it in the
  * margin as the style always has — inside the elegant frame's lines, level
- * with minimal's counter (below its rule at the foot) — and keeps a band
+ * with minimal's counter (below its rule at the foot), and likewise for a
+ * designed look with the frame or rule motif — and keeps a band
  * clear only for as much as a larger mark reaches beyond where the style's
  * own size sat. It never leaves the frame.
  */
-export function watermarkSpot(v: Pick<Video, 'look' | 'style' | 'lang'>, box: Box): WatermarkSpot {
+export function watermarkSpot(v: Pick<Video, 'look' | 'style' | 'lang' | 'ai' | 'design'>, box: Box): WatermarkSpot {
   const look = lookFor(v);
+  // The style whose ground the mark sits on: a designed look's motif's (a 'frame' design has elegant's lines).
+  const style = drawStyleOf(v);
   const u = box.u;
   const H = box.height;
   const edge = look.watermarkCorner.startsWith('top') ? 'top' : 'bottom';
   const right = look.watermarkCorner.endsWith('end') !== (v.lang !== 'en');
   const base = (box.format === 'landscape' ? 50 : box.format === 'portrait' ? 60 : 46) * u;
   const inset = Math.min(box.x, box.top) * 0.45;
-  const side = v.style === 'elegant' && box.format !== 'portrait' ? inset + 34 * u : box.x;
+  const side = style === 'elegant' && box.format !== 'portrait' ? inset + 34 * u : box.x;
   const at = (k: number): { top: number; height: number; reach: number } => {
     let h = base * k;
     if (box.format === 'portrait') {
@@ -780,9 +1374,9 @@ export function watermarkSpot(v: Pick<Video, 'look' | 'style' | 'lang'>, box: Bo
       return { top, height: h, reach: 24 * u + h };
     }
     let y: number;
-    if (v.style === 'elegant') y = edge === 'top' ? inset + 26 * u : H - inset - 26 * u - h;
-    else if (v.style === 'minimal' && edge === 'top') y = box.top * 0.55 - 22 * u * 1.9 - (h - 22 * u * 1.3) / 2;
-    else if (v.style === 'minimal') {
+    if (style === 'elegant') y = edge === 'top' ? inset + 26 * u : H - inset - 26 * u - h;
+    else if (style === 'minimal' && edge === 'top') y = box.top * 0.55 - 22 * u * 1.9 - (h - 22 * u * 1.3) / 2;
+    else if (style === 'minimal') {
       // Under the rule and its progress line at the foot, never over them.
       y = H - box.bottom * 0.55 + 3 * Math.max(1, 1.5 * u) + 8 * u;
       h = Math.min(h, H - y - 10 * u);

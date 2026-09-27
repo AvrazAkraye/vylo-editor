@@ -54,6 +54,89 @@ export interface Picture {
   height?: number;
 }
 
+// ---------------------------------------------------------------------------
+// Art direction
+//
+// The model is the video's art director as well as its writer: for each scene
+// it chooses how the words arrive, what is behind them, how the frame moves,
+// what shape decorates it and which words carry the accent — from these fixed
+// vocabularies, so every choice is data the app draws, never code. Absent
+// fields are the style's own. The person changes any of them in the storyboard
+// or by asking in the Chat tab.
+
+/** How a scene's words arrive. */
+export type TextEffect = 'rise' | 'mask' | 'pop' | 'fade' | 'type' | 'highlight' | 'scale' | 'slide' | 'glitch';
+export const TEXT_EFFECTS: readonly TextEffect[] = ['rise', 'mask', 'pop', 'fade', 'type', 'highlight', 'scale', 'slide', 'glitch'];
+
+/**
+ * What is behind a scene: the style's moving background, the accent colour
+ * as a solid ground, a bold accent gradient, a dark or a light ground, or the
+ * scene's own picture filling the frame under a scrim.
+ */
+export type Ground = 'style' | 'accent' | 'gradient' | 'dark' | 'light' | 'photo';
+export const GROUNDS: readonly Ground[] = ['style', 'accent', 'gradient', 'dark', 'light', 'photo'];
+
+/** A slow move of the whole scene, as a camera would make it. */
+export type Camera = 'still' | 'push' | 'pull' | 'drift' | 'tilt';
+export const CAMERAS: readonly Camera[] = ['still', 'push', 'pull', 'drift', 'tilt'];
+
+/** A decorative shape in the scene's free space, drawn in the accent colours and animated. */
+export type Shape = 'none' | 'circle' | 'ring' | 'dots' | 'lines' | 'wave' | 'burst' | 'arrow' | 'grid' | 'blob';
+export const SHAPES: readonly Shape[] = ['none', 'circle', 'ring', 'dots', 'lines', 'wave', 'burst', 'arrow', 'grid', 'blob'];
+
+/** The art direction of one scene. Every field is optional; an absent one is the style's own. */
+export interface SceneArt {
+  effect?: TextEffect;
+  ground?: Ground;
+  camera?: Camera;
+  shape?: Shape;
+  /** Whole words of the scene's main text, exactly as written there, set in the accent. At most 3. */
+  emphasis?: string[];
+  /** Where the words sit, over the style's. */
+  align?: 'start' | 'center' | 'end';
+  /** The words' scale: 'hero' about 1.3x, 'quiet' about 0.85x; words still never overflow. */
+  size?: 'quiet' | 'normal' | 'hero';
+}
+
+/**
+ * The icons a "features" scene may use, by name. Drawn by videoicons.tsx as
+ * simple strokes in the video's colours; no pictures, no brands.
+ */
+export const ICON_IDS = [
+  'star', 'heart', 'check', 'clock', 'calendar', 'phone', 'mail', 'pin', 'globe', 'home',
+  'building', 'school', 'book', 'graduation', 'users', 'user', 'chat', 'shield', 'lock', 'leaf',
+  'sun', 'moon', 'bolt', 'flame', 'drop', 'tooth', 'stethoscope', 'pulse', 'car', 'truck',
+  'plane', 'cart', 'bag', 'gift', 'tag', 'money', 'chart', 'trend', 'target', 'rocket',
+  'bulb', 'gear', 'wrench', 'camera', 'music', 'play', 'wifi', 'code', 'coffee', 'food',
+  'sparkle', 'trophy', 'handshake', 'medal', 'search', 'doc', 'pen', 'palette', 'ruler', 'smile',
+] as const;
+export type IconId = (typeof ICON_IDS)[number];
+
+/** The background motifs a designed look may choose: the six styles' own. */
+export type VideoDeco = 'mesh' | 'slab' | 'frame' | 'glow' | 'rule' | 'sun';
+export const VIDEO_DECOS: readonly VideoDeco[] = ['mesh', 'slab', 'frame', 'glow', 'rule', 'sun'];
+
+/**
+ * A look the model designed for this video, instead of one of the six styles:
+ * a name, why it suits the video, five colours, a typeface from the app's
+ * list, a background motif and a pace. videodesign.ts reads and repairs it
+ * (contrast included); videotheme.ts turns it into the theme.
+ */
+export interface VideoDesign {
+  name: string;
+  why: string;
+  bg: string;
+  bg2: string;
+  fg: string;
+  accent: string;
+  accent2: string;
+  /** A `FONT_CHOICES` id (videolook.ts). */
+  font: string;
+  deco: VideoDeco;
+  /** How things move: slow and eased, springy, or fast and punchy. */
+  energy: 'calm' | 'lively' | 'punchy';
+}
+
 /** Fields every scene has. */
 interface SceneBase {
   id: string;
@@ -68,6 +151,8 @@ interface SceneBase {
   narration?: string;
   /** This scene's look over the video's: set in the storyboard or by asking in the Chat tab. */
   look?: SceneLook;
+  /** The scene's art direction: the model's creative choices, which the person can change. */
+  art?: SceneArt;
 }
 
 /**
@@ -147,17 +232,27 @@ export interface PeopleScene extends SceneBase { kind: 'people'; heading: string
 export interface LogoScene extends SceneBase { kind: 'logo'; tagline?: string }
 /** A QR code for an address, with a line saying what it opens. */
 export interface QrScene extends SceneBase { kind: 'qr'; heading: string; url: string }
+/** A typographic poster: one to four short lines stacked big across the frame. */
+export interface BigTypeScene extends SceneBase { kind: 'bigtype'; lines: string[] }
+/** Two to four features, each an icon and a short label, with an optional heading. */
+export interface FeaturesScene extends SceneBase { kind: 'features'; heading?: string; items: { icon: IconId; label: string }[] }
+/** The scene's picture inside a phone or a laptop, with a heading and an optional line. */
+export interface DeviceScene extends SceneBase { kind: 'device'; device: 'phone' | 'laptop'; heading: string; text?: string }
+/** One short phrase, huge, scrolling across the frame and repeating, with an optional line under it. */
+export interface MarqueeScene extends SceneBase { kind: 'marquee'; text: string; sub?: string }
 
 export type Scene =
   | TitleScene | KineticScene | BulletsScene | StatScene | ChartScene
   | QuoteScene | ImageScene | SplitScene | StepsScene | OutroScene
-  | GalleryScene | TimelineScene | CompareScene | PeopleScene | LogoScene | QrScene;
+  | GalleryScene | TimelineScene | CompareScene | PeopleScene | LogoScene | QrScene
+  | BigTypeScene | FeaturesScene | DeviceScene | MarqueeScene;
 
 export type SceneKind = Scene['kind'];
 
 export const SCENE_KINDS: readonly SceneKind[] = [
   'title', 'kinetic', 'bullets', 'stat', 'chart', 'quote', 'image', 'split', 'steps', 'outro',
   'gallery', 'timeline', 'compare', 'people', 'logo', 'qr',
+  'bigtype', 'features', 'device', 'marquee',
 ];
 
 /** The brand the video carries: colours override the style's, a logo appears on the title and the close. */
@@ -304,5 +399,9 @@ export interface Video {
   chat?: ChatTurn[];
   /** How it looks beyond its style. */
   look?: LookSettings;
+  /** The look is the model's to design (`design`), rather than `style`'s; `style` stays the tone of the words. */
+  ai?: boolean;
+  /** The look the model designed, used while `ai` is on. */
+  design?: VideoDesign;
   error?: string;
 }

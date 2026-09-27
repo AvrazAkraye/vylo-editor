@@ -8,10 +8,16 @@
  * box; an alignment the look sets is followed where the kind has words to
  * move (`theme.alignSet`), and with none each kind sits as it always did; a
  * bigger logo takes its room from the headline's, never from the frame.
+ *
+ * And its art (videoscenebits.tsx, "The art"): headlines arrive in the
+ * scene's effect through `Lines`, the camera moves `Stage`'s content layer
+ * in place of its gentle drift, the ground and the shape come with
+ * `Backdrop` (a picture that fills the frame carries the shape itself), and
+ * the kinetic sentence takes the effect and the emphasis word by word.
  */
 
 import type { CSSProperties, ReactNode } from 'react';
-import { AbsoluteFill, Easing, useVideoConfig } from 'remotion';
+import { AbsoluteFill, Easing, random, useVideoConfig } from 'remotion';
 import type {
   BulletsScene, ChartScene, ImageScene, KineticScene, OutroScene, QuoteScene, Scene, SplitScene, StatScene, StepsScene, TitleScene, Video,
 } from './videotypes';
@@ -21,26 +27,35 @@ import type { Fit, Numerals, Theme, TypeFace } from './videotheme';
 import { picturesOf } from './video';
 import { musicCredit } from './videomix';
 import {
-  Backdrop, BrandMark, Lines, Logo, Photo, Rule, Scrim, dirOf, enterAt, flexOf, glowOf, onPhoto, progress, revealOf, revealStyle, staggerFor, textAlignOf, textStyle,
-  useEnter, useScene, useSceneFrame,
+  ArtShape, Backdrop, BrandMark, Lines, Logo, Photo, Rule, Scrim, dirOf, emphasised, enterAt, flexOf, glowOf, itemRevealOf, onPhoto, progress, revealStyle, staggerFor, textAlignOf, textStyle,
+  useCamera, useEnter, useScene, useSceneFrame,
 } from './videoscenebits';
+import { markPhrases } from './videoemphasis';
 import type { SceneInfo } from './videoscenebits';
 
 // ---------------------------------------------------------------------------
 // Shared layout
 
+/**
+ * A scene's frame: its ground (the style's moving background unless given),
+ * then its content in the safe box, which drifts a little larger over the
+ * scene — or moves as the scene's art camera says (`useCamera`), which
+ * VideoScenes.tsx already made the box small enough for.
+ */
 export function Stage(p: { children: ReactNode; ground?: ReactNode; theme?: Theme; drift?: boolean; box?: CSSProperties }) {
   const { theme: th0, box, frames } = useScene();
   const th = p.theme ?? th0;
   const frame = useSceneFrame();
+  const camera = useCamera();
   const drift = p.drift === false ? 1 : 1 + (0.018 * frame) / Math.max(1, frames);
+  const move: CSSProperties = camera ?? (drift === 1 ? {} : { transform: `scale(${drift.toFixed(4)})` });
   return (
     <AbsoluteFill style={{ direction: th.rtl ? 'rtl' : 'ltr', fontFamily: th.body.family, color: th.fg, overflow: 'hidden', background: th.bg }}>
       {p.ground ?? <Backdrop />}
       <div
         style={{
           position: 'absolute', left: box.x, top: box.top, width: box.w, height: box.h,
-          display: 'flex', flexDirection: 'column', transform: `scale(${drift.toFixed(4)})`, ...p.box,
+          display: 'flex', flexDirection: 'column', ...move, ...p.box,
         }}
       >
         {p.children}
@@ -107,7 +122,7 @@ const lastOf = (n: number) => (i: number) => (i === n - 1 ? true : false);
 // Title
 
 function TitleView({ scene }: { scene: TitleScene }) {
-  const { theme: th0, box, frames, video, index, look } = useScene();
+  const { theme: th0, box, frames, video, index, look, emphasis } = useScene();
   const u = box.u;
   const pic = scene.picture?.src;
   const th = pic ? onPhoto(th0) : th0;
@@ -144,6 +159,7 @@ function TitleView({ scene }: { scene: TitleScene }) {
       <Scrim theme={th0} to={side ? (align === 'end' ? 'end' : 'start') : 'bottom'} />
       {side ? <Scrim theme={th0} to="bottom" strength={0.6} /> : null}
       {center ? <Scrim theme={th0} to="all" strength={0.8} /> : null}
+      <ArtShape />
     </AbsoluteFill>
   ) : undefined;
   return (
@@ -158,7 +174,7 @@ function TitleView({ scene }: { scene: TitleScene }) {
         </div>
       ) : null}
       {th.style === 'elegant' ? <Ornament theme={th} delay={dHead - 2} /> : null}
-      <Lines fit={titleFit} face={th.display} color={th.fg} delay={dHead} stagger={st} align={align} shadow={glowOf(th, u)} sheen={dRule + 10} lineColor={th.style === 'modern' || th.style === 'warm' ? (i) => (lastOf(titleFit.lines.length)(i) && titleFit.lines.length > 1 ? th.accentText : undefined) : undefined} />
+      <Lines theme={th} fit={titleFit} face={th.display} color={th.fg} delay={dHead} stagger={st} align={align} shadow={glowOf(th, u)} sheen={dRule + 10} lineColor={(th.style === 'modern' || th.style === 'warm') && !emphasised(titleFit.lines, emphasis) ? (i) => (lastOf(titleFit.lines.length)(i) && titleFit.lines.length > 1 ? th.accentText : undefined) : undefined} />
       <Rule width={per({ landscape: 150, portrait: 130, square: 120 })} height={Math.max(3, 7 * u)} color={th.accent} p={ruleP} align={align} style={{ marginTop: 40 * u, marginBottom: 34 * u }} />
       {subFit && scene.subtitle ? (
         <div style={{ ...revealStyle('rise', subP, 24 * u), display: 'flex', flexDirection: 'column', alignItems: flexOf(align) }}>
@@ -190,8 +206,50 @@ export function Ornament(p: { theme: Theme; delay: number }) {
 // ---------------------------------------------------------------------------
 // Kinetic
 
+/**
+ * How the kinetic sentence's words arrive, one by one, for a scene's art
+ * effect: the plain reveals as they are ('mask' rises — a word has no line to
+ * rise out of), typing as words that simply appear, the rest as themselves.
+ */
+type WordMode = 'rise' | 'pop' | 'fade' | 'type' | 'scale' | 'slide' | 'glitch' | 'highlight';
+
+function wordModeOf(effect: SceneInfo['art']['effect'], th: Theme): WordMode {
+  if (!effect) return th.style === 'bold' || th.style === 'neon' ? 'pop' : th.style === 'elegant' ? 'fade' : 'rise';
+  return effect === 'mask' ? 'rise' : effect;
+}
+
+/** A word's arrival in a kinetic sentence, `f` frames after its turn, with entrance progress `p`. */
+function wordStyle(mode: WordMode, p: number, f: number, travel: number, th: Theme, size: number, seed: string): CSSProperties {
+  switch (mode) {
+    case 'type':
+      return { opacity: f >= 0 ? 1 : 0 };
+    case 'scale':
+      return { opacity: Math.max(0, Math.min(1, p * 1.4)), transform: `scale(${(1.25 - 0.25 * p).toFixed(4)})` };
+    case 'slide':
+      return revealStyle('rise', p, travel * 2, 'start', th.rtl);
+    case 'glitch': {
+      if (f < 0) return { opacity: 0 };
+      if (f >= 8) return {};
+      // The word's two accent copies as offset shadows, jittering for a few frames, then clean.
+      const k = 1 - f / 8;
+      const j = (key: string) => (random(`${key}|${seed}|${f}`) - 0.5) * 2;
+      const dx = size * 0.06 * k;
+      return {
+        opacity: random(`o|${seed}|${f}`) > 0.2 ? 1 : 0.5,
+        transform: `translate(${(j('x') * size * 0.03 * k).toFixed(2)}px, ${(j('y') * size * 0.015 * k).toFixed(2)}px)`,
+        textShadow: `${(dx * (1 + j('a'))).toFixed(2)}px 0 0 ${th.accent}, ${(-dx * (1 + j('b'))).toFixed(2)}px 0 0 ${th.accent2}`,
+      };
+    }
+    case 'highlight':
+      return revealStyle('rise', p, travel);
+    default:
+      return revealStyle(mode, p, travel);
+  }
+}
+
 function KineticView({ scene }: { scene: KineticScene }) {
-  const { theme: th, box, frames } = useScene();
+  const info = useScene();
+  const { theme: th, box, frames } = info;
   const frame = useSceneFrame();
   const { fps } = useVideoConfig();
   const u = box.u;
@@ -204,13 +262,18 @@ function KineticView({ scene }: { scene: KineticScene }) {
   const lines = f.lines.map((l) => l.split(' '));
   const words = lines.flat();
   const n = words.length;
-  // The emphasised word: the last one, unless it is tiny — then the longest.
+  // The emphasised words: the art's, when it names any here; else the last word, unless it is tiny — then the longest.
+  const marked = markPhrases(words, info.emphasis);
   let hi = n - 1;
   if ((words[hi] ?? '').length < 3) {
     hi = words.reduce((b, w, i) => (w.length > (words[b] ?? '').length ? i : b), 0);
   }
+  const isHi = (i: number) => (marked.some(Boolean) ? !!marked[i] : i === hi);
   const gap = Math.max(2, Math.min(9, (frames * 0.36) / Math.max(1, n)));
-  const mode = th.style === 'bold' || th.style === 'neon' ? 'pop' : th.style === 'elegant' ? 'fade' : 'rise';
+  const mode = wordModeOf(info.art.effect, th);
+  // A marker behind the emphasis: bold's habit, a highlight's point, and the only way to show it where the accent is the words' colour.
+  const boxed = th.style === 'bold' || mode === 'highlight' || th.accentText === th.fg;
+  const markAt = 4 + n * gap + 4;
   const space = f.size * 0.26;
   let k = 0;
   return (
@@ -219,14 +282,25 @@ function KineticView({ scene }: { scene: KineticScene }) {
         <div key={li} style={{ display: 'flex', flexDirection: 'row', columnGap: space, justifyContent: flexOf(align), height: f.size * th.display.leading, alignItems: 'center' }}>
           {ws.map((w, wi) => {
             const i = k++;
-            const p = enterAt(frame - 4 - i * gap, fps, th);
-            const isHi = i === hi;
-            const box2: CSSProperties = isHi && th.style === 'bold'
-              ? { background: th.accent, color: th.onAccent, paddingInline: f.size * 0.12, marginInline: -f.size * 0.12, borderRadius: 4 * u }
-              : { color: isHi ? th.accentText : th.fg };
-            const shadow = isHi ? glowOf(th, u * 1.3) : th.style === 'neon' ? `0 0 ${12 * u}px ${alpha(th.fg, 0.35)}` : undefined;
+            const at = 4 + i * gap;
+            const p = enterAt(frame - at, fps, th);
+            const hot = isHi(i);
+            let box2: CSSProperties = { color: hot ? th.accentText : th.fg };
+            if (hot && boxed) {
+              // Grown from the reading-start side once the sentence is in (a highlight), or there from the start;
+              // the word keeps its colour while the marker grows, then takes the marker's ink.
+              const g = mode === 'highlight' ? progress(frame, markAt, markAt + 12, Easing.out(Easing.cubic)) : 1;
+              const t = mode === 'highlight' ? progress(frame, markAt + 12, markAt + 18) : 1;
+              const edge = (g * 100).toFixed(2);
+              box2 = {
+                background: g >= 1 ? th.accent : `linear-gradient(${th.rtl ? 270 : 90}deg, ${th.accent} ${edge}%, ${alpha(th.accent, 0)} ${edge}%)`,
+                color: t >= 1 ? th.onAccent : t > 0 ? mix(th.fg, th.onAccent, t) : th.fg,
+                paddingInline: f.size * 0.12, marginInline: -f.size * 0.12, borderRadius: 4 * u,
+              };
+            }
+            const shadow = hot && !boxed ? glowOf(th, u * 1.3) : th.style === 'neon' && !hot ? `0 0 ${12 * u}px ${alpha(th.fg, 0.35)}` : undefined;
             return (
-              <div key={wi} style={{ ...textStyle(th.display, f.size, th.fg), ...box2, textShadow: shadow, ...revealStyle(mode, p, th.motion.travel * u * 0.8) }}>{w}</div>
+              <div key={wi} style={{ ...textStyle(th.display, f.size, th.fg), ...box2, textShadow: shadow, ...wordStyle(mode, p, frame - at, th.motion.travel * u * 0.8, th, f.size, `${li}.${wi}`) }}>{w}</div>
             );
           })}
         </div>
@@ -262,7 +336,8 @@ function Marker(p: { i: number; theme: Theme; size: number; p: number }) {
 }
 
 function BulletsView({ scene }: { scene: BulletsScene }) {
-  const { theme: th, box, frames } = useScene();
+  const info = useScene();
+  const { theme: th, box, frames } = info;
   const frame = useSceneFrame();
   const { fps } = useVideoConfig();
   const u = box.u;
@@ -296,7 +371,7 @@ function BulletsView({ scene }: { scene: BulletsScene }) {
         const lineP = progress(frame, d0 + i * st + 4, d0 + i * st + 26, Easing.out(Easing.cubic));
         return (
           <div key={i} style={{ display: 'flex', flexDirection: 'column' }}>
-            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 32 * u, ...revealStyle(revealOf(th) === 'pop' ? 'pop' : 'rise', p, th.motion.travel * u * 0.7, 'start', th.rtl) }}>
+            <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: 32 * u, ...revealStyle(itemRevealOf(info), p, th.motion.travel * u * 0.7, 'start', th.rtl) }}>
               <Marker i={i} theme={th} size={marker} p={p} />
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {f.lines.map((l, j) => <div key={j} style={textStyle(th.body, f.size, th.fg, true)}>{l}</div>)}
@@ -573,14 +648,14 @@ function ImageView({ scene }: { scene: ImageScene }) {
     <Stage
       theme={th}
       drift={false}
-      ground={<AbsoluteFill><Photo src={pic} seed={index} frames={frames} /><Scrim theme={th0} to="bottom" strength={caption || mark ? 1 : 0.4} /></AbsoluteFill>}
+      ground={<AbsoluteFill><Photo src={pic} seed={index} frames={frames} /><Scrim theme={th0} to="bottom" strength={caption || mark ? 1 : 0.4} /><ArtShape /></AbsoluteFill>}
       box={{ justifyContent: 'flex-end', alignItems: align === 'start' ? undefined : flexOf(align) }}
     >
       {mark ? <BrandMark height={mark} maxWidth={box.w * 0.5} theme={th} delay={4} style={{ marginBottom: 30 * u }} /> : null}
       {capFit ? (
         <div style={{ display: 'flex', flexDirection: align === 'end' ? 'row-reverse' : 'row', alignItems: 'stretch', gap: 30 * u }}>
           {align === 'center' ? null : <div style={{ width: Math.max(4, 9 * u), height: capH, background: th.accent, transform: `scaleY(${Math.min(1, barP)})`, borderRadius: th.radius ? 5 * u : 0 }} />}
-          <Lines fit={capFit} face={th.display} color={th.fg} delay={10} stagger={th.motion.stagger * 1.5} align={align} />
+          <Lines theme={th} fit={capFit} face={th.display} color={th.fg} delay={10} stagger={th.motion.stagger * 1.5} align={align} />
         </div>
       ) : null}
     </Stage>
@@ -621,6 +696,8 @@ function SplitView({ scene }: { scene: SplitScene }) {
   const bodyP = useEnter(10 + headFit.lines.length * th.motion.stagger);
   const ruleP = progress(frame, 12, 36, Easing.out(Easing.cubic));
   const num = localDigits(String(index + 1).padStart(2, '0'), digits);
+  // The art's camera moves the words' column; the picture has its own Ken Burns move.
+  const camera = useCamera();
   const panel = pic ? (
     <Photo src={pic} seed={index} frames={frames} />
   ) : (
@@ -635,7 +712,7 @@ function SplitView({ scene }: { scene: SplitScene }) {
       <Backdrop intensity={0.8} />
       <div style={{ position: 'absolute', left: panelLeft, top: 0, width: panelW, height: panelH, clipPath: clip, overflow: 'hidden' }}>{panel}</div>
       {!side ? <div style={{ position: 'absolute', left: 0, top: panelH - Math.max(3, 8 * u), width: W * ruleP, height: Math.max(3, 8 * u), background: th.accent }} /> : null}
-      <div style={{ position: 'absolute', left: textLeft, top: textTop, width: textW, height: textH, display: 'flex', flexDirection: 'column', justifyContent: side ? 'center' : 'flex-start', alignItems: align === 'start' ? undefined : flexOf(align) }}>
+      <div style={{ position: 'absolute', left: textLeft, top: textTop, width: textW, height: textH, display: 'flex', flexDirection: 'column', justifyContent: side ? 'center' : 'flex-start', alignItems: align === 'start' ? undefined : flexOf(align), ...camera }}>
         {mark ? <BrandMark height={mark} maxWidth={textW * 0.6} theme={th} delay={6} style={{ marginBottom: 30 * u }} /> : null}
         <Lines fit={headFit} face={th.display} color={th.fg} delay={8} stagger={th.motion.stagger * 1.4} shadow={glowOf(th, u)} align={align} />
         <Rule width={100 * u} height={Math.max(3, 6 * u)} color={th.accent} p={ruleP} align={align} style={{ marginTop: 30 * u, marginBottom: 30 * u }} />
@@ -888,7 +965,7 @@ function CreditsCard({ lines, delay }: { lines: string[]; delay: number }) {
     : CREDITS_LABEL[video.lang] ?? CREDITS_LABEL.en;
   return (
     <AbsoluteFill style={{ direction: th.rtl ? 'rtl' : 'ltr', background: th.bg, opacity: inP, fontFamily: th.body.family }}>
-      <Backdrop intensity={0.5} />
+      <Backdrop intensity={0.5} shape={false} />
       <div style={{ position: 'absolute', left: box.x, top: box.top, width: box.w, height: box.h, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', transform: `translateY(${(1 - inP) * 20 * u}px)` }}>
         <div style={{ ...textStyle(th.body, 26 * u * Math.min(1.25, look.textScale), th.accentText, true), letterSpacing: th.rtl ? undefined : '0.2em', textTransform: th.rtl ? undefined : 'uppercase' }}>{label}</div>
         <div style={{ width: 60 * u, height: Math.max(2, 3 * u), background: th.accent, marginTop: 22 * u, marginBottom: 40 * u }} />

@@ -37,14 +37,21 @@
  * seconds longer than asked.
  */
 
-import type { Brand, Format, Picture, Scene, SceneKind, Style, Transition, Video, VideoLang } from './videotypes';
-import { FORMATS, FPS, SCENE_KINDS } from './videotypes';
+import type {
+  Brand, Camera, Format, Ground, IconId, Picture, Scene, SceneArt, SceneKind, Shape, Style, TextEffect, Transition, Video, VideoDesign, VideoLang,
+} from './videotypes';
+import { CAMERAS, FORMATS, FPS, GROUNDS, ICON_IDS, SCENE_KINDS, SHAPES, TEXT_EFFECTS } from './videotypes';
 import { docLangOf } from './research';
 import { jsonIn } from './researchrun';
 import { fold } from './settings';
 import { qrText } from './videoqr';
+import { DESIGN_RULES, DESIGN_SHAPE, readDesign } from './videodesign';
+import { FONT_CHOICES, hexOf } from './videolook';
+import { phraseOf, phraseSpans } from './videoemphasis';
 
 export { qrModules, qrPath, qrText } from './videoqr';
+// The designed look's reading, where the rest of the video's engine is: the panel and the tests reach it here too.
+export { DESIGN_RULES, DESIGN_SHAPE, designIn, readDesign } from './videodesign';
 
 // ── timing ────────────────────────────────────────────────────────────────
 
@@ -103,9 +110,13 @@ const tenths = (n: number) => Math.round(n * 10) / 10;
 
 // ── a new video ───────────────────────────────────────────────────────────
 
-/** A video that has not been planned yet: the request and the choices made around it. */
+/**
+ * A video that has not been planned yet: the request and the choices made
+ * around it. `ai` asks for a look the model designs (videodesign.ts) rather
+ * than `style`'s; the style then only sets the tone of the words.
+ */
 export function newVideo(o: {
-  id: string; now: number; request: string; lang: VideoLang; format: Format; style: Style; seconds: number; brand?: Brand;
+  id: string; now: number; request: string; lang: VideoLang; format: Format; style: Style; seconds: number; brand?: Brand; ai?: boolean;
 }): Video {
   const seconds = Number.isFinite(o.seconds) ? clampNum(Math.round(o.seconds), SECONDS.min, SECONDS.max) : 30;
   return {
@@ -122,6 +133,7 @@ export function newVideo(o: {
     scenes: [],
     stage: 'new',
     credits: true,
+    ...(o.ai ? { ai: true } : {}),
   };
 }
 
@@ -403,6 +415,48 @@ function sceneRange(seconds: number): { lo: number; hi: number } {
 }
 
 /**
+ * The art direction any scene may carry, as the model is shown it — in the
+ * plan, a redo and a restyle alike, so each word means the same thing each
+ * time. Every value is one of videotypes.ts's fixed vocabularies, each said
+ * with what it looks like, since a model chooses well only between things it
+ * can picture; `artOf` drops anything else.
+ */
+export const ART_SCHEMA = [
+  'Any scene may carry "art", its art direction. Every field is optional; one left out is the look\'s own:',
+  '"art":{"effect":"…","ground":"…","camera":"…","shape":"…","emphasis":["…"],"align":"…","size":"…"}',
+  '- "effect", how the words arrive: "rise" (up into place), "mask" (uncovered from behind an edge), "pop" (springs in), "fade" (quietly), "type" (one word at a time), "highlight" (an accent marker grows behind the emphasised words), "scale" (settles from large), "slide" (lines slide in from the reading side), "glitch" (a brief digital jitter, then clean).',
+  '- "ground", what is behind the words: "style" (the look\'s own moving background), "accent" (the accent colour, solid — a beat), "gradient" (a bold accent gradient), "dark", "light", "photo" (the scene\'s picture fills the frame behind the words; the scene then needs an "imageQuery", whatever its kind).',
+  '- "camera", a slow move of the whole frame: "still", "push" (in), "pull" (out), "drift" (sideways), "tilt" (a slight turn that settles).',
+  '- "shape", a decorative animated shape in the free space beside the words: "none", "circle", "ring", "dots", "lines", "wave", "burst", "arrow", "grid", "blob".',
+  '- "emphasis": 1 to 3 words of this scene\'s headline, copied exactly as they are written there, set in the accent colour — its title, heading, quote, caption, kinetic or marquee phrase, a poster\'s lines or a feature\'s label. A subtitle, a point, a figure\'s label or a call to action is drawn plainly, so an emphasis there shows nothing.',
+  '- "align", where the words sit: "start", "center" or "end". "size", how big they are: "quiet", "normal" or "hero" — they never overflow.',
+].join('\n');
+
+/**
+ * How to art-direct a video, said in the plan and the restyle: rhythm,
+ * contrast between scenes, a strong hook and a calm close — the habits that
+ * make twenty seconds of motion graphics feel designed rather than generated.
+ * A video of twenty seconds or more is asked for a poster or a marquee,
+ * because one huge phrase is what a scrolling viewer remembers.
+ */
+function creativeDirection(v: Pick<Video, 'seconds'>): string {
+  return [
+    'CREATIVE DIRECTION — you are the art director as well as the writer. Give most scenes an "art" object:',
+    '- Rhythm: vary the effects and the grounds from scene to scene. Never the same "effect" three scenes running.',
+    '- The hook, the first scene, gets "size":"hero" and a strong effect ("mask", "scale", "pop" or "glitch").',
+    ...(Number(v.seconds) >= 20 ? ['- At least one "bigtype" or "marquee" scene, when the message has a line that deserves to be huge.'] : []),
+    '- One scene with an "accent" or a "gradient" ground, as a beat: the turn in the story or the key promise.',
+    '- A "photo" ground for an emotional moment: the scene\'s picture fills the frame behind its words. It needs an "imageQuery", on any kind of scene.',
+    '- "emphasis" on the 1 or 2 words that carry the meaning, copied exactly from the scene\'s headline.',
+    '- A "shape" on at most half of the scenes; leave the others clean.',
+    '- Cameras subtle: "push" or "drift" for most scenes, "still" when the words should simply stand.',
+    '- Match the pace of the look: a calm look mostly "fade", "rise", "mask" and "type"; a punchy one "pop", "scale", "slide" and, once, "glitch".',
+    '- "features" for two to four offers or benefits; "device" when the subject is an app, a website or anything on a screen.',
+    '- The outro calm and clear: "fade" or "rise", no "glitch", nothing that competes with the call to action.',
+  ].join('\n');
+}
+
+/**
  * Every scene kind's JSON, as the model is shown it — the same list for
  * planning and for redoing one scene, so a kind reads the same either way.
  */
@@ -424,27 +478,40 @@ export const SCHEMA = [
   '- {"kind":"people","heading":"2 to 5 words","people":[{"name":"as the request or the facts write it","role":"their role there, 1 to 5 words","imageQuery":"optional: their name in Latin letters, only for a well-known public figure"}]} — 1 to 4 real people, ONLY names the request or the facts give, with the role they give; never invent a person, a name or a role.',
   '- {"kind":"logo","tagline":"optional, one short line"} — the brand\'s logo revealed, or its name as a wordmark; only in a video with a brand, once.',
   '- {"kind":"qr","heading":"what scanning opens, 2 to 6 words","url":"the website"} — a QR code on screen for a few seconds, ONLY for a website the request, the brand or the facts give.',
+  '- {"kind":"bigtype","lines":["1 to 4 lines of 1 to 3 words each, the strongest line first"]} — a typographic poster: a few words set huge, a line at a time. For the promise, the punchline, the turn in the story.',
+  '- {"kind":"features","heading":"optional, 2 to 5 words","items":[{"icon":"one of the icons below","label":"1 to 4 words"}]} — 2 to 4 things at a glance, each with an icon: services, benefits, what is included.',
+  '- {"kind":"device","device":"phone|laptop","heading":"2 to 5 words","text":"optional, at most 12 words","imageQuery":"required: what is on the screen, e.g. \'mobile banking app screen\'"} — the picture on the screen of a phone or a laptop: an app, a website, booking online.',
+  '- {"kind":"marquee","text":"2 to 5 words","sub":"optional, one short line"} — one phrase, huge, scrolling across the frame again and again: a slogan, a name, a rallying line.',
+  `"icon" is one of: ${ICON_IDS.join(', ')}. Choose the one that shows the label's meaning.`,
   '',
-  '"imageQuery" is always in English whatever the video\'s language: 2 to 5 concrete words a stock-photo search would find — the subject and the setting, like "dentist examining child patient" or "mountain road at sunset". No text, logos, brand names or real people\'s names in it. Only on "image", "split" and, when a picture helps, "title"; a "gallery" has its own "imageQueries", each written the same way. A picture in about a third of the scenes keeps the video alive; more makes it a slideshow.',
+  '"imageQuery" is always in English whatever the video\'s language: 2 to 5 concrete words a stock-photo search would find — the subject and the setting, like "dentist examining child patient" or "mountain road at sunset". No text, logos, brand names or real people\'s names in it. Only on "image", "split", "device" and, when a picture helps, "title" — or on a scene of any kind whose "art" has "ground":"photo"; a "gallery" has its own "imageQueries", each written the same way. A picture in about a third of the scenes keeps the video alive; more makes it a slideshow.',
+  '',
+  ART_SCHEMA,
 ].join('\n');
 
 /** One compact example of the shape, for a request that gave no figures — so it has none. */
 const EXAMPLE = '{"title":"Corner Bakery","scenes":['
-  + '{"kind":"title","title":"Bread that is still warm","subtitle":"Baked every night, ready every morning","imageQuery":"fresh bread bakery oven","seconds":3,"transition":"zoom"},'
-  + '{"kind":"kinetic","text":"You can smell the difference from the street.","seconds":3.5,"transition":"slide"},'
-  + '{"kind":"split","heading":"Made by hand","text":"Flour, water, salt and time. Nothing else.","imageQuery":"baker kneading dough","seconds":4.5,"transition":"wipe"},'
-  + '{"kind":"bullets","heading":"Every morning","points":["Sourdough loaves","Butter croissants","Seeded rye"],"seconds":4.5,"transition":"fade"},'
-  + '{"kind":"outro","headline":"Corner Bakery","cta":"Come by tomorrow morning","seconds":3,"transition":"none"}]}';
+  + '{"kind":"title","title":"Bread that is still warm","subtitle":"Baked every night, ready every morning","imageQuery":"fresh bread bakery oven","seconds":3,"transition":"zoom","art":{"effect":"mask","ground":"photo","camera":"push","size":"hero","emphasis":["warm"]}},'
+  + '{"kind":"bigtype","lines":["Smell it","from the street"],"seconds":3,"transition":"slide","art":{"effect":"slide","ground":"accent","emphasis":["Smell"]}},'
+  + '{"kind":"split","heading":"Made by hand","text":"Flour, water, salt and time. Nothing else.","imageQuery":"baker kneading dough","seconds":4.5,"transition":"wipe","art":{"effect":"rise","camera":"drift","shape":"ring","emphasis":["hand"]}},'
+  + '{"kind":"features","heading":"Every morning","items":[{"icon":"food","label":"Sourdough loaves"},{"icon":"heart","label":"Butter croissants"},{"icon":"leaf","label":"Seeded rye"}],"seconds":4.5,"transition":"fade","art":{"effect":"pop","shape":"dots"}},'
+  + '{"kind":"outro","headline":"Corner Bakery","cta":"Come by tomorrow morning","seconds":3,"transition":"none","art":{"effect":"fade","camera":"still"}}]}';
 
 /**
- * What the model is, for every request a video makes: a motion designer and
- * a scriptwriter at once, with the rules that make its storyboard honest said
- * in full every time rather than trusted to carry over.
+ * What the model is, for every request a video makes: a motion designer, a
+ * scriptwriter and the video's art director at once, with the rules that
+ * make its storyboard honest said in full every time rather than trusted to
+ * carry over.
+ *
+ * It art-directs by choosing, never by making: the app draws every effect,
+ * ground, camera move and shape itself, and the model picks between them by
+ * name. That is how a video gets a designer's variety without a line of the
+ * model's output ever being run (SAFETY.md).
  */
 function systemOf(v: Pick<Video, 'lang'>): string {
   return [
     'You are a senior motion designer and scriptwriter. You make short animated videos — promos, explainers, announcements — for businesses, clinics, schools and public campaigns: the text-and-picture motion graphics people watch on their phones, usually with the sound off.',
-    'You plan a video as a storyboard of scenes. The app animates each scene with its own templates: you never choose fonts, colours, positions or animations, and you never write code or markup. You decide what each scene says, which kind of scene says it best, how long it stays on screen and how it hands over to the next.',
+    'You plan a video as a storyboard of scenes, and you are its art director. The app draws everything itself — the type, the backgrounds, the motion — and you choose from its fixed vocabularies: for each scene, how its words arrive, what is behind them, how the frame moves, a decorative shape and which words carry the accent. You never write code, markup or CSS. You decide what each scene says, which kind of scene says it best, how it looks, how long it stays on screen and how it hands over to the next.',
     '',
     LANGUAGE[v.lang],
     'Brand names, product names and a website stay as the request writes them.',
@@ -463,6 +530,7 @@ function systemOf(v: Pick<Video, 'lang'>): string {
     '- Contact details. A phone number, an address, a website or a social handle only if the request or the brand gives it. Never invent one: leave "url" out instead, and make no "qr" scene.',
     '- People and dates. A "people" scene names only people the request names, with the role it gives them; a "timeline" holds only dates it gives. Without them, use neither.',
     '- Claims. Say nothing about the brand that the request does not say — no "award-winning", "number one", "since 1990", "trusted by thousands" unless it is stated.',
+    '- Offers. A "features" scene lists only what the request or the facts say is offered; a "device" shows what the request is about, never another company\'s app or site.',
     '- On-screen words only: no stage directions, no descriptions of the animation, no markdown, no HTML, no emojis or hashtags unless the request asks for them.',
     '',
     'You reply with JSON and nothing else.',
@@ -489,6 +557,25 @@ function brandLine(v: Video): string {
   return lines.filter(Boolean).join('\n');
 }
 
+/** The brand's own colours, for a look the model designs around them; nothing when it has none. */
+function brandColours(v: Pick<Video, 'brand'>): string {
+  const cs = [hexOf(v.brand?.primary), hexOf(v.brand?.accent)].filter(Boolean);
+  return cs.length ? `- The brand's colours: ${cs.join(' and ')}. Build the palette around them.` : '';
+}
+
+/**
+ * The look the video already has, when the model designed it: its name, pace,
+ * typeface and motif, so the scenes' art is directed for that look — a calm
+ * serif look is not given glitches. A style's look needs no line: the style
+ * named above is it.
+ */
+function lookLine(v: Pick<Video, 'ai' | 'design'>): string {
+  const d = v.ai && v.design ? readDesign(v.design) : null;
+  if (!d) return '';
+  const font = FONT_CHOICES.find((f) => f.id === d.font);
+  return `- Look: designed${d.name ? ` ("${d.name}")` : ''} — a ${d.energy} pace, the ${font ? font.label.toLowerCase() : d.font} typeface, the "${d.deco}" background. Direct the scenes' art for it.`;
+}
+
 /**
  * The first request: the storyboard. It asks for JSON and nothing else, says
  * which scenes may carry which fields, how many scenes suit the length, and
@@ -507,6 +594,8 @@ export function planPrompt(v: Video, extra: PlanExtra = {}): { system: string; u
   const { width, height } = FORMATS[v.format] ?? FORMATS.landscape;
   const { lo, hi } = sceneRange(v.seconds);
   const lang = LANGUAGE_NAME[v.lang];
+  // A look to design as well, in the same reply: one request, not two (as Slides does).
+  const design = !!v.ai && !v.design;
   const user = [
     quoted('The request, as the person wrote it', v.request),
     '',
@@ -516,12 +605,17 @@ export function planPrompt(v: Video, extra: PlanExtra = {}): { system: string; u
     `- Length: about ${v.seconds} seconds. The scenes' "seconds" add up to about ${v.seconds}.`,
     `- Scenes: ${lo} to ${hi}, counting the opening title and the outro.`,
     `- Style: ${TONE[v.style] ?? TONE.modern}. Let the wording match it.`,
-    brandLine(v),
+    ...[lookLine(v), brandLine(v)].filter(Boolean),
     ...(extra.facts?.trim() ? ['', FACTS_RULE, extra.facts.trim()] : []),
     ...(extra.narration ? ['', narrationRule(v)] : []),
     '',
+    creativeDirection(v),
+    ...(design ? ['', 'Design the video\'s look as well, as "design" in the reply:', DESIGN_RULES, ...[brandColours(v)].filter(Boolean)] : []),
+    '',
     'Reply with one JSON object and nothing else — no explanation before or after it:',
-    `{"title":"a short name for the video, in ${lang}","scenes":[scene, scene, …]}`,
+    design
+      ? `{"title":"a short name for the video, in ${lang}","design":${DESIGN_SHAPE},"scenes":[scene, scene, …]}`
+      : `{"title":"a short name for the video, in ${lang}","scenes":[scene, scene, …]}`,
     '',
     SCHEMA,
     '',
@@ -586,18 +680,119 @@ export function scenePrompt(v: Video, index: number, instruction: string): { sys
     quoted('The video was requested as', v.request),
     '',
     `It is a ${v.seconds}-second ${v.format} video in ${lang}, style ${TONE[v.style] ?? TONE.modern}.`,
-    brandLine(v),
+    ...[lookLine(v), brandLine(v)].filter(Boolean),
     'Its storyboard, scene by scene:',
     ...scenes.map((s, n) => `${n + 1}. ${sceneJson(s)}`),
     '',
     `Rewrite scene ${i + 1} only. It keeps its place in the story: ${role}. Keep it consistent with the scenes around it and do not repeat what they say. It may change kind if the instruction asks for that or another kind says it better — the rules on numbers, quotations and contact details still hold.`,
+    'Give it an "art" object too: keep the scene\'s own art unless the instruction asks for another look or the new words need one, and do not repeat the effect of both scenes around it. "emphasis" is copied from the new words.',
     asked,
     '',
     SCHEMA,
     '',
-    `Reply with that one scene as a JSON object and nothing else, words in ${lang}, like {"kind":"kinetic","text":"…","seconds":3,"transition":"fade"}.`,
+    `Reply with that one scene as a JSON object and nothing else, words in ${lang}, like {"kind":"kinetic","text":"…","seconds":3,"transition":"fade","art":{"effect":"rise"}}.`,
   ].filter((l, i2, all) => l !== '' || all[i2 - 1] !== '').join('\n');
   return { system: systemOf(v), user };
+}
+
+// ── a designed look, and restyling ────────────────────────────────────────
+
+/**
+ * A look on its own, for a video that exists: its request, its title and
+ * what its scenes say are what it is about (the plan asks for a look in the
+ * same reply when it can; this is for a plan that came back without one, and
+ * for "Design again"). With `other`, a clearly different look from that one
+ * — designing again means another idea, not the same one reworded.
+ */
+export function designPrompt(v: Video, other?: VideoDesign): { system: string; user: string } {
+  const said = (v.scenes ?? []).map((s) => mainTextOf(s).split('\n')[0]).filter(Boolean).slice(0, 20).join(' · ');
+  const was = other ? readDesign(other) : null;
+  const user = [
+    quoted('The request, as the person wrote it', v.request),
+    ...[v.title ? `Title: ${v.title}` : '', said ? `Its scenes say: ${capped(said, 1200)}` : ''].filter(Boolean),
+    `Language: ${LANGUAGE_NAME[v.lang] ?? LANGUAGE_NAME.en}. Format: ${v.format}. Tone of the words: ${TONE[v.style] ?? TONE.modern}.`,
+    ...[brandColours(v)].filter(Boolean),
+    '',
+    DESIGN_RULES,
+    was
+      ? `\nA look was already designed: "${was.name}" — ${was.fg} words on ${was.bg}, accent ${was.accent}, the "${was.font}" typeface, the "${was.deco}" background, a ${was.energy} pace. Design a clearly different one: another palette, and another typeface or background.`
+      : '',
+    '',
+    `Reply with one JSON object and nothing else: ${DESIGN_SHAPE}`,
+  ].filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n');
+  return {
+    system: 'You are the art director of short animated videos — promos, explainers, announcements. You design a video\'s look: its palette, typeface, background motif and pace. You reply with JSON only.',
+    user,
+  };
+}
+
+/**
+ * Restyle: the model art-directs every scene again and touches no word. It
+ * sees the storyboard as it is — art included, so "again" can mean
+ * "differently" — with each scene numbered and marked when it has a picture
+ * a photo ground could show, and answers with art alone, which `parseArt`
+ * reads. Words, kinds, seconds and transitions are never read from the reply.
+ */
+export function artPrompt(v: Video): { system: string; user: string } {
+  const scenes = v.scenes ?? [];
+  const user = [
+    quoted('The video was requested as', v.request),
+    '',
+    `It is a ${v.seconds}-second ${v.format} video in ${LANGUAGE_NAME[v.lang] ?? LANGUAGE_NAME.en}, style ${TONE[v.style] ?? TONE.modern}.`,
+    ...[lookLine(v)].filter(Boolean),
+    'Its storyboard, scene by scene (a scene marked "has a picture" may take the "photo" ground; no other may):',
+    ...scenes.map((s, n) => `${n + 1}. ${sceneJson(s)}${photoReady(s) ? ' — has a picture' : ''}`),
+    '',
+    'Art-direct every scene again, as a designer restyling the film: effects, grounds, cameras, shapes and emphasis that give it rhythm and make it look designed. Change the art where that makes the film better, including art the scenes have now. Do not change a word, a kind, a length or a transition — only the art.',
+    '',
+    creativeDirection(v),
+    '',
+    ART_SCHEMA,
+    '',
+    'Reply with one JSON object and nothing else — an entry for every scene, "i" being its number as shown above:',
+    '{"scenes":[{"i":1,"art":{…}},{"i":2,"art":{…}}, …]}',
+  ].filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n');
+  return { system: systemOf(v), user };
+}
+
+/**
+ * The art in a restyle reply: one entry per scene of `v`, by index —
+ * `undefined` where the reply gave none for that scene or none that is
+ * valid — or `null` when the reply is unreadable or gives no usable art at
+ * all (so a broken reply never wipes the video's art). Each entry is found
+ * by its 1-based "i" (or, without one, its place in the list), read once,
+ * and checked by `artOf` against that scene's own words; a photo ground only
+ * where the scene has a picture or words to search one with.
+ */
+export function parseArt(text: string, v: Pick<Video, 'scenes'>): (SceneArt | undefined)[] | null {
+  if (typeof text !== 'string') return null;
+  const scenes = v?.scenes ?? [];
+  const o = jsonIn(text) as Record<string, unknown> | null;
+  let list: unknown[] | null = null;
+  for (const k of ['scenes', 'art', 'restyle', 'storyboard']) {
+    if (o && Array.isArray(o[k])) {
+      list = o[k] as unknown[];
+      break;
+    }
+  }
+  list = list ?? arrayIn(text);
+  if (!list) return null;
+  const out: (SceneArt | undefined)[] = scenes.map(() => undefined);
+  let any = false;
+  list.slice(0, 200).forEach((e, k) => {
+    if (typeof e !== 'object' || e === null || Array.isArray(e)) return;
+    const r = e as Record<string, unknown>;
+    const given = r.i ?? r.index ?? r.scene ?? r.n;
+    const n = given === undefined ? k + 1 : numberOf(given);
+    if (!Number.isInteger(n) || n < 1 || n > scenes.length || out[n - 1]) return;
+    const s = scenes[n - 1];
+    const art = artOf(artRaw(r), mainTextOf(s), photoReady(s));
+    if (art) {
+      out[n - 1] = art;
+      any = true;
+    }
+  });
+  return any ? out : null;
 }
 
 // ── reading the model's reply ─────────────────────────────────────────────
@@ -620,18 +815,47 @@ const ALIASES: Readonly<Record<string, SceneKind>> = {
   team: 'people', person: 'people', founders: 'people', staff: 'people', leadership: 'people', profiles: 'people', speakers: 'people',
   brand: 'logo', 'logo-reveal': 'logo', logo_reveal: 'logo', wordmark: 'logo', 'brand-reveal': 'logo',
   'qr-code': 'qr', qr_code: 'qr', qrcode: 'qr', scan: 'qr',
+  poster: 'bigtype', 'big-type': 'bigtype', big_type: 'bigtype', 'typography-poster': 'bigtype', typography_poster: 'bigtype',
+  'type-poster': 'bigtype', 'big-text': 'bigtype', bigtext: 'bigtype',
+  icons: 'features', feature: 'features', 'feature-grid': 'features', feature_grid: 'features', 'feature-list': 'features', feature_list: 'features',
+  'icon-grid': 'features', 'icon-list': 'features',
+  phone: 'device', mobile: 'device', mockup: 'device', 'device-mockup': 'device', 'phone-mockup': 'device', app: 'device', laptop: 'device', screen: 'device',
+  ticker: 'marquee', scroll: 'marquee', banner: 'marquee', 'scrolling-text': 'marquee', crawl: 'marquee',
 };
 
 const KINDS = new Set<string>(SCENE_KINDS);
 const TRANSITIONS = new Set<string>(['fade', 'slide', 'wipe', 'zoom', 'none']);
 /** Kinds that show a picture, and so may carry words to search one with. */
-const PICTURED = new Set<SceneKind>(['image', 'split', 'title']);
+const PICTURED = new Set<SceneKind>(['image', 'split', 'title', 'device']);
+
+/**
+ * Whether a scene shows one picture of its own: a kind that does, or any
+ * other whose art puts its picture behind the words (`ground: 'photo'`). A
+ * montage's tiles and people's portraits are theirs, not this one.
+ */
+function showsPicture(s: Scene): boolean {
+  return PICTURED.has(s.kind) || (s.art?.ground === 'photo' && s.kind !== 'gallery' && s.kind !== 'people');
+}
+
+/** Whether a scene could take a photo ground: it has a picture, or words to search one with. */
+function photoReady(s: Scene): boolean {
+  return s.kind !== 'gallery' && s.kind !== 'people' && !!(s.picture?.src || s.imageQuery);
+}
 
 /** How long a field may be, in characters: a headline, a sentence, a label on a bar. */
 const CAP = { headline: 90, sentence: 220, point: 90, label: 40, affix: 8, unit: 12, author: 60, url: 80, query: 60, when: 24 } as const;
 
+/** The most items a "features" scene shows: four, so each label can still be big. */
+export const MAX_FEATURES = 4;
+/** The most lines a "bigtype" poster stacks: four, so each is still huge. */
+export const MAX_BIGTYPE_LINES = 4;
+
 /** The most a scene of each list-like new kind holds. */
 const MAX = { gallery: 4, events: 5, sidePoints: 4, people: 4 } as const;
+
+/** Words a bigtype line holds, and the most a marquee scrolls before it is a sentence rather than a phrase. */
+const BIGTYPE_WORDS = 3;
+const MARQUEE_WORDS = 8;
 
 /**
  * Letters that are invisible or rewrite the order text is shown in: bidi
@@ -753,6 +977,239 @@ function knownUrl(url: string, v: Video): boolean {
   return said.includes(host);
 }
 
+// ── icons, devices and art ────────────────────────────────────────────────
+
+const ICONS = new Set<string>(ICON_IDS);
+
+/**
+ * Words a model uses for an icon the app draws under another name. A Map,
+ * not an object, so "constructor" is not an icon. Lower case; a plural is
+ * looked up as its singular too.
+ */
+const ICON_WORDS = new Map<string, IconId>(Object.entries({
+  doctor: 'stethoscope', medical: 'stethoscope', clinic: 'stethoscope', hospital: 'stethoscope', nurse: 'stethoscope',
+  health: 'pulse', heartbeat: 'pulse', fitness: 'pulse', dental: 'tooth', dentist: 'tooth', teeth: 'tooth',
+  cash: 'money', payment: 'money', pay: 'money', dollar: 'money', finance: 'money', salary: 'money',
+  price: 'tag', discount: 'tag', sale: 'tag', offer: 'tag', deal: 'tag', label: 'tag',
+  time: 'clock', hours: 'clock', hour: 'clock', schedule: 'calendar', date: 'calendar', event: 'calendar', appointment: 'calendar', booking: 'calendar',
+  location: 'pin', address: 'pin', map: 'pin', place: 'pin', branch: 'pin',
+  education: 'book', learning: 'book', study: 'book', course: 'book', library: 'book', lesson: 'book',
+  student: 'graduation', graduate: 'graduation', university: 'graduation', college: 'graduation', degree: 'graduation',
+  team: 'users', people: 'users', community: 'users', family: 'users', group: 'users', staff: 'users',
+  person: 'user', profile: 'user', account: 'user', customer: 'user', client: 'user',
+  fast: 'bolt', speed: 'bolt', energy: 'bolt', power: 'bolt', quick: 'bolt', instant: 'bolt', electric: 'bolt',
+  love: 'heart', care: 'heart', like: 'heart', kindness: 'heart',
+  favorite: 'star', favourite: 'star', rating: 'star', review: 'star', best: 'star',
+  quality: 'medal', certificate: 'medal', certified: 'medal', badge: 'medal', award: 'trophy', prize: 'trophy', winner: 'trophy', win: 'trophy',
+  idea: 'bulb', innovation: 'bulb', insight: 'bulb', creative: 'palette', design: 'palette', art: 'palette',
+  security: 'shield', safe: 'shield', safety: 'shield', protection: 'shield', insurance: 'shield', privacy: 'lock', secure: 'lock', password: 'lock',
+  eco: 'leaf', nature: 'leaf', green: 'leaf', organic: 'leaf', environment: 'leaf', plant: 'leaf', natural: 'leaf',
+  restaurant: 'food', meal: 'food', kitchen: 'food', dish: 'food', bakery: 'food', cafe: 'coffee', 'café': 'coffee', tea: 'coffee', drink: 'coffee',
+  travel: 'plane', flight: 'plane', trip: 'plane', airport: 'plane', tour: 'plane', tourism: 'plane',
+  delivery: 'truck', shipping: 'truck', logistics: 'truck', transport: 'car', taxi: 'car', drive: 'car', parking: 'car',
+  growth: 'trend', increase: 'trend', result: 'trend', success: 'trend', progress: 'trend',
+  analytics: 'chart', data: 'chart', stats: 'chart', statistics: 'chart', report: 'doc',
+  goal: 'target', aim: 'target', focus: 'target', mission: 'target', launch: 'rocket', startup: 'rocket', boost: 'rocket',
+  support: 'chat', message: 'chat', help: 'chat', advice: 'chat', consultation: 'chat',
+  email: 'mail', 'e-mail': 'mail', letter: 'mail', contact: 'phone', call: 'phone', telephone: 'phone',
+  web: 'globe', website: 'globe', online: 'globe', world: 'globe', global: 'globe', international: 'globe', internet: 'wifi', wireless: 'wifi',
+  shop: 'cart', shopping: 'cart', store: 'cart', buy: 'cart', order: 'cart', present: 'gift', bonus: 'gift', reward: 'gift',
+  settings: 'gear', setting: 'gear', system: 'gear', tool: 'wrench', repair: 'wrench', maintenance: 'wrench', fix: 'wrench', service: 'wrench',
+  photo: 'camera', photography: 'camera', video: 'play', watch: 'play', audio: 'music', sound: 'music', song: 'music',
+  software: 'code', developer: 'code', programming: 'code', tech: 'code', technology: 'code',
+  water: 'drop', cleaning: 'drop', fire: 'flame', hot: 'flame', night: 'moon', day: 'sun', summer: 'sun', solar: 'sun',
+  house: 'home', housing: 'home', office: 'building', company: 'building', business: 'building', bank: 'building',
+  partner: 'handshake', partnership: 'handshake', agreement: 'handshake', trust: 'handshake', cooperation: 'handshake',
+  find: 'search', document: 'doc', file: 'doc', paper: 'doc', contract: 'doc', write: 'pen', sign: 'pen', edit: 'pen',
+  measure: 'ruler', precision: 'ruler', happy: 'smile', satisfaction: 'smile', fun: 'smile',
+  new: 'sparkle', magic: 'sparkle', special: 'sparkle', done: 'check', included: 'check', verified: 'check', yes: 'check', ok: 'check',
+} as Record<string, IconId>));
+
+/**
+ * An icon the app draws, from whatever the model named: one of `ICON_IDS`,
+ * a word it goes by ("doctor" is the stethoscope, "price" the tag), or —
+ * for anything else — the sparkle, which suits any point.
+ */
+export function iconOf(x: unknown): IconId {
+  if (typeof x !== 'string') return 'sparkle';
+  const s = x.trim().toLowerCase().replace(/^(?:fa-|icon-|mdi-)/, '').replace(/[\s_]+/g, '-');
+  const one = s.endsWith('s') ? s.slice(0, -1) : '';
+  if (ICONS.has(s)) return s as IconId;
+  const found = ICON_WORDS.get(s) ?? (one && ICONS.has(one) ? one as IconId : one ? ICON_WORDS.get(one) : undefined);
+  return found ?? 'sparkle';
+}
+
+/** Words for a device frame. A tablet is drawn as the phone: upright, in the hand. */
+const DEVICE_WORDS = new Map<string, 'phone' | 'laptop'>(Object.entries({
+  phone: 'phone', mobile: 'phone', smartphone: 'phone', cellphone: 'phone', iphone: 'phone', android: 'phone', tablet: 'phone', ipad: 'phone',
+  laptop: 'laptop', computer: 'laptop', desktop: 'laptop', pc: 'laptop', macbook: 'laptop', notebook: 'laptop', monitor: 'laptop', browser: 'laptop', website: 'laptop', web: 'laptop',
+} as Record<string, 'phone' | 'laptop'>));
+
+/**
+ * The frame a device scene is drawn in: the one it names (or the kind it
+ * was given as — "laptop", "phone"), else the one that fits the video — a
+ * phone in an upright or square frame, a laptop in a wide one.
+ */
+function deviceOf(x: unknown, rawKind: string, format: Format): 'phone' | 'laptop' {
+  const named = typeof x === 'string' ? DEVICE_WORDS.get(x.trim().toLowerCase()) : undefined;
+  return named ?? DEVICE_WORDS.get(rawKind) ?? (format === 'landscape' ? 'laptop' : 'phone');
+}
+
+/** One word of a vocabulary, as a model or a person writes it: any case, spaces or underscores for hyphens, or a word it goes by. */
+function vocab<T extends string>(x: unknown, list: readonly T[], words: ReadonlyMap<string, T>): T | undefined {
+  if (typeof x !== 'string') return undefined;
+  const s = x.trim().toLowerCase().replace(/[\s_]+/g, '-');
+  return (list as readonly string[]).includes(s) ? s as T : words.get(s);
+}
+
+const EFFECT_WORDS = new Map<string, TextEffect>([
+  ['typewriter', 'type'], ['typing', 'type'], ['word-by-word', 'type'], ['zoom', 'scale'], ['zoom-in', 'scale'], ['grow', 'scale'],
+  ['fade-in', 'fade'], ['dissolve', 'fade'], ['reveal', 'mask'], ['wipe', 'mask'], ['clip', 'mask'], ['bounce', 'pop'], ['spring', 'pop'],
+  ['slide-in', 'slide'], ['marker', 'highlight'], ['highlighter', 'highlight'], ['underline', 'highlight'], ['up', 'rise'], ['rise-up', 'rise'],
+  ['slide-up', 'rise'], ['digital', 'glitch'], ['glitchy', 'glitch'],
+]);
+const GROUND_WORDS = new Map<string, Ground>([
+  ['default', 'style'], ['theme', 'style'], ['backdrop', 'style'], ['image', 'photo'], ['picture', 'photo'], ['photograph', 'photo'],
+  ['solid', 'accent'], ['color', 'accent'], ['colour', 'accent'], ['brand', 'accent'], ['black', 'dark'], ['night', 'dark'],
+  ['white', 'light'], ['bright', 'light'],
+]);
+const CAMERA_WORDS = new Map<string, Camera>([
+  ['static', 'still'], ['none', 'still'], ['fixed', 'still'], ['zoom-in', 'push'], ['push-in', 'push'], ['dolly-in', 'push'], ['in', 'push'],
+  ['zoom-out', 'pull'], ['pull-out', 'pull'], ['out', 'pull'], ['pan', 'drift'], ['float', 'drift'], ['rotate', 'tilt'], ['turn', 'tilt'],
+]);
+const SHAPE_WORDS = new Map<string, Shape>([
+  ['circles', 'circle'], ['rings', 'ring'], ['dot', 'dots'], ['line', 'lines'], ['stripes', 'lines'], ['waves', 'wave'], ['rays', 'burst'],
+  ['sunburst', 'burst'], ['arrows', 'arrow'], ['blobs', 'blob'], ['off', 'none'], ['nothing', 'none'],
+]);
+const ALIGN_WORDS = new Map<string, NonNullable<SceneArt['align']>>([['centre', 'center'], ['middle', 'center']]);
+const SIZE_WORDS = new Map<string, NonNullable<SceneArt['size']>>([
+  ['small', 'quiet'], ['subtle', 'quiet'], ['medium', 'normal'], ['regular', 'normal'], ['default', 'normal'], ['large', 'hero'], ['big', 'hero'], ['huge', 'hero'],
+]);
+
+/** The keys that make a scene's own fields its art, when a model wrote them there instead of in "art". */
+const ART_KEYS = ['effect', 'ground', 'camera', 'shape', 'emphasis'] as const;
+
+/** A scene's art as the model wrote it: its "art" object, or art fields it put on the scene itself. */
+function artRaw(o: Record<string, unknown> | null | undefined): unknown {
+  if (!o) return undefined;
+  if (typeof o.art === 'object' && o.art !== null && !Array.isArray(o.art)) return o.art;
+  return ART_KEYS.some((k) => k in o) ? o : undefined;
+}
+
+/**
+ * The emphasis a model or a person asked for, kept only where it is really
+ * in the scene's words: each entry — a word or a short phrase, a list or one
+ * string with commas — matched as the renderer matches it (videoemphasis.ts:
+ * words split at spaces, folded the app's way, a phrase's words in a row on
+ * one line), and returned as the text itself writes it, without the
+ * punctuation around it. At most three, each at most 30 characters, each
+ * once. A word the scene does not draw in the accent would light nothing up,
+ * or light up the wrong thing.
+ */
+function emphasisIn(raw: unknown, text: string): string[] {
+  const asked = Array.isArray(raw) ? raw.slice(0, 20) : typeof raw === 'string' ? raw.split(/[,،;؛\n]/) : [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const a of asked) {
+    if (typeof a !== 'string' || a.length > 200) continue;
+    const want = phraseOf(a);
+    const key = want.join(' ');
+    if (!want.length || seen.has(key)) continue;
+    const hit = phraseSpans(text, want)[0];
+    if (!hit) continue;
+    const span = text.slice(hit.at, hit.end);
+    if (Array.from(span).length > 30) continue;
+    out.push(span);
+    seen.add(key);
+    if (out.length >= 3) break;
+  }
+  return out;
+}
+
+/**
+ * The words a scene draws with its emphasis, one line each — what an
+ * emphasis may pick from: its headline (a title, a heading, a quote, a
+ * caption, the kinetic or marquee phrase), a poster's lines and a features
+ * scene's labels. Subtitles, points, labels of figures and the like are drawn
+ * plainly, so an emphasis there would show nothing. Reads a scene
+ * defensively, so a half-edited one from the storyboard gives what it has.
+ */
+export function mainTextOf(s: Scene): string {
+  if (!s || typeof s !== 'object') return '';
+  const x = s as unknown as Record<string, unknown>;
+  const str = (v: unknown) => (typeof v === 'string' ? v : '');
+  const list = (v: unknown) => (Array.isArray(v) ? v : []);
+  const field = (v: unknown, k: string) => (typeof v === 'object' && v !== null ? str((v as Record<string, unknown>)[k]) : str(v));
+  let parts: unknown[];
+  switch (s.kind) {
+    case 'title': parts = [x.title]; break;
+    case 'kinetic': parts = [x.text]; break;
+    case 'quote': parts = [x.quote]; break;
+    case 'image': parts = [x.caption]; break;
+    case 'outro': parts = [x.headline]; break;
+    case 'bigtype': parts = list(x.lines); break;
+    case 'features': parts = [x.heading, ...list(x.items).map((it) => field(it, 'label'))]; break;
+    case 'marquee': parts = [x.text]; break;
+    case 'stat':
+    case 'logo': parts = []; break;
+    default: parts = [x.heading];
+  }
+  return parts.map(str).filter(Boolean).join('\n');
+}
+
+/**
+ * A scene's art direction, checked, or `undefined` when nothing in it is
+ * valid. Each field must be one of its vocabulary's words (videotypes.ts) —
+ * or a word a model uses for one ("typewriter" is `type`, "zoom-in" a
+ * `push`) — else it is left out and the style's own applies. `emphasis`
+ * keeps only words that are in `mainText` (see `emphasisIn`). A `photo`
+ * ground needs a picture to show: pass `photo: false` for a scene that has
+ * neither a picture nor words to search one with, and it is dropped. Used
+ * for the model's plan, a redo, a restyle, and the storyboard's own fields.
+ */
+export function artOf(raw: unknown, mainText: string, photo = true): SceneArt | undefined {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  const art: SceneArt = {};
+  const effect = vocab(r.effect ?? r.animation ?? r.reveal, TEXT_EFFECTS, EFFECT_WORDS);
+  if (effect) art.effect = effect;
+  const ground = vocab(r.ground ?? r.background, GROUNDS, GROUND_WORDS);
+  if (ground && (ground !== 'photo' || photo)) art.ground = ground;
+  const camera = vocab(r.camera ?? r.move, CAMERAS, CAMERA_WORDS);
+  if (camera) art.camera = camera;
+  const shape = vocab(r.shape ?? r.decoration, SHAPES, SHAPE_WORDS);
+  if (shape) art.shape = shape;
+  const emphasis = emphasisIn(r.emphasis ?? r.emphasize ?? r.emphasise, typeof mainText === 'string' ? mainText : '');
+  if (emphasis.length) art.emphasis = emphasis;
+  const align = vocab(r.align, ['start', 'center', 'end'] as const, ALIGN_WORDS);
+  if (align) art.align = align;
+  const size = vocab(r.size ?? r.scale, ['quiet', 'normal', 'hero'] as const, SIZE_WORDS);
+  if (size) art.size = size;
+  return Object.keys(art).length ? art : undefined;
+}
+
+/**
+ * A bigtype poster's lines: each at most three words, a longer one broken
+ * into as few lines as hold it, as evenly as they go ("we never close
+ * tonight" is two lines of two, not three and one).
+ */
+function posterLines(given: string[]): { lines: string[]; broke: boolean } {
+  const lines: string[] = [];
+  let broke = false;
+  for (const l of given) {
+    const words = l.split(' ').filter(Boolean);
+    if (words.length > BIGTYPE_WORDS) broke = true;
+    const n = Math.ceil(words.length / BIGTYPE_WORDS);
+    let at = 0;
+    for (let k = 0; k < n; k++) {
+      const take = Math.floor(words.length / n) + (k < words.length % n ? 1 : 0);
+      lines.push(capped(words.slice(at, at + take).join(' '), CAP.label));
+      at += take;
+    }
+  }
+  return { lines: lines.filter(Boolean), broke };
+}
+
 /** The words a scene puts on screen, counted as a reader meets them. */
 function wordsOf(s: Scene): number {
   const text: string[] = [];
@@ -775,6 +1232,13 @@ function wordsOf(s: Scene): number {
     // The reveal itself is worth a second and a half of looking.
     case 'logo': text.push(s.tagline ?? '', '1 2 3 4'); break;
     case 'qr': text.push(s.heading, '1'); break;
+    case 'bigtype': text.push(...s.lines); break;
+    // An icon is taken in at a glance, about as long as a word.
+    case 'features': text.push(s.heading ?? '', ...s.items.flatMap((it) => [it.label, '1'])); break;
+    // The screen in the device is looked at, like a tile of a montage, for about two words' time.
+    case 'device': text.push(s.heading, s.text ?? '', '1 2'); break;
+    // A phrase on the move takes a moment longer to catch than one that stands still.
+    case 'marquee': text.push(s.text, s.sub ?? '', '1'); break;
   }
   return text.join(' ').split(/\s+/).filter(Boolean).length;
 }
@@ -817,7 +1281,8 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
     ? o.transition.trim().toLowerCase() as Transition
     : 'fade';
   const base = { id: newId(), seconds: 0, transition };
-  const imageQuery = PICTURED.has(kind) ? queryOf(o.imageQuery ?? o.image_query ?? o.query) : undefined;
+  const query = queryOf(o.imageQuery ?? o.image_query ?? o.query);
+  const imageQuery = PICTURED.has(kind) ? query : undefined;
   const withQuery = <T extends Scene>(x: T): T => (imageQuery ? { ...x, imageQuery } : x);
   /** The plainest scene that holds these words, or nothing when there are none. */
   const asKinetic = (...words: string[]): Scene | null => {
@@ -993,8 +1458,59 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
       scene = url && qrText(url) && knownUrl(url, v) ? { ...base, kind, heading, url } : null;
       break;
     }
+    case 'bigtype': {
+      // A poster holds a few short lines. Lines of more than three words are broken; if that makes
+      // more than a poster holds, the words were a sentence, and are said as one.
+      const given = cleanList(o.lines ?? o.words ?? o.text ?? o.title ?? o.headline, 50, CAP.sentence, lang);
+      const { lines, broke } = posterLines(given);
+      if (!lines.length) scene = null;
+      else if (broke && lines.length > MAX_BIGTYPE_LINES) scene = asKinetic(given.join(' '));
+      else scene = { ...base, kind, lines: lines.slice(0, MAX_BIGTYPE_LINES) };
+      break;
+    }
+    case 'features': {
+      const heading = opt(o.heading ?? o.title, CAP.headline);
+      const raw = o.items ?? o.features ?? o.points ?? o.list;
+      const list = Array.isArray(raw) ? raw.slice(0, 50) : typeof raw === 'string' ? raw.split(/\n|[;؛]/) : [];
+      const items: { icon: IconId; label: string }[] = [];
+      for (const x of list) {
+        const r: Record<string, unknown> = typeof x === 'object' && x !== null && !Array.isArray(x) ? x as Record<string, unknown> : { label: x };
+        const label = t(r.label ?? r.text ?? r.title ?? r.name, CAP.label);
+        if (!label || items.some((it) => it.label === label)) continue;
+        items.push({ icon: iconOf(r.icon ?? r.symbol), label });
+        if (items.length >= MAX_FEATURES) break;
+      }
+      // One feature is a line, not a grid.
+      scene = items.length >= 2
+        ? { ...base, kind, ...(heading ? { heading } : {}), items }
+        : asKinetic(heading ?? '', ...items.map((it) => it.label));
+      break;
+    }
+    case 'device': {
+      const heading = t(o.heading ?? o.title ?? o.headline, CAP.headline);
+      const text = opt(o.text ?? o.body ?? o.subtitle ?? o.caption, CAP.sentence);
+      const device = deviceOf(o.device ?? o.frame, rawKind, v.format);
+      if (heading || text) scene = withQuery({ ...base, kind, device, heading: heading || text!, ...(heading && text ? { text } : {}) });
+      // A screen with no words is a picture.
+      else scene = imageQuery ? { ...base, kind: 'image', imageQuery } : null;
+      break;
+    }
+    case 'marquee': {
+      const text = t(o.text ?? o.phrase ?? o.title ?? o.headline, CAP.headline);
+      const sub = opt(o.sub ?? o.subtitle ?? o.caption, CAP.sentence);
+      // A phrase scrolls; a sentence scrolling past is never read, so it is said as a sentence.
+      scene = text && text.split(' ').length <= MARQUEE_WORDS ? { ...base, kind, text, ...(sub ? { sub } : {}) } : asKinetic(text, sub ?? '');
+      break;
+    }
   }
   if (!scene) return null;
+  // The art direction, checked against the words the scene ended up with. A photo ground is
+  // the one reason a scene of any kind searches for a picture; without words to search with, it has none to show.
+  const art = artOf(artRaw(o), mainTextOf(scene), scene.kind !== 'gallery' && scene.kind !== 'people' && !!(scene.imageQuery || query));
+  if (art) {
+    scene.art = art;
+    if (art.ground === 'photo' && !scene.imageQuery && query) scene.imageQuery = query;
+  }
   // A spoken line, when the video is narrated: plain words in its language, one or two sentences.
   const narration = t(o.narration ?? o.voiceover ?? o.voice, CAP.sentence * 2);
   if (narration) scene.narration = narration;
@@ -1105,7 +1621,11 @@ interface Blank {
   steps: string; stepList: string[]; outro: string; cta: string;
   gallery: string; timeline: string; events: string[]; compare: string; before: string; after: string; sidePoints: string[];
   team: string; person: string; role: string; tagline: string; qr: string;
+  poster: string[]; features: string; featureLabels: string[]; device: string; deviceText: string; marquee: string; marqueeSub: string;
 }
+
+/** The icons a blank "features" scene starts with: plain enough for any list. */
+const BLANK_ICONS: readonly IconId[] = ['check', 'star', 'heart'];
 
 const BLANK: Readonly<Record<VideoLang, Blank>> = {
   en: {
@@ -1117,6 +1637,8 @@ const BLANK: Readonly<Record<VideoLang, Blank>> = {
     gallery: 'In pictures', timeline: 'Our story', events: ['Where it began', 'A step forward', 'Where we are now'],
     compare: 'Before and after', before: 'Before', after: 'After', sidePoints: ['First point', 'Second point'],
     team: 'Meet the team', person: 'Full name', role: 'Role', tagline: 'A line under the logo', qr: 'Scan to visit us',
+    poster: ['One big idea', 'in few words'], features: 'What you get', featureLabels: ['First feature', 'Second feature', 'Third feature'],
+    device: 'Right on your screen', deviceText: 'A line about what the screen shows.', marquee: 'Your big message', marqueeSub: 'One calm line under it',
   },
   ar: {
     title: 'عنوانك هنا', subtitle: 'سطر يوضح موضوع الفيديو', kinetic: 'فكرة واحدة بكلمات قليلة وقوية',
@@ -1127,6 +1649,8 @@ const BLANK: Readonly<Record<VideoLang, Blank>> = {
     gallery: 'بالصور', timeline: 'قصتنا', events: ['حيث بدأ كل شيء', 'خطوة إلى الأمام', 'أين نحن اليوم'],
     compare: 'قبل وبعد', before: 'قبل', after: 'بعد', sidePoints: ['النقطة الأولى', 'النقطة الثانية'],
     team: 'تعرّف على الفريق', person: 'الاسم الكامل', role: 'المنصب', tagline: 'سطر تحت الشعار', qr: 'امسح الرمز لزيارتنا',
+    poster: ['فكرة كبيرة', 'بكلمات قليلة'], features: 'ما ستحصل عليه', featureLabels: ['الميزة الأولى', 'الميزة الثانية', 'الميزة الثالثة'],
+    device: 'على شاشتك مباشرة', deviceText: 'سطر عمّا تعرضه الشاشة.', marquee: 'رسالتك الكبيرة', marqueeSub: 'سطر هادئ تحتها',
   },
   ckb: {
     title: 'ناونیشانەکەت لێرە', subtitle: 'دێڕێک کە بابەتەکە ڕوون دەکاتەوە', kinetic: 'یەک بیرۆکە، بە چەند وشەیەکی بەهێز',
@@ -1137,6 +1661,8 @@ const BLANK: Readonly<Record<VideoLang, Blank>> = {
     gallery: 'بە وێنە', timeline: 'چیرۆکی ئێمە', events: ['لێرەوە دەستی پێکرد', 'هەنگاوێک بۆ پێشەوە', 'ئەمڕۆ لە کوێین'],
     compare: 'پێش و دوای', before: 'پێشتر', after: 'دواتر', sidePoints: ['خاڵی یەکەم', 'خاڵی دووەم'],
     team: 'تیمەکە بناسە', person: 'ناوی تەواو', role: 'پۆست', tagline: 'دێڕێک لە ژێر لۆگۆکە', qr: 'سکان بکە و سەردانمان بکە',
+    poster: ['بیرۆکەیەکی گەورە', 'بە چەند وشەیەک'], features: 'ئەوەی دەستت دەکەوێت', featureLabels: ['تایبەتمەندیی یەکەم', 'تایبەتمەندیی دووەم', 'تایبەتمەندیی سێیەم'],
+    device: 'ڕاستەوخۆ لەسەر شاشەکەت', deviceText: 'دێڕێک دەربارەی ئەوەی شاشەکە پیشانی دەدات.', marquee: 'پەیامە گەورەکەت', marqueeSub: 'دێڕێکی ئارام لە ژێریدا',
   },
   kmr: {
     title: 'ناڤونیشانێ تە ل ڤێرە', subtitle: 'رێزەک کو بابەتی روون دکەت', kinetic: 'ئێک بیرۆکە، ب چەند پەیڤێن بهێز',
@@ -1147,6 +1673,8 @@ const BLANK: Readonly<Record<VideoLang, Blank>> = {
     gallery: 'ب وێنەیان', timeline: 'چیرۆکا مە', events: ['ژ ڤێرە دەستپێکر', 'پێنگاڤەک بۆ پێش', 'ئەڤرۆ ل کیڤەینە'],
     compare: 'بەری و پشتی', before: 'بەری', after: 'پشتی', sidePoints: ['خالا ئێکێ', 'خالا دووێ'],
     team: 'تیمێ بنیاسە', person: 'ناڤێ تەمام', role: 'پۆست', tagline: 'رێزەک ل بن لۆگۆیێ', qr: 'سکان بکە و سەرەدانا مە بکە',
+    poster: ['بیرۆکەکا مەزن', 'ب چەند پەیڤان'], features: 'تشتێ تو وەردگری', featureLabels: ['تایبەتمەندیا ئێکێ', 'تایبەتمەندیا دووێ', 'تایبەتمەندیا سێێ'],
+    device: 'راستەوخۆ ل سەر شاشا تە', deviceText: 'رێزەک ل سەر وێ یا شاشە نیشان ددەت.', marquee: 'پەیاما تە یا مەزن', marqueeSub: 'رێزەکا هێمن ل بن دا',
   },
 };
 
@@ -1182,6 +1710,11 @@ export function blankScene(kind: SceneKind, v: Video, newId: () => string): Scen
     case 'people': s = { ...base, kind, heading: w.team, people: [{ name: w.person, role: w.role }, { name: w.person, role: w.role }] }; break;
     case 'logo': s = { ...base, kind, tagline: w.tagline }; break;
     case 'qr': s = { ...base, kind, heading: w.qr, url: knownSite(v) ?? '' }; break;
+    case 'bigtype': s = { ...base, kind, lines: [...w.poster] }; break;
+    case 'features': s = { ...base, kind, heading: w.features, items: w.featureLabels.map((label, i) => ({ icon: BLANK_ICONS[i % BLANK_ICONS.length], label })) }; break;
+    // The person chooses the screen's picture; the frame is the one that fits the video.
+    case 'device': s = { ...base, kind, device: v.format === 'landscape' ? 'laptop' : 'phone', heading: w.device, text: w.deviceText }; break;
+    case 'marquee': s = { ...base, kind, text: v.brand?.name?.trim() || w.marquee, sub: w.marqueeSub }; break;
     default: s = { ...base, kind: 'kinetic', text: w.kinetic };
   }
   s.seconds = tenths(Math.max(3, readingSeconds(s)));
@@ -1217,7 +1750,9 @@ const sameQuery = (a: string | undefined, b: string | undefined) => !!a && !!b &
 /**
  * Every place a scene shows or wants a picture. A gallery's slots are its
  * pictures, then the searches none of them came from, up to four in all; a
- * people scene's are its people, whether or not each has a portrait.
+ * people scene's are its people, whether or not each has a portrait. A
+ * scene of a kind with no picture of its own has one slot while its art puts
+ * a photo behind its words.
  */
 export function pictureSlots(s: Scene): PictureSlot[] {
   if (!s || typeof s !== 'object') return [];
@@ -1235,7 +1770,7 @@ export function pictureSlots(s: Scene): PictureSlot[] {
       key: `p${i}`, ...(p.picture ? { picture: p.picture } : {}), ...(p.imageQuery || p.picture?.query ? { query: p.imageQuery || p.picture?.query } : {}),
     }));
   }
-  if (PICTURED.has(s.kind)) return [{ key: 'main', ...(s.picture ? { picture: s.picture } : {}), ...(s.imageQuery ? { query: s.imageQuery } : {}) }];
+  if (showsPicture(s)) return [{ key: 'main', ...(s.picture ? { picture: s.picture } : {}), ...(s.imageQuery ? { query: s.imageQuery } : {}) }];
   return [];
 }
 
@@ -1289,7 +1824,7 @@ export function withPicture(s: Scene, key: string, picture: Picture | undefined)
       }),
     };
   }
-  if (key === 'main' && PICTURED.has(s.kind)) {
+  if (key === 'main' && showsPicture(s)) {
     if (picture) return { ...s, picture, imageQuery: picture.query || s.imageQuery };
     const { picture: _old, ...rest } = s;
     return rest as Scene;
@@ -1391,7 +1926,16 @@ export function parseScene(text: string, old: Scene, v: Video, newId: () => stri
     seconds: tenths(clampNum(Math.max(Number.isFinite(seconds) ? seconds : 0, readingSeconds(s)), SCENE_SECONDS.min, SCENE_SECONDS.max)),
     transition: last ? 'none' : o && typeof o.transition === 'string' && TRANSITIONS.has(o.transition.trim().toLowerCase()) ? s.transition : old.transition,
   };
-  if (PICTURED.has(out.kind) && old.picture && PICTURED.has(old.kind)) {
+  // The art the reply gave — or, when it gave none, the scene's own, kept — checked against the
+  // new words. A photo ground may use the picture the scene already has.
+  const rawArt = artRaw(o) ?? old.art;
+  if (rawArt) {
+    const pictured = out.kind !== 'gallery' && out.kind !== 'people' && !!(out.imageQuery || old.picture?.src || old.imageQuery);
+    const art = artOf(rawArt, mainTextOf(out), pictured);
+    if (art) out.art = art;
+    else delete out.art;
+  }
+  if (showsPicture(out) && old.picture && showsPicture(old)) {
     const asked = out.imageQuery?.toLowerCase();
     const had = (old.imageQuery ?? old.picture.query ?? '').toLowerCase();
     if (!asked || asked === had) {

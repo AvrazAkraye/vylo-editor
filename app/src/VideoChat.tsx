@@ -4,8 +4,12 @@ import { fill } from './i18n';
 import { explain } from './errors';
 import type { EffortBook } from './effort';
 import { generate, type Target } from './generate';
-import type { Brief, ChatTurn, Format, Style, Track, Transition, Video, VideoLang } from './videotypes';
-import { kindName, lookFieldName, lookValueName } from './VideoStoryboard';
+import type { Brief, Camera, ChatTurn, Format, Ground, SceneArt, Shape, Style, TextEffect, Track, Transition, Video, VideoDesign, VideoLang } from './videotypes';
+import {
+  alignName, artSizeName, cameraName, effectName, groundName, kindName, lookFieldName, lookValueName, shapeName,
+} from './VideoStoryboard';
+import { artPrompt, designPrompt, parseArt, quoted } from './video';
+import { designIn } from './videodesign';
 import { composeMusic, musicCues } from './videosynth';
 import {
   MusicError, audioSeconds, fetchTrackBytes, fitScenesToVoice, isAbort, searchMusic, speakLine, speakerFor, toDataUrl, trackOf, voiceForScenes,
@@ -15,7 +19,7 @@ import type { Provider } from './providers';
 import { RowDownload } from './VideoDownloads';
 import { mergeBrief, researchVideo, siteLogo, withSiteLogo } from './videoresearch';
 import {
-  MAX_OPS, MAX_SCENES, afterUndo, applyOps, chatPrompt, keptChat, parseChat, playedSeconds, type Change, type LookedUp,
+  ART_FIELDS, MAX_OPS, MAX_SCENES, afterUndo, applyOps, chatPrompt, keptChat, parseChat, playedSeconds, restyled, type ArtField, type Change, type LookedUp,
 } from './videochatops';
 import { locale } from './fmt';
 
@@ -35,8 +39,11 @@ import { locale } from './fmt';
  * escapes it — never HTML), its operations are applied field by field through
  * the storyboard's own repair. Music is composed by the app from a mood and a
  * tempo (videosynth.ts), never written by the model. Pictures are searched by
- * the panel's own run. Nothing reaches a file: the video lives in the app
- * until the person exports it (SAFETY.md).
+ * the panel's own run. A designed look and a restyle are the model's own
+ * longer work — a request each, answered in JSON and read by videodesign.ts
+ * and video.ts into their fixed vocabularies — done here before the step is
+ * kept, so they land in the same undo. Nothing reaches a file: the video
+ * lives in the app until the person exports it (SAFETY.md).
  *
  * A message being answered lives outside React, like the panel's other runs,
  * so switching tabs does not lose it; its answer is applied to the newest
@@ -82,7 +89,7 @@ interface Run {
   started: number;
   /** Characters of the answer so far, so a long wait visibly moves. */
   chars: number;
-  stage: 'asking' | 'looking' | 'music' | 'logo' | 'voice';
+  stage: 'asking' | 'looking' | 'design' | 'art' | 'music' | 'logo' | 'voice';
   retry?: { attempt: number; of: number };
   /** What is being looked up on the web now. */
   looking?: string;
@@ -261,6 +268,66 @@ async function send(id: string, message: string, d: Deps) {
       shape = order(now());
       applied = applyOps(withBrief(now()!), ops, newId, text);
     }
+    /**
+     * One request of the model's own, on the chat's route: a designed look or
+     * a restyle. The person's words about it (`hint`) go in fenced, before the
+     * line that asks for the JSON, as a description rather than rules.
+     */
+    const ask = async (p: { system: string; user: string }, hint: string | undefined, maxTokens: number): Promise<string> => {
+      let user = p.user;
+      if (hint) {
+        const fenced = quoted('What the person asks of it, in their words', hint);
+        const at = user.lastIndexOf('\nReply with');
+        user = at > 0 ? `${user.slice(0, at)}\n\n${fenced}\n${user.slice(at)}` : `${user}\n\n${fenced}`;
+      }
+      run.chars = 0;
+      const out = await generate(d.target, {
+        system: p.system, user, maxTokens, efforts: d.efforts, signal: ctl.signal,
+        onText: (x) => { run.chars += x.length; run.retry = undefined; ping(); },
+        onRestart: () => { run.chars = 0; },
+        onRetry: (attempt, of) => { run.retry = { attempt, of }; ping(); },
+      });
+      return out.text;
+    };
+    // A look designed for the video: asked for by the answer, made here, and
+    // put on in the same step. When it cannot be made the rest still applies,
+    // and the video keeps the look it had.
+    let designed: VideoDesign | undefined;
+    let designError = '';
+    if (applied.wants.design) {
+      run.stage = 'design';
+      ping();
+      const film: Video = { ...withBrief(now()!), ...applied.next };
+      const want = applied.wants.design;
+      try {
+        designed = designIn(await ask(designPrompt(film, want.again ? film.design : undefined), want.hint, 2500)) ?? undefined;
+        if (!designed) designError = d.t('The answer held no look that could be read.');
+      } catch (e) {
+        if (ctl.signal.aborted || isAbort(e)) throw e;
+        designError = explain(e, d.t('design the look'));
+      }
+      if (order(now()) !== shape) throw new Error(MOVED);
+      applied = applyOps(withBrief(now()!), ops, newId, text);
+    }
+    // Every scene art-directed again, words untouched, on the storyboard this
+    // answer leaves (and in the look just designed). The art is by the scenes'
+    // places, which the same ops on the same storyboard keep.
+    let arts: (SceneArt | undefined)[] | null = null;
+    let restyleError = '';
+    if (applied.wants.restyle) {
+      run.stage = 'art';
+      ping();
+      const film: Video = { ...withBrief(now()!), ...applied.next, ...(designed ? { design: designed, ai: true } : {}) };
+      try {
+        arts = parseArt(await ask(artPrompt(film), applied.wants.restyle.hint, 6000), film);
+        if (!arts) restyleError = d.t('The answer held no art direction that could be read.');
+      } catch (e) {
+        if (ctl.signal.aborted || isAbort(e)) throw e;
+        restyleError = explain(e, d.t('art-direct the scenes'));
+      }
+      if (order(now()) !== shape) throw new Error(MOVED);
+      applied = applyOps(withBrief(now()!), ops, newId, text);
+    }
     let track: Track | undefined;
     let musicError = '';
     if (applied.wants.music) {
@@ -337,6 +404,28 @@ async function send(id: string, message: string, d: Deps) {
     const next: Partial<Video> = { ...applied.next };
     let changes: Change[] = [...looked.map((l): Change => ({ what: 'looked', subject: l.subject, found: l.found.length > 0 })), ...undone, ...applied.changes];
     if (brief && brief !== cur.brief) { next.brief = brief; next.lookup = true; }
+    if (applied.wants.design) {
+      if (designed) {
+        const name = designed.name;
+        next.design = designed;
+        next.ai = true;
+        changes = changes.map((c) => (c.what === 'design' ? { ...c, name } : c));
+      } else {
+        // No new look: the video keeps the one it wore.
+        delete next.ai;
+        changes = changes.map((c) => (c.what === 'design' ? { what: 'design-failed', error: designError } : c));
+      }
+    }
+    if (applied.wants.restyle) {
+      const scenes = next.scenes ?? cur.scenes;
+      if (arts && arts.length === scenes.length) {
+        const r = restyled(scenes, arts, applied.wants.restyle.keep);
+        if (r.count) next.scenes = r.scenes;
+        changes = changes.map((c) => (c.what === 'restyle' ? { what: 'restyle', scenes: r.count } : c));
+      } else {
+        changes = changes.map((c) => (c.what === 'restyle' ? { what: 'restyle-failed', error: restyleError || d.t('The answer held no art direction that could be read.') } : c));
+      }
+    }
     if (applied.wants.logo) {
       if (logoSrc) next.brand = { ...(next.brand ?? cur.brand ?? {}), logo: logoSrc };
       else changes = changes.map((c) => (c.what === 'logo' ? { what: 'logo-failed' } : c));
@@ -424,8 +513,40 @@ function stop(id: string) {
 // ── words ─────────────────────────────────────────────────────────────────
 
 const failed = (c: Change) => c.what === 'skipped' || c.what === 'music-failed' || c.what === 'logo-failed' || c.what === 'voice-failed'
-  || c.what === 'undo-failed' || c.what === 'find-failed'
+  || c.what === 'undo-failed' || c.what === 'find-failed' || c.what === 'design-failed' || c.what === 'restyle-failed'
   || (c.what === 'looked' && !c.found);
+
+/** Parts of a scene's art that are not also parts of the look. */
+const ART_ONLY = new Set<string>(ART_FIELDS.filter((f) => f !== 'align'));
+
+/** A part of a scene's art direction, named as the storyboard's Creative group names it. */
+function artFieldName(f: ArtField, t: T): string {
+  if (f === 'effect') return t('Effect');
+  if (f === 'ground') return t('Background');
+  if (f === 'camera') return t('Camera');
+  if (f === 'shape') return t('Shape');
+  if (f === 'emphasis') return t('Emphasis');
+  if (f === 'size') return t('Size');
+  return t('Alignment');
+}
+
+/** A part of the art's value, named; `null` is the style's own. Emphasised words are shown as the scene writes them. */
+function artValueName(f: ArtField, value: string | string[] | null, t: T): string {
+  if (value === null) return t('As the style');
+  if (Array.isArray(value)) return value.join(' · ');
+  if (f === 'effect') return effectName(value as TextEffect, t);
+  if (f === 'ground') return groundName(value as Ground, t);
+  if (f === 'camera') return cameraName(value as Camera, t);
+  if (f === 'shape') return shapeName(value as Shape, t);
+  if (f === 'size') return artSizeName(value as NonNullable<SceneArt['size']>, t);
+  if (f === 'align') return alignName(value as 'start' | 'center' | 'end', t);
+  return value;
+}
+
+/** A field a skipped change named: a part of the look, or of a scene's art. */
+function fieldName(f: NonNullable<Extract<Change, { what: 'skipped' }>['field']>, t: T): string {
+  return ART_ONLY.has(f) ? artFieldName(f as ArtField, t) : lookFieldName(f as Parameters<typeof lookFieldName>[0], t);
+}
 
 function formatName(f: Format, t: T): string {
   if (f === 'portrait') return t('Vertical 9:16');
@@ -484,7 +605,10 @@ export function changeLine(c: Change, t: T): string {
         ? fill(t('Every scene hands over with: {transition}'), { transition: transitionName(c.transition, t) })
         : fill(t('Scene {n} hands over with: {transition}'), { n: c.scene, transition: transitionName(c.transition, t) });
     case 'length': return fill(t('The video now runs {n} s'), { n: c.seconds });
-    case 'style': return fill(t('Style: {style}'), { style: styleName(c.style, t) });
+    case 'style':
+      return c.designOff
+        ? fill(t('Style: {style} — the designed look is kept for later'), { style: styleName(c.style, t) })
+        : fill(t('Style: {style}'), { style: styleName(c.style, t) });
     case 'title': return fill(t('Renamed to “{title}”'), { title: c.title });
     case 'brand': {
       const parts: string[] = [];
@@ -529,6 +653,19 @@ export function changeLine(c: Change, t: T): string {
     case 'voice-name': return fill(t('Voice: {name}'), { name: c.name });
     case 'found-music': return c.title ? fill(t('Music from the web: “{title}” — credited at the end'), { title: c.title }) : fill(t('Looking for music: {q}'), { q: c.query });
     case 'find-failed': return fill(t('No music was found for “{q}”: {error}'), { q: c.query, error: c.error });
+    case 'art': {
+      const what = artFieldName(c.field, t);
+      const value = artValueName(c.field, c.value, t);
+      return c.scene === null ? fill(t('Every scene — {what}: {value}'), { what, value }) : fill(t('Scene {n} — {what}: {value}'), { n: c.scene, what, value });
+    }
+    case 'design': return c.name ? fill(t('A look designed for this video: {name}'), { name: c.name }) : t('Designing a look for this video');
+    case 'design-failed': return fill(t('The look could not be designed: {error}'), { error: c.error });
+    case 'design-on': return fill(t('The designed look is on again: {name}'), { name: c.name });
+    case 'restyle':
+      return c.scenes === undefined ? t('Art-directing every scene again')
+        : c.scenes ? fill(t('Art direction redone: {n} scenes changed, every word as it was'), { n: c.scenes })
+          : t('Art direction looked at again: nothing needed changing');
+    case 'restyle-failed': return fill(t('The scenes could not be art-directed again: {error}'), { error: c.error });
     case 'skipped':
       switch (c.why) {
         case 'unknown': return fill(t('Skipped “{op}”: not something the app can do'), { op: c.op });
@@ -543,11 +680,15 @@ export function changeLine(c: Change, t: T): string {
           return c.scene
             ? fill(t('Skipped: scene {n} would show a number nobody gave — write the number in your message'), { n: c.scene })
             : t('Skipped a new scene with a number nobody gave — write the number in your message');
-        case 'limit': return fill(t('Skipped: {what} is already as far as it goes'), { what: lookFieldName(c.field ?? 'logoScale', t) });
-        case 'video-only': return fill(t('Skipped: {what} is set for the whole video, not one scene'), { what: lookFieldName(c.field ?? 'font', t) });
+        case 'limit': return fill(t('Skipped: {what} is already as far as it goes'), { what: fieldName(c.field ?? 'logoScale', t) });
+        case 'video-only': return fill(t('Skipped: {what} is set for the whole video, not one scene'), { what: fieldName(c.field ?? 'font', t) });
         case 'after-undo': return t('Skipped the changes to scenes: the undo changed the scenes they named. Ask for them again.');
+        case 'not-in-text':
+          return c.scene
+            ? fill(t('Skipped: scene {n} does not say those words — only its own words can be emphasised'), { n: c.scene })
+            : t('Skipped: no scene says those words — only a scene’s own words can be emphasised');
         default: return c.field
-          ? fill(t('Skipped: “{what}” could not be read'), { what: lookFieldName(c.field, t) })
+          ? fill(t('Skipped: “{what}” could not be read'), { what: fieldName(c.field, t) })
           : t('Skipped a change that could not be read');
       }
   }
@@ -597,6 +738,8 @@ function thinkingVerb(ms: number, t: T): string {
 /** Things to say, in the interface's language. One that ends in "…" is started in the box for the person to finish. */
 function suggestions(v: Video, t: T): string[] {
   return [
+    t('Make it more creative'),
+    t('Add a big word poster'),
     t('Make it shorter'),
     t('Make the logo bigger'),
     t('Make the title punchier'),
@@ -671,6 +814,8 @@ export function VideoChat({ t, video, onChange, locked, ready, target, efforts, 
   const lastModel = turns.map((x) => x.role).lastIndexOf('model');
   const status = run
     ? run.stage === 'music' ? t('Composing the music…')
+      : run.stage === 'design' ? t('Designing the look…')
+      : run.stage === 'art' ? t('Art-directing the scenes…')
       : run.stage === 'logo' ? t('Finding the logo…')
       : run.stage === 'looking' ? fill(t('Looking up “{subject}” on the web…'), { subject: run.looking ?? '' })
       : run.stage === 'voice' ? fill(t('Making the voice: {n} of {of}…'), { n: run.voiced?.done ?? 0, of: run.voiced?.of ?? 0 })

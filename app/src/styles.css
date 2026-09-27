@@ -7228,3 +7228,73 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 @media (prefers-reduced-motion: reduce){
   .vid-look-fonts button, .vid-look-corners button i{ transition:none; }
 }
+
+/* ── Video: creative videos (VideoPanel.tsx, VideoStoryboard.tsx) ──
+   The model as art director: the "Designed by AI" tile and its card (the
+   Slides tile's own classes, `sl-ai-*`, with what a video adds), Restyle at
+   the top of the storyboard, each scene's Creative group — its selects on one
+   two-column grid, like the Look box's rows — the icon picker of a features
+   scene, and the templates folded away at the end of the request form.
+   Logical properties throughout: every one of these turns round in Arabic
+   and Kurdish. */
+.vid-tpl-more small{
+  margin-inline-start:var(--sp-2); padding:0 var(--sp-3); border-radius:999px;
+  background:var(--brand-wash); color:var(--brand); font-size:var(--fs-1); font-weight:600;
+}
+.vid-ai-card .sl-ai-dots i{ box-shadow:inset 0 0 0 1px rgb(0 0 0 / .12); }
+.vid-ai-meta{ margin-block-start:2px; color:var(--ink-2); }
+.vid-ai-empty{
+  display:grid; place-items:center; flex:none; inline-size:30px; block-size:30px; border-radius:50%; color:#fff;
+  background:conic-gradient(from 200deg, #6d4aff, #ec4899, #f59e0b, #10b981, #3b82f6, #6d4aff);
+}
+
+.vid-restyle{
+  display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2) var(--sp-4); padding:var(--sp-3) var(--sp-4);
+  border:1px dashed color-mix(in srgb, var(--brand) 45%, var(--rule)); border-radius:var(--r-2);
+  background:color-mix(in srgb, var(--brand-wash) 60%, transparent);
+}
+.vid-restyle .ghost{ display:inline-flex; align-items:center; gap:var(--sp-2); flex:none; inline-size:auto; }
+.vid-restyle small{ flex:1 1 18ch; min-inline-size:0; font-size:var(--fs-1); color:var(--mute); line-height:1.45; }
+.vid-restyle.is-live{ border-style:solid; border-color:var(--brand); }
+.vid-restyle.is-live .ghost svg{ animation:p 1s ease-in-out infinite; }
+
+.vid-art-mark{ display:inline-flex; color:var(--brand); }
+.vid-art-grid{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--sp-3) var(--sp-4); }
+.vid-art-line{ display:grid; gap:var(--sp-1); min-inline-size:0; font-size:var(--fs-2); color:var(--mute); }
+.vid-art-line select, .vid-art-line input{
+  inline-size:100%; min-inline-size:0; padding:var(--sp-2) var(--sp-3); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink); font:inherit; font-size:var(--fs-3);
+}
+.vid-art-line select:focus, .vid-art-line input:focus{ outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--panel); }
+.vid-art-line select:disabled, .vid-art-line input:disabled{ opacity:var(--dim); }
+/* A choice of the model's (or the person's) over the style's reads at a glance. */
+.vid-art-line .is-set{ border-color:color-mix(in srgb, var(--brand) 55%, var(--rule)); color:var(--brand); font-weight:600; }
+.vid-art-hint{ display:flex; align-items:flex-start; gap:var(--sp-2); padding:var(--sp-2) var(--sp-3); border-radius:var(--r-2); background:var(--warn-wash); color:var(--warn); }
+.vid-art-hint svg{ flex:none; margin-block-start:2px; }
+.vid-art-align{ display:inline-flex; align-items:center; gap:var(--sp-3); justify-self:start; }
+.vid-art-align small{ font-size:var(--fs-2); color:var(--mute); }
+.vid-art-emphasis{ display:flex; flex-direction:column; gap:var(--sp-1); }
+.vid-art-emphasis small{ font-size:var(--fs-1); color:var(--mute); line-height:1.45; }
+.vid-art-emphasis small.is-bad{ color:var(--warn); }
+.vid-art-device{ justify-self:start; }
+
+.vid-sb-features li{ grid-template-columns:auto 1fr auto; }
+.vid-icon-btn{
+  display:grid; place-items:center; inline-size:36px; block-size:36px; padding:0; border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--brand-wash); color:var(--brand); cursor:pointer; transition:border-color .12s ease;
+}
+.vid-icon-btn:hover, .vid-icon-btn.on{ border-color:var(--brand); }
+.vid-icon-btn:disabled{ opacity:var(--dim); cursor:default; }
+.vid-icon-pick{ display:flex; flex-direction:column; gap:var(--sp-3); margin-block-start:var(--sp-2); padding:var(--sp-3); border-radius:var(--r-2); background:var(--panel-2); }
+.vid-icon-grid{ display:grid; grid-template-columns:repeat(auto-fill, minmax(38px, 1fr)); gap:var(--sp-1); }
+.vid-icon-grid button{
+  display:grid; place-items:center; aspect-ratio:1; padding:0; border:1px solid transparent; border-radius:var(--r-1);
+  background:var(--panel); color:var(--ink-2); cursor:pointer; transition:border-color .12s ease, color .12s ease;
+}
+.vid-icon-grid button:hover{ border-color:var(--rule-2); color:var(--ink); }
+.vid-icon-grid button.on{ border-color:var(--brand); background:var(--brand-wash); color:var(--brand); }
+@media (max-width: 560px){ .vid-art-grid{ grid-template-columns:1fr; } }
+@media (prefers-reduced-motion: reduce){
+  .vid-restyle.is-live .ghost svg{ animation:none; }
+  .vid-icon-btn, .vid-icon-grid button{ transition:none; }
+}

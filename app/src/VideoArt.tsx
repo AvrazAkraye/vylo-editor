@@ -11,14 +11,16 @@ import { Bars, Ground, Nodes, Page, c } from './GalleryArt';
 export const SCENE_HUE: Readonly<Record<SceneKind, number>> = {
   title: 262, kinetic: 292, bullets: 222, stat: 38, chart: 200, quote: 330, image: 158, split: 176,
   steps: 250, outro: 12, gallery: 140, timeline: 48, compare: 190, people: 24, logo: 280, qr: 210,
+  bigtype: 318, features: 236, device: 128, marquee: 64,
 };
 
 /** How the gallery groups the scenes, for its chips. */
 export type SceneGroup = 'words' | 'data' | 'pictures';
 export const SCENE_GROUP: Readonly<Record<SceneKind, SceneGroup>> = {
   title: 'words', kinetic: 'words', bullets: 'words', quote: 'words', steps: 'words', outro: 'words',
+  bigtype: 'words', features: 'words', marquee: 'words',
   stat: 'data', chart: 'data', timeline: 'data', compare: 'data',
-  image: 'pictures', split: 'pictures', gallery: 'pictures', people: 'pictures', logo: 'pictures', qr: 'pictures',
+  image: 'pictures', split: 'pictures', gallery: 'pictures', people: 'pictures', logo: 'pictures', qr: 'pictures', device: 'pictures',
 };
 
 const X = 44;
@@ -195,13 +197,65 @@ export function SceneKindArt({ kind }: { kind: SceneKind }) {
         })}
       </>
     ),
+    // A poster: the first line biggest, the second outlined, the third in the accent.
+    bigtype: (
+      <>
+        {bar(X + 22, Y + 22, W - 44, 30, '#F4F1FA')}
+        <rect x={X + 22} y={Y + 60} width={W - 84} height="24" rx="12" fill="none" stroke="#F4F1FA" strokeWidth="2.5" />
+        {bar(X + 22, Y + 92, W - 120, 22, hi)}
+      </>
+    ),
+    // Three features: an icon in an accent square, a label under it.
+    features: (
+      <>
+        {[0, 1, 2].map((i) => {
+          const fx = X + 38 + i * 62;
+          return (
+            <g key={i}>
+              <rect x={fx} y={cy - 34} width="40" height="40" rx="10" fill={c(h, 70, 55, 0.3)} stroke={hi} strokeWidth="1.5" />
+              {i === 0 && <path d={`M${fx + 11} ${cy - 14} l6 6 l12 -13`} stroke="#F4F1FA" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round" />}
+              {i === 1 && <circle cx={fx + 20} cy={cy - 14} r="9" stroke="#F4F1FA" strokeWidth="3" fill="none" />}
+              {i === 2 && <path d={`M${fx + 20} ${cy - 26} l3.5 7.5 8 1 -6 5.5 1.6 8 -7.1 -4 -7.1 4 1.6 -8 -6 -5.5 8 -1z`} fill="#F4F1FA" />}
+              {bar(fx + 2, cy + 16, 36, 6, soft)}
+            </g>
+          );
+        })}
+      </>
+    ),
+    // A phone with a picture on its screen, the heading beside it.
+    device: (
+      <>
+        <rect x={X + 36} y={Y + 12} width="58" height={H - 24} rx="11" fill={c(h, 25, 22)} stroke={c(h, 40, 70, 0.8)} strokeWidth="2" />
+        <rect x={X + 41} y={Y + 20} width="48" height={H - 40} rx="5" fill={c(h, 55, 38)} />
+        <circle cx={X + 76} cy={Y + 38} r="7" fill={c(48, 95, 65)} />
+        <path d={`M${X + 41} ${Y + H - 26} L${X + 58} ${Y + 64} L${X + 72} ${Y + 84} L${X + 89} ${Y + 70} L${X + 89} ${Y + H - 20} L${X + 41} ${Y + H - 20} Z`} fill={c(h, 60, 24)} />
+        <rect x={X + 57} y={Y + 15} width="16" height="3" rx="1.5" fill={c(h, 40, 70, 0.8)} />
+        {bar(X + 116, cy - 18, 92, 12, '#F4F1FA')}
+        {bar(X + 116, cy + 2, 76, 6, soft)}
+        {bar(X + 116, cy + 14, 60, 6, soft)}
+        {bar(X + 116, cy + 32, 40, 8, hi)}
+      </>
+    ),
+    // Two rows of huge words running off both edges: one filled, one outlined.
+    marquee: (
+      <>
+        <clipPath id="vk-marquee-clip"><rect x={X} y={Y} width={W} height={H} rx="8" /></clipPath>
+        <g clipPath="url(#vk-marquee-clip)">
+          {[-40, 60, 160].map((dx, i) => bar(X + dx, Y + 26, 84, 28, '#F4F1FA', `a${i}`))}
+          {[10, 110, 210].map((dx, i) => (
+            <rect key={`b${i}`} x={X + dx} y={Y + 76} width="84" height="28" rx="14" fill="none" stroke={hi} strokeWidth="2.5" />
+          ))}
+        </g>
+        {bar(cx - 40, Y + 60, 80, 6, soft)}
+      </>
+    ),
   };
   return <Ground h={h} id={`vk-${kind}`}><Screen h={h}>{inside[kind]}</Screen></Ground>;
 }
 
 /** The banner's scenes. */
-export type VideoScene = 'film' | 'web' | 'talk';
-export const VIDEO_SCENE_HUE: Readonly<Record<VideoScene, number>> = { film: 280, web: 190, talk: 24 };
+export type VideoScene = 'film' | 'web' | 'talk' | 'art';
+export const VIDEO_SCENE_HUE: Readonly<Record<VideoScene, number>> = { film: 280, web: 190, talk: 24, art: 318 };
 
 export function VideoSceneArt({ scene, rtl = false }: { scene: VideoScene; rtl?: boolean }) {
   const h = VIDEO_SCENE_HUE[scene];
@@ -248,6 +302,24 @@ export function VideoSceneArt({ scene, rtl = false }: { scene: VideoScene; rtl?:
         <rect x="416" y="134" width="100" height="5" rx="2.5" fill="#C9C4D6" opacity=".7" />
         <circle cx="520" cy="190" r="20" fill={c(h, 80, 55)} />
         <rect x="514" y="178" width="12" height="18" rx="6" fill="#fff" />
+      </>
+    ),
+    // The model as art director: a frame with a poster's words and a ring
+    // drawing itself, the palette it chose, and the typeface beside it.
+    art: (
+      <>
+        <rect x="250" y="40" width="300" height="170" rx="12" fill={c(h, 35, 10)} stroke={c(h, 70, 60, 0.5)} />
+        <rect x="262" y="52" width="276" height="146" rx="6" fill={c(h, 60, 30)} />
+        <circle cx="478" cy="100" r="34" fill="none" stroke={c(48, 95, 65)} strokeWidth="6" strokeDasharray="160 60" strokeLinecap="round" />
+        <rect x="282" y="76" width="150" height="24" rx="12" fill="#F4F1FA" />
+        <rect x="282" y="108" width="110" height="18" rx="9" fill="none" stroke="#F4F1FA" strokeWidth="2.5" />
+        <rect x="282" y="134" width="80" height="16" rx="8" fill={c(48, 95, 65)} />
+        {[0, 1, 2, 3, 4].map((i) => (
+          <circle key={i} cx={290 + i * 22} cy="178" r="8" fill={[c(h, 60, 30), c(h, 45, 18), '#F4F1FA', c(48, 95, 65), c((h + 40) % 360, 80, 60)][i]}
+                  stroke={c(h, 35, 10)} strokeWidth="2" />
+        ))}
+        <rect x="500" y="130" width="74" height="74" rx="10" fill="#F4F1FA" />
+        <text x="537" y="180" textAnchor="middle" fontSize="34" fontWeight="800" fill={c(h, 60, 30)} fontFamily="Georgia, serif">Aa</text>
       </>
     ),
   };

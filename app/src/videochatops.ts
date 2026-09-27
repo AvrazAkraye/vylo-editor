@@ -52,15 +52,29 @@
  * out of reach. Undo and recorded music are asked for here (`wants`) and done
  * by the panel, which has the history and the network.
  *
+ * ## The art direction is a vocabulary too
+ *
+ * "Make it more creative", "put the photo behind the words", "highlight the
+ * word 'free'": every scene's art — how its words arrive, what is behind
+ * them, how the frame moves, a decorative shape, which words carry the accent
+ * — is chosen from videotypes.ts's fixed lists, read here from the words
+ * people and models use ("typewriter" is `type`, "zoom in" is `push`) and
+ * then held by video.ts's own `artOf`, the same check a planned storyboard
+ * goes through: an emphasised word must be one the scene says, a photo
+ * behind the words needs a photo. A look designed for the whole video, and
+ * every scene art-directed again, are the model's own longer work: asked for
+ * here (`wants.design`, `wants.restyle`) and done by the Chat tab before it
+ * keeps the step, like the music.
+ *
  * Pure: every rule here is tested without a model (test/videochat.test.mjs).
  */
 
 import type {
-  Brand, ChatTurn, Format, LookSettings, MusicSpec, Scene, SceneKind, SceneLook, Style, Transition, Video, VideoAudio, VideoLang,
+  Brand, ChatTurn, Format, LookSettings, MusicSpec, Scene, SceneArt, SceneKind, SceneLook, Style, Transition, Video, VideoAudio, VideoLang,
 } from './videotypes';
-import { FORMATS, FPS } from './videotypes';
+import { CAMERAS, FORMATS, FPS, GROUNDS, SHAPES, TEXT_EFFECTS } from './videotypes';
 import {
-  LANGUAGE, LANGUAGE_NAME, SCHEMA, TONE, WHERE, clean, durationInFrames, fitted, isRtl, pictureJobs, quoted, readingSeconds,
+  LANGUAGE, LANGUAGE_NAME, SCHEMA, TONE, WHERE, artOf, clean, durationInFrames, fitted, isRtl, mainTextOf, pictureJobs, quoted, readingSeconds,
   pictureSlots, sanitizeScene, sceneJson, withPicture,
 } from './video';
 import { duplicateScene, moveScene, snapSeconds } from './videohistory';
@@ -94,6 +108,7 @@ export const OPS = [
   'set_look', 'set_scene_look', 'reset_look', 'compose_music', 'find_music',
   'music_volume', 'no_music', 'set_narration', 'narrate', 'captions', 'watermark', 'credits', 'use_logo',
   'look_up', 'use_photos', 'set_format', 'set_voice', 'make_voice', 'undo', 'offer_download',
+  'set_art', 'design_look', 'restyle',
 ] as const;
 export type OpName = (typeof OPS)[number];
 
@@ -102,8 +117,16 @@ export const MUSIC_MOODS: readonly MusicSpec['mood'][] = ['uplifting', 'calm', '
 
 const STYLES: readonly Style[] = ['modern', 'bold', 'elegant', 'neon', 'minimal', 'warm'];
 const TRANSITIONS: readonly Transition[] = ['fade', 'slide', 'wipe', 'zoom', 'none'];
-/** The kinds that show one picture of their own. VideoStoryboard.tsx keeps the same three. */
-const PICTURED = new Set<SceneKind>(['title', 'image', 'split']);
+/** The kinds that show one picture of their own. VideoStoryboard.tsx keeps the same four. */
+const PICTURED = new Set<SceneKind>(['title', 'image', 'split', 'device']);
+
+/**
+ * Whether a scene shows a picture of its own: a kind that does, or any other
+ * whose art puts its photo behind the words (`ground: "photo"`), which keeps
+ * an `imageQuery` whatever its kind — but a montage's tiles and people's
+ * portraits are theirs, not one of the scene's (video.ts `showsPicture`).
+ */
+const pictured = (s: Scene): boolean => PICTURED.has(s.kind) || (s.art?.ground === 'photo' && s.kind !== 'gallery' && s.kind !== 'people');
 
 /**
  * Letters that are invisible or reorder what is shown: bidi marks and
@@ -526,6 +549,240 @@ function musicSearches(mood: MusicSpec['mood'] | 'acoustic'): readonly string[] 
   }
 }
 
+// ── the art direction, in the words people and models use ────────────────
+//
+// The model is told each vocabulary's own words, but "typewriter", "zoom in"
+// and "the photo behind the words" still land: each is read here into the
+// vocabulary, and the result is held by video.ts's `artOf` — the check every
+// planned scene's art goes through — so nothing outside the lists is kept.
+
+/** A part of a scene's art direction (videotypes.ts `SceneArt`). */
+export type ArtField = keyof SceneArt;
+export const ART_FIELDS: readonly ArtField[] = ['effect', 'ground', 'camera', 'shape', 'emphasis', 'size', 'align'];
+
+/** A vocabulary's own words, and the other words that mean one of them. */
+function vocab<T extends string>(own: readonly T[], more: Record<string, T>): ReadonlyMap<string, T> {
+  const m = new Map<string, T>();
+  for (const w of own) m.set(w, w);
+  for (const [w, x] of Object.entries(more)) m.set(fold(w), x);
+  return m;
+}
+
+const EFFECT_WORDS = vocab(TEXT_EFFECTS, {
+  'rise up': 'rise', 'float up': 'rise', 'slide up': 'rise', up: 'rise', lift: 'rise',
+  reveal: 'mask', 'mask reveal': 'mask', 'wipe in': 'mask', wipe: 'mask', unveil: 'mask',
+  'pop in': 'pop', bounce: 'pop', bouncy: 'pop', spring: 'pop', springy: 'pop', punch: 'pop',
+  'fade in': 'fade', dissolve: 'fade', gentle: 'fade',
+  typing: 'type', typewriter: 'type', typed: 'type', 'type on': 'type', 'type in': 'type', 'word by word': 'type', 'one word at a time': 'type',
+  highlighter: 'highlight', highlighted: 'highlight', marker: 'highlight', underline: 'highlight',
+  zoom: 'scale', 'zoom in': 'scale', grow: 'scale', 'scale in': 'scale', 'scale down': 'scale',
+  'slide in': 'slide', 'from the side': 'slide', sweep: 'slide',
+  glitchy: 'glitch', digital: 'glitch', 'rgb split': 'glitch',
+});
+
+const GROUND_WORDS = vocab(GROUNDS, {
+  picture: 'photo', image: 'photo', photograph: 'photo', 'the photo': 'photo', 'the picture': 'photo', 'photo behind': 'photo',
+  'photo behind the words': 'photo', 'picture behind the words': 'photo', 'behind the words': 'photo', 'full photo': 'photo', 'full bleed': 'photo',
+  'background photo': 'photo', 'background image': 'photo', 'photo background': 'photo', 'image background': 'photo',
+  'accent colour': 'accent', 'accent color': 'accent', colour: 'accent', color: 'accent', coloured: 'accent', colored: 'accent',
+  solid: 'accent', 'solid colour': 'accent', 'solid color': 'accent', 'brand colour': 'accent', 'brand color': 'accent',
+  'accent gradient': 'gradient', 'colour gradient': 'gradient', 'color gradient': 'gradient', gradual: 'gradient',
+  black: 'dark', night: 'dark', 'dark ground': 'dark', 'dark background': 'dark',
+  white: 'light', bright: 'light', pale: 'light', 'light ground': 'light', 'light background': 'light',
+});
+
+const CAMERA_WORDS = vocab(CAMERAS, {
+  none: 'still', static: 'still', fixed: 'still', locked: 'still', 'no movement': 'still', 'no motion': 'still', 'no camera': 'still',
+  'push in': 'push', 'zoom in': 'push', zoom: 'push', 'slow zoom': 'push', 'slow zoom in': 'push', 'dolly in': 'push', 'ken burns': 'push', closer: 'push',
+  'pull out': 'pull', 'pull back': 'pull', 'zoom out': 'pull', 'slow zoom out': 'pull', 'dolly out': 'pull', wider: 'pull',
+  pan: 'drift', 'pan across': 'drift', sideways: 'drift', 'move sideways': 'drift', slide: 'drift', glide: 'drift', float: 'drift', truck: 'drift',
+  rotate: 'tilt', turn: 'tilt', dutch: 'tilt', 'dutch angle': 'tilt',
+});
+
+const SHAPE_WORDS = vocab(SHAPES, {
+  'no shape': 'none', 'no shapes': 'none', nothing: 'none', 'without shape': 'none', 'without shapes': 'none', none: 'none',
+  disc: 'circle', disk: 'circle', 'filled circle': 'circle',
+  halo: 'ring', 'circle outline': 'ring', 'outline circle': 'ring', rings: 'ring',
+  dot: 'dots', dotted: 'dots', 'dot grid': 'dots', particles: 'dots', confetti: 'dots',
+  line: 'lines', stripes: 'lines', streaks: 'lines', 'parallel lines': 'lines',
+  waves: 'wave', wavy: 'wave', squiggle: 'wave',
+  rays: 'burst', sunburst: 'burst', starburst: 'burst', sparkle: 'burst', sparkles: 'burst', flash: 'burst',
+  arrows: 'arrow', chevron: 'arrow', pointer: 'arrow',
+  mesh: 'grid', 'graph paper': 'grid',
+  'soft blob': 'blob', orb: 'blob', bubble: 'blob', bokeh: 'blob', glow: 'blob',
+});
+
+const SIZE_WORDS = vocab(['quiet', 'normal', 'hero'] as const, {
+  big: 'hero', bigger: 'hero', huge: 'hero', large: 'hero', larger: 'hero', giant: 'hero', massive: 'hero', loud: 'hero', xl: 'hero', 'very big': 'hero',
+  small: 'quiet', smaller: 'quiet', subtle: 'quiet', little: 'quiet', tiny: 'quiet', soft: 'quiet', calm: 'quiet',
+  regular: 'normal', medium: 'normal',
+});
+
+/** A word from a vocabulary, the words that mean one, or a word that gives the field back to the style (`null`). */
+function wordOf<T extends string>(x: unknown, words: ReadonlyMap<string, T>): Asked<T> | undefined {
+  if (typeof x === 'string') {
+    // A vocabulary's own "none" and "still" before the words that clear a field, which include "none";
+    // a ground of "style" is the style's own, so it clears the field like the other words for that.
+    const own = words.get(fold(x));
+    if (own) return { value: own === 'style' ? null : own };
+  }
+  if (isReset(x)) return { value: null };
+  return undefined;
+}
+
+/** Up to three words written as a list, or in one string between commas: "free", "“free”, now". */
+function emphasisOf(x: unknown): Asked<string[]> | undefined {
+  if (isReset(x)) return { value: null };
+  const raw = Array.isArray(x) ? x.slice(0, 20) : typeof x === 'string' ? x.split(/[,،;؛]|\s+(?:and|و)\s+/) : null;
+  if (!raw) return undefined;
+  const words = raw
+    .map((w) => (typeof w === 'string' ? w : ''))
+    .map((w) => w.replace(INVISIBLE, '').replace(/^[\s"'“”‘’«»]+|[\s"'“”‘’«».!?؟]+$/g, '').replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (!words.length) return Array.isArray(x) && !x.length ? { value: null } : undefined;
+  return { value: words.slice(0, 3) };
+}
+
+/** One part of a scene's art, read from what an op says. Undefined when it cannot be read. */
+function artValueOf(field: ArtField, x: unknown, rtl: boolean): Asked<string | string[]> | undefined {
+  switch (field) {
+    case 'effect': return wordOf(x, EFFECT_WORDS);
+    case 'ground': return wordOf(x, GROUND_WORDS);
+    case 'camera': return wordOf(x, CAMERA_WORDS);
+    case 'shape': return wordOf(x, SHAPE_WORDS);
+    case 'size': return wordOf(x, SIZE_WORDS);
+    case 'align': return alignOf(x, rtl);
+    case 'emphasis': return emphasisOf(x);
+  }
+}
+
+/** The names a model gives each part of a scene's art, the part's own first. */
+const ART_KEYS: Readonly<Record<ArtField, readonly string[]>> = {
+  effect: ['effect', 'textEffect', 'text_effect', 'reveal', 'entrance', 'wordEffect', 'word_effect'],
+  ground: ['ground', 'sceneGround', 'scene_ground', 'behind', 'groundStyle', 'ground_style'],
+  camera: ['camera', 'cameraMove', 'camera_move', 'move', 'movement'],
+  shape: ['shape', 'decoration', 'deco', 'ornament', 'graphic'],
+  emphasis: ['emphasis', 'emphasise', 'emphasize', 'highlight', 'highlightWords', 'highlight_words', 'accentWords', 'accent_words', 'keywords', 'words'],
+  size: ['size', 'scale', 'wordsSize'],
+  align: ['align', 'alignment', 'textAlign', 'text_align'],
+};
+const ART_FIELD_OF: ReadonlyMap<string, ArtField> = new Map(ART_FIELDS.flatMap((f) => ART_KEYS[f].map((k) => [k, f] as const)));
+
+/** Op names for one part of the art, and the part: `{"op":"set_effect","scene":2,"value":"pop"}`. */
+const ART_SHORT: Readonly<Record<string, ArtField>> = {
+  set_effect: 'effect', effect: 'effect', text_effect: 'effect', set_text_effect: 'effect', set_reveal: 'effect', reveal: 'effect',
+  set_ground: 'ground', ground: 'ground', set_scene_ground: 'ground', photo_behind: 'ground', photo_background: 'ground', put_photo_behind: 'ground',
+  set_camera: 'camera', camera: 'camera', camera_move: 'camera', set_camera_move: 'camera',
+  set_decoration: 'shape', decoration: 'shape', add_shape: 'shape', set_scene_shape: 'shape', scene_shape: 'shape',
+  highlight: 'emphasis', highlight_words: 'emphasis', highlight_word: 'emphasis', emphasize: 'emphasis', emphasise: 'emphasis',
+  set_emphasis: 'emphasis', emphasis: 'emphasis', accent_words: 'emphasis',
+  set_scene_size: 'size', scene_size: 'size', hero: 'size',
+};
+
+/**
+ * The parts of a scene's art an op asks for, as it wrote them: flat on the
+ * op or under "art", or its name's one part. `{"op":"highlight","words":…}`
+ * asks for the highlight marker too, unless it names another effect.
+ */
+function artAsked(o: Record<string, unknown>, name: string): Map<ArtField, unknown> {
+  const out = new Map<ArtField, unknown>();
+  const nested = [o.art, o.fields, o.set].find(isObj);
+  const from: Record<string, unknown> = nested ? { ...o, ...nested } : o;
+  const short = ART_SHORT[name];
+  if (short) {
+    const own = ART_KEYS[short].map((k) => from[k]).find((x) => x !== undefined);
+    const x = own ?? from.value ?? from.to ?? from.text ?? from.name ?? from.mode ?? (name === 'hero' ? 'hero' : name === 'photo_behind' || name === 'put_photo_behind' || name === 'photo_background' ? 'photo' : undefined);
+    if (x !== undefined) out.set(short, x);
+    if (short === 'emphasis' && /^highlight/.test(name) && from.effect === undefined) out.set('effect', 'highlight');
+    if (short !== 'emphasis' || !/^highlight/.test(name)) return out;
+  }
+  for (const k of Object.keys(from)) {
+    const f = ART_FIELD_OF.get(k);
+    if (f && !out.has(f) && from[k] !== undefined) out.set(f, from[k]);
+  }
+  return out;
+}
+
+/**
+ * A scene written by an op with its art direction read into the vocabularies
+ * — `"art":{"effect":"typewriter"}` is `type` — and the parts a model puts
+ * flat on the scene (`"effect":"pop"`) moved under "art", for video.ts to
+ * check. What cannot be read is left as written, and `artOf` drops it.
+ */
+function withArtWords(f: Record<string, unknown>, rtl: boolean): Record<string, unknown> {
+  const flat = ['effect', 'ground', 'camera', 'shape', 'emphasis', 'size'].filter((k) => f[k] !== undefined);
+  if (!isObj(f.art) && !flat.length) return f;
+  const raw: Record<string, unknown> = { ...(isObj(f.art) ? f.art : {}) };
+  for (const k of flat) if (raw[k] === undefined) raw[k] = f[k];
+  const art: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(raw)) {
+    const field = ART_FIELD_OF.get(k);
+    if (!field || art[field] !== undefined) continue;
+    const got = artValueOf(field, x, rtl);
+    if (got && got.value !== null) art[field] = got.value;
+    else if (!got) art[field] = x;
+  }
+  const out: Record<string, unknown> = { ...f, art };
+  for (const k of flat) delete out[k];
+  return out;
+}
+
+/**
+ * A scene's art as video.ts keeps it: `artOf` over what was asked, checked
+ * against the words the scene shows (`mainTextOf`); a photo behind the words
+ * only on a scene that has a picture or words to search one with, and never
+ * on a montage or a people scene, whose pictures are their tiles and
+ * portraits. Undefined when nothing is left.
+ */
+function checkedArt(want: Record<string, unknown>, s: Scene): SceneArt | undefined {
+  const photo = s.kind !== 'gallery' && s.kind !== 'people' && !!(s.picture?.src || s.imageQuery);
+  const art = artOf(want, mainTextOf(s), photo);
+  return art && Object.keys(art).length ? art : undefined;
+}
+
+/** The scene with this art, or without any when there is none. */
+function withArt(s: Scene, art: SceneArt | undefined): Scene {
+  const { art: _a, ...rest } = s;
+  return (art ? { ...rest, art } : rest) as Scene;
+}
+
+/**
+ * Every scene art-directed again (`wants.restyle`): each scene takes the
+ * model's new art by its place (`parseArt` in video.ts reads it, one entry a
+ * scene, `undefined` where the model gave none — that scene keeps its own),
+ * except the parts this answer set by hand (`keep`, by scene id), which stay
+ * over it. Checked again against each scene's words as they are now. Pure:
+ * `count` is how many scenes changed.
+ */
+export function restyled(
+  scenes: readonly Scene[], arts: readonly (SceneArt | undefined)[], keep: Readonly<Record<string, readonly ArtField[]>> = {},
+): { scenes: Scene[]; count: number } {
+  let count = 0;
+  const out = scenes.map((s, i) => {
+    const fresh = arts[i];
+    if (!fresh || typeof fresh !== 'object') return s;
+    const want: Record<string, unknown> = { ...fresh };
+    for (const f of keep[s.id] ?? []) {
+      if (s.art?.[f] !== undefined) want[f] = s.art[f];
+      else delete want[f];
+    }
+    const art = checkedArt(want, s);
+    if (stable(art ?? {}) === stable(s.art ?? {})) return s;
+    count++;
+    return withArt(s, art);
+  });
+  return { scenes: count ? out : [...scenes], count };
+}
+
+/** Words the person wants of a look or of the art ("calm, navy and gold"), for the model that makes it: plain, one line. */
+function hintOf(x: unknown, lang: VideoLang): string | undefined {
+  const s = typeof x === 'string' ? clean(scrub(x), 200, lang) : '';
+  return s || undefined;
+}
+
+/** Words that mean "the look the model designs", said as a style. */
+const DESIGNED = /^(ai|a i|designed|design|designed by ai|ai designed|ai design|custom|custom design|creative|its own|own|own look|unique|bespoke)$/;
+
 /** The number of a scene an op names, read from any of the names models give it. */
 const lookTarget = (o: Record<string, unknown>) => o.scene ?? o.scenes ?? o.scene_number ?? o.sceneNumber;
 
@@ -540,6 +797,7 @@ function systemOf(v: Video): string {
   return [
     'You are the editor of one short animated video — a promo, an explainer, an announcement — that already exists. The person who made it talks to you about it: they ask for changes, or ask something about it, and you answer.',
     'You never write code, markup or anything to be run. You change the video only through a fixed list of operations ("ops") that the app checks and applies; an op that is not on the list, or not valid, is skipped and the person is told. The app draws every scene with its own templates, and the look ops set how they look — the logo\'s and the words\' size, where the words sit, the colours, the font, how fast things move, the backdrop, the watermark.',
+    'You are also the video\'s art director. Every scene may carry "art": how its words arrive, what is behind them, how the frame moves, a decorative shape, which of its words carry the accent — each chosen from a fixed list the app draws. The app can design a whole look for the video (palette, typeface, motif, pace) and art-direct every scene again; you ask for either with an op. Make it look made by a designer: vary the effects and grounds for rhythm, keep the words readable, and change only what the person asked about.',
     '',
     `The video's on-screen words are in ${LANGUAGE_NAME[v.lang] ?? 'English'}. ${LANGUAGE[v.lang] ?? LANGUAGE.en}`,
     'Brand names, product names and a website stay as they are written.',
@@ -552,7 +810,7 @@ function systemOf(v: Video): string {
     '- Your "reply" says only what your ops do. Never claim a change you did not make.',
     '',
     'Rules that are never broken:',
-    '- Facts. A figure, a percentage, a price, a count, a date, a name, a quotation, a phone number, an address or a website appears only if it is in the facts given, the request, the storyboard as it is, or what the person says in this conversation. Never invent one and never "round it up". When the person wants a number you were not given, ask them for it. The app checks: a "stat", "chart" or "timeline" with a number from nowhere is refused.',
+    '- Facts. A figure, a percentage, a price, a count, a date, a name, a quotation, a phone number, an address or a website appears only if it is in the facts given, the request, the storyboard as it is, or what the person says in this conversation. Never invent one and never "round it up". When the person wants a number you were not given, ask them for it. The app checks: a "stat", "chart" or "timeline" with a number from nowhere is refused, and so is a "bigtype" poster, a "marquee" or a "features" label with one.',
     '- Quotations only with words the person or the facts give; never a testimonial or a review put in someone\'s mouth.',
     '- Claims about the brand ("award-winning", "number one", "trusted by thousands") only when they are stated.',
     '- On-screen words only in the scenes: no stage directions, no markdown, no HTML, no emojis or hashtags unless the person asks.',
@@ -568,7 +826,7 @@ const lookJson = (x: object | undefined) => JSON.stringify(x ?? {});
 /** A scene as the model reads it: its fields, whether a picture is on it — never the picture itself — and its own look. */
 function sceneLine(s: Scene, n: number): string {
   let note = '';
-  if (PICTURED.has(s.kind)) note = s.picture ? ' — shows a picture' : s.imageQuery ? ' — its picture is still to be found' : '';
+  if (pictured(s)) note = s.picture ? ' — shows a picture' : s.imageQuery ? ' — its picture is still to be found' : '';
   else if (s.kind === 'gallery') note = ` — ${(s.pictures ?? []).filter((p) => p?.src).length} pictures in it`;
   else if (s.kind === 'people') note = ` — ${s.people.filter((p) => p.picture).length} of ${s.people.length} with a photo`;
   const own = s.look ? normalSceneLook(s.look) : {};
@@ -591,6 +849,26 @@ function lookLines(v: Video): string[] {
   ];
 }
 
+/**
+ * Whose look the video wears: the one the model designed for it (its name,
+ * why, colours, typeface, motif and pace — the model's own words, capped), or
+ * the style's, with a designed look kept for later said too — so "go back to
+ * the style" and "the look from before" are both ops the model can see.
+ */
+function designLine(v: Video): string {
+  const d = isObj(v.design) ? v.design : undefined;
+  // Only what a stored design can hold: a colour is a colour, a name a short line.
+  const hex = (c: unknown) => (/^#[0-9a-f]{6}$/i.test(str(c)) ? str(c) : 'the style\'s');
+  const word = (x: unknown) => capped(scrub(str(x)).replace(/\s+/g, ' '), 24);
+  const said = d
+    ? `"${capped(scrub(str(d.name)), 40)}"${str(d.why) ? ` (${capped(scrub(str(d.why)).replace(/\s+/g, ' '), 160)})` : ''}: background ${hex(d.bg)}, second background ${hex(d.bg2)}, words ${hex(d.fg)}, accents ${hex(d.accent)} and ${hex(d.accent2)}; typeface "${word(d.font)}"${fontLabel(str(d.font)) ? ` (${fontLabel(str(d.font))})` : ''}; motif "${word(d.deco)}"; pace "${word(d.energy)}"`
+    : '';
+  if (v.ai && d) return `- Designed look: on, instead of a style — ${said}. The style above is only the tone of the words. design_look designs a different one; set_style puts one of the six styles on instead (this look is kept).`;
+  if (v.ai) return '- Designed look: asked for but not made yet (design_look designs it now); until then the style\'s is on.';
+  if (d) return `- Designed look: off — the style's is on. One designed for this video is kept — ${said}. design_look puts it back on.`;
+  return '- Designed look: none — the style\'s is on. design_look has a look designed for this video instead: its own palette, typeface, motif and pace.';
+}
+
 /** The video's settings, one line each, as the ops can change them. */
 function settingsOf(v: Video): string[] {
   const { width, height } = FORMATS[v.format] ?? FORMATS.landscape;
@@ -611,6 +889,7 @@ function settingsOf(v: Video): string[] {
     `- Format: ${width}×${height}, ${WHERE[v.format] ?? WHERE.landscape}. set_format changes it.`,
     `- Length: plays for ${played} seconds (asked for: ${v.seconds}).`,
     `- Style: ${TONE[v.style] ?? TONE.modern}.`,
+    designLine(v),
     `- Brand: ${brand.name?.trim() ? `"${capped(scrub(brand.name.trim()), 80)}"` : 'no name'}; ${colours || 'the style\'s own colours'}; ${brand.logo ? 'a logo' : 'no logo'}.`,
     `- The subject's logo: ${v.brief?.logo ? 'found on the web — use_logo puts it on the brand' : v.brief?.website ? `not found yet — use_logo reads it from ${capped(scrub(v.brief.website), 80)}` : 'not looked up — use_logo searches the web for it'}.`,
     `- The brand small in a corner of every scene (watermark): ${v.watermark !== false ? 'on' : 'off'}${!brand.name?.trim() && !brand.logo ? ' (shows nothing without a brand name or logo)' : ''}.`,
@@ -656,7 +935,7 @@ function catalogueOf(v: Video): string {
     '- {"op":"set_title","title":"…"} — the video\'s name in the list; the opening words are scene 1\'s.',
     '- {"op":"set_language","lang":"ckb"} — "ar", "ckb" (Sorani), "kmr" (Badini) or "en"; ONLY with an edit_scene for EVERY scene that has words, rewriting all of them (and each "narration") in it, in its spelling. Alone it is refused.',
     'Pictures and the logo',
-    '- {"op":"find_pictures","scene":4,"query":"students in a university library"} — a new picture for an "image", "split" or "title" scene, searched with 2 to 6 concrete English words (a real place\'s or organisation\'s name when asked for that one); no "scene": new pictures for every scene that shows one.',
+    '- {"op":"find_pictures","scene":4,"query":"students in a university library"} — a new picture for an "image", "split", "title" or "device" scene, or one whose art puts the photo behind its words, searched with 2 to 6 concrete English words (a real place\'s or organisation\'s name when asked for that one); no "scene": new pictures for every scene that shows one.',
     '- {"op":"remove_picture","scene":4} — the scene without its picture; "scene":"all" for every one; a "people" scene loses its photos; "picture":2 takes one picture out of a "gallery".',
     '- {"op":"set_picture_fit","scene":4,"fit":"contain"} — "cover" fills the frame, "contain" shows all of the picture; "scene":"all".',
     '- {"op":"look_up","subject":"University of Duhok"} — look something up on the web (Wikipedia, Wikidata, Wikimedia Commons, its own website) for facts, photographs and its logo. Send it ALONE, with a "reply" saying what you look up, whenever the task needs what you do not have above; the app sends you what it found and you answer again with the ops. Never answer that you cannot search the web: look it up.',
@@ -667,10 +946,14 @@ function catalogueOf(v: Video): string {
     `- Relative changes are worked out from the value now: "bigger" is ×1.3, "much bigger" ×1.6, "a bit bigger" ×1.15, "smaller" ×0.75, "much smaller" ×0.6, "a bit smaller" ×0.87 (and "faster", "slower" the same). Send the word or the number: "make the logo bigger" is {"op":"set_look","logoScale":"bigger"} — the logo is ${logo}× now, so that is ${hundredths(clamp(logo * 1.3, 0.5, 3))}×.`,
     '- {"op":"set_scene_look","scene":3,"textScale":1.2,"align":"center","background":"#101820","text":"white","logo":true,"logoScale":1.5,"fit":"contain"} — one scene\'s own look over the video\'s, same words and limits; "logo" shows or hides the brand\'s logo there; "scene":"all" for every scene; null makes a field follow the video again.',
     '- {"op":"reset_look"} — the video\'s look back to the style\'s own; "scene":3 for one scene\'s own look, "scene":"all" for every scene\'s.',
-    `- {"op":"set_style","style":"bold"} — ${STYLES.map((s) => TONE[s]).join('; ')}.`,
+    `- {"op":"set_style","style":"bold"} — ${STYLES.map((s) => TONE[s]).join('; ')}. A style chosen replaces the look designed for the video; that look is kept, and design_look puts it back.`,
     '- {"op":"set_format","format":"portrait"} — "landscape" (16:9, YouTube, screens), "portrait" (9:16, reels, stories, TikTok) or "square" (1:1, posts); every scene lays itself out again.',
     '- {"op":"set_brand","name":"…","primary":"#1A4D8F","accent":"gold"} — any of the three; colours as for set_look; null gives back the style\'s own.',
     '- {"op":"watermark","on":false} — the brand small in a corner. {"op":"credits","on":true} — the card crediting the pictures.',
+    'Creative direction (each scene\'s "art" is shown in its JSON above; a part it does not have is the style\'s own)',
+    `- {"op":"set_art","scene":3,"effect":"highlight","ground":"accent","camera":"push","shape":"ring","emphasis":["free"],"size":"hero","align":"center"} — any of these for one scene, a list of scenes, or "scene":"all": effect — how its words arrive: ${TEXT_EFFECTS.map((x) => `"${x}"`).join(', ')} ("type" word by word, "highlight" a marker growing behind the emphasised words, "glitch" a short digital jitter); ground — what is behind them: "accent" (the accent colour, solid), "gradient", "dark", "light", or "photo" (the scene's own picture behind the words — add "imageQuery":"2 to 6 English words" when the scene has none); camera — a slow move of the frame: ${CAMERAS.map((x) => `"${x}"`).join(', ')}; shape — a decorative animated shape in the free space: ${SHAPES.map((x) => `"${x}"`).join(', ')}; emphasis — 1 to 3 words copied exactly from that scene's headline (its title, heading, quote, caption, kinetic or marquee phrase, a poster's lines, a feature's label — not a subtitle, a point or a call to action), set in the accent colour; size — "quiet", "normal" or "hero"; align — "start", "center" or "end". "style" or null gives a part back to the style. "art" may also go inside an edit_scene's "fields" or an add_scene's "scene".`,
+    '- {"op":"design_look","hint":"calm, deep green and warm gold"} — the app designs a look of its own for this video — five colours, a typeface, a background motif and a pace — instead of one of the six styles; "hint" (optional) is what the person wants of it, in a few words. When one is on already, it designs a different one; when one was designed before and a style replaced it, it puts that one back.',
+    '- {"op":"restyle","hint":"more energetic"} — the app art-directs every scene again for rhythm and variety — effects, grounds, cameras, shapes, emphasis — and leaves every word as it is; "hint" optional. The art you set in the same answer stays over it. For "more creative", "more dynamic", "less plain" about the whole video.',
     'Sound',
     `- {"op":"compose_music","mood":"calm","tempo":80,"energy":0.3} — new music the app composes to the video's length; "mood" one of ${MUSIC_MOODS.join(', ')}; "tempo" 60 to 170 and "energy" 0 to 1 optional.`,
     '- {"op":"find_music","query":"acoustic guitar"} — or "mood":"calm": the first good openly licensed recording from Openverse for these English words, under the video, credited at the end. For "real" or "recorded" music; compose_music otherwise.',
@@ -687,6 +970,23 @@ function catalogueOf(v: Video): string {
     'The rule: the person may ask for anything about the video. When an op does it, use it. When their words are vague, pick the reasonable reading, do it and say what you did. Never say something cannot be done unless it is one of these, the only things that cannot: using a file from the person\'s own computer — a picture, a logo, a sound or a font (they add it themselves in Look, Scenes or Sound) — and exporting or saving the video without their click (offer_download puts the button there for them).',
   ].join('\n');
 }
+
+/**
+ * The creative asks the owner makes most, each with the ops that answer it —
+ * shapes only, the words in brackets being the model's to write in the
+ * video's language, and no figures, for the same reason as `EXAMPLE`.
+ */
+const CREATIVE_EXAMPLES = [
+  'Creative asks, and the ops that answer them (shapes only — the scene numbers are an example storyboard\'s, the words in … are yours to write in the video\'s language):',
+  '- "make it more creative": [{"op":"design_look"},{"op":"restyle"}] — and when the video runs 20 seconds or more and has no "bigtype" or "marquee", an add_scene of one after the hook.',
+  '- "add a big word poster": [{"op":"add_scene","after":2,"scene":{"kind":"bigtype","lines":["…","…","…"],"seconds":3,"transition":"zoom","art":{"effect":"slide","ground":"accent"}}}] — 1 to 4 short lines, the strongest first.',
+  '- "put the photo behind the words" (scene 2 shows a picture): [{"op":"set_art","scene":2,"ground":"photo"}]; for a scene without one: [{"op":"set_art","scene":3,"ground":"photo","imageQuery":"students walking on campus"}].',
+  '- "highlight the word \'free\'": [{"op":"set_art","scene":4,"effect":"highlight","emphasis":["free"]}] — in the scene whose headline has it, spelled exactly as there; no scene says it: ask which words to use.',
+  '- "use a phone mockup": [{"op":"edit_scene","scene":3,"fields":{"kind":"device","device":"phone","heading":"…","text":"…","imageQuery":"mobile banking app screen"}}] — or an add_scene of the same; "laptop" for a website or software.',
+  '- "show our services with icons": [{"op":"add_scene","after":3,"scene":{"kind":"features","heading":"…","items":[{"icon":"clock","label":"…"},{"icon":"shield","label":"…"},{"icon":"heart","label":"…"}]}}].',
+  '- "calmer, less busy": [{"op":"restyle","hint":"calm: fades, still cameras, few shapes"}] — or set_art on the scenes named.',
+  '- "go back to the bold style": [{"op":"set_style","style":"bold"}]; "the designed look again": [{"op":"design_look"}].',
+].join('\n');
 
 /** One compact answer of the right shape — with no figures, because the example is what a model copies. */
 const EXAMPLE = '{"reply":"Done: the opening is shorter, the list is gone and the video now runs about 20 seconds.","ops":['
@@ -753,6 +1053,8 @@ export function chatPrompt(v: Video, turns: readonly ChatTurn[] | undefined, mes
     '',
     'The shape of an answer, for "shorter, and drop the list" on a storyboard whose scene 3 is a list — the shape only; write your own for this message:',
     EXAMPLE,
+    '',
+    CREATIVE_EXAMPLES,
   ].filter((l, i, all) => l !== '' || all[i - 1] !== '').join('\n');
   return { system: systemOf(v), user: scrub(user) };
 }
@@ -892,7 +1194,8 @@ export type Skip =
   | 'unsourced' // a number nobody gave
   | 'limit' // a relative change to a size or a speed that is already as far as it goes
   | 'video-only' // a part of the look set for the whole video, asked of one scene
-  | 'after-undo'; // an op naming a scene, in an answer whose undo changed which scenes there are
+  | 'after-undo' // an op naming a scene, in an answer whose undo changed which scenes there are
+  | 'not-in-text'; // words to set in the accent that the scene does not say
 
 /**
  * What an answer changed, one record per change, for the panel to say in the
@@ -909,7 +1212,8 @@ export type Change =
   | { what: 'seconds'; scene: number | null; seconds: number }
   | { what: 'transition'; scene: number | null; transition: Transition }
   | { what: 'length'; seconds: number }
-  | { what: 'style'; style: Style }
+  /** A style chosen; `designOff` when it replaced the look the model designed, which is kept for later. */
+  | { what: 'style'; style: Style; designOff?: boolean }
   | { what: 'title'; title: string }
   | { what: 'brand'; name?: string | null; primary?: string | null; accent?: string | null }
   | { what: 'language'; lang: VideoLang }
@@ -939,7 +1243,17 @@ export type Change =
   /** Recorded music asked for; the panel says what it found, or why it found none. */
   | { what: 'found-music'; query: string; title?: string }
   | { what: 'find-failed'; query: string; error: string }
-  | { what: 'skipped'; op: string; why: Skip; scene?: number; field?: LookField };
+  /** A part of one scene's art direction (every scene's when `scene` is null); `value` null gives it back to the style. */
+  | { what: 'art'; field: ArtField; value: string | string[] | null; scene: number | null }
+  /** A look designed for the video: asked for here, `name` filled in by the Chat tab once it is made. */
+  | { what: 'design'; again?: boolean; name?: string }
+  | { what: 'design-failed'; error: string }
+  /** The look designed earlier, put back on instead of the style. */
+  | { what: 'design-on'; name: string }
+  /** Every scene art-directed again: asked for here, `scenes` (how many changed) filled in once it is done. */
+  | { what: 'restyle'; scenes?: number }
+  | { what: 'restyle-failed'; error: string }
+  | { what: 'skipped'; op: string; why: Skip; scene?: number; field?: LookField | ArtField };
 
 export interface Applied {
   /** The fields that changed — everything in one object, so the panel records one undo step. */
@@ -962,6 +1276,20 @@ export interface Applied {
     undo?: number;
     /** Search Openverse with these words, in turn, and put the first track that can be fetched under the video (videomix.ts). */
     findMusic?: { queries: string[]; query: string };
+    /**
+     * Have the model design a look for the video (video.ts `designPrompt`,
+     * videodesign.ts `designIn`) and put it on (`ai: true`, `design`) in the
+     * same step. `again`: one exists, and this is to be a different one — pass
+     * it as `other`. `hint`: what the person wants of it, in their words.
+     */
+    design?: { again: boolean; hint?: string };
+    /**
+     * Have the model art-direct every scene again (video.ts `artPrompt`,
+     * `parseArt`), words untouched, and lay it over the scenes with
+     * `restyled(scenes, arts, keep)`: `keep` is the art this answer set by
+     * hand, by scene id, which stays over the model's.
+     */
+    restyle?: { hint?: string; keep: Record<string, ArtField[]> };
   };
 }
 
@@ -1029,6 +1357,15 @@ const OP_ALIASES: Readonly<Record<string, OpName>> = {
   add_captions: 'captions', remove_captions: 'captions', captions_on: 'captions', captions_off: 'captions', add_subtitles: 'captions', remove_subtitles: 'captions',
   show_watermark: 'watermark', hide_watermark: 'watermark', remove_watermark: 'watermark', add_watermark: 'watermark',
   show_credits: 'credits', hide_credits: 'credits', remove_credits: 'credits', add_credits: 'credits',
+  // The art direction, a designed look, and every scene art-directed again.
+  set_scene_art: 'set_art', art: 'set_art', scene_art: 'set_art', set_art_direction: 'set_art', art_direction: 'set_art', art_direct: 'set_art',
+  edit_art: 'set_art', change_art: 'set_art', update_art: 'set_art', set_creative: 'set_art', creative: 'set_art', style_art: 'set_art',
+  design: 'design_look', design_style: 'design_look', ai_look: 'design_look', ai_design: 'design_look', designed_look: 'design_look',
+  new_design: 'design_look', redesign: 'design_look', design_again: 'design_look', custom_look: 'design_look', make_design: 'design_look',
+  use_design: 'design_look', use_ai_look: 'design_look', design_video: 'design_look', create_look: 'design_look', new_look: 'design_look',
+  restyle_scenes: 'restyle', restyle_all: 'restyle', re_style: 'restyle', redo_art: 'restyle', art_direct_again: 'restyle', art_direct_all: 'restyle',
+  make_creative: 'restyle', more_creative: 'restyle', be_creative: 'restyle', new_art: 'restyle', reanimate: 'restyle',
+  use_style: 'set_style', switch_style: 'set_style', choose_style: 'set_style', pick_style: 'set_style',
 };
 
 /** Op names that carry their own on or off, so `{"op":"hide_captions"}` needs no "on". */
@@ -1067,6 +1404,7 @@ function opOf(o: Record<string, unknown>): OpName | null {
   const n = opName(o);
   if (OP_SET.has(n)) return n as OpName;
   if (LOOK_SHORT[n]) return 'set_look';
+  if (ART_SHORT[n]) return 'set_art';
   return OP_ALIASES[n] ?? null;
 }
 
@@ -1187,8 +1525,14 @@ function seedOf(s: string): number {
   return ((h >>> 0) % 2147483646) + 1;
 }
 
-/** Fields that are not words on screen — an edit of only these does not rewrite a scene in a new language. */
-const NOT_WORDS = new Set(['kind', 'type', 'seconds', 'duration', 'transition', 'imageQuery', 'image_query', 'imageQueries', 'value', 'prefix', 'suffix', 'url', 'unit', 'id', 'picture', 'pictures', 'look']);
+/**
+ * Fields that are not words on screen — an edit of only these does not
+ * rewrite a scene in a new language. The art direction is not words either
+ * (its emphasis names words the scene already says), nor a device's name or a
+ * feature's icon.
+ */
+const NOT_WORDS = new Set(['kind', 'type', 'seconds', 'duration', 'transition', 'imageQuery', 'image_query', 'imageQueries', 'value', 'prefix', 'suffix', 'url', 'unit', 'id', 'picture', 'pictures', 'look',
+  'art', 'effect', 'ground', 'camera', 'shape', 'emphasis', 'size', 'align', 'device', 'icon']);
 
 /** The words a scene puts on screen, joined — every string but the fields that are not words, and less the brand's name, which stays as it is in every language. */
 function screenWords(s: Scene, brandName: string | undefined): string {
@@ -1237,11 +1581,19 @@ function numbersIn(text: string): Set<string> {
   return out;
 }
 
-/** The numbers a scene states as fact: a stat's value, a chart's bars, a timeline's dates. */
+/**
+ * The numbers a scene states as fact: a stat's value, a chart's bars, a
+ * timeline's dates — and any number on a poster ("bigtype"), a scrolling
+ * phrase ("marquee") or a feature's label ("24/7", "50% off"), which set it
+ * as large as a stat or state it as plainly as one.
+ */
 function statedNumbers(s: Scene): number[] {
   if (s.kind === 'stat') return [s.value];
   if (s.kind === 'chart') return s.bars.map((b) => b.value);
   if (s.kind === 'timeline') return s.events.flatMap((e) => [...numbersIn(e.when)].map(Number));
+  if (s.kind === 'bigtype') return [...numbersIn(s.lines.join(' '))].map(Number);
+  if (s.kind === 'marquee') return [...numbersIn(`${s.text} ${s.sub ?? ''}`)].map(Number);
+  if (s.kind === 'features') return [...numbersIn([s.heading ?? '', ...(s.items ?? []).map((it) => it?.label ?? '')].join(' '))].map(Number);
   return [];
 }
 
@@ -1286,7 +1638,7 @@ function sameScene(a: Scene, b: Scene): boolean {
  */
 function keptPictures(old: Scene, s: Scene, askedQuery: boolean): Scene {
   let out = s;
-  if (PICTURED.has(out.kind) && PICTURED.has(old.kind) && old.picture) {
+  if (pictured(out) && pictured(old) && old.picture) {
     const had = old.imageQuery ?? old.picture.query ?? '';
     if (!askedQuery || !out.imageQuery || sameText(out.imageQuery, had)) {
       out = { ...out, picture: old.picture, ...(out.imageQuery || !old.imageQuery ? {} : { imageQuery: old.imageQuery }) };
@@ -1333,7 +1685,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   const original = Array.isArray(video.scenes) ? video.scenes : [];
   const numberOf = new Map(original.map((s, i) => [s.id, i + 1] as const));
   const changes: Change[] = [];
-  const skip = (op: string, why: Skip, scene?: number, field?: LookField) =>
+  const skip = (op: string, why: Skip, scene?: number, field?: LookField | ArtField) =>
     changes.push({ what: 'skipped', op, why, ...(scene ? { scene } : {}), ...(field ? { field } : {}) });
 
   let look: LookSettings | undefined = video.look;
@@ -1355,6 +1707,12 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   let voice = false;
   let download = false;
   let findAsked = false;
+  /** The look the model designs is on (`Video.ai`); a style chosen turns it off, the design kept. */
+  let ai = video.ai === true;
+  let designWant: { again: boolean; hint?: string } | undefined;
+  let restyleWant: { hint?: string } | undefined;
+  /** The parts of each scene's art this answer set by hand, by scene id — kept over a restyle in the same answer. */
+  const artTouched = new Map<string, Set<ArtField>>();
   const touched = new Set<string>();
   /** Changes that name where a scene ends up, filled in when every op has run. */
   const placed: { change: { at?: number; to?: number }; id: string; key: 'at' | 'to' }[] = [];
@@ -1498,6 +1856,122 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
     return Number.isInteger(n) && n > 0 && n < 1000 ? n : undefined;
   };
 
+  // ── the art direction ──
+  /**
+   * The art of one scene, several (a list) or every one ("all", or no scene
+   * named), with the parts an op asks for. Each value is read once, then held
+   * per scene by `artOf` against that scene's own words: an emphasis only
+   * where the scene says those words, a photo behind the words only where
+   * there is a picture — or `query`, words to search one with, which the
+   * scene then takes. For "all" a part a scene cannot take is passed over
+   * quietly, and said once when no scene took it.
+   */
+  const setArt = (op: string, target: unknown, asked: Map<ArtField, unknown>, query?: string): void => {
+    const all = target === undefined || target === null || isAll(target);
+    const named = all
+      ? scenes.map((s) => ({ id: s.id, n: numberOf.get(s.id) ?? 0 }))
+      : (Array.isArray(target) ? target : [target]).map((x) => ({ x, r: find(x) }))
+        .filter(({ x, r }) => { if (!r) skip(op, 'no-scene', asked2(x)); return !!r; })
+        .map(({ r }) => r!);
+    const rtl = isRtl(lang);
+    const values = new Map<ArtField, string | string[] | null>();
+    for (const [field, x] of asked) {
+      const got = artValueOf(field, x, rtl);
+      if (!got) { skip(op, 'invalid', undefined, field); continue; }
+      values.set(field, got.value);
+    }
+    if (!values.size) return;
+    const forAll = new Map<ArtField, string | string[] | null>();
+    const took = new Set<ArtField>();
+    for (const r of named) {
+      const at = indexOf(r.id);
+      if (at < 0) continue;
+      let s = scenes[at];
+      const before: SceneArt = s.art ?? {};
+      const want: Record<string, unknown> = { ...before };
+      for (const [f, v] of values) {
+        if (v === null) delete want[f];
+        else want[f] = v;
+      }
+      // A photo behind the words needs a photo: the scene's own, or one to search for with the words given.
+      let searched = false;
+      if (want.ground === 'photo') {
+        if (query && !all && s.kind !== 'gallery' && s.kind !== 'people' && !sameText(query, s.imageQuery ?? s.picture?.query)) {
+          const { picture: _p, ...rest } = s;
+          s = { ...rest, imageQuery: query } as Scene;
+          searched = true;
+        } else if (!s.picture && !s.imageQuery) {
+          if (before.ground === undefined) delete want.ground; else want.ground = before.ground;
+          if (!all && values.get('ground') === 'photo') skip(op, 'no-picture', r.n);
+        }
+      }
+      let after = checkedArt(want, s) ?? {};
+      // A part the scene cannot take leaves the one it had.
+      const refused = [...values.keys()].filter((f) => want[f] !== undefined && after[f] === undefined);
+      if (refused.length) {
+        for (const f of refused) { if (before[f] === undefined) delete want[f]; else want[f] = before[f]; }
+        after = checkedArt(want, s) ?? {};
+      }
+      const taken: ArtField[] = [];
+      for (const f of values.keys()) {
+        if (f === 'ground' && values.get('ground') === 'photo' && after.ground !== 'photo') continue;
+        if (refused.includes(f)) {
+          if (!all) skip(op, f === 'emphasis' ? 'not-in-text' : 'invalid', r.n, f === 'emphasis' ? undefined : f);
+          continue;
+        }
+        took.add(f);
+        taken.push(f);
+      }
+      // What was asked for, whether or not it changed anything, stays over a restyle in the same answer.
+      const mine = artTouched.get(s.id) ?? new Set<ArtField>();
+      for (const f of taken) mine.add(f);
+      if (taken.length) artTouched.set(s.id, mine);
+      if (stable(after) === stable(before) && !searched) continue;
+      const next = withArt(s, Object.keys(after).length ? after : undefined);
+      scenes = scenes.map((x, i) => (i === at ? next : x));
+      if (searched) { touched.add(next.id); findAsked = true; }
+      for (const f of taken) {
+        if (stable(before[f]) === stable(after[f])) continue;
+        const value = (after[f] ?? null) as string | string[] | null;
+        if (all) { if (!forAll.has(f)) forAll.set(f, value); } else changes.push({ what: 'art', field: f, value, scene: r.n });
+      }
+    }
+    for (const [field, value] of forAll) changes.push({ what: 'art', field, value, scene: null });
+    if (all) {
+      // Asked of every scene and taken by none: said once.
+      if (values.get('ground') === 'photo' && !took.has('ground')) skip(op, 'no-picture');
+      if (values.has('emphasis') && values.get('emphasis') !== null && !took.has('emphasis')) skip(op, 'not-in-text');
+    }
+  };
+
+  /**
+   * The look the model designs, asked for: put back on when one was designed
+   * before and nothing new is asked of it; designed (again) otherwise, by the
+   * Chat tab, which puts it on in the same step.
+   */
+  const designLook = (op: string, o: Record<string, unknown>) => {
+    const hint = hintOf(o.hint ?? o.brief ?? o.idea ?? o.description ?? o.prompt ?? o.words ?? o.mood, lang);
+    const fresh = onOff(o.again ?? o.new ?? o.different ?? o.redesign) === true || /^(new_design|redesign|design_again|new_look)$/.test(op);
+    // One look an answer: this ask replaces an earlier one, and a style chosen before it.
+    for (let i = changes.length - 1; i >= 0; i--) if (['design', 'design-on'].includes(changes[i].what)) changes.splice(i, 1);
+    // A style chosen earlier in this answer stays the tone of the words, but no longer replaces the look.
+    for (let i = 0; i < changes.length; i++) {
+      const c = changes[i];
+      if (c.what === 'style' && c.designOff) changes[i] = { what: 'style', style: c.style };
+    }
+    const had = video.design;
+    if (had && !ai && !fresh && !hint) {
+      ai = true;
+      designWant = undefined;
+      changes.push({ what: 'design-on', name: had.name });
+      return;
+    }
+    const again = !!had;
+    designWant = { again, ...(hint ? { hint } : {}) };
+    ai = true;
+    changes.push({ what: 'design', ...(again ? { again: true } : {}) });
+  };
+
   // Numbers the person gave, in any of the places a number may come from.
   const known = numbersIn([
     str(video.request),
@@ -1505,7 +1979,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
     ...(video.chat ?? []).filter((x) => x?.role === 'you').map((x) => str(x.text)),
     str(said),
     ...original.map((s) => {
-      const { seconds: _s, transition: _t, look: _l, ...words } = fieldsOfScene(s) as Record<string, unknown>;
+      const { seconds: _s, transition: _t, look: _l, art: _a, ...words } = fieldsOfScene(s) as Record<string, unknown>;
       return JSON.stringify(words);
     }),
   ].join('\n'));
@@ -1563,9 +2037,20 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         if (!f) { skip(op, 'invalid', r.n); break; }
         const at = indexOf(r.id);
         const old = scenes[at];
-        const { id: _id, picture: _picture, pictures: _pictures, look: lookSaid, ...safe } = f;
-        // Only a look: a set_scene_look written as an edit.
-        if (!Object.keys(safe).length && isObj(lookSaid)) { setSceneLook(op, r.n, lookAsked(lookSaid, '')); break; }
+        const { id: _id, picture: _picture, pictures: _pictures, look: lookSaid, art: artRaw, ...written } = f;
+        // The art, under "art" or flat among the fields ("effect":"pop"): set after the words, part by part, like set_art.
+        const artSaid = isObj(artRaw) ? artAsked(artRaw, '') : new Map<ArtField, unknown>(artRaw !== undefined && isReset(artRaw) ? ART_FIELDS.map((x) => [x, null] as const) : []);
+        const safe: Record<string, unknown> = {};
+        for (const [k, x] of Object.entries(written)) {
+          if (['effect', 'ground', 'camera', 'shape', 'emphasis', 'size'].includes(k)) { if (!artSaid.has(k as ArtField)) artSaid.set(k as ArtField, x); } else safe[k] = x;
+        }
+        const artQuery = queryOf(safe.imageQuery ?? safe.image_query);
+        // Only a look or only art: a set_scene_look or a set_art written as an edit.
+        if (!Object.keys(safe).length && (isObj(lookSaid) || artSaid.size)) {
+          if (isObj(lookSaid)) setSceneLook(op, r.n, lookAsked(lookSaid, ''));
+          if (artSaid.size) setArt(op, r.n, artSaid);
+          break;
+        }
         const merged = { ...fieldsOfScene(old), ...safe };
         const askedKind = 'kind' in safe || 'type' in safe;
         if ('type' in safe && !('kind' in safe)) merged.kind = safe.type;
@@ -1584,13 +2069,16 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
           changes.push({ what: 'edited', scene: r.n, ...(s.kind !== old.kind ? { kind: s.kind } : {}) });
         }
         if (isObj(lookSaid)) setSceneLook(op, r.n, lookAsked(lookSaid, ''));
+        if (artSaid.size) setArt(op, r.n, artSaid, artQuery);
         break;
       }
       case 'add_scene': {
         if (scenes.length >= MAX_SCENES) { skip(op, 'full'); break; }
         const f = isObj(o.scene) ? o.scene : isObj(o.fields) ? o.fields : fieldsOf(o, ['op', 'type', 'action', 'do', 'after', 'before', 'at', 'position']);
-        let s = f ? sanitizeScene(f, draft(), newId) : null;
+        // Its art read into the vocabularies first; video.ts's repair then holds it to the scene's own words.
+        let s = f ? sanitizeScene(withArtWords(f, isRtl(lang)), draft(), newId) : null;
         if (!s) { skip(op, 'invalid'); break; }
+        if (s.art) artTouched.set(s.id, new Set(Object.keys(s.art) as ArtField[]));
         if (unsourced(s)) { skip(op, 'unsourced'); break; }
         s = { ...s, seconds: tenths(clamp(Math.max(s.seconds, readingSeconds(s)), 2, 20)) };
         // Where: after scene k of the storyboard as it was shown; 0 is first; none is before the close.
@@ -1718,11 +2206,36 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         break;
       }
       case 'set_style': {
-        const st = str(o.style ?? o.value).toLowerCase();
+        const st = str(o.style ?? o.value ?? o.name).toLowerCase();
+        // "The AI's look", as a style: the look the model designs.
+        if (DESIGNED.test(fold(st))) { designLook(name, o); break; }
         if (!(STYLES as readonly string[]).includes(st)) { skip(op, 'invalid'); break; }
-        if (st === style) break;
+        if (st === style && !ai) break;
+        // A named style instead of the designed look: that look is kept, off, for design_look to put back.
         style = st as Style;
-        changes.push({ what: 'style', style });
+        ai = false;
+        designWant = undefined;
+        for (let i = changes.length - 1; i >= 0; i--) if (['design', 'design-on', 'style'].includes(changes[i].what)) changes.splice(i, 1);
+        changes.push({ what: 'style', style, ...(video.ai === true ? { designOff: true } : {}) });
+        break;
+      }
+      case 'design_look': {
+        designLook(name, o);
+        break;
+      }
+      case 'restyle': {
+        if (!scenes.length) { skip(op, 'no-scene'); break; }
+        const hint = hintOf(o.hint ?? o.brief ?? o.idea ?? o.description ?? o.prompt ?? o.words ?? o.mood ?? o.style, lang);
+        restyleWant = hint ? { hint } : {};
+        if (!changes.some((c) => c.what === 'restyle')) changes.push({ what: 'restyle' });
+        break;
+      }
+      case 'set_art': {
+        const want = artAsked(o, name);
+        // "art": null (or "style") gives every part back to the style.
+        if (o.art === null || (typeof o.art === 'string' && isReset(o.art))) for (const f of ART_FIELDS) want.set(f, null);
+        if (!want.size) { skip(op, 'invalid'); break; }
+        setArt(op, lookTarget(o) ?? o.index ?? o.number, want, queryOf(o.imageQuery ?? o.image_query ?? o.query));
         break;
       }
       case 'set_title': {
@@ -1773,7 +2286,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
           // Every scene that shows a picture of its own, searched again with its own words.
           let any = false;
           scenes = scenes.map((s) => {
-            if (PICTURED.has(s.kind) && (s.picture || s.imageQuery)) {
+            if (pictured(s) && (s.picture || s.imageQuery)) {
               const words = s.imageQuery ?? s.picture?.query;
               const w = queryOf(words);
               if (!w) return s;
@@ -1801,7 +2314,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         if (!r) { skip(op, 'no-scene', asked(o)); break; }
         const s = scenes[indexOf(r.id)];
         let next: Scene | null = null;
-        if (PICTURED.has(s.kind)) {
+        if (pictured(s)) {
           const w = q ?? queryOf(s.imageQuery ?? s.picture?.query);
           if (!w) { skip(op, 'invalid', r.n); break; }
           const { picture: _p, ...rest } = s;
@@ -2018,11 +2531,16 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         if (!all && !r) { skip(op, 'no-scene', asked(o)); break; }
         /** The scene without its picture — and without the search, so it is not fetched again — or why not. */
         const bare = (s: Scene, n: number | undefined): Scene | null => {
-          if (PICTURED.has(s.kind)) {
+          if (pictured(s)) {
             if (!s.picture && !s.imageQuery) { if (!all) skip(op, 'no-picture', n); return null; }
             const { picture: _p, imageQuery: _q, ...rest } = s;
             // A picture scene is its picture: without one it needs its caption to show anything.
             if (s.kind === 'image' && !s.caption?.trim()) { if (!all) skip(op, 'unfit', n); return null; }
+            // A photo behind the words goes with the photo: the style's ground again.
+            if (s.art?.ground === 'photo') {
+              const { ground: _g, ...art } = s.art;
+              return withArt(rest as Scene, Object.keys(art).length ? art : undefined);
+            }
             return rest as Scene;
           }
           if (s.kind === 'people') {
@@ -2108,6 +2626,11 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
   if (audio !== (video.audio ?? {})) next.audio = audio;
   if (format !== video.format) next.format = format;
   if (look !== video.look) next.look = look;
+  if (ai !== (video.ai === true)) next.ai = ai;
+
+  // The art set by hand in this answer, by the id of each scene still here, for a restyle to leave alone.
+  const keep: Record<string, ArtField[]> = {};
+  for (const [id, fields] of artTouched) if (indexOf(id) >= 0) keep[id] = [...fields];
 
   // The same change said twice is said once.
   const seen = new Set<string>();
@@ -2125,6 +2648,7 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
       pictures, ...(music ? { music } : {}), ...(logo ? { logo } : {}),
       ...(lookups.length ? { lookups } : {}), ...(voice ? { voice } : {}), ...(download ? { download } : {}),
       ...(undoSteps ? { undo: undoSteps } : {}), ...(found ? { findMusic: found } : {}),
+      ...(designWant ? { design: designWant } : {}), ...(restyleWant ? { restyle: { ...restyleWant, keep } } : {}),
     },
   };
 }

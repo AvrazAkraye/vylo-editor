@@ -11,7 +11,10 @@ import {
   LENGTHS, TRANSITION_FRAMES, blankScene, durationInFrames, formatIn, isRtl, newVideo, parsePlan, parseScene,
   pictureJobs, pictureSlots, picturesOf, planPrompt, qrModules, qrPath, qrText, sanitizeScene, sceneFrames, scenePrompt,
   secondsIn, styleIn, videoLangOf, withPicture,
+  ART_SCHEMA, DESIGN_RULES, DESIGN_SHAPE, MAX_BIGTYPE_LINES, MAX_FEATURES, SCHEMA, artOf, artPrompt, designIn, designPrompt,
+  iconOf, mainTextOf, parseArt, readDesign, readingSeconds, sceneJson,
 } from '../.test-build/video.js';
+import { markPhrases, phraseOf } from '../.test-build/videoemphasis.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -637,6 +640,345 @@ ok('an Arabic-script host is carried as punycode, every byte ASCII', /^https:\/\
   const holeCells = [...hole.matchAll(/M\d+ \d+h(\d+)v1h-\d+z/g)].reduce((a, x) => a + Number(x[1]), 0);
   const under = m.dark.slice(mid - 2, mid + 3).flatMap((r) => r.slice(mid - 2, mid + 3)).filter(Boolean).length;
   ok('a square left out under a logo', holeCells === dark - under);
+}
+
+// ── round 4: creative videos — art direction, four more kinds, a designed look ──
+const ROUND4 = ['bigtype', 'features', 'device', 'marquee'];
+const EFFECTS = ['rise', 'mask', 'pop', 'fade', 'type', 'highlight', 'scale', 'slide', 'glitch'];
+const GROUNDS = ['style', 'accent', 'gradient', 'dark', 'light', 'photo'];
+const CAMERAS = ['still', 'push', 'pull', 'drift', 'tilt'];
+const SHAPES = ['none', 'circle', 'ring', 'dots', 'lines', 'wave', 'burst', 'arrow', 'grid', 'blob'];
+const FONTS = ['geometric', 'condensed', 'classic', 'wide', 'swiss', 'soft', 'book', 'poster', 'calligraphy', 'rounded'];
+const DECOS = ['mesh', 'slab', 'frame', 'glow', 'rule', 'sun'];
+/** WCAG contrast, written again here so the repair is checked by a second hand. */
+const lum = (hex) => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
+    .map((c) => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4; })
+    .reduce((a, c, i) => a + c * [0.2126, 0.7152, 0.0722][i], 0);
+};
+const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((m, k) => k - m); return (x + 0.05) / (y + 0.05); };
+const HEX = /^#[0-9A-F]{6}$/;
+const design = (o = {}) => ({ name: 'Night clinic', why: 'Calm and clear', bg: '#0B1B2B', bg2: '#12304A', fg: '#F4F8FF', accent: '#3DD6C4', accent2: '#F2B84B', font: 'swiss', deco: 'rule', energy: 'calm', ...o });
+
+// A new video that asks for a designed look.
+{
+  const a = newVideo({ id: 'a', now: 1, request: 'r', lang: 'en', format: 'portrait', style: 'modern', seconds: 30, ai: true });
+  ok('newVideo({ai:true}) asks for a designed look', a.ai === true && a.design === undefined);
+  const b = newVideo({ id: 'b', now: 1, request: 'r', lang: 'en', format: 'portrait', style: 'modern', seconds: 30 });
+  ok('without ai, no ai field at all: the style is the look', !('ai' in b));
+  ok('ai:false is the same as none', !('ai' in newVideo({ id: 'c', now: 1, request: 'r', lang: 'en', format: 'portrait', style: 'modern', seconds: 30, ai: false })));
+}
+
+// The prompts: the art director, its vocabularies, the four kinds.
+{
+  const p = planPrompt(video());
+  ok('the model is the art director now, choosing from fixed vocabularies',
+    /art director/.test(p.system) && /fixed vocabularies/.test(p.system) && !/you never choose fonts, colours, positions or animations/.test(p.system));
+  ok('it still never writes code', /never write code, markup or CSS/.test(p.system));
+  ok('the honesty rules are all still there',
+    /Never invent a statistic/.test(p.system) && /Never put words in the mouth of a real person/.test(p.system) && /Never invent one/.test(p.system)
+    && /A "people" scene names only people the request names/.test(p.system) && /award-winning/.test(p.system));
+  ok('features list only what is offered; a device shows no other company\'s app',
+    /"features" scene lists only what the request or the facts say is offered/.test(p.system) && /never another company's app/.test(p.system));
+  ok('the four new kinds are described', ROUND4.every((k) => p.user.includes(`"kind":"${k}"`) && SCHEMA.includes(`"kind":"${k}"`)));
+  ok('bigtype: 1 to 4 lines of 1 to 3 words, the strongest first', SCHEMA.includes('"lines":["1 to 4 lines of 1 to 3 words each, the strongest line first"]'));
+  ok('device: phone or laptop, with a required search for what is on its screen',
+    SCHEMA.includes('"device":"phone|laptop"') && /"imageQuery":"required: what is on the screen/.test(SCHEMA));
+  const iconLine = SCHEMA.split('\n').find((l) => l.startsWith('"icon" is one of:')) ?? '';
+  const icons = iconLine.replace('"icon" is one of: ', '').split('. ')[0].split(', ');
+  ok('every icon is listed by name, sixty of them', icons.length === 60 && ['stethoscope', 'handshake', 'ruler', 'graduation', 'sparkle'].every((i) => icons.includes(i)), icons.length);
+  ok('every word of the art vocabularies is shown, in the schema', [...EFFECTS, ...GROUNDS, ...CAMERAS, ...SHAPES, 'quiet', 'hero'].every((w) => ART_SCHEMA.includes(`"${w}"`)) && SCHEMA.includes(ART_SCHEMA));
+  ok('a photo ground allows a picture search on any kind', /any kind whose "art" has "ground":"photo"/.test(SCHEMA));
+  ok('creative direction: rhythm, a hero hook, a beat, emphasis copied, few shapes, a calm close',
+    /CREATIVE DIRECTION/.test(p.user) && /Never the same "effect" three scenes running/.test(p.user) && /"size":"hero"/.test(p.user)
+    && /"accent" or a "gradient" ground/.test(p.user) && /copied exactly from the scene's headline/.test(p.user)
+    && /at most half of the scenes/.test(p.user) && /outro calm and clear/.test(p.user));
+  ok('a video of 20 seconds or more is asked for a poster or a marquee; one of 15 is not',
+    /At least one "bigtype" or "marquee"/.test(planPrompt(video({ seconds: 20 })).user) && !/At least one "bigtype" or "marquee"/.test(planPrompt(video({ seconds: 15 })).user));
+  const example = p.user.slice(p.user.lastIndexOf('{"title"'));
+  const ex = JSON.parse(example);
+  ok('the example shows art on several scenes, and a new kind', ex.scenes.filter((s) => s.art).length >= 3 && ex.scenes.some((s) => ROUND4.includes(s.kind)));
+  const exPlan = parsePlan(example, video({ seconds: 18 }), newId);
+  ok('the example\'s art survives its own repair, emphasis included',
+    exPlan && exPlan.scenes[0].art?.emphasis?.[0] === 'warm' && exPlan.scenes[0].art.ground === 'photo' && exPlan.scenes[1].kind === 'bigtype' && exPlan.scenes[3].kind === 'features',
+    exPlan && exPlan.scenes.map((s) => s.art));
+  const redo = scenePrompt({ ...video(), scenes: exPlan.scenes }, 1, '').user;
+  ok('a redo may carry art, and keeps the scene\'s own unless asked', /"art":\{"effect":"rise"\}/.test(redo) && /keep the scene's own art/.test(redo));
+}
+{
+  // The look is designed in the plan only when it is asked for and not there yet.
+  const plain = planPrompt(video()).user;
+  const asked = planPrompt(video({ ai: true })).user;
+  const have = planPrompt(video({ ai: true, design: design() })).user;
+  ok('a style video is not asked for a design', !plain.includes('"design":') && !plain.includes(DESIGN_RULES));
+  ok('an AI-look video without one is asked for it in the same reply', asked.includes(`"design":${DESIGN_SHAPE}`) && asked.includes(DESIGN_RULES));
+  ok('one that has its design is not asked again, and is told its look',
+    !have.includes('"design":') && /Look: designed \("Night clinic"\) — a calm pace, the swiss typeface, the "rule" background/.test(have), have.match(/Look:.*/)?.[0]);
+  ok('a design switched off is not the look', !planPrompt(video({ ai: false, design: design() })).user.includes('Look: designed'));
+  ok('the brand\'s colours are the palette\'s starting point',
+    /The brand's colours: #112233 and #FFAA00/.test(planPrompt(video({ ai: true, brand: { name: 'N', primary: '#112233', accent: '#fa0' } })).user));
+  ok('design rules: every typeface with its character, each with all the Arabic and Kurdish letters',
+    FONTS.every((f) => new RegExp(`"${f}" — [^\\n]+: [^\\n]+`).test(DESIGN_RULES)) && /all the Arabic and Kurdish letters/.test(DESIGN_RULES));
+  ok('design rules: the six motifs, the three paces, readable, no neon unless asked',
+    DECOS.every((d) => DESIGN_RULES.includes(`"${d}" — `)) && /"calm"/.test(DESIGN_RULES) && /"punchy"/.test(DESIGN_RULES) && /at least 7:1/.test(DESIGN_RULES) && /No neon/.test(DESIGN_RULES));
+  ok('the shape offers every typeface and motif', FONTS.every((f) => DESIGN_SHAPE.includes(f)) && DECOS.every((d) => DESIGN_SHAPE.includes(d)));
+}
+{
+  const plan = parsePlan(goodJson, video(), newId);
+  const v = video({ title: 'Nuri Clinic', scenes: plan.scenes });
+  const d = designPrompt(v);
+  ok('a look on its own: JSON only, the request, the title and what the scenes say',
+    /JSON only/.test(d.system) && d.user.includes(v.request) && d.user.includes('Title: Nuri Clinic') && d.user.includes('Sick at midnight?') && d.user.includes(DESIGN_SHAPE));
+  const again = designPrompt(v, design());
+  ok('designing again asks for a clearly different look, naming the one it has', /clearly different/.test(again.user) && again.user.includes('"Night clinic"') && !/clearly different/.test(d.user));
+  const pic = { src: 'data:image/jpeg;base64,AAAA', credit: 'c', source: 's', query: 'doctor talking to patient' };
+  const a = artPrompt({ ...v, scenes: v.scenes.map((s, i) => (i === 2 ? { ...s, picture: pic } : s)) });
+  ok('restyle: every scene numbered, words untouched, art only',
+    /^1\. \{/m.test(a.user) && new RegExp(`^${v.scenes.length}\\. \\{`, 'm').test(a.user) && /Do not change a word/.test(a.user) && a.user.includes('{"scenes":[{"i":1,"art":'));
+  ok('restyle: a scene with a picture is marked, one without is not, and no picture data is sent',
+    /^3\. .*— has a picture$/m.test(a.user) && !/^2\. .*has a picture/m.test(a.user) && !a.user.includes('data:image'));
+  ok('restyle carries the creative direction and the art vocabulary', a.user.includes('CREATIVE DIRECTION') && a.user.includes(ART_SCHEMA));
+}
+
+// The four new kinds, read and repaired.
+{
+  const v = video();
+  const k = (x, vv = v) => sanitizeScene(x, vv, newId);
+  const b = k({ kind: 'bigtype', lines: ['Open', 'all night', '<b>every</b> night'] });
+  ok('a poster keeps its lines, cleaned', b?.kind === 'bigtype' && b.lines.join('|') === 'Open|all night|every night', b);
+  ok('four lines at most', MAX_BIGTYPE_LINES === 4 && k({ kind: 'bigtype', lines: ['a', 'b', 'c', 'd', 'e', 'f'] })?.lines.length === 4);
+  ok('a line of more than three words is broken, evenly', k({ kind: 'bigtype', lines: ['We never close tonight'] })?.lines.join('|') === 'We never|close tonight');
+  ok('one string with line breaks is its lines', k({ kind: 'bigtype', text: 'Care\nthat never\nsleeps' })?.lines.length === 3);
+  const sentence = k({ kind: 'bigtype', lines: ['one two three four five six seven eight nine ten eleven twelve thirteen fourteen'] });
+  ok('a sentence too long for a poster is said as a sentence', sentence?.kind === 'kinetic' && sentence.text.startsWith('one two'), sentence);
+  ok('poster, big-type and typography-poster are bigtype; typography is still kinetic',
+    ['poster', 'big-type', 'typography-poster'].every((kind) => k({ kind, lines: ['Big'] })?.kind === 'bigtype') && k({ kind: 'typography', text: 'x' })?.kind === 'kinetic');
+  ok('a poster with no words is nothing', k({ kind: 'bigtype', lines: [] }) === null && k({ kind: 'bigtype' }) === null);
+  ok('a Sorani poster is in Kurdish letters', k({ kind: 'bigtype', lines: ['هەموو ڕۆژێ\u0643'] }, video({ lang: 'ckb' }))?.lines[0] === 'هەموو ڕۆژێ\u06A9');
+}
+{
+  const v = video();
+  const k = (x) => sanitizeScene(x, v, newId);
+  const f = k({ kind: 'features', heading: 'Why us', items: [
+    { icon: 'doctor', label: 'Real doctors' }, { icon: 'price', label: 'Fair prices' }, { icon: 'time', label: 'Open late' }, { icon: 'team', label: 'A kind team' }, { icon: 'star', label: 'Fifth' },
+  ] });
+  ok('features: four at most, each an icon and a label', MAX_FEATURES === 4 && f?.kind === 'features' && f.items.length === 4 && f.heading === 'Why us', f);
+  ok('an icon by the word a model used: doctor, price, time, team', f.items.map((it) => it.icon).join() === 'stethoscope,tag,clock,users', f.items);
+  ok('and the rest of the table',
+    [['fast', 'bolt'], ['love', 'heart'], ['idea', 'bulb'], ['security', 'shield'], ['eco', 'leaf'], ['travel', 'plane'], ['growth', 'trend'], ['goal', 'target'],
+      ['quality', 'medal'], ['award', 'trophy'], ['support', 'chat'], ['email', 'mail'], ['call', 'phone'], ['web', 'globe'], ['shop', 'cart'], ['location', 'pin'],
+      ['money', 'money'], ['school', 'school'], ['food', 'food']].every(([w, id]) => iconOf(w) === id));
+  ok('an icon in any case or as a plural; anything else the sparkle',
+    iconOf('HEART') === 'heart' && iconOf('Doctors') === 'stethoscope' && iconOf('stars') === 'star' && iconOf('hologram') === 'sparkle' && iconOf(undefined) === 'sparkle' && iconOf('constructor') === 'sparkle');
+  ok('labels alone are features with the sparkle', k({ kind: 'features', items: ['Fast', 'Friendly'] })?.items.every((it) => it.icon === 'sparkle'));
+  ok('the heading is optional', k({ kind: 'features', items: [{ icon: 'star', label: 'a' }, { icon: 'star', label: 'b' }] })?.heading === undefined);
+  const one = k({ kind: 'features', heading: 'Why us', items: [{ icon: 'star', label: 'Open late' }] });
+  ok('one feature is a line of words, not a grid', one?.kind === 'kinetic' && one.text.includes('Open late'), one);
+  ok('icons, feature-grid and feature-list are features', ['icons', 'feature-grid', 'feature-list'].every((kind) => k({ kind, items: ['a', 'b'] })?.kind === 'features'));
+  const long = k({ kind: 'features', items: [{ label: '<i>x</i> '.repeat(30) }, { label: 'b' }] });
+  ok('a label is short and clean', long && Array.from(long.items[0].label).length <= 40 && !long.items[0].label.includes('<'), long);
+}
+{
+  const k = (x, format) => sanitizeScene(x, video({ format }), newId);
+  const d = { kind: 'device', heading: 'Book in a tap', text: 'Your visit, from your phone.', imageQuery: 'mobile booking app screen' };
+  ok('a device is a phone in an upright or square video, a laptop in a wide one',
+    k(d, 'portrait')?.device === 'phone' && k(d, 'square')?.device === 'phone' && k(d, 'landscape')?.device === 'laptop');
+  ok('the device named is kept, in the other words for it too',
+    k({ ...d, device: 'laptop' }, 'portrait')?.device === 'laptop' && k({ ...d, device: 'Smartphone' }, 'landscape')?.device === 'phone'
+    && k({ ...d, device: 'computer' }, 'portrait')?.device === 'laptop' && k({ ...d, device: 'toaster' }, 'landscape')?.device === 'laptop');
+  ok('"phone" and "laptop" as kinds are devices of that kind; mockup, app and screen fit the frame',
+    k({ ...d, kind: 'laptop' }, 'portrait')?.device === 'laptop' && k({ ...d, kind: 'phone' }, 'landscape')?.device === 'phone'
+    && ['mockup', 'app', 'screen'].every((kind) => k({ ...d, kind }, 'square')?.kind === 'device' && k({ ...d, kind }, 'square').device === 'phone'));
+  const dv = k(d, 'portrait');
+  ok('a device keeps its screen\'s search, and wants that picture', dv.imageQuery === 'mobile booking app screen' && pictureJobs([dv]).length === 1 && pictureJobs([dv])[0].key === 'main');
+  ok('a device with no words is a picture; with nothing, nothing', k({ kind: 'device', imageQuery: 'app screen' }, 'portrait')?.kind === 'image' && k({ kind: 'device' }, 'portrait') === null);
+}
+{
+  const k = (x) => sanitizeScene(x, video(), newId);
+  const m = k({ kind: 'marquee', text: 'Open every night', sub: 'Nuri Clinic, Erbil' });
+  ok('a marquee keeps its phrase and its line', m?.kind === 'marquee' && m.text === 'Open every night' && m.sub === 'Nuri Clinic, Erbil');
+  ok('ticker, scroll and banner are marquees', ['ticker', 'scroll', 'banner'].every((kind) => k({ kind, text: 'Go' })?.kind === 'marquee'));
+  const long = k({ kind: 'marquee', text: 'this is a whole sentence that nobody could read as it scrolls past the frame' });
+  ok('a sentence is not a marquee: it is said as words', long?.kind === 'kinetic', long);
+  ok('only a line under it is a line of words', k({ kind: 'marquee', sub: 'Just this' })?.kind === 'kinetic');
+}
+{
+  const two = sanitizeScene({ kind: 'features', items: ['a b', 'c d'] }, video(), newId);
+  const four = sanitizeScene({ kind: 'features', items: ['a b', 'c d', 'e f', 'g h'] }, video(), newId);
+  ok('four features take longer to take in than two', readingSeconds(four) > readingSeconds(two));
+  ok('every new kind has a readable length', ROUND4.every((kind) => { const s = blankScene(kind, video(), newId); return readingSeconds(s) >= 2 && s.seconds >= 3; }));
+}
+
+// Art: every field in its vocabulary, emphasis only in the scene's words, a photo only with a picture.
+{
+  const t = 'Care that never sleeps — free for children';
+  const all = artOf({ effect: 'highlight', ground: 'gradient', camera: 'push', shape: 'burst', emphasis: ['free'], align: 'center', size: 'hero' }, t);
+  ok('art: every valid field kept',
+    all && all.effect === 'highlight' && all.ground === 'gradient' && all.camera === 'push' && all.shape === 'burst' && all.emphasis.join() === 'free' && all.align === 'center' && all.size === 'hero', all);
+  ok('every word of each vocabulary is accepted',
+    EFFECTS.every((e) => artOf({ effect: e }, t)?.effect === e) && GROUNDS.every((g) => artOf({ ground: g }, t)?.ground === g)
+    && CAMERAS.every((c) => artOf({ camera: c }, t)?.camera === c) && SHAPES.every((s) => artOf({ shape: s }, t)?.shape === s));
+  const bad = artOf({ effect: 'explode', ground: '#ff0000', camera: 'orbit', shape: '<svg onload=x>', align: 'left', size: 11, emphasis: 'nothing here' }, t);
+  ok('unknown values are dropped; nothing valid is no art at all', bad === undefined, bad);
+  ok('not an object is no art', [null, undefined, 'pop', 3, ['pop']].every((x) => artOf(x, t) === undefined));
+  ok('the words models use: typewriter, zoom-in, centre, big, Sunburst, Fade In',
+    artOf({ effect: 'typewriter' }, t)?.effect === 'type' && artOf({ camera: 'zoom-in' }, t)?.camera === 'push' && artOf({ align: 'centre' }, t)?.align === 'center'
+    && artOf({ size: 'big' }, t)?.size === 'hero' && artOf({ shape: 'Sunburst' }, t)?.shape === 'burst' && artOf({ effect: 'Fade In' }, t)?.effect === 'fade');
+  ok('emphasis: only words the scene says, as the scene writes them', artOf({ emphasis: ['FREE', 'cheap', 'Children'] }, t)?.emphasis.join() === 'free,children');
+  ok('emphasis: whole words only; "leep" is not in "sleeps"', artOf({ emphasis: ['leep', 'car'] }, t) === undefined);
+  ok('emphasis: a short phrase, in its order', artOf({ emphasis: ['never sleeps'] }, t)?.emphasis[0] === 'never sleeps' && artOf({ emphasis: ['sleeps never'] }, t) === undefined);
+  ok('emphasis: at most three, each once', artOf({ emphasis: ['care', 'Care', 'never', 'sleeps', 'free'] }, t)?.emphasis.join() === 'Care,never,sleeps');
+  ok('emphasis: one string with commas is a list, the Arabic comma too', artOf({ emphasis: 'free، children' }, t)?.emphasis.length === 2);
+  ok('emphasis: longer than 30 characters is not an accent', artOf({ emphasis: ['Care that never sleeps — free for children'] }, t) === undefined);
+  ok('emphasis in Arabic matches with or without vowel marks, and keeps the text\'s spelling',
+    artOf({ emphasis: ['مجانا\u064B'] }, 'العلاج مجانا للأطفال')?.emphasis[0] === 'مجانا' && artOf({ emphasis: ['مجانا'] }, 'العلاج مجانا\u064B للأطفال')?.emphasis[0] === 'مجانا\u064B');
+  ok('emphasis in Sorani: ە typed as ه still matches, and a word is never matched in part',
+    artOf({ emphasis: ['خۆرای\u0647'] }, 'چارەسەر خۆرای\u06D5 بۆ منداڵان')?.emphasis[0] === 'خۆرای\u06D5' && artOf({ emphasis: ['خۆرا'] }, 'چارەسەر خۆرای\u06D5 بۆ منداڵان') === undefined);
+  ok('a photo ground is dropped when there is no picture to show', artOf({ ground: 'photo', effect: 'pop' }, t, false)?.ground === undefined && artOf({ ground: 'photo' }, t)?.ground === 'photo');
+}
+{
+  const v = video();
+  const kin = sanitizeScene({ kind: 'kinetic', text: 'We are here at midnight', imageQuery: 'night city street', art: { ground: 'photo', effect: 'mask', emphasis: ['midnight'] } }, v, newId);
+  ok('a photo ground lets any kind search for its picture', kin?.art?.ground === 'photo' && kin.imageQuery === 'night city street' && pictureJobs([kin]).map((j) => j.key).join() === 'main', kin);
+  const shown = withPicture(kin, 'main', { src: 'data:image/jpeg;base64,NIGHT', credit: 'c', source: 's', query: 'night city street' });
+  ok('and its picture goes in and comes out like any other', shown.picture?.src.endsWith('NIGHT') && picturesOf(shown).length === 1 && withPicture(shown, 'main', undefined).picture === undefined);
+  const noQuery = sanitizeScene({ kind: 'kinetic', text: 'x y', art: { ground: 'photo', effect: 'pop' } }, v, newId);
+  ok('a photo ground with nothing to search for is dropped; the rest of the art stays', noQuery?.art?.ground === undefined && noQuery.art.effect === 'pop' && noQuery.imageQuery === undefined);
+  ok('without a photo ground, a search on a kind with no picture is still dropped', sanitizeScene({ kind: 'kinetic', text: 'x', imageQuery: 'night city', art: { ground: 'dark' } }, v, newId)?.imageQuery === undefined);
+  ok('a gallery has its own pictures: no photo ground', sanitizeScene({ kind: 'gallery', imageQueries: ['a beach', 'a road'], imageQuery: 'x y', art: { ground: 'photo' } }, v, newId)?.art === undefined);
+  const flat = sanitizeScene({ kind: 'title', title: 'Open all night', effect: 'scale', size: 'hero', emphasis: ['night'] }, v, newId);
+  ok('art fields written on the scene itself are read as its art', flat?.art?.effect === 'scale' && flat.art.size === 'hero' && flat.art.emphasis[0] === 'night', flat);
+  ok('art with nothing valid is no art', sanitizeScene({ kind: 'kinetic', text: 'x', art: { effect: 'explode' } }, v, newId)?.art === undefined);
+  ok('emphasis is checked against the words the scene draws with it: its heading, not its points',
+    sanitizeScene({ kind: 'bullets', heading: 'Why', points: ['Free parking', 'Open late'], art: { emphasis: ['Free', 'Why', 'nope'] } }, v, newId)?.art?.emphasis.join() === 'Why');
+  ok('…a title\'s, not its subtitle', artOf({ emphasis: ['late', 'Care'] }, mainTextOf({ kind: 'title', title: 'Care that never closes', subtitle: 'Open late' }))?.emphasis.join() === 'Care'
+    && mainTextOf({ kind: 'outro', headline: 'Nuri', cta: 'Book now' }) === 'Nuri' && mainTextOf({ kind: 'stat', value: 3, label: 'clinics' }) === ''
+    && mainTextOf({ kind: 'marquee', text: 'Open late', sub: 'every day' }) === 'Open late' && mainTextOf({ kind: 'device', device: 'phone', heading: 'Book', text: 'in a minute' }) === 'Book');
+  const said = (title, emphasis) => artOf({ emphasis }, title)?.emphasis?.join('|');
+  ok('a phrase is kept as the words in a row, as the text writes them', said('Free delivery for you and for your family', ['FOR YOU']) === 'for you');
+  ok('…and matched as the scene draws its words, split at spaces: "mail" is not in "e-mail", "24" not in "24/7"',
+    said('Write us an e-mail today', ['mail']) === undefined && said('Write us an e-mail today', ['e-mail']) === 'e-mail' && said('Open 24/7', ['24']) === undefined);
+  ok('…without the punctuation around it', said('Fresh, warm bread!', ['bread', 'fresh']) === 'bread|Fresh');
+  ok('…never across two lines of the scene', said('Made for\nyou', ['for you']) === undefined);
+  ok('…in Arabic script, with ە typed as ه', said('قاوەی تازە هەموو بەیانییەک', ['تازه']) === 'تازە' && said('قهوة طازجة كل صباح', ['طازجة']) === 'طازجة');
+  ok('a scene read again by the model carries its art', sceneJson(kin).includes('"art":{') && sceneJson(kin).includes('"ground":"photo"'));
+  ok('mainTextOf: every line a scene shows, defensively',
+    mainTextOf(sanitizeScene({ kind: 'features', heading: 'H', items: ['a', 'b'] }, v, newId)) === 'H\na\nb' && mainTextOf({ kind: 'bigtype', lines: ['x', 'y'] }) === 'x\ny'
+    && mainTextOf(null) === '' && mainTextOf({ kind: 'bullets', heading: 'h', points: 'broken' }) === 'h');
+
+  // A redo keeps the scene's art and the picture behind it, unless it gives its own.
+  const vv = { ...v, scenes: [{ id: 't', kind: 'title', title: 'Hi', seconds: 3, transition: 'fade' }, shown, { id: 'o', kind: 'outro', headline: 'Bye', seconds: 3, transition: 'none' }] };
+  const kept = parseScene('{"kind":"kinetic","text":"Awake at midnight, every night"}', shown, vv, newId);
+  ok('a redo that gives no art keeps the scene\'s own, and the picture behind it',
+    kept?.art?.ground === 'photo' && kept.art.effect === 'mask' && kept.art.emphasis?.[0] === 'midnight' && kept.picture?.src.endsWith('NIGHT'), kept);
+  const moved = parseScene('{"kind":"kinetic","text":"Always awake","art":{"effect":"pop","emphasis":["midnight","awake"]}}', shown, vv, newId);
+  ok('a redo with its own art replaces it, emphasis checked against the new words',
+    moved?.art?.effect === 'pop' && moved.art.ground === undefined && moved.art.emphasis.join() === 'awake' && moved.picture === undefined, moved);
+  const photoAgain = parseScene('{"kind":"kinetic","text":"Still here","art":{"ground":"photo"}}', shown, vv, newId);
+  ok('a redo that asks for the photo ground uses the picture the scene has',
+    photoAgain?.art?.ground === 'photo' && photoAgain.picture?.src.endsWith('NIGHT') && photoAgain.imageQuery === 'night city street', photoAgain);
+}
+
+// Restyle: the model's art for each scene, by index.
+{
+  const plan = parsePlan(goodJson, video(), newId);
+  const v = video({ scenes: plan.scenes });
+  const reply = 'Here you go:\n```json\n' + JSON.stringify({ scenes: [
+    { i: 2, art: { effect: 'type', emphasis: ['midnight'], ground: 'accent' } },
+    { i: 1, art: { effect: 'glitch', size: 'hero', ground: 'photo' } },
+    { i: 4, art: { ground: 'photo', emphasis: ['treat', 'injuries', 'Paris'] } },
+    { i: 2, art: { effect: 'pop' } },
+    { i: 99, art: { effect: 'pop' } },
+    { i: 5, art: { effect: 'nonsense' } },
+  ] }) + '\n```';
+  const r = parseArt(reply, v);
+  ok('restyle: one entry per scene', Array.isArray(r) && r.length === v.scenes.length, r);
+  ok('found by "i", not by order', r[0]?.effect === 'glitch' && r[1]?.effect === 'type');
+  ok('each checked against its own scene\'s words', r[1].emphasis?.join() === 'midnight' && r[3]?.emphasis?.join() === 'treat', r[3]);
+  ok('a photo ground only where the scene has a picture to show', r[0].ground === 'photo' && r[3]?.ground === undefined);
+  ok('a scene given twice keeps the first; out of range or nothing valid is none', r[1].effect === 'type' && r[4] === undefined && r[5] === undefined);
+  const byPlace = parseArt(JSON.stringify({ scenes: [{ art: { effect: 'rise' } }, { art: { effect: 'fade' } }] }), v);
+  ok('without "i", an entry is its place in the list', byPlace?.[0]?.effect === 'rise' && byPlace[1].effect === 'fade' && byPlace[2] === undefined);
+  ok('a bare list is read, and art written on the entry itself', parseArt('[{"i":3,"effect":"slide","camera":"drift"}]', v)?.[2]?.camera === 'drift');
+  ok('garbage is null, so a broken reply never wipes the art',
+    [undefined, '', 'no', '{"scenes":[]}', '{"scenes":[{"i":1,"art":{"effect":"boom"}}]}', '{"title":"x"}'].every((x) => parseArt(x, v) === null));
+}
+
+// A designed look: read, made readable, and found in a reply.
+{
+  const good = readDesign(design());
+  ok('a good design reads as it was written',
+    good && good.bg === '#0B1B2B' && good.fg === '#F4F8FF' && good.accent === '#3DD6C4' && good.font === 'swiss' && good.deco === 'rule' && good.energy === 'calm' && good.name === 'Night clinic', good);
+  ok('null unless all five colours are there', readDesign({ ...design(), accent2: undefined }) === null && readDesign(design({ bg2: 'blue' })) === null && [null, undefined, 'x', 3, []].every((x) => readDesign(x) === null));
+  const short = readDesign(design({ bg: '#fff', bg2: 'f4f4f4', fg: '111', accent: '#c0392b', accent2: 'E67E22' }));
+  ok('colours as #abc, abc, #aabbcc or aabbcc, in any case, come out #AABBCC',
+    short && [short.bg, short.bg2, short.fg, short.accent, short.accent2].every((c) => HEX.test(c)) && short.bg === '#FFFFFF' && short.fg === '#111111' && short.accent2 === '#E67E22', short);
+  const pale = readDesign(design({ bg: '#FFFFFF', bg2: '#F2F6FF', fg: '#9DB8F0', accent: '#F5F8FF' }));
+  ok('words too pale on white are darkened to 7:1, and stay blue',
+    ratio(pale.fg, pale.bg) >= 7 && ratio(pale.fg, pale.bg2) >= 4.5 && (parseInt(pale.fg.slice(5, 7), 16) > parseInt(pale.fg.slice(1, 3), 16)), pale);
+  ok('an accent lost in the ground is moved toward the words until it shows', ratio(pale.accent, pale.bg) >= 2.5 && pale.accent !== '#F5F8FF');
+  const split = readDesign(design({ bg: '#0A0A14', bg2: '#F5F0E6', fg: '#FFFFFF' }));
+  ok('a dark ground shading into a light one: the second is brought toward the first until the words read on both',
+    split && ratio(split.fg, split.bg) >= 7 && ratio(split.fg, split.bg2) >= 4.5 && split.bg2 !== '#F5F0E6', split);
+  const grey = readDesign(design({ bg: '#777777', bg2: '#777777', fg: '#808080', accent: '#787878' }));
+  ok('a mid-grey ground nothing reads on at 7:1 is itself moved until the words do', ratio(grey.fg, grey.bg) >= 7 && ratio(grey.fg, grey.bg2) >= 4.5 && ratio(grey.accent, grey.bg) >= 2.5, grey);
+  let seed = 7;
+  const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+  const hex = () => '#' + Math.floor(rnd() * 0xffffff).toString(16).padStart(6, '0');
+  let wrong = null;
+  for (let i = 0; i < 300 && !wrong; i++) {
+    const d = readDesign({ bg: hex(), bg2: hex(), fg: hex(), accent: hex(), accent2: hex() });
+    if (!d || ratio(d.fg, d.bg) < 7 || ratio(d.fg, d.bg2) < 4.5 || ratio(d.accent, d.bg) < 2.5 || ![d.bg, d.bg2, d.fg, d.accent, d.accent2].every((c) => HEX.test(c))) wrong = d;
+  }
+  ok('three hundred random palettes all come out readable', wrong === null, wrong);
+  ok('a typeface by id, by label or by family name; anything else geometric',
+    readDesign(design({ font: 'calligraphy' })).font === 'calligraphy' && readDesign(design({ font: 'Classic serif' })).font === 'classic'
+    && readDesign(design({ font: 'Playfair Display' })).font === 'classic' && readDesign(design({ font: 'Comic Sans' })).font === 'geometric' && readDesign(design({ font: undefined })).font === 'geometric');
+  ok('a motif and a pace from their lists, in any case; else mesh and lively',
+    readDesign(design({ deco: 'SUN', energy: 'Punchy' })).deco === 'sun' && readDesign(design({ energy: 'Punchy' })).energy === 'punchy'
+    && readDesign(design({ deco: 'confetti' })).deco === 'mesh' && readDesign(design({ energy: 'frantic' })).energy === 'lively');
+  const words = readDesign(design({ name: '  <b>Night</b>\n  clinic   blue and a very long name that goes on  ', why: 'x '.repeat(200) }));
+  ok('name and why: one plain line each, 40 and 160 characters at most',
+    words.name.startsWith('Night clinic blue') && !words.name.includes('<') && Array.from(words.name).length <= 40 && Array.from(words.why).length <= 160 && !/\s\s/.test(words.why), words);
+  ok('a bidi override or a zero-width space in a name is removed, not shown', readDesign(design({ name: 'Night\u202E \u200Bclinic' })).name === 'Night clinic');
+}
+{
+  const plan = 'Sure!\n```json\n' + JSON.stringify({ title: 'T', design: design({ name: 'From the plan' }), scenes: [{ kind: 'title', title: 'Hi' }] }) + '\n```';
+  ok('designIn: the design of a whole plan', designIn(plan)?.name === 'From the plan');
+  ok('designIn: a reply that is only a design', designIn(JSON.stringify(design({ name: 'Alone' })))?.name === 'Alone');
+  ok('designIn: a plan without one, or garbage, is null', designIn(goodJson) === null && designIn('no') === null && designIn(undefined) === null);
+  ok('the storyboard is still read from a reply that carries a design', parsePlan(plan, video(), newId)?.scenes[0].title === 'Hi');
+}
+
+// A scene of the four new kinds added by hand.
+for (const lang of LANGS) {
+  const v = video({ lang });
+  const scenes = ROUND4.map((k) => blankScene(k, v, newId));
+  ok(`${lang}: the four new kinds have blanks of their kind that survive their own repair`,
+    scenes.every((s, i) => s.kind === ROUND4[i] && sanitizeScene(s, v, newId)?.kind === s.kind), scenes.map((s) => s.kind));
+  ok(`${lang}: readable seconds, fresh ids, a poster of short lines, three features with icons`,
+    scenes.every((s) => s.seconds >= 3 && s.seconds <= 20) && new Set(scenes.map((s) => s.id)).size === 4
+    && scenes[0].lines.every((l) => l.split(' ').length <= 3) && scenes[1].items.length === 3 && scenes[1].items.every((it) => iconOf(it.icon) === it.icon));
+  const words = scenes.map((s) => mainTextOf(s)).join(' ');
+  if (lang === 'ar') ok('ar: the four kinds\' placeholders in Arabic letters', /[\u0600-\u06FF]/.test(words) && !/[\u06CC\u06A9\u06D5]/.test(words));
+  if (lang === 'ckb' || lang === 'kmr') ok(`${lang}: the four kinds' placeholders in Kurdish letters`, /[\u06D5\u06CE]/.test(words) && !/[\u064A\u0643\u0629]/.test(words));
+  if (lang === 'en') ok('en: the four kinds\' placeholders in English', /[A-Za-z]/.test(words) && !/[\u0600-\u06FF]/.test(words));
+}
+ok('Badini and Sorani new placeholders differ', mainTextOf(blankScene('features', video({ lang: 'ckb' }), newId)) !== mainTextOf(blankScene('features', video({ lang: 'kmr' }), newId)));
+ok('a blank device fits the frame: a phone upright, a laptop wide',
+  blankScene('device', video({ format: 'portrait' }), newId).device === 'phone' && blankScene('device', video({ format: 'landscape' }), newId).device === 'laptop');
+ok('a blank marquee scrolls the brand\'s name when there is one', blankScene('marquee', video({ brand: { name: 'Nuri' } }), newId).text === 'Nuri');
+
+// ── emphasis as the scenes draw it ─────────────────────────────────────────
+{
+  const marks = (line, ...asked) => markPhrases(line.split(' '), asked.map(phraseOf)).map((m) => (m ? 1 : 0)).join('');
+  ok('a phrase lights where its words stand together, not every copy of each word', marks('Free delivery for you and for your family', 'for you') === '00110000');
+  ok('…every place it stands', marks('for you and for you', 'for you') === '11011');
+  ok('a word lights with the punctuation around it', marks('Fresh, warm bread!', 'bread') === '001');
+  ok('a bare mark between a phrase\'s words is part of it', marks('salt & pepper', 'salt pepper') === '111');
+  ok('no emphasis lights nothing', marks('Open late') === '00');
+  ok('a phrase across the lines a text was broken into lights on both', markPhrases(['Made', 'for', 'you'], [phraseOf('for you')]).join() === 'false,true,true');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

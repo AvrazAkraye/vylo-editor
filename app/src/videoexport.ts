@@ -470,6 +470,11 @@ export function wordsOf(s: Scene, v: Pick<Video, 'brand'>): string[] {
     })]; break;
     case 'logo': out = [v?.brand?.name, s.tagline]; break;
     case 'qr': out = [s.heading, s.url]; break;
+    // A poster's lines are one phrase broken for size, and read as one.
+    case 'bigtype': out = [list(s.lines).map(str).filter(Boolean).join(' ')]; break;
+    case 'features': out = [s.heading, ...list(s.items).map((it) => ((it ?? {}) as { label?: unknown }).label)]; break;
+    case 'device': out = [s.heading, s.text]; break;
+    case 'marquee': out = [s.text, s.sub]; break;
     default: out = ['title', 'heading', 'headline', 'text', 'caption', 'subtitle', 'tagline'].map((k) => x[k]);
   }
   return out.map(str).filter(Boolean);

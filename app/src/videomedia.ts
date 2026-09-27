@@ -41,6 +41,7 @@
  */
 
 import type { Format, GalleryScene, Picture, Scene } from './videotypes';
+import { picturesOf as shownPicturesOf } from './video';
 
 /** One picture a search found, before its bytes are fetched. */
 export interface Candidate {
@@ -818,12 +819,18 @@ export function withPicturesOf(cur: Scene, found: Scene): Scene {
   return found.picture && !cur.picture ? { ...cur, picture: found.picture } : cur;
 }
 
-/** The pictures' credit lines, each once, in the order the scenes show them — a gallery's and each person's included. */
+/**
+ * The pictures' credit lines, each once, in the order the scenes show them — a
+ * gallery's and each person's included. Only pictures a scene shows: one kept
+ * on a scene whose photo background was turned off again is not on screen, and
+ * a credit for it would name a picture nobody sees (video.ts `picturesOf`,
+ * which the closing credits card uses too).
+ */
 export function creditsOf(scenes: Scene[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const s of Array.isArray(scenes) ? scenes : []) {
-    for (const p of picturesOf(s)) {
+    for (const p of shownPicturesOf(s)) {
       const line = str(p?.credit).trim();
       if (!line || seen.has(line)) continue;
       seen.add(line);
