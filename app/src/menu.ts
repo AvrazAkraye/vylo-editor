@@ -28,7 +28,7 @@ export const EDGE = 8;
  * A menu taller than the window is clamped rather than flipped, since neither
  * side fits; it starts at the top edge and scrolls.
  */
-export function place(at: Point, size: Size, view: Size, edge = EDGE): Point {
+export function place(at: Point, size: Size, view: Size, edge = EDGE, rtl = false): Point {
   const fit = (start: number, extent: number, limit: number): number => {
     // Bigger than the window: pin to the near edge and let it scroll.
     if (extent >= limit - edge * 2) return edge;
@@ -43,7 +43,10 @@ export function place(at: Point, size: Size, view: Size, edge = EDGE): Point {
     // Neither side fits: sit against the far edge.
     return Math.max(edge, limit - edge - extent);
   };
-  return { x: fit(at.x, size.w, view.w), y: fit(at.y, size.h, view.h) };
+  // Right to left, a menu opens to the left of the pointer, as the reading
+  // does: the same fitting, done in the mirror and turned back.
+  const x = rtl ? view.w - fit(view.w - at.x, size.w, view.w) - size.w : fit(at.x, size.w, view.w);
+  return { x, y: fit(at.y, size.h, view.h) };
 }
 
 /** What a menu is made of. */

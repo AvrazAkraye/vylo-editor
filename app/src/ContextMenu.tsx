@@ -56,7 +56,7 @@ export function ContextMenu({ at, items: raw, t, onPick, onClose, tag, onTag, la
     if (!el) return;
     const r = el.getBoundingClientRect();
     setWhere(place(at, { w: r.width, h: r.height },
-      { w: window.innerWidth, h: window.innerHeight }));
+      { w: window.innerWidth, h: window.innerHeight }, undefined, document.documentElement.dir === 'rtl'));
   }, [at.x, at.y, items.length]);
 
   useEffect(() => {

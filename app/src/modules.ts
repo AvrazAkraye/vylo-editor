@@ -104,13 +104,16 @@ export function labelOf(id: ModuleId): string {
 }
 
 /**
- * Which physical edge the rail sits against.
+ * Which edge the rail sits against, as the reading direction names it:
+ * `'left'` is the edge a line starts from — the left in English, the right in
+ * Arabic, Sorani and Badini — and `'right'` the edge it ends at.
  *
- * Physical, not logical, and that is the awkward but correct choice. Somebody
- * who asks for the rail on the left means the left of their screen, in every
- * language — the rail is furniture, not text, and it does not flip when the
- * prose does. In a right-to-left interface the flex order has to be inverted to
- * keep it there, which `railFirst` below works out.
+ * It was physical until 0.126.0, on the theory that the rail is furniture and
+ * does not flip with the prose. The owner, working in Arabic, asked the
+ * opposite: when the interface turns right to left, everything turns, the
+ * rail and its sidebar included. The stored values kept their names so no
+ * saved layout had to be rewritten; the settings row names the physical edge
+ * each one lands on in the current language.
  */
 export type Side = 'left' | 'right';
 
@@ -155,14 +158,16 @@ export function docked(layout: Layout, where: Dock): Module[] {
 }
 
 /**
- * Whether the rail is the first child of the shell.
- *
- * A left-to-right row lays its first item on the left; a right-to-left row lays
- * it on the right. So "keep the rail on the left" means *first* in one and
- * *last* in the other, and this is the one place that knows it.
+ * Whether the rail is the first child of the shell: the row lays its first
+ * item where reading starts, so the rail at the start is first in every
+ * direction. `dir` is kept in the signature for the callers that pass it.
  */
-export const railFirst = (side: Side, dir: 'ltr' | 'rtl'): boolean =>
-  dir === 'rtl' ? side === 'right' : side === 'left';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export const railFirst = (side: Side, _dir?: 'ltr' | 'rtl'): boolean => side === 'left';
+
+/** The physical edge a side lands on in a reading direction, for naming it. */
+export const edgeOf = (side: Side, dir: 'ltr' | 'rtl'): 'left' | 'right' =>
+  (side === 'left') === (dir === 'ltr') ? 'left' : 'right';
 
 /**
  * What a new window shows: four sections, not fourteen.

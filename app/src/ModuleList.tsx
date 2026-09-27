@@ -3,7 +3,7 @@ import { useReorder } from './useReorder';
 import {
   DEFAULT, dock, dockOf, isLast, isOn, moduleOf, moveTo, reset, setSide, toggle,
   type Layout, type ModuleId, type Side,
-} from './modules';
+ edgeOf } from './modules';
 
 /**
  * The app's own sections, listed so they can be rearranged.
@@ -30,14 +30,19 @@ interface Props {
  * two options is a click and then a second click to say what you could have
  * said in one.
  */
+/** The direction the page is laid out in now. */
+const pageDir = (): 'ltr' | 'rtl' => (document.documentElement.dir === 'rtl' ? 'rtl' : 'ltr');
+
 export function RailSide({ layout, onChange, t }: Props) {
   return (
     <span className="tk-pills">
+      {/* Named by the edge each lands on now: in Arabic or Kurdish the
+          start side is the right, and the button says so. */}
       {(['left', 'right'] as Side[]).map((side) => (
         <button key={side} className={`tk-pill ${layout.side === side ? 'on' : ''}`}
                 aria-pressed={layout.side === side}
                 onClick={() => onChange(setSide(layout, side))}>
-          {t(side === 'left' ? 'Left' : 'Right')}
+          {edgeOf(side, pageDir()) === 'left' ? t('Left') : t('Right')}
         </button>
       ))}
     </span>

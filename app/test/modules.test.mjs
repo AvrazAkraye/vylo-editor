@@ -10,7 +10,7 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import {
   MODULES, DEFAULT, INITIAL_ON, KEY, OLD_KEY, migrate, moduleOf, labelOf, read, write, isOn, enabled,
-  toggle, isLast, moveTo, reset, active, setSide, railFirst, dock, dockOf, docked,
+  toggle, isLast, moveTo, reset, active, setSide, railFirst, edgeOf, dock, dockOf, docked,
 } from '../.test-build/modules.js';
 
 let pass = 0, fail = 0;
@@ -260,10 +260,11 @@ ok('and neither does reordering', moveTo(setSide(read(null), 'right'), 0, 2).sid
 // it on the right. So "keep it on the left" is *first* in one and *last* in the
 // other, and getting this backwards puts the rail on the wrong edge for every
 // Arabic and Kurdish user without anybody who reads English ever seeing it.
-ok('left is the first child in a left-to-right window', railFirst('left', 'ltr') === true);
-ok('and the last child in a right-to-left one', railFirst('left', 'rtl') === false);
-ok('right is the last child in a left-to-right window', railFirst('right', 'ltr') === false);
-ok('and the first child in a right-to-left one', railFirst('right', 'rtl') === true);
+// The side follows the reading direction: the start is first in both.
+ok('the start side is the first child in a left-to-right window', railFirst('left', 'ltr') === true);
+ok('and in a right-to-left one — where it lands on the right', railFirst('left', 'rtl') === true && edgeOf('left', 'rtl') === 'right');
+ok('the end side is the last child in both', railFirst('right', 'ltr') === false && railFirst('right', 'rtl') === false);
+ok('and names the physical edge it lands on', edgeOf('right', 'ltr') === 'right' && edgeOf('right', 'rtl') === 'left' && edgeOf('left', 'ltr') === 'left');
 
 // ── the second sidebar ────────────────────────────────────────────────────
 ok('everything starts beside the rail', ids.every((id) => dockOf(read(null), id) === 'rail'));

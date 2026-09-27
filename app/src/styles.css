@@ -403,6 +403,10 @@ body{ background:var(--bg); color:var(--ink); font-family:var(--sans); font-size
   border-radius:var(--r-2); border:1px solid var(--rule); background:var(--panel-2);
   color:var(--ink); cursor:pointer; max-width:46ch; overflow:hidden;
   text-overflow:ellipsis; white-space:nowrap;
+  /* Its own width: squeezed by a crowded bar it cut its icon in half — the
+     longer Arabic and Kurdish labels made that the usual case. The search
+     field is what gives way. */
+  flex:none;
 }
 .ghost{
   /* Inline-flex, not inline. A ghost button holding an icon and a word laid
@@ -4748,8 +4752,12 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .seg.space button{ padding:3px var(--sp-5); font-weight:500; }
 /* Research, Video and Slides in the same switch: an icon, and they open over the window. */
 .seg.space button.seg-studio{ display:inline-flex; align-items:center; gap:var(--sp-2); }
-/* A narrower window keeps their icons and drops their names; the title still says them. */
+.seg.space button{ white-space:nowrap; }
+/* A narrower window keeps their icons and drops their names; the title still says them.
+   Arabic and Kurdish names are longer ("البحث العلمي", "العروض التقديمية"), so
+   they give way sooner, before they crowd the Open folder button off the bar. */
 @media (max-width: 1180px){ .seg-studio-name{ display:none; } }
+@media (max-width: 1560px){ :root[dir="rtl"] .seg-studio-name{ display:none; } }
 /* One segment, two halves: the digits say how many panes, the icons say how
    they are arranged, and the hairline is the join. It replaced three separate
    controls — a ladder, six word-buttons and a loose split icon — that between

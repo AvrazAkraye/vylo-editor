@@ -59,7 +59,7 @@ import { Icon } from './Icon';
 import { Rail } from './Rail';
 import {
   KEY as MODULES_KEY, OLD_KEY as OLD_MODULES_KEY, dock as dockModule, dockOf, docked,
-  enabled as enabledModules, labelOf, migrate as migrateModules, railFirst,
+  enabled as enabledModules, edgeOf, labelOf, migrate as migrateModules, railFirst,
   toggle as toggleModule, write as writeModules,
   type Layout as ModuleLayout, type ModuleId,
 } from './modules';
@@ -666,10 +666,9 @@ export function App() {
     const saved = localStorage.getItem(MODULES_KEY);
     const old = localStorage.getItem(OLD_MODULES_KEY);
     const layout = migrateModules(saved, old);
-    // A first run in Arabic or Kurdish puts the sidebar where those readers
-    // start a page: on the right. Somebody who ever saved a layout keeps
-    // theirs — a saved "left" cannot be told from a chosen one.
-    return !saved && !old && dirFor(storedLang()) === 'rtl' ? { ...layout, side: 'right' } : layout;
+    // The side is where reading starts (modules.ts), so Arabic and Kurdish
+    // put the sidebar on the right with no special case here.
+    return layout;
   });
   /**
    * The second sidebar: which docked module it shows, whether it is open, and
@@ -1330,7 +1329,8 @@ export function App() {
   useEffect(() => {
     const move = (e: MouseEvent) => {
       if (!resizingR.current) return;
-      const onFarEdge = railFirst(modules.side, dirFor(lang));
+      // The rail on the physical left puts this second sidebar on the right.
+      const onFarEdge = edgeOf(modules.side, dirFor(lang)) === 'left';
       const w = onFarEdge ? window.innerWidth - e.clientX : e.clientX;
       setRightW(Math.min(560, Math.max(200, w)));
     };
@@ -1805,11 +1805,15 @@ export function App() {
     return () => { gone = true; off?.(); selfWrites.current.clear(); };
   }, [root]);
 
-  // Sidebar width, dragged from the divider.
+  // Sidebar width, dragged from the divider — measured from whichever edge
+  // the rail sits on: the left in English, the right in Arabic and Kurdish.
+  const railOnLeft = useRef(true);
+  railOnLeft.current = edgeOf(modules.side, dirFor(lang)) === 'left';
   useEffect(() => {
     const move = (e: MouseEvent) => {
       if (!resizing.current) return;
-      const w = Math.min(460, Math.max(180, e.clientX - RAIL_W));
+      const from = railOnLeft.current ? e.clientX : window.innerWidth - e.clientX;
+      const w = Math.min(460, Math.max(180, from - RAIL_W));
       setSidebarW(w);
     };
     const up = () => {
@@ -5144,9 +5148,10 @@ export function App() {
               title={t('Drag to resize — double-click for the usual width')}
               onDoubleClick={() => setSidebarW(SIDEBAR_W)}
               onKeyDown={(e) => {
-                // Physical, like the drag: this edge moves left and right on
-                // the screen, and it does so in every language.
-                const by = e.key === 'ArrowLeft' ? -DIVIDER_STEP : e.key === 'ArrowRight' ? DIVIDER_STEP : 0;
+                // Physical, like the drag: the arrow toward the middle of the
+                // window widens the sidebar, on whichever edge it sits.
+                const toward = railOnLeft.current ? 1 : -1;
+                const by = (e.key === 'ArrowLeft' ? -DIVIDER_STEP : e.key === 'ArrowRight' ? DIVIDER_STEP : 0) * toward;
                 if (!by) return;
                 e.preventDefault();
                 setSidebarW((w) => Math.min(SIDE_MAX, Math.max(SIDE_MIN, w + by)));

@@ -127,5 +127,15 @@ ok('the swatch row counts as content, so its dividers are kept', (() => {
   return out.length === 3;
 })());
 
+// Right to left, a menu opens to the left of the pointer.
+{
+  const p = place({ x: 600, y: 100 }, SIZE, VIEW, undefined, true);
+  ok('rtl: the menu ends at the pointer', p.x + SIZE.w === 600, p);
+  const q = place({ x: 20, y: 100 }, SIZE, VIEW, undefined, true);
+  ok('rtl: no room to the left, it opens to the right', q.x === 20, q);
+  const r = place({ x: 600, y: 100 }, SIZE, VIEW);
+  ok('ltr is unchanged: it starts at the pointer', r.x === 600, r);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
