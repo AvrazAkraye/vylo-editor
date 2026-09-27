@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.129.1.
+version 0.130.0.
 
 ---
 
@@ -823,6 +823,20 @@ with no approval. On Windows the plan is `cmd /C start "" ms-screenclip:`, and
 `cmd` there **is** resolved through `PATH` like any other Windows process
 launch.
 
+A video made from a link starts `curl`, `yt-dlp` and `ffmpeg` without asking
+each time, and earns that the same way: the address is one **you** wrote in the
+request, never one a model produced (the plan's reply is never searched for
+links), and the three commands behind it — `link_fetch`, `link_bytes` and
+`clip_download` in `app/src-tauri/src/links.rs` — are absent from the tool
+schema like the export commands. Each program gets an explicit argument list,
+no shell, with the address last after `--` so it can never be read as an
+option; `yt-dlp` runs with `--ignore-config`, so no config file can add
+`--exec`. Only `http` and `https` addresses are accepted, a download is cut to
+at most a minute and 60 MiB, and it happens in a temporary folder that is
+removed afterwards; the clip is kept inside the video, not on your disk. The
+programs are found on `PATH`, then in `/opt/homebrew/bin` and
+`/usr/local/bin`, so a `yt-dlp` earlier in your `PATH` is the one that runs.
+
 ---
 
 ## What is stored outside your project
@@ -977,7 +991,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.129.1 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.130.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -1002,6 +1016,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.129.1. Every statement above was read out of the code. If
+*Last checked against 0.130.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

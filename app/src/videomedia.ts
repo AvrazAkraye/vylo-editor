@@ -40,7 +40,7 @@
  * on each, and a stop that stops. One scene's failure never fails the others.
  */
 
-import type { Format, GalleryScene, Picture, Scene } from './videotypes';
+import type { Clip, Format, GalleryScene, Picture, Scene } from './videotypes';
 import { picturesOf as shownPicturesOf } from './video';
 
 /** One picture a search found, before its bytes are fetched. */
@@ -826,10 +826,17 @@ export function withPicturesOf(cur: Scene, found: Scene): Scene {
  * a credit for it would name a picture nobody sees (video.ts `picturesOf`,
  * which the closing credits card uses too).
  */
-export function creditsOf(scenes: Scene[]): string[] {
+export function creditsOf(scenes: Scene[], clips: readonly Clip[] = []): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   for (const s of Array.isArray(scenes) ? scenes : []) {
+    // A clip a scene shows is credited as its source names it: the title, who made it, where, its licence.
+    if (s?.kind === 'clip') {
+      const c = clips.find((x) => x.id === s.clip);
+      const line = c ? [c.title, c.author, c.site, c.license].map((x) => str(x).trim()).filter(Boolean).join(' — ') : '';
+      if (line && !seen.has(line)) { seen.add(line); out.push(line); }
+      continue;
+    }
     for (const p of shownPicturesOf(s)) {
       const line = str(p?.credit).trim();
       if (!line || seen.has(line)) continue;

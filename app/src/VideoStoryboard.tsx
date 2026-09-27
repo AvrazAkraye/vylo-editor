@@ -56,6 +56,7 @@ export function kindName(k: SceneKind, t: T): string {
   if (k === 'features') return t('Features');
   if (k === 'device') return t('Phone or laptop');
   if (k === 'marquee') return t('Scrolling words');
+  if (k === 'clip') return t('Video clip');
   return t('Closing');
 }
 
@@ -79,6 +80,7 @@ export function kindAbout(k: SceneKind, t: T): string {
   if (k === 'features') return t('Two to four features, each an icon with a short label.');
   if (k === 'device') return t('Your picture on a phone or laptop screen, with a heading beside it.');
   if (k === 'marquee') return t('One short phrase, huge, scrolling across the frame again and again.');
+  if (k === 'clip') return t('A piece of a real video from a link you gave, across the whole frame, with a caption.');
   return t('The brand, what to do next, and where.');
 }
 
@@ -117,6 +119,7 @@ export function gistOf(s: Scene): string {
     case 'features': return s.heading || s.items.map((x) => x.label).join(' · ');
     case 'device': return s.heading;
     case 'marquee': return s.text;
+    case 'clip': return s.caption ?? '';
     default: return s.headline;
   }
 }
@@ -1146,6 +1149,36 @@ function SceneFields({ t, scene, video, onChange, onError, disabled }: {
     );
   }
   if (s.kind === 'marquee') return <>{text(t('Words that scroll'), s.text, 'text', true)}{text(t('Line under it'), s.sub, 'sub', true)}</>;
+  if (s.kind === 'clip') {
+    const clips = video.clips ?? [];
+    const cur = clips.find((c) => c.id === s.clip);
+    if (!clips.length) return <p className="vid-note vid-wide">{t('No clips yet: put a video link in the request.')}</p>;
+    return (
+      <>
+        <label className="vid-f vid-wide">
+          <span>{t('Which clip')}</span>
+          <select value={cur ? cur.id : ''} disabled={disabled} onChange={(e) => onChange({ clip: e.target.value, from: 0 } as Partial<Scene>)}>
+            {!cur && <option value="">—</option>}
+            {clips.map((c) => <option key={c.id} value={c.id}>{`${c.title || c.site} · ${Math.round(c.seconds)} s`}</option>)}
+          </select>
+        </label>
+        <label className="vid-f">
+          <span>{t('Start at (seconds)')}</span>
+          <input type="number" min={0} max={cur ? Math.max(0, Math.floor(cur.seconds - 2)) : 0} step={0.5} value={s.from ?? 0} disabled={disabled || !cur}
+                 onChange={(e) => {
+                   const n = Number(e.target.value);
+                   if (Number.isFinite(n) && cur) onChange({ from: Math.max(0, Math.min(cur.seconds - 2, n)) } as Partial<Scene>);
+                 }} />
+        </label>
+        <label className="vid-f vid-check">
+          <input type="checkbox" checked={s.sound === true} disabled={disabled || !cur?.hasAudio}
+                 onChange={(e) => onChange({ sound: e.target.checked || undefined } as Partial<Scene>)} />
+          <span>{t('Its own sound')}</span>
+        </label>
+        {text(t('Caption'), s.caption, 'caption', true)}
+      </>
+    );
+  }
   return (
     <>
       {text(t('Headline'), s.headline, 'headline', true)}

@@ -99,6 +99,13 @@ const ABSENT = [
   // while the bytes still are what was written — and no tool can call it, since
   // a model that could open files would be launching programs by another name.
   'open_exported',
+  // Fetch a page, an image on it, or a clip of a video — with curl, yt-dlp and
+  // ffmpeg — from a link the person typed or a page such a link pointed at.
+  // Absent so a URL the model wrote can never be downloaded: they start other
+  // programs, and the rule is that no model output reaches a shell or the disk
+  // without a human approving it. links.rs passes every URL after `--` with an
+  // explicit argv and refuses anything that is not http(s).
+  'link_fetch', 'link_bytes', 'clip_download',
   // The file operations and the git writes. These have been absent from the
   // schema since G1 and M-whatever respectively, and until now they were absent
   // by nobody's decision — no test said they had to be. `create_file`'s own doc

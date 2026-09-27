@@ -38,6 +38,7 @@ mod checkpoint;
 mod drafts;
 mod history;
 mod index;
+mod links;
 mod mcp;
 mod pdf;
 mod pty;
@@ -2074,6 +2075,7 @@ pub fn run() {
             capture_screenshot,
             set_global_shortcut,
             export_write, export_write_docx, export_write_pptx, video::export_write_video, video::open_exported, pdf::save_pdf, pdf::reveal_path,
+            links::link_fetch, links::link_bytes, links::clip_download,
             watch::watch_start, watch::watch_stop,
             pty::pty_open, pty::pty_write, pty::pty_resize, pty::pty_close, pty::pty_cwd, pty::pty_running, pty::shell_commands, pty::shell_history, pty::complete_path
         ])

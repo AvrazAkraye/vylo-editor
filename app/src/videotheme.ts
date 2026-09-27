@@ -831,7 +831,7 @@ export function sceneArtOf(scene: { art?: SceneArt } | null | undefined): SceneA
 }
 
 /** Kinds that place their picture themselves, where a photo ground would only repeat it. */
-const OWN_PICTURE = new Set<SceneKind>(['image', 'title', 'split', 'device', 'gallery']);
+const OWN_PICTURE = new Set<SceneKind>(['image', 'title', 'split', 'device', 'gallery', 'clip']);
 
 /**
  * The art ground a scene is drawn on. 'photo' needs the scene's own picture,

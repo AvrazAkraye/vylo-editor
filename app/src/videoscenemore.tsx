@@ -974,7 +974,8 @@ export function SceneBody({ info }: { info: SceneInfo }) {
       case 'bigtype':
       case 'features':
       case 'device':
-      case 'marquee': body = newKindView(scene); break;
+      case 'marquee':
+      case 'clip': body = newKindView(scene); break;
       default: body = firstKindView(scene);
     }
   }

@@ -15,8 +15,11 @@ import {
 import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalLook } from './videolook';
 import {
   LENGTHS, TRANSITION_FRAMES, artPrompt, blankScene, designPrompt, durationInFrames, formatIn, isRtl, newVideo, parseArt, parsePlan, parseScene,
-  planPrompt, sceneFrames, scenePrompt, secondsIn, styleIn, videoLangOf,
+  linksBlock, planPrompt, sceneFrames, scenePrompt, secondsIn, styleIn, videoLangOf,
 } from './video';
+import { gatherLinks } from './videolinks';
+import { BUILT_IN as DIRECTIONS_BUILT_IN, directionOf, loadDirections, saveDirections, type Direction } from './videodirections';
+import { linksIn } from './videolink';
 import { designIn } from './videodesign';
 import { deleteVideo, loadVideos, saveVideo } from './videostore';
 import { creditsOf, fillPictures, needsPictures, picturesOf, withPicturesOf } from './videomedia';
@@ -112,6 +115,8 @@ interface Job {
   retry?: { attempt: number; of: number };
   /** Looking the subject up on the web, before the storyboard is asked for (videoresearch.ts). */
   looking?: boolean;
+  /** Following a link in the request: reading a page or downloading a video (videolinks.ts). */
+  linking?: 'page' | 'video';
 }
 
 const jobs = new Map<string, Job>();
@@ -218,6 +223,24 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
   const going = (async () => {
     if (work.how === 'plan') {
       update(id, (x) => ({ ...x, stage: 'planning', error: undefined, model: gw.model }));
+      // The links in the request first — once a video: a page's words and
+      // pictures, a video's clip (videolinks.ts). A link that fails is kept
+      // with its reason and the plan goes on without it.
+      const linked = known.get(id) ?? v;
+      if (linksIn(linked.request).length && !linked.links?.length) {
+        const got = await gatherLinks(linked.request, { signal: ctl.signal, onStep: (_url, what) => { job.linking = what; notify(); } });
+        job.linking = undefined;
+        if (ctl.signal.aborted) throw new DOMException('Stopped', 'AbortError');
+        update(id, (x) => ({
+          ...x,
+          links: got.links,
+          clips: [...(x.clips ?? []), ...got.clips],
+          ...(got.pictures.length
+            ? { brief: { ...(x.brief ?? { subjects: [], facts: [], pictures: [], at: Date.now() }), pictures: [...got.pictures, ...(x.brief?.pictures ?? [])].slice(0, 16) } }
+            : {}),
+        }));
+        notify();
+      }
       // Look the subject up first — once a video; the Facts tab looks it up
       // again on request. What it finds is a note, never a failure: a lookup
       // that finds nothing, or fails, leaves the plan to go on without it.
@@ -250,7 +273,7 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
       }
       const before = known.get(id) ?? v;
       const p = planPrompt(before, {
-        facts: before.lookup !== false ? factsBlock(before.brief) : undefined,
+        facts: [before.lookup !== false ? factsBlock(before.brief) : '', linksBlock(before)].filter(Boolean).join('\n\n') || undefined,
         narration: !!before.audio?.narrate,
       });
       const out = await call(p.system, p.user, 8000);
@@ -258,7 +281,7 @@ function start(v: Video, gw: Target, efforts: EffortBook, work: Work, say: (e: u
       const plan = parsePlan(out.text, cur, newId);
       if (!plan || !plan.scenes.length) throw new Error(UNREADABLE_PLAN);
       // The subject's own pictures go in first; the search fills what is left.
-      const scenes = cur.lookup !== false ? placeBriefPictures(plan.scenes, cur.brief, cur.format) : plan.scenes;
+      const scenes = cur.lookup !== false || cur.links?.length ? placeBriefPictures(plan.scenes, cur.brief, cur.format) : plan.scenes;
       // The look the model designed, when it was asked for one in the same
       // reply (video.ts asks while `ai` is on and there is none yet).
       const design = cur.ai && !cur.design ? designIn(out.text) ?? undefined : cur.design;
@@ -422,8 +445,76 @@ interface Draft {
   ai: boolean;
   /** The templates' row is open: folded away at the end of the form until asked for. */
   templates: boolean;
+  /** The direction the video follows (videodirections.ts), by id; null for the app's own. */
+  direction: string | null;
   /** Ask Vylo sent these words: make it as soon as the form can, as if the button were pressed. */
   autostart?: boolean;
+}
+
+/**
+ * The direction a video follows, like choosing a skill: the app's own (no
+ * guide), one of the two that come with it, or one the person wrote or
+ * pasted — a motion-design prompt, a house style. Theirs can be edited and
+ * deleted; the app's two can only be chosen.
+ */
+function DirectionPicker({ t, value, onChange }: { t: T; value: string | null; onChange: (id: string | null) => void }) {
+  const [saved, setSaved] = useState<Direction[]>(() => loadDirections());
+  const [editing, setEditing] = useState<Direction | null>(null);
+  const [unkept, setUnkept] = useState(false);
+  const all: Direction[] = [...DIRECTIONS_BUILT_IN, ...saved];
+  const shown = directionOf(value, saved);
+  const nameOf = (d: Direction) => (d.builtIn ? t(d.name) : d.name);
+  const put = (list: Direction[]) => { setSaved(list); setUnkept(!saveDirections(list)); };
+  const save = () => {
+    if (!editing || !editing.name.trim() || !editing.text.trim()) return;
+    const d = { id: editing.id, name: editing.name.trim(), text: editing.text };
+    put(saved.some((x) => x.id === d.id) ? saved.map((x) => (x.id === d.id ? d : x)) : [d, ...saved]);
+    onChange(d.id);
+    setEditing(null);
+  };
+  return (
+    <div className="vid-dir">
+      <div className="vid-dir-chips" role="radiogroup" aria-label={t('Direction')}>
+        <button type="button" role="radio" aria-checked={!shown} className={`vid-chip ${!shown ? 'on' : ''}`} onClick={() => onChange(null)}>
+          {t('The app’s own')}
+        </button>
+        {all.map((d) => (
+          <button key={d.id} type="button" role="radio" aria-checked={shown?.id === d.id} className={`vid-chip ${shown?.id === d.id ? 'on' : ''}`}
+                  onClick={() => onChange(d.id)} title={d.text.slice(0, 300)}>
+            {d.builtIn ? <Icon name="sparkle" size={11} /> : <Icon name="book" size={11} />}<bdi>{nameOf(d)}</bdi>
+          </button>
+        ))}
+        <button type="button" className="vid-chip vid-dir-new" onClick={() => setEditing({ id: newId(), name: '', text: '' })}>
+          <Icon name="plus" size={11} />{t('New direction')}
+        </button>
+      </div>
+      {shown && !editing && (
+        <div className="vid-dir-show">
+          <p dir="auto">{shown.text.length > 260 ? `${shown.text.slice(0, 260)}…` : shown.text}</p>
+          {!shown.builtIn && (
+            <span className="vid-dir-acts">
+              <button type="button" className="ghost vid-sound-small" onClick={() => setEditing({ ...shown })}><Icon name="pencil" size={11} />{t('Edit')}</button>
+              <button type="button" className="ghost vid-sound-small" onClick={() => { put(saved.filter((x) => x.id !== shown.id)); onChange(null); }}>{t('Delete')}</button>
+            </span>
+          )}
+        </div>
+      )}
+      {editing && (
+        <div className="vid-dir-edit">
+          <input value={editing.name} dir="auto" placeholder={t('Name')} maxLength={60}
+                 onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+          <textarea rows={8} dir="auto" value={editing.text}
+                    placeholder={t('Paste or write your guide: the story, the pacing, the tone, how scenes hand over. Bracketed fields like [TOPIC] are filled from your request.')}
+                    onChange={(e) => setEditing({ ...editing, text: e.target.value })} />
+          <span className="vid-dir-acts">
+            <button type="button" className="sb-cta-go" disabled={!editing.name.trim() || !editing.text.trim()} onClick={save}>{t('Save')}</button>
+            <button type="button" className="ghost" onClick={() => setEditing(null)}>{t('Cancel')}</button>
+          </span>
+        </div>
+      )}
+      {unkept && <p className="vid-bad">{t('Your direction could not be saved on this machine.')}</p>}
+    </div>
+  );
 }
 
 /** Ask Vylo's way in: `askNonce` draws the form again from the draft it filled. */
@@ -439,7 +530,7 @@ export function askVideo(text: string) {
   window.setTimeout(() => { draft.autostart = false; }, 8000);
 }
 
-const draft: Draft = { request: '', format: null, seconds: null, style: null, lang: null, set: {}, more: false, lookup: true, ai: true, templates: false };
+const draft: Draft = { request: '', format: null, seconds: null, style: null, lang: null, set: {}, more: false, lookup: true, ai: true, templates: false, direction: null };
 
 function useDraft<K extends keyof Draft>(k: K): [Draft[K], (v: Draft[K]) => void] {
   const [v, setV] = useState<Draft[K]>(draft[k]);
@@ -857,7 +948,9 @@ function JobStatus({ t, video, job }: { t: T; video: Video; job: Job }) {
   let line: string;
   let pct: number | null = null;
   if (job.stage === 'planning') {
-    line = job.looking ? t('Looking it up on the web…') : job.chars ? t('Writing the storyboard…') : `${thinkingVerb(elapsed, t)}…`;
+    line = job.linking === 'video' ? t('Downloading the video from your link…')
+      : job.linking === 'page' ? t('Reading your link…')
+      : job.looking ? t('Looking it up on the web…') : job.chars ? t('Writing the storyboard…') : `${thinkingVerb(elapsed, t)}…`;
   } else if (job.stage === 'design') {
     line = t('Designing the look…');
   } else if (job.stage === 'art') {
@@ -1054,7 +1147,7 @@ export function VideoPanel({ t, lang, gw, efforts, plan, providers, choice, gate
 /** The preview, large, with the scenes under it as a strip to jump through. */
 function Stage({ t, video, seek, onSeek }: { t: T; video: Video; seek?: { frame: number; n: number }; onSeek: (i: number) => void }) {
   const job = jobs.get(video.id);
-  const credits = creditsOf(video.scenes);
+  const credits = creditsOf(video.scenes, video.clips);
   return (
     <div className="vid-stage">
       {video.scenes.length
@@ -1107,6 +1200,7 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
   const [lookup, setLookup] = useDraft('lookup');
   const [ai, setAi] = useDraft('ai');
   const [tplOpen, setTplOpen] = useDraft('templates');
+  const [direction, setDirection] = useDraft('direction');
   // Choosing one of the six styles is choosing it over a designed look.
   const pickStyle = (s: Style | null) => { setStyleSet(s); setAi(false); };
   const [brand, setBrandNow] = useState<Brand>(readBrand);
@@ -1144,7 +1238,8 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
     if (!request.trim() || !ready || !onPlan) return;
     // With `ai`, `style` is still the tone of the words; the model designs the look.
     const v = newVideo({ id: newId(), now: Date.now(), request: request.trim(), lang: vlang, format, style, seconds, brand, ...(ai ? { ai: true } : {}) });
-    onStart({ ...v, ...set, credits: v.credits ?? true, lookup });
+    const dir = directionOf(direction);
+    onStart({ ...v, ...set, credits: v.credits ?? true, lookup, ...(dir ? { guide: { name: dir.name, text: dir.text } } : {}) });
     setRequest('');
     setFormatSet(null);
     setSecondsSet(null);
@@ -1220,6 +1315,10 @@ function Home({ t, lang, routes, efforts, plan, ready, videos, onOpen, onStart }
           <span className="vid-group-label">{t('Style')}</span>
           <StylePicker t={t} value={style} onChange={pickStyle} ai={{ on: ai, onPick: () => setAi(true) }} />
           {ai && <small className="sl-ai-note">{t('The model designs the colours, the typeface and the motion for your subject, and art-directs every scene. Change any of it afterwards.')}</small>}
+        </div>
+        <div className="vid-group">
+          <span className="vid-group-label">{t('Direction')}</span>
+          <DirectionPicker t={t} value={direction} onChange={setDirection} />
         </div>
         <div className="vid-group">
           <span className="vid-group-label">{t('Language of the words')}</span>
@@ -1534,7 +1633,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
   const sample = sampleOf(video);
   // Montages and people count too: videomedia's needsPictures is the same test the search runs.
   const missing = video.scenes.filter((s) => (s.kind === 'gallery' || s.kind === 'people' || wantsPicture(s)) && needsPictures(s)).length;
-  const credits = creditsOf(video.scenes);
+  const credits = creditsOf(video.scenes, video.clips);
   const target = targetOf(video, routes);
   const level = effortOf(bookFor(video, target, efforts), target.model);
 

@@ -6,6 +6,7 @@ import { fill } from './i18n';
 import { FPS, type Scene, type Video } from './videotypes';
 import { TRANSITION_FRAMES, durationInFrames } from './video';
 import { gistOf, kindName } from './VideoStoryboard';
+import { AudioLane } from './VideoAudioLane';
 import {
   SCENE_MAX, SCENE_MIN, SCENE_STEP, dropIndexOf, duplicateScene, moveScene, removeScene, resizeScene, sceneAtFrame,
   slotsOf, snapSeconds, type Slot,
@@ -273,6 +274,8 @@ export function VideoTimeline({ t, video, onScenes, onSeek, locked, wide = false
   const canvas = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const clockEl = useRef<HTMLSpanElement>(null);
+  /** The audio lane's lit part, widened with the playhead. */
+  const played = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   const [zoom, setZoom] = useState(2);
   const [draft, setDraft] = useState<{ id: string; seconds: number } | null>(null);
@@ -314,12 +317,18 @@ export function VideoTimeline({ t, video, onScenes, onSeek, locked, wide = false
   const overlap = (TRANSITION_FRAMES / FPS) * pps;
   const inner = Math.max(width, Math.floor(PAD * 2 + span * pps + TAIL));
 
+  // The lit part of the audio lane starts where the playhead is, at every drawing of the strip.
+  useLayoutEffect(() => {
+    if (played.current) played.current.style.inlineSize = `${Math.max(0, (playhead.clock(video.id).frame / FPS) * pps)}px`;
+  });
+
   // The playhead follows the player without drawing the strip again.
   useEffect(() => playhead.subscribe((id, c) => {
     if (id !== video.id) return;
     const x = PAD + (c.frame / FPS) * ppsRef.current;
     if (head.current) head.current.style.transform = `translateX(${x}px)`;
     if (clockEl.current) clockEl.current.textContent = timecode(c.frame);
+    if (played.current) played.current.style.inlineSize = `${Math.max(0, x - PAD)}px`;
     setPlaying(c.playing);
     setNow(sceneAtFrame(video.scenes, c.frame));
     const sc = scroller.current;
@@ -635,6 +644,8 @@ export function VideoTimeline({ t, video, onScenes, onSeek, locked, wide = false
               );
             })}
           </ol>
+
+          <AudioLane video={video} pps={pps} pad={PAD} played={played} />
 
           <i className="vid-tl-asked" aria-hidden="true" title={t('The length you asked for')} style={{ insetInlineStart: xOf(video.seconds * FPS) }} />
           {dropX !== null && <i className="vid-tl-drop" aria-hidden="true" style={{ insetInlineStart: dropX - 1 }} />}

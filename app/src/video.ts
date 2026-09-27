@@ -482,6 +482,7 @@ export const SCHEMA = [
   '- {"kind":"bigtype","lines":["1 to 4 lines of 1 to 3 words each, the strongest line first"]} — a typographic poster: a few words set huge, a line at a time. For the promise, the punchline, the turn in the story.',
   '- {"kind":"features","heading":"optional, 2 to 5 words","items":[{"icon":"one of the icons below","label":"1 to 4 words"}]} — 2 to 4 things at a glance, each with an icon: services, benefits, what is included.',
   '- {"kind":"device","device":"phone|laptop","heading":"2 to 5 words","text":"optional, at most 12 words","imageQuery":"required: what is on the screen, e.g. \'mobile banking app screen\'"} — the picture on the screen of a phone or a laptop: an app, a website, booking online.',
+  '- {"kind":"clip","clip":1,"from":0,"caption":"optional, at most 8 words"} — a piece of real video the person linked, full frame: only when CLIPS are listed above; "clip" is its number there, "from" the second of it to start at, and "from" plus the scene\'s "seconds" stays inside that clip\'s length. The best moments, not the first seconds by habit.',
   '- {"kind":"marquee","text":"2 to 5 words","sub":"optional, one short line"} — one phrase, huge, scrolling across the frame again and again: a slogan, a name, a rallying line.',
   `"icon" is one of: ${ICON_IDS.join(', ')}. Choose the one that shows the label's meaning.`,
   '',
@@ -509,7 +510,7 @@ const EXAMPLE = '{"title":"Corner Bakery","scenes":['
  * name. That is how a video gets a designer's variety without a line of the
  * model's output ever being run (SAFETY.md).
  */
-function systemOf(v: Pick<Video, 'lang'>): string {
+function systemOf(v: Pick<Video, 'lang' | 'guide'>): string {
   return [
     'You are a senior motion designer and scriptwriter. You make short animated videos — promos, explainers, announcements — for businesses, clinics, schools and public campaigns: the text-and-picture motion graphics people watch on their phones, usually with the sound off.',
     'You plan a video as a storyboard of scenes, and you are its art director. The app draws everything itself — the type, the backgrounds, the motion — and you choose from its fixed vocabularies: for each scene, how its words arrive, what is behind them, how the frame moves, a decorative shape and which words carry the accent. You never write code, markup or CSS. You decide what each scene says, which kind of scene says it best, how it looks, how long it stays on screen and how it hands over to the next.',
@@ -521,9 +522,10 @@ function systemOf(v: Pick<Video, 'lang'>): string {
     '1. Hook. The first scene is a "title" that makes a viewer stop in the first two seconds: a bold promise, a question the viewer is already asking, or a surprising contrast — never a label like "Welcome" or "Introduction".',
     '2. One idea per scene. If a scene needs "and", it is two scenes.',
     '3. Short lines, timed to be read. People read about three words a second and need a moment to see a scene arrive, so a scene\'s "seconds" is its words divided by 3, plus about one second, and at least 2: a 5-word headline is about 2.5 seconds, a sentence of 9 words about 4, three short points about 5. When a scene feels long, cut words; do not add seconds.',
-    '4. An arc: the hook, then the problem or the context, then the points (what it is, how it works, why it matters), then proof, then the call to action. Proof is only what the request gives — a figure, a result, a quotation, a process. When the request gives none, leave proof out rather than make it up.',
+    '4. A story, not a list of facts: one central idea, told as an arc — the hook, the familiar world or the problem, what changes, how it works, what it means (proof, only what the request gives: a figure, a result, a quotation, a process; without one, leave proof out rather than make it up), then the call to action. Every scene adds something new; a scene that only repeats the one before it is cut.',
     '5. Variety. Never the same kind twice in a row. Mix words, pictures and lists. Choose transitions for rhythm: "fade" for a calm step, "slide" to move on to the next point, "wipe" between parts of the story, "zoom" for a reveal or a burst of energy, "iris" or "split" to open onto something new, "panel" or "flash" on a turn in the story, "glitch" once in an energetic film, "none" for a hard cut on a beat. Do not use one transition everywhere. The last scene\'s transition is "none".',
     '6. The close is an "outro": the brand or the main message as the headline, and one clear action a viewer can take.',
+    '7. Let the key moment breathe. The turn in the story, a reveal or a big number gets a second longer and the strongest effect; the scenes around it stay calmer so it lands. Transitions carry meaning — they open onto something new, turn the story or settle it — never chosen at random.',
     '',
     'Rules that are never broken:',
     '- Numbers. Use only figures that appear in the request. Never invent a statistic, a percentage, a price, a count, a date, a rating, a duration or a result. A "stat" or "chart" scene exists only for a figure the request gives; without one, make the point with "kinetic" or "bullets".',
@@ -535,6 +537,31 @@ function systemOf(v: Pick<Video, 'lang'>): string {
     '- On-screen words only: no stage directions, no descriptions of the animation, no markdown, no HTML, no emojis or hashtags unless the request asks for them.',
     '',
     'You reply with JSON and nothing else.',
+    ...(guideBlock(v) ? ['', guideBlock(v)] : []),
+  ].join('\n');
+}
+
+/** The most of a person's direction a prompt carries. */
+export const GUIDE_MAX = 8000;
+
+/**
+ * The person's own direction for their videos (`Video.guide`), for every
+ * prompt about the video. It is theirs, so it leads — within what the app
+ * draws: a guide written for a film studio asks for things no scene here can
+ * be (3D, hand-drawn textures, a frame rate, a file), and the model is told
+ * to take its intent — the story, the pace, the tone, the transitions — and
+ * leave the rest. The rules above (no invented numbers, quotes or claims)
+ * still hold over it.
+ */
+export function guideBlock(v: Pick<Video, 'guide'>): string {
+  const g = v.guide;
+  const text = typeof g?.text === 'string' ? g.text.trim().slice(0, GUIDE_MAX) : '';
+  if (!text) return '';
+  return [
+    `THE PERSON'S DIRECTION${g?.name ? ` ("${String(g.name).slice(0, 60)}")` : ''} — their own guide for how their videos are made. Follow it: its story structure, pacing, tone, voice and transitions, before the app's defaults. Where it asks for something the app cannot draw (3D, textures, characters, a frame rate, a file format, a separate deliverable), keep its intent with the scene kinds, effects and transitions the app has, and leave the rest. The rules on numbers, quotations, people and claims still hold over it. Bracketed placeholders in it, like [TOPIC], are filled from the request.`,
+    '<<<',
+    text,
+    '>>>',
   ].join('\n');
 }
 
@@ -590,6 +617,30 @@ function lookLine(v: Pick<Video, 'ai' | 'design'>): string {
  * voice to say (`narration`).
  */
 export interface PlanExtra { facts?: string; narration?: boolean }
+
+/**
+ * What the links the person gave turned out to be, for the plan: each page's
+ * title, description and words (facts the video may state — the person chose
+ * the page), and the clips downloaded from them, numbered for "clip" scenes.
+ */
+export function linksBlock(v: Pick<Video, 'links' | 'clips'>): string {
+  const pages = (v.links ?? []).filter((l) => !l.error && (l.text || l.description || l.title));
+  const clips = v.clips ?? [];
+  if (!pages.length && !clips.length) return '';
+  const out: string[] = [];
+  if (pages.length) {
+    out.push('THE LINKED PAGES — the person gave these links; the video is about what they say, and their words are facts the video may state (figures, names, dates, offers).');
+    for (const l of pages) {
+      out.push(`- ${l.title || l.url} (${l.url})${l.description ? `: ${l.description}` : ''}`);
+      if (l.text) out.push(l.text.split('\n').map((x) => `  ${x}`).join('\n'));
+    }
+  }
+  if (clips.length) {
+    out.push('CLIPS — real video the person linked, downloaded for this video. Use every one at least once as a "clip" scene (the strongest moments, one scene each or a few cuts of a longer one); build the rest of the film around them:');
+    clips.forEach((c, i) => out.push(`${i + 1}. "${c.title || c.site}" from ${c.site}, ${Math.round(c.seconds)} seconds long${c.hasAudio ? '' : ', silent'}.`));
+  }
+  return out.join('\n');
+}
 
 export function planPrompt(v: Video, extra: PlanExtra = {}): { system: string; user: string } {
   const { width, height } = FORMATS[v.format] ?? FORMATS.landscape;
@@ -821,6 +872,7 @@ const ALIASES: Readonly<Record<string, SceneKind>> = {
   icons: 'features', feature: 'features', 'feature-grid': 'features', feature_grid: 'features', 'feature-list': 'features', feature_list: 'features',
   'icon-grid': 'features', 'icon-list': 'features',
   phone: 'device', mobile: 'device', mockup: 'device', 'device-mockup': 'device', 'phone-mockup': 'device', app: 'device', laptop: 'device', screen: 'device',
+  video: 'clip', footage: 'clip', reel: 'clip', 'video-clip': 'clip', video_clip: 'clip', broll: 'clip', 'b-roll': 'clip',
   ticker: 'marquee', scroll: 'marquee', banner: 'marquee', 'scrolling-text': 'marquee', crawl: 'marquee',
 };
 
@@ -1172,6 +1224,7 @@ export function mainTextOf(s: Scene): string {
     case 'bigtype': parts = list(x.lines); break;
     case 'features': parts = [x.heading, ...list(x.items).map((it) => field(it, 'label'))]; break;
     case 'marquee': parts = [x.text]; break;
+    case 'clip': parts = [x.caption]; break;
     case 'stat':
     case 'logo': parts = []; break;
     default: parts = [x.heading];
@@ -1261,6 +1314,8 @@ function wordsOf(s: Scene): number {
     case 'device': text.push(s.heading, s.text ?? '', '1 2'); break;
     // A phrase on the move takes a moment longer to catch than one that stands still.
     case 'marquee': text.push(s.text, s.sub ?? '', '1'); break;
+    // Moving footage needs a few seconds to register, whatever its caption says.
+    case 'clip': text.push(s.caption ?? '', '1 2 3 4 5'); break;
   }
   return text.join(' ').split(/\s+/).filter(Boolean).length;
 }
@@ -1515,6 +1570,19 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
       else scene = imageQuery ? { ...base, kind: 'image', imageQuery } : null;
       break;
     }
+    case 'clip': {
+      // Only a clip the video holds: one the person's own link brought (numbered in the prompt, or by id).
+      const clips = v.clips ?? [];
+      const ref = o.clip ?? o.video ?? o.index;
+      const n = numberOf(ref);
+      const c = (typeof ref === 'string' ? clips.find((x) => x.id === ref) : undefined) ?? (Number.isFinite(n) ? clips[Math.round(n) - 1] : undefined);
+      if (!c) { scene = null; break; }
+      const at = numberOf(o.from ?? o.start ?? o.at);
+      const from = Number.isFinite(at) ? clampNum(at, 0, Math.max(0, c.seconds - SCENE_SECONDS.min)) : 0;
+      const caption = opt(o.caption ?? o.text ?? o.heading ?? o.title, CAP.headline);
+      scene = { ...base, kind, clip: c.id, ...(from > 0 ? { from: tenths(from) } : {}), ...(caption ? { caption } : {}), ...(o.sound === true ? { sound: true } : {}) };
+      break;
+    }
     case 'marquee': {
       const text = t(o.text ?? o.phrase ?? o.title ?? o.headline, CAP.headline);
       const sub = opt(o.sub ?? o.subtitle ?? o.caption, CAP.sentence);
@@ -1538,7 +1606,19 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
   scene.seconds = tenths(Number.isFinite(secs)
     ? clampNum(secs, SCENE_SECONDS.min, SCENE_SECONDS.max)
     : Math.max(readingSeconds(scene), 3));
+  // A clip scene lasts no longer than what is left of its clip.
+  if (scene.kind === 'clip') {
+    const room = clipRoom(scene, v);
+    if (room !== null) scene.seconds = tenths(clampNum(scene.seconds, SCENE_SECONDS.min, Math.max(SCENE_SECONDS.min, room)));
+  }
   return scene;
+}
+
+/** How many seconds of its clip a clip scene has left from where it starts, or null when the clip is not in the video. */
+export function clipRoom(s: Scene, v: { clips?: Video['clips'] }): number | null {
+  if (s.kind !== 'clip') return null;
+  const c = (v.clips ?? []).find((x) => x.id === s.clip);
+  return c ? Math.max(0, c.seconds - (s.from ?? 0)) : null;
 }
 
 /**
@@ -1553,12 +1633,17 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
  * shortest readable scenes are longer than asked, they stay readable and the
  * video runs long; when the longest allowed are too short, it runs short.
  */
-export function fitted(scenes: Scene[], v: Pick<Video, 'seconds'>): Scene[] {
+export function fitted(scenes: Scene[], v: Pick<Video, 'seconds'> & { clips?: Video['clips'] }): Scene[] {
   if (!scenes.length) return scenes;
   const overlaps = scenes.slice(0, -1).filter((s) => s.transition !== 'none').length;
   const target = clampNum(Number(v.seconds) || 30, SECONDS.min, SECONDS.max) + overlaps * (TRANSITION_FRAMES / FPS);
   const lo = scenes.map(readingSeconds);
-  const at = (f: number) => scenes.map((s, i) => clampNum(s.seconds * f, lo[i], SCENE_SECONDS.max));
+  // A clip scene is held inside what is left of its clip.
+  const hi = scenes.map((s) => {
+    const room = clipRoom(s, v);
+    return room === null ? SCENE_SECONDS.max : Math.max(lo[scenes.indexOf(s)], Math.min(SCENE_SECONDS.max, room));
+  });
+  const at = (f: number) => scenes.map((s, i) => clampNum(s.seconds * f, lo[i], hi[i]));
   const sum = (xs: number[]) => xs.reduce((a, b) => a + b, 0);
   let a = 0;
   let b = 64;
@@ -1735,6 +1820,8 @@ export function blankScene(kind: SceneKind, v: Video, newId: () => string): Scen
     // The person chooses the screen's picture; the frame is the one that fits the video.
     case 'device': s = { ...base, kind, device: v.format === 'landscape' ? 'laptop' : 'phone', heading: w.device, text: w.deviceText }; break;
     case 'marquee': s = { ...base, kind, text: v.brand?.name?.trim() || w.marquee, sub: w.marqueeSub }; break;
+    // The first clip the video has; the storyboard lets the person choose another.
+    case 'clip': s = { ...base, kind, clip: v.clips?.[0]?.id ?? '' }; break;
     default: s = { ...base, kind: 'kinetic', text: w.kinetic };
   }
   s.seconds = tenths(Math.max(3, readingSeconds(s)));

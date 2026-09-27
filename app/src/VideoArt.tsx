@@ -11,7 +11,7 @@ import { Bars, Ground, Nodes, Page, c } from './GalleryArt';
 export const SCENE_HUE: Readonly<Record<SceneKind, number>> = {
   title: 262, kinetic: 292, bullets: 222, stat: 38, chart: 200, quote: 330, image: 158, split: 176,
   steps: 250, outro: 12, gallery: 140, timeline: 48, compare: 190, people: 24, logo: 280, qr: 210,
-  bigtype: 318, features: 236, device: 128, marquee: 64,
+  bigtype: 318, features: 236, device: 128, marquee: 64, clip: 348,
 };
 
 /** How the gallery groups the scenes, for its chips. */
@@ -20,7 +20,7 @@ export const SCENE_GROUP: Readonly<Record<SceneKind, SceneGroup>> = {
   title: 'words', kinetic: 'words', bullets: 'words', quote: 'words', steps: 'words', outro: 'words',
   bigtype: 'words', features: 'words', marquee: 'words',
   stat: 'data', chart: 'data', timeline: 'data', compare: 'data',
-  image: 'pictures', split: 'pictures', gallery: 'pictures', people: 'pictures', logo: 'pictures', qr: 'pictures', device: 'pictures',
+  image: 'pictures', split: 'pictures', gallery: 'pictures', people: 'pictures', logo: 'pictures', qr: 'pictures', device: 'pictures', clip: 'pictures',
 };
 
 const X = 44;
@@ -247,6 +247,15 @@ export function SceneKindArt({ kind }: { kind: SceneKind }) {
           ))}
         </g>
         {bar(cx - 40, Y + 60, 80, 6, soft)}
+      </>
+    ),
+    clip: (
+      <>
+        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => <rect key={`t${i}`} x={X + 14 + i * 28} y={Y + 8} width="14" height="7" rx="2" fill={soft} opacity=".55" />)}
+        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => <rect key={`b${i}`} x={X + 14 + i * 28} y={Y + H - 15} width="14" height="7" rx="2" fill={soft} opacity=".55" />)}
+        <circle cx={cx} cy={cy - 6} r="22" fill={hi} />
+        <path d={`M${cx - 7} ${cy - 18} L${cx + 11} ${cy - 6} L${cx - 7} ${cy + 6} Z`} fill="#F4F1FA" />
+        {bar(cx - 60, cy + 28, 120, 7, '#F4F1FA')}
       </>
     ),
   };

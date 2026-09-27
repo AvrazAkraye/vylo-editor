@@ -1337,6 +1337,23 @@ const ar: Dict = {
   'adds {models}': 'يضيف {models}',
   // Research: working papers, theses and dissertations.
   'Research': 'البحث العلمي',
+  // Video: directions.
+  'Direction': 'التوجيه',
+  'The app’s own': 'توجيه التطبيق',
+  'New direction': 'توجيه جديد',
+  'Paste or write your guide: the story, the pacing, the tone, how scenes hand over. Bracketed fields like [TOPIC] are filled from your request.': 'الصق دليلك أو اكتبه: القصة، والإيقاع، والنبرة، وكيف تنتقل المشاهد. الحقول بين أقواس مثل [TOPIC] تُملأ من طلبك.',
+  'Explainer story': 'قصة شارحة',
+  'Energetic promo': 'إعلان حيوي',
+  'Your direction could not be saved on this machine.': 'تعذّر حفظ توجيهك على هذا الجهاز.',
+  // Video: clips from links.
+  'Downloading the video from your link…': 'تنزيل الفيديو من رابطك…',
+  'Reading your link…': 'قراءة رابطك…',
+  'Video clip': 'مقطع فيديو',
+  'A piece of a real video from a link you gave, across the whole frame, with a caption.': 'جزء من فيديو حقيقي من رابط أعطيته، على كامل الإطار، مع تعليق.',
+  'No clips yet: put a video link in the request.': 'لا توجد مقاطع بعد: ضع رابط فيديو في الطلب.',
+  'Which clip': 'أي مقطع',
+  'Start at (seconds)': 'البدء عند (ثوانٍ)',
+  'Its own sound': 'صوته الأصلي',
   // Video: transitions.
   'Iris': 'انفتاح دائري',
   'Flash': 'وميض',
@@ -3922,6 +3939,23 @@ const ckb: Dict = {
   'adds {models}': '{models} زیاد دەکات',
   // Research: working papers, theses and dissertations.
   'Research': 'توێژینەوە',
+  // Video: directions.
+  'Direction': 'ئاراستە',
+  'The app’s own': 'ئاراستەی ئەپەکە',
+  'New direction': 'ئاراستەی نوێ',
+  'Paste or write your guide: the story, the pacing, the tone, how scenes hand over. Bracketed fields like [TOPIC] are filled from your request.': 'ڕێنماییەکەت بلکێنە یان بینووسە: چیرۆکەکە، ڕیتمەکە، دەنگەکە، چۆن دیمەنەکان دەگوازرێنەوە. خانەکانی نێو کەوانە وەک [TOPIC] لە داواکارییەکەتەوە پڕ دەکرێنەوە.',
+  'Explainer story': 'چیرۆکی ڕوونکەرەوە',
+  'Energetic promo': 'ڕیکلامی پڕ وزە',
+  'Your direction could not be saved on this machine.': 'ئاراستەکەت نەتوانرا لەسەر ئەم ئامێرە پاشەکەوت بکرێت.',
+  // Video: clips from links.
+  'Downloading the video from your link…': 'داگرتنی ڤیدیۆکە لە بەستەرەکەتەوە…',
+  'Reading your link…': 'خوێندنەوەی بەستەرەکەت…',
+  'Video clip': 'پارچە ڤیدیۆ',
+  'A piece of a real video from a link you gave, across the whole frame, with a caption.': 'پارچەیەک لە ڤیدیۆیەکی ڕاستەقینە لە بەستەرێک کە داتە، بە هەموو چوارچێوەکە، لەگەڵ ژێرنووس.',
+  'No clips yet: put a video link in the request.': 'هێشتا هیچ پارچەیەک نییە: بەستەری ڤیدیۆیەک لە داواکارییەکەدا دابنێ.',
+  'Which clip': 'کام پارچە',
+  'Start at (seconds)': 'دەستپێکردن لە (چرکە)',
+  'Its own sound': 'دەنگی خۆی',
   // Video: transitions.
   'Iris': 'کرانەوەی بازنەیی',
   'Flash': 'بریسکە',
@@ -6512,6 +6546,23 @@ const kmr: Dict = {
   'adds {models}': '{models} زێدە دکەت',
   // Research: working papers, theses and dissertations.
   'Research': 'ڤەکولین',
+  // Video: directions.
+  'Direction': 'ئاراستە',
+  'The app’s own': 'ئاراستا ئەپێ',
+  'New direction': 'ئاراستەیا نوی',
+  'Paste or write your guide: the story, the pacing, the tone, how scenes hand over. Bracketed fields like [TOPIC] are filled from your request.': 'رێنمایا خۆ بنڤیسە یان بلکێنە: چیرۆک، ڕیتم، دەنگ، و چاوا دیمەن دهێنە ڤەگوهاستن. خانێت د ناڤ کەوانان دا وەک [TOPIC] ژ داخوازیا تە دهێنە پڕکرن.',
+  'Explainer story': 'چیرۆکا ڕوونکەر',
+  'Energetic promo': 'ڕیکلاما ب وزە',
+  'Your direction could not be saved on this machine.': 'ئاراستا تە نەشیا ل سەر ڤی ئامیری بهێتە پاشەکەفتکرن.',
+  // Video: clips from links.
+  'Downloading the video from your link…': 'داگرتنا ڤیدیۆیێ ژ لینکا تە…',
+  'Reading your link…': 'خواندنا لینکا تە…',
+  'Video clip': 'پارچا ڤیدیۆیێ',
+  'A piece of a real video from a link you gave, across the whole frame, with a caption.': 'پارچەک ژ ڤیدیۆیەکا ڕاستەقینە ژ لینکەکا تە دای، ل سەر هەمی چوارچێڤەی، دگەل نڤیسینەکێ.',
+  'No clips yet: put a video link in the request.': 'هێشتا چ پارچە نینن: لینکا ڤیدیۆیەکێ د داخوازیێ دا دانە.',
+  'Which clip': 'کیژان پارچە',
+  'Start at (seconds)': 'دەستپێکرن ل (چرکە)',
+  'Its own sound': 'دەنگێ وێ بخۆ',
   // Video: transitions.
   'Iris': 'ڤەبوونا بازنەیی',
   'Flash': 'بریسک',

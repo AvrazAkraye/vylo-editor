@@ -6834,6 +6834,34 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   background:var(--ink); color:var(--bg); font-size:10px; font-weight:600; font-variant-numeric:tabular-nums;
   white-space:nowrap; pointer-events:none;
 }
+/* Directions: chosen like a skill, the chosen one's guide shown under the chips. */
+.vid-dir{ display:grid; gap:var(--sp-2); }
+.vid-dir-chips{ display:flex; flex-wrap:wrap; gap:6px; }
+.vid-dir-chips .vid-chip{ display:inline-flex; align-items:center; gap:5px; }
+.vid-dir-new{ border-style:dashed; }
+.vid-dir-show{ display:grid; gap:6px; padding:var(--sp-2) var(--sp-3); border-radius:var(--r-2); background:var(--panel-2); border:1px solid var(--line); }
+.vid-dir-show p{ margin:0; font-size:var(--fs-1); color:var(--mute); white-space:pre-line; }
+.vid-dir-acts{ display:flex; gap:6px; flex-wrap:wrap; }
+.vid-dir-edit{ display:grid; gap:6px; }
+.vid-dir-edit input, .vid-dir-edit textarea{ inline-size:100%; box-sizing:border-box; }
+
+/* The film's sound under the scenes: the music's waveform, lit up to the playhead like a progress bar, and the narration's lines. */
+.vid-tl-audio{ position:relative; margin-block-start:6px; display:grid; gap:4px; }
+.vid-tl-music{ position:relative; border-radius:6px; overflow:hidden;
+  background:color-mix(in srgb, #2BB58C 12%, var(--panel-2)); border:1px solid color-mix(in srgb, #2BB58C 30%, transparent); }
+.vid-tl-wave{ position:absolute; inset-block-start:0; inset-inline-start:0; display:block; }
+.vid-tl-wave path{ stroke:color-mix(in srgb, #2BB58C 45%, var(--mute)); stroke-width:2; stroke-linecap:round; fill:none; }
+.vid-tl-wave.is-played path{ stroke:#2BB58C; }
+.vid-tl-played{ position:absolute; inset-block:0; inset-inline-start:0; inline-size:0; overflow:hidden;
+  background:color-mix(in srgb, #2BB58C 16%, transparent); }
+.vid-tl-audio-label{ position:absolute; inset-block-start:3px; inset-inline-start:6px; display:inline-flex; align-items:center; gap:4px;
+  max-inline-size:calc(100% - 12px); padding:1px 6px; border-radius:99px; background:color-mix(in srgb, var(--panel) 80%, transparent);
+  font-size:10px; font-weight:600; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.vid-tl-voice{ position:relative; block-size:20px; }
+.vid-tl-line{ position:absolute; inset-block:0; display:flex; align-items:center; padding-inline:6px; border-radius:5px;
+  background:color-mix(in srgb, #8B5CF6 28%, var(--panel-2)); color:var(--ink); font-size:10px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.vid-tl-line.is-unvoiced{ background:transparent; border:1px dashed color-mix(in srgb, #8B5CF6 50%, transparent); color:var(--mute); }
 .vid-tl-head{ position:absolute; inset-block:0; inset-inline-start:0; inline-size:0; z-index:5; pointer-events:none; will-change:transform; }
 .vid-tl-head i{ position:absolute; inset-block:0; inset-inline-start:-1px; inline-size:2px; background:#E5484D; }
 .vid-tl-head i::before{

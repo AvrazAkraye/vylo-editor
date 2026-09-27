@@ -247,6 +247,11 @@ export interface BigTypeScene extends SceneBase { kind: 'bigtype'; lines: string
 export interface FeaturesScene extends SceneBase { kind: 'features'; heading?: string; items: { icon: IconId; label: string }[] }
 /** The scene's picture inside a phone or a laptop, with a heading and an optional line. */
 export interface DeviceScene extends SceneBase { kind: 'device'; device: 'phone' | 'laptop'; heading: string; text?: string }
+/**
+ * A piece of a real video (`Video.clips`), full frame, from `from` seconds
+ * into it, with an optional caption. Silent under the music unless `sound`.
+ */
+export interface ClipScene extends SceneBase { kind: 'clip'; clip: string; from?: number; caption?: string; sound?: boolean }
 /** One short phrase, huge, scrolling across the frame and repeating, with an optional line under it. */
 export interface MarqueeScene extends SceneBase { kind: 'marquee'; text: string; sub?: string }
 
@@ -254,15 +259,51 @@ export type Scene =
   | TitleScene | KineticScene | BulletsScene | StatScene | ChartScene
   | QuoteScene | ImageScene | SplitScene | StepsScene | OutroScene
   | GalleryScene | TimelineScene | CompareScene | PeopleScene | LogoScene | QrScene
-  | BigTypeScene | FeaturesScene | DeviceScene | MarqueeScene;
+  | BigTypeScene | FeaturesScene | DeviceScene | MarqueeScene | ClipScene;
 
 export type SceneKind = Scene['kind'];
 
 export const SCENE_KINDS: readonly SceneKind[] = [
   'title', 'kinetic', 'bullets', 'stat', 'chart', 'quote', 'image', 'split', 'steps', 'outro',
   'gallery', 'timeline', 'compare', 'people', 'logo', 'qr',
-  'bigtype', 'features', 'device', 'marquee',
+  'bigtype', 'features', 'device', 'marquee', 'clip',
 ];
+
+/**
+ * A piece of a real video, downloaded from a link the person gave (never one
+ * a model wrote), cut to at most a minute, made H.264 and kept as bytes so
+ * the film plays and renders without the network. Credited like a picture.
+ */
+export interface Clip {
+  id: string;
+  /** `data:video/mp4;base64,…` */
+  src: string;
+  seconds: number;
+  width: number;
+  height: number;
+  hasAudio: boolean;
+  title: string;
+  author: string;
+  /** The page it came from. */
+  sourceUrl: string;
+  /** Where: YouTube, Instagram, a site's own name. */
+  site: string;
+  license?: string;
+}
+
+/** What a link the person gave turned out to be, kept for the plan and the Facts tab. */
+export interface LinkSource {
+  url: string;
+  kind: 'page' | 'video';
+  title: string;
+  description?: string;
+  /** The page's own words, trimmed: what the plan may take facts from. */
+  text?: string;
+  site?: string;
+  at: number;
+  /** Why nothing came of it, in plain words, when nothing did. */
+  error?: string;
+}
 
 /** The brand the video carries: colours override the style's, a logo appears on the title and the close. */
 export interface Brand {
@@ -400,6 +441,17 @@ export interface Video {
   watermark?: boolean;
   /** What was found on the web about the subject before planning, when it was looked up. */
   brief?: Brief;
+  /**
+   * The person's own direction for the video — a guide they wrote or pasted
+   * (a motion-design prompt, a house style), saved in the form's Directions
+   * and copied here when the video was made, so a later change to the saved
+   * guide does not change this video. Every prompt about the video carries it.
+   */
+  guide?: { name: string; text: string };
+  /** Pieces of real video from the links the person gave. */
+  clips?: Clip[];
+  /** The links the person gave, as they were read. */
+  links?: LinkSource[];
   /** Look the subject up on the web before planning. On by default. */
   lookup?: boolean;
   /** Music and narration. */

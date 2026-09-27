@@ -17,15 +17,17 @@
  */
 
 import type { CSSProperties, ReactNode } from 'react';
-import { Easing, useVideoConfig } from 'remotion';
-import type { BigTypeScene, DeviceScene, FeaturesScene, IconId, MarqueeScene, Scene } from './videotypes';
+import { AbsoluteFill, Easing, useVideoConfig } from 'remotion';
+import { Video as ClipVideo } from '@remotion/media';
+import { clipUrl } from './videoclip';
+import type { BigTypeScene, ClipScene, DeviceScene, FeaturesScene, IconId, MarqueeScene, Scene } from './videotypes';
 import type { Align } from './videolook';
 import { alpha, inkOn, mix, textWidth } from './videotheme';
 import type { Emphasis } from './videotheme';
 import { markPhrases } from './videoemphasis';
 import type { Fit, Theme, TypeFace } from './videotheme';
 import {
-  Lines, Photo, Rule, enterAt, flexOf, glowOf, itemRevealOf, progress, revealStyle, staggerFor, textAlignOf, textStyle, useEnter, useScene, useSceneFrame,
+  ArtShape, Backdrop, Lines, Photo, Rule, Scrim, onPhoto, enterAt, flexOf, glowOf, itemRevealOf, progress, revealStyle, staggerFor, textAlignOf, textStyle, useEnter, useScene, useSceneFrame,
 } from './videoscenebits';
 import { Stage, fit, fitScaled, per } from './videoscenekinds';
 import { VideoIcon } from './videoicons';
@@ -501,12 +503,53 @@ function MarqueeView({ scene }: { scene: MarqueeScene }) {
 // ---------------------------------------------------------------------------
 
 /** The four new kinds' views, or null for any other kind. */
+// ---------------------------------------------------------------------------
+// Clip
+
+/**
+ * A piece of real video across the whole frame, from `from` seconds into its
+ * clip, under a darkening at the foot where its caption rises. Drawn by
+ * `@remotion/media`, which decodes with WebCodecs onto a canvas — in the
+ * preview and in the export alike — never through a `<video>` element (in the
+ * macOS webview that plays through AVFoundation, which can freeze the
+ * window; videospeaker.ts), so it may not fall back to one. Silent under the
+ * music unless the scene asks for its sound. A clip the video no longer has
+ * shows the style's background.
+ */
+function ClipView({ scene }: { scene: ClipScene }) {
+  const { theme: th0, box, video } = useScene();
+  const { fps } = useVideoConfig();
+  const u = box.u;
+  const clip = (video.clips ?? []).find((c) => c.id === scene.clip);
+  const src = clip ? clipUrl(clip) : null;
+  const th = onPhoto(th0);
+  const caption = (scene.caption ?? '').trim();
+  const capFit = caption ? fitScaled(caption, th.display, { max: per({ landscape: 78, portrait: 74, square: 66 }), min: 34 * u, width: box.w * 0.84, height: box.h * 0.3, lines: 3 }) : null;
+  const align: Align = th0.alignSet ? th0.align : 'start';
+  const ground = (
+    <AbsoluteFill style={{ background: '#000' }}>
+      {src ? (
+        <ClipVideo src={src} trimBefore={Math.round((scene.from ?? 0) * fps)} muted={!scene.sound} objectFit="cover"
+                   disallowFallbackToOffthreadVideo style={{ width: '100%', height: '100%' }} />
+      ) : <Backdrop />}
+      {caption ? <Scrim theme={th0} to="bottom" strength={0.9} /> : null}
+      <ArtShape />
+    </AbsoluteFill>
+  );
+  return (
+    <Stage theme={th} drift={false} ground={ground} box={{ justifyContent: 'flex-end', alignItems: flexOf(align) }}>
+      {capFit ? <Lines theme={th} fit={capFit} face={th.display} color={th.fg} delay={8} stagger={th.motion.stagger * 1.5} align={align} shadow={glowOf(th, u)} /> : null}
+    </Stage>
+  );
+}
+
 export function newKindView(scene: Scene): ReactNode | null {
   switch (scene.kind) {
     case 'bigtype': return <BigTypeView scene={scene} />;
     case 'features': return <FeaturesView scene={scene} />;
     case 'device': return <DeviceView scene={scene} />;
     case 'marquee': return <MarqueeView scene={scene} />;
+    case 'clip': return <ClipView scene={scene} />;
     default: return null;
   }
 }
