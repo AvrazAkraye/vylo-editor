@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.128.1</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.129.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---

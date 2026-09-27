@@ -4985,84 +4985,130 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 
 /* ── Usage: the plan, this conversation, this project ──────────────────────
    Cards rather than the row grammar the other panels use, because these are
-   figures to read rather than a list to act on. The bars borrow the status
-   bar's two warning tones so the same fact is never two colours. */
+   figures to read rather than a list to act on. Every graphic is a proportion
+   of a real count — a ring for the allowance, a three-colour bar for one
+   conversation, bars for where a project's tokens went — and the warning
+   tones are the status bar's, so the same fact is never two colours. */
 .us{ flex:1; min-height:0; display:flex; flex-direction:column; overflow-y:auto; padding-block-end:var(--sp-4); }
 .us-card{
   margin:0 var(--sp-4) var(--sp-3); padding:var(--sp-4);
   border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel);
   display:grid; gap:var(--sp-3);
 }
-.us-head{ display:flex; align-items:center; gap:var(--sp-2); }
-.us-head b{ font-size:var(--fs-4); font-weight:600; color:var(--ink); }
+.us-head{ display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+.us-head b{ font-size:var(--fs-4); font-weight:650; color:var(--ink); }
 .us-head em{ margin-inline-start:auto; font-style:normal; font-size:var(--fs-3);
   color:var(--mute); font-variant-numeric:tabular-nums; }
 .us-tag{
   font-size:var(--fs-1); padding:1px var(--sp-2); border-radius:99px;
   background:var(--brand-wash); color:var(--brand); font-weight:600;
 }
+/* Money wears the neutral chip, not the brand one: a price beside the plan
+   name is a fact about it, and the brand wash would read as an offer. */
+.us-tag.money{ background:var(--panel-3); color:var(--mute); font-weight:500; }
+
+/* The plan: a ring beside what it means, on a faint wash of the tone. */
+.us-hero{
+  grid-template-columns:auto 1fr; align-items:center; gap:var(--sp-4);
+  background:linear-gradient(135deg, var(--brand-wash), var(--panel) 70%);
+}
+.us-hero.low{ background:linear-gradient(135deg, color-mix(in srgb, var(--warn) 14%, var(--panel)), var(--panel) 70%); }
+.us-hero.out{ background:linear-gradient(135deg, color-mix(in srgb, var(--err) 14%, var(--panel)), var(--panel) 70%); }
+.us-hero-main{ min-inline-size:0; display:grid; gap:6px; }
+.us-lead{ margin:0; font-size:var(--fs-3); font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+
+.us-ring{ position:relative; inline-size:84px; block-size:84px; flex:none; }
+.us-ring svg{ inline-size:100%; block-size:100%; display:block; }
+.us-ring circle{ fill:none; stroke-width:8; }
+.us-ring-track{ stroke:var(--panel-3); }
+.us-ring-fill{ stroke:var(--brand); stroke-linecap:round; transition:stroke-dasharray .4s ease; }
+.us-ring.low .us-ring-fill{ stroke:var(--warn); }
+.us-ring.out .us-ring-fill{ stroke:var(--err); }
+.us-ring b{ position:absolute; inset:0; display:grid; place-items:center;
+  font-size:18px; font-weight:750; color:var(--ink); font-variant-numeric:tabular-nums; }
+
+.us-pills{ display:flex; flex-wrap:wrap; gap:6px; margin-block-start:2px; }
+.us-pill{
+  display:inline-flex; align-items:center; gap:4px; padding:2px var(--sp-2);
+  border-radius:99px; background:var(--panel-2); border:1px solid var(--line);
+  font-size:var(--fs-1); font-style:normal; font-weight:500; color:var(--mute);
+}
+.us-pill svg{ flex:none; }
 
 /* A track and a fill. The fill is an element rather than a gradient so the
    width is the only thing that changes as a number moves. */
-.us-bar{ height:6px; border-radius:99px; background:var(--panel-3); overflow:hidden; }
-.us-bar i{ display:block; height:100%; border-radius:99px; background:var(--brand);
-  transition:width .25s ease; }
+.us-bar{ block-size:6px; border-radius:99px; background:var(--panel-3); overflow:hidden; }
+.us-bar i{ display:block; block-size:100%; border-radius:99px;
+  background:linear-gradient(90deg, var(--brand), var(--brand-2)); transition:inline-size .25s ease; }
 .us-bar.low i{ background:var(--warn); }
 .us-bar.out i{ background:var(--err); }
 
-.us-line{ display:flex; align-items:baseline; gap:var(--sp-3); font-size:var(--fs-2); color:var(--ink); }
-.us-line em{ margin-inline-start:auto; font-style:normal; color:var(--mute); }
 .us-flat{ margin:0; font-size:var(--fs-2); color:var(--mute); }
 .us-quiet{ color:var(--ink-3, var(--mute)); opacity:.85; }
 
 /* The one number a glance is for. Tabular so it does not jitter as it climbs. */
 .us-big{ display:flex; align-items:baseline; gap:var(--sp-2);
-  font-size:var(--fs-8); font-weight:650; line-height:1; color:var(--ink);
+  font-size:calc(var(--fs-8) * 1.45); font-weight:750; line-height:1; color:var(--ink);
   font-variant-numeric:tabular-nums; }
 .us-big span{ font-size:var(--fs-2); font-weight:500; color:var(--mute); }
+.us-big .us-pill{ margin-inline-start:auto; align-self:center; }
 
-.us-split{ display:grid; grid-template-columns:repeat(3, 1fr); gap:var(--sp-2); }
-.us-split > div{ display:flex; flex-direction:column; gap:1px; min-inline-size:0; }
-.us-split b{ font-size:var(--fs-4); font-weight:600; color:var(--ink);
-  font-variant-numeric:tabular-nums; }
-.us-split span{ font-size:var(--fs-1); color:var(--mute); overflow-wrap:anywhere; }
+/* One conversation's tokens as one bar in three colours, and its legend. */
+.us-stack{ display:flex; block-size:10px; border-radius:99px; overflow:hidden; background:var(--panel-3); gap:2px; }
+.us-seg{ display:block; block-size:100%; }
+.us-seg.in, .us-dot.in{ background:var(--brand); }
+.us-seg.out, .us-dot.out{ background:var(--ok); }
+.us-seg.cache, .us-dot.cache{ background:var(--warn); }
+.us-legend{ display:grid; grid-template-columns:repeat(3, 1fr); gap:var(--sp-2); }
+.us-legend > div{ display:grid; grid-template-columns:auto 1fr; align-items:center; column-gap:6px; min-inline-size:0; }
+.us-legend span{ font-size:var(--fs-1); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.us-legend b{ grid-column:2; font-size:var(--fs-4); font-weight:650; color:var(--ink); font-variant-numeric:tabular-nums; }
+.us-dot{ inline-size:8px; block-size:8px; border-radius:50%; }
 
-.us-list{ list-style:none; margin:0; padding:0 var(--sp-4); display:flex;
-  flex-direction:column; gap:2px; }
+/* The models: what runs as filled chips, what does not as quiet ones that
+   name the plan that would run it. */
+.us-chips{ list-style:none; margin:0 var(--sp-4) var(--sp-3); padding:0; display:flex; flex-wrap:wrap; gap:6px; }
+.us-chips li{
+  display:inline-flex; align-items:center; gap:6px; padding:5px var(--sp-3);
+  border-radius:99px; border:1px solid var(--line); background:var(--panel); min-inline-size:0;
+}
+.us-chips b{ font-size:var(--fs-2); font-weight:600; color:var(--ink); }
+.us-chips li.on{ background:var(--ok-wash); border-color:transparent; }
+.us-chips li.on svg{ color:var(--ok); }
+.us-chips li.off{ border:1px dashed var(--rule); background:transparent; }
+.us-chips li.off b{ color:var(--mute); font-weight:500; }
+.us-chips li.off svg{ color:var(--mute); opacity:.7; }
+.us-chips li.off span{ font-size:var(--fs-1); color:var(--mute); }
+
+/* What more would get: tiles side by side, the price as their headline. */
+.us-offers{ margin:0 var(--sp-4) var(--sp-3); display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:var(--sp-2); }
+.us-offer{ display:grid; gap:6px; align-content:start; padding:var(--sp-3);
+  border:1px solid var(--line); border-radius:var(--r-3);
+  background:linear-gradient(160deg, var(--brand-wash), var(--panel-2) 60%); }
+.us-offer-top{ display:flex; align-items:center; gap:6px; }
+.us-offer-top b{ font-size:var(--fs-3); font-weight:650; color:var(--ink); }
+.us-offer-top svg{ margin-inline-start:auto; color:var(--brand); }
+.us-price{ display:flex; align-items:baseline; gap:4px; font-size:var(--fs-8); font-weight:700; color:var(--ink); }
+.us-price span{ font-size:var(--fs-1); font-weight:500; color:var(--mute); }
+.us-offer ul{ list-style:none; margin:0; padding:0; display:grid; gap:2px; font-size:var(--fs-1); color:var(--mute); }
+.us-offer li.adds{ color:var(--brand); font-weight:500; }
+
+/* Where a project's tokens went, ranked, each bar against the biggest. */
+.us-mini{ font-size:var(--fs-1); font-weight:600; color:var(--mute); text-transform:uppercase; letter-spacing:.04em; }
+.us-rank{ list-style:none; margin:0 calc(-1 * var(--sp-2)); padding:0; display:flex; flex-direction:column; gap:2px; }
 .us-row{
-  width:100%; display:flex; align-items:center; gap:var(--sp-3);
-  padding:var(--sp-2) var(--sp-3); border:0; border-radius:var(--r-2);
+  inline-size:100%; display:flex; align-items:center; gap:var(--sp-3);
+  padding:var(--sp-2); border:0; border-radius:var(--r-2);
   background:transparent; color:inherit; cursor:pointer; text-align:start;
 }
 .us-row:hover{ background:var(--panel-3); }
+.us-n{ flex:none; inline-size:20px; block-size:20px; border-radius:50%; display:grid; place-items:center;
+  background:var(--panel-3); font-size:var(--fs-1); font-weight:600; color:var(--mute); }
 .us-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:4px; }
-.us-what b{ font-size:var(--fs-3); font-weight:500; color:var(--ink);
+.us-what-top{ display:flex; align-items:baseline; gap:var(--sp-2); min-inline-size:0; }
+.us-what b{ flex:1; min-inline-size:0; font-size:var(--fs-3); font-weight:500; color:var(--ink);
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.us-row em{ flex:none; font-style:normal; font-size:var(--fs-2); color:var(--mute);
-  font-variant-numeric:tabular-nums; }
-
-/* Money wears the neutral chip, not the brand one: a price beside the plan
-   name is a fact about it, and the brand wash would read as an offer. */
-.us-tag.money{ background:var(--panel-3); color:var(--mute); font-weight:500; }
-
-/* Included and not-included in one list, because the answer to "why can I not
-   run this" is the line above it. */
-.us-models{ list-style:none; margin:0; padding:0; display:flex;
-  flex-direction:column; gap:var(--sp-2); }
-.us-models li{ display:flex; align-items:center; gap:var(--sp-2); min-inline-size:0; }
-.us-models b{ font-size:var(--fs-3); font-weight:500; color:var(--ink); }
-.us-models span{ margin-inline-start:auto; font-size:var(--fs-1); color:var(--mute);
-  text-align:end; }
-.us-models svg{ flex:none; color:var(--ok); }
-.us-models li.off{ color:var(--mute); }
-.us-models li.off b{ color:var(--mute); font-weight:400; }
-.us-models li.off svg{ color:var(--mute); opacity:.7; }
-
-.us-offer{ display:grid; gap:var(--sp-2); padding:var(--sp-3);
-  border:1px solid var(--line); border-radius:var(--r-3); background:var(--panel-2); }
-.us-offer .us-head em{ display:flex; align-items:baseline; gap:4px;
-  font-size:var(--fs-4); font-weight:600; color:var(--ink); }
-.us-offer .us-head em span{ font-size:var(--fs-1); font-weight:500; color:var(--mute); }
+.us-what em{ flex:none; font-style:normal; font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
 
 .us-note{
   display:flex; gap:var(--sp-2); align-items:flex-start;

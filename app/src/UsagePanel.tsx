@@ -79,8 +79,57 @@ function Bar({ percent, tone = '' }: { percent: number | null; tone?: '' | 'low'
   if (percent === null) return null;
   return (
     <div className={`us-bar ${tone}`} role="img" aria-label={`${percent}%`}>
-      <i style={{ width: `${percent}%` }} />
+      <i style={{ inlineSize: `${percent}%` }} />
     </div>
+  );
+}
+
+/**
+ * The plan's allowance as a ring: the part spent, in the status bar's tone,
+ * with the percentage in the middle. An unmetered plan is a whole ring with
+ * ∞ in it — full, not empty, because nothing is running out.
+ */
+function Ring({ percent, tone, label }: { percent: number | null; tone: '' | 'low' | 'out'; label: string }) {
+  const r = 34;
+  const c = 2 * Math.PI * r;
+  const shown = percent === null ? 1 : Math.max(0, Math.min(100, percent)) / 100;
+  return (
+    <div className={`us-ring ${tone}`} role="img" aria-label={label}>
+      <svg viewBox="0 0 80 80" aria-hidden="true">
+        <circle className="us-ring-track" cx="40" cy="40" r={r} />
+        <circle className="us-ring-fill" cx="40" cy="40" r={r}
+                strokeDasharray={`${(c * shown).toFixed(2)} ${c.toFixed(2)}`} transform="rotate(-90 40 40)" />
+      </svg>
+      <b dir="ltr">{percent === null ? '∞' : `${percent}%`}</b>
+    </div>
+  );
+}
+
+/**
+ * What a conversation's tokens were, as one bar in three colours — sent,
+ * received, read back from the cache — with the legend under it. Proportions
+ * of real counts, so nothing is drawn that was not measured.
+ */
+function Split({ t, u }: { t: Props['t']; u: Usage }) {
+  const parts = [
+    { key: 'in', n: u.input, label: t('sent') },
+    { key: 'out', n: u.output, label: t('received') },
+    { key: 'cache', n: u.cacheRead, label: t('from cache') },
+  ];
+  const sum = parts.reduce((s, p) => s + p.n, 0) || 1;
+  return (
+    <>
+      <div className="us-stack" role="img" aria-label={parts.map((p) => `${p.label} ${compact(p.n)}`).join(', ')}>
+        {parts.filter((p) => p.n > 0).map((p) => (
+          <i key={p.key} className={`us-seg ${p.key}`} style={{ inlineSize: `${((p.n / sum) * 100).toFixed(2)}%` }} />
+        ))}
+      </div>
+      <div className="us-legend">
+        {parts.map((p) => (
+          <div key={p.key}><i className={`us-dot ${p.key}`} /><span>{p.label}</span><b>{compact(p.n)}</b></div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -91,6 +140,7 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
   const biggest = top.length ? top[0].used : 0;
   const ctxPercent = ctx ? percentOf(ctx.used, ctx.limit) : null;
   const days = plan ? daysLeft(plan.renews, Date.now()) : null;
+  const tone: '' | 'low' | 'out' = plan?.level === 'out' ? 'out' : plan?.level === 'low' ? 'low' : '';
 
   // The offer matching the plan in hand is where its price comes from: `/me`
   // reports what has been spent, `/plans` what it costs, and only the second
@@ -109,6 +159,11 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
     .filter((m) => plan && plan.models.length && !plan.models.includes(m.id))
     .map((m) => ({ model: m, on: cheapestWith(offers, m.id, mine) }));
 
+  const resets = days === null ? null
+    : days === 0 ? t('The allowance resets today.')
+    : days === 1 ? t('The allowance resets tomorrow.')
+    : fill(t('The allowance resets in {n} days.'), { n: days });
+
   return (
     <div className="us">
       {/* ── the plan ─────────────────────────────────────────────────── */}
@@ -119,50 +174,33 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
           <button className="ghost bordered" onClick={onSettings}>{t('Open Settings')}</button>
         </div>
       ) : (
-        <div className="us-card">
-          <div className="us-head">
-            <b>{plan.name || t('Your plan')}</b>
-            {plan.trial && <span className="us-tag">{t('Trial')}</span>}
-            {/* The price sits beside the name, not under the bar: it is part of
-                what the plan *is*, and under the bar it would read as a figure
-                that had been spent. */}
-            {price && <span className="us-tag money">{price === '$0'
-              ? t('Free') : fill(t('{price} a month'), { price })}</span>}
-            {/* The bar fills with what has been spent, while the line below
-                leads with what is left. Without this the two could be read as
-                the same quantity. */}
-            {plan.percent !== null && <em>{fill(t('{n}% used'), { n: plan.percent })}</em>}
+        <div className={`us-card us-hero ${tone}`}>
+          <Ring percent={plan.metered ? plan.percent : null} tone={tone}
+                label={plan.metered && plan.percent !== null ? fill(t('{n}% used'), { n: plan.percent }) : t('No limit on this plan.')} />
+          <div className="us-hero-main">
+            <div className="us-head">
+              <b>{plan.name || t('Your plan')}</b>
+              {plan.trial && <span className="us-tag">{t('Trial')}</span>}
+              {/* The price is part of what the plan *is*, not a figure that has been spent. */}
+              {price && <span className="us-tag money">{price === '$0'
+                ? t('Free') : fill(t('{price} a month'), { price })}</span>}
+            </div>
+            {plan.metered ? (
+              <p className="us-lead">{plan.left !== null && plan.allowance !== null
+                ? fill(t('{left} left of {allowance}'), { left: plan.left, allowance: plan.allowance })
+                : t('The balance did not arrive with the plan.')}</p>
+            ) : (
+              <p className="us-lead">{t('No limit on this plan.')}</p>
+            )}
+            {plan.metered && plan.used !== null && <p className="us-flat">{fill(t('{used} used'), { used: plan.used })}</p>}
+            <div className="us-pills">
+              {resets && <span className="us-pill"><Icon name="calendar" size={11} />{resets}</span>}
+              {/* The rate limit is the other ceiling, and the one that actually bites: a plan with tokens
+                  to spare still refuses a turn that asks too fast. */}
+              {plan.ratePerMin !== null && <span className="us-pill"><Icon name="bolt" size={11} />{fill(t('{n} requests a minute'), { n: plan.ratePerMin })}</span>}
+              {plan.requests !== null && <span className="us-pill"><Icon name="clock" size={11} />{fill(t('{n} made this period'), { n: plan.requests })}</span>}
+            </div>
           </div>
-          {plan.metered ? (
-            <>
-              <Bar percent={plan.percent} tone={plan.level === 'out' ? 'out' : plan.level === 'low' ? 'low' : ''} />
-              <div className="us-line">
-                <span>{plan.left !== null && plan.allowance !== null
-                  ? fill(t('{left} left of {allowance}'), { left: plan.left, allowance: plan.allowance })
-                  : t('The balance did not arrive with the plan.')}</span>
-                {plan.used !== null && <em>{fill(t('{used} used'), { used: plan.used })}</em>}
-              </div>
-            </>
-          ) : (
-            <p className="us-flat">{t('No limit on this plan.')}</p>
-          )}
-          {days !== null && (
-            <p className="us-flat">{days === 0 ? t('The allowance resets today.')
-              : days === 1 ? t('The allowance resets tomorrow.')
-              : fill(t('The allowance resets in {n} days.'), { n: days })}</p>
-          )}
-          {/* The rate limit is the other ceiling, and the one that actually
-              bites: a plan with tokens to spare still refuses a turn that asks
-              too fast, and the refusal reads like a broken model unless the
-              number is somewhere. */}
-          {(plan.ratePerMin !== null || plan.requests !== null) && (
-            <p className="us-flat us-quiet">{[
-              plan.ratePerMin !== null
-                ? fill(t('{n} requests a minute'), { n: plan.ratePerMin }) : null,
-              plan.requests !== null
-                ? fill(t('{n} made this period'), { n: plan.requests }) : null,
-            ].filter(Boolean).join(' · ')}</p>
-          )}
         </div>
       )}
 
@@ -170,23 +208,20 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
       {plan && plan.models.length > 0 && (
         <>
           <div className="sb-sub">{t('What you can run')}</div>
-          <div className="us-card">
-            <ul className="us-models">
-              {plan.models.map((id) => (
-                <li key={id}><Icon name="check" size={12} /><b>{modelName(id)}</b></li>
-              ))}
-              {locked.map(({ model, on }) => (
-                <li key={model.id} className="off">
-                  <Icon name="close" size={12} />
-                  <b>{model.short}</b>
-                  <span>{on
-                    ? fill(t('on {plan}, {price} a month'),
-                           { plan: on.name, price: money(on.priceCents, on.currency) ?? '—' })
-                    : t('not on any plan here')}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ul className="us-chips">
+            {plan.models.map((id) => (
+              <li key={id} className="on"><Icon name="check" size={12} /><b>{modelName(id)}</b></li>
+            ))}
+            {locked.map(({ model, on }) => (
+              <li key={model.id} className="off" title={on
+                ? fill(t('on {plan}, {price} a month'), { plan: on.name, price: money(on.priceCents, on.currency) ?? '—' })
+                : t('not on any plan here')}>
+                <Icon name="shield" size={12} />
+                <b>{model.short}</b>
+                <span>{on ? `${on.name} · ${money(on.priceCents, on.currency) ?? '—'}` : '—'}</span>
+              </li>
+            ))}
+          </ul>
         </>
       )}
 
@@ -194,30 +229,26 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
       {bigger.length > 0 && (
         <>
           <div className="sb-sub">{t('More room')}</div>
-          <ul className="us-list">
+          <div className="us-offers">
             {bigger.map((o) => {
               const adds = o.models.filter((m) => !(plan?.models ?? []).includes(m));
               return (
-                <li key={o.code}>
-                  <div className="us-offer">
-                    <div className="us-head">
-                      <b>{o.name}</b>
-                      <em>{money(o.priceCents, o.currency) ?? t('Price on request')}
-                        {o.priceCents !== null && <span>{t('a month')}</span>}</em>
-                    </div>
-                    <p className="us-flat">{[
-                      o.monthlyTokens !== null
-                        ? fill(t('{n} tokens a month'), { n: compact(o.monthlyTokens) }) : null,
-                      o.ratePerMin !== null
-                        ? fill(t('{n} requests a minute'), { n: o.ratePerMin }) : null,
-                      adds.length
-                        ? fill(t('adds {models}'), { models: adds.map(modelName).join(', ') }) : null,
-                    ].filter(Boolean).join(' · ')}</p>
+                <div key={o.code} className="us-offer">
+                  <div className="us-offer-top">
+                    <b>{o.name}</b>
+                    <Icon name="sparkle" size={12} />
                   </div>
-                </li>
+                  <div className="us-price">{money(o.priceCents, o.currency) ?? t('Price on request')}
+                    {o.priceCents !== null && <span>{t('a month')}</span>}</div>
+                  <ul>
+                    {o.monthlyTokens !== null && <li>{fill(t('{n} tokens a month'), { n: compact(o.monthlyTokens) })}</li>}
+                    {o.ratePerMin !== null && <li>{fill(t('{n} requests a minute'), { n: o.ratePerMin })}</li>}
+                    {adds.length > 0 && <li className="adds">{fill(t('adds {models}'), { models: adds.map(modelName).join(', ') })}</li>}
+                  </ul>
+                </div>
               );
             })}
-          </ul>
+          </div>
         </>
       )}
 
@@ -227,15 +258,11 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
         <p className="ft-empty">{t('Nothing has been sent in this conversation yet.')}</p>
       ) : (
         <div className="us-card">
-          <div className="us-big">{compact(total(chat))}<span>{t('tokens')}</span></div>
-          <div className="us-split">
-            <div><b>{compact(chat.input)}</b><span>{t('sent')}</span></div>
-            <div><b>{compact(chat.output)}</b><span>{t('received')}</span></div>
-            <div><b>{compact(chat.cacheRead)}</b><span>{t('from cache')}</span></div>
+          <div className="us-big">{compact(total(chat))}<span>{t('tokens')}</span>
+            {total(lastTurn) > 0 && <em className="us-pill" title={fill(t('The last turn cost {n} tokens.'), { n: compact(total(lastTurn)) })}>
+              <Icon name="bolt" size={11} /><bdi dir="ltr">+{compact(total(lastTurn))}</bdi></em>}
           </div>
-          {total(lastTurn) > 0 && (
-            <p className="us-flat">{fill(t('The last turn cost {n} tokens.'), { n: compact(total(lastTurn)) })}</p>
-          )}
+          <Split t={t} u={chat} />
         </div>
       )}
 
@@ -243,7 +270,7 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
           dropping its own beginning — but it is the other number a person
           watching cost wants, and it is already computed. */}
       {ctxPercent !== null && ctx && (
-        <div className="us-card">
+        <div className="us-card us-ctx">
           <div className="us-head"><b>{t('Context window')}</b><em>{ctxPercent}%</em></div>
           <Bar percent={ctxPercent} tone={ctxPercent >= 85 ? 'low' : ''} />
           <p className="us-flat">{fill(t('{used} of {limit} tokens. Past this the oldest turns are summarised to make room.'),
@@ -267,27 +294,26 @@ export function UsagePanel({ t, plan, chat, lastTurn, chats, offers, ctx, onOpen
               : fill(t('{n} older conversations were saved before this was recorded and are not counted.'),
                      { n: chats.length - withFigures })}</p>
           )}
+          {top.length > 1 && (
+            <>
+              <div className="us-mini">{t('Where it went')}</div>
+              <ol className="us-rank">
+                {top.map(({ chat: c, used }, i) => (
+                  <li key={c.id}>
+                    <button className="us-row" onClick={() => onOpen(c.id)}
+                            title={fill(t('Open {name}'), { name: c.title })}>
+                      <span className="us-n">{i + 1}</span>
+                      <span className="us-what">
+                        <span className="us-what-top"><b>{c.title}</b><em>{compact(used)}</em></span>
+                        <Bar percent={percentOf(used, biggest)} />
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </>
+          )}
         </div>
-      )}
-
-      {top.length > 1 && (
-        <>
-          <div className="sb-sub">{t('Where it went')}</div>
-          <ul className="us-list">
-            {top.map(({ chat: c, used }) => (
-              <li key={c.id}>
-                <button className="us-row" onClick={() => onOpen(c.id)}
-                        title={fill(t('Open {name}'), { name: c.title })}>
-                  <span className="us-what">
-                    <b>{c.title}</b>
-                    <Bar percent={percentOf(used, biggest)} />
-                  </span>
-                  <em>{compact(used)}</em>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
       )}
 
       <p className="us-note">
