@@ -254,6 +254,10 @@ export function Editor({
       indentOnInput(), bracketMatching(), closeBrackets(), autocompletion(),
       rectangularSelection(), crosshairCursor(), highlightActiveLine(),
       highlightSelectionMatches(),
+      // The editor is left to right (styles.css pins it: code does not
+      // mirror), but a line of Arabic or Kurdish in a Markdown file, a
+      // comment or a string is laid out right to left on its own, as it is read.
+      EditorView.perLineTextDirection.of(true),
       Prec.high(keymap.of([
         {
           // Escape and Mod-Enter only mean anything while a preview is up, and

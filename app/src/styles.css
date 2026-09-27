@@ -4650,6 +4650,24 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
   direction:ltr;
 }
 
+/* What a person types takes the direction of what they type: an Arabic or
+ * Kurdish sentence in the English interface runs right to left from its first
+ * letter, and a URL or a file name in the Kurdish one left to right — each
+ * line of a text box on its own. `dir="auto"` does this for one element;
+ * this does it for every field, including those written before the rule.
+ */
+input:not([type]), input[type="text"], input[type="search"], input[type="email"], input[type="url"], textarea{
+  unicode-bidi:plaintext;
+}
+
+/* A shortcut is keys pressed in an order, and it reads left to right in every
+ * language: in a right-to-left line "⌘P" would otherwise show as "P⌘". */
+kbd{ direction:ltr; unicode-bidi:isolate; }
+/* Keys, passwords, addresses and identifiers are Latin strings with a fixed
+ * order — "sk-vylo-…" typed or shown right to left becomes "…-sk-vylo". They
+ * are left to right in every interface language, placeholders included. */
+input[type="password"], input[type="email"], input[type="url"], input.mono, .set-in, .br-url, .rsch-doi{ direction:ltr; }
+
 /* Mirror what points at content, and nothing else.
  *
  * A chevron before a collapsed row points at the thing it would reveal, so it
@@ -4676,6 +4694,12 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    it is *back* that is flipped -- and right-to-left it is forward. */
 :root[dir="rtl"] .navb button:first-child{ transform:none; }
 :root[dir="rtl"] .navb button:last-child{ transform:scaleX(-1); }
+/* The same for an icon that says "this way" without a class of its own to
+   hang a rule on: a breadcrumb's separator, a reply arrow, a toggle that
+   points at what it opens. `scale` rather than `transform`, so it composes
+   with the rotation the icon may already carry (Icon's `turn`). */
+:root[dir="rtl"] .ic-dir{ scale:-1 1; }
+:root[dir="rtl"] .vid-back svg{ transform:none; }
 
 /* ── drag to reorder ─────────────────────────────────────────────────── */
 /*

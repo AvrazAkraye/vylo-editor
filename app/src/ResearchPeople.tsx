@@ -13,6 +13,7 @@ import {
 } from './researchers';
 import { readPicked } from './researchfiles';
 import { deletePerson, loadPeople, savePerson } from './researchstore';
+import { locale } from './fmt';
 
 /**
  * Research's Researchers tab: the people whose manner a document can be
@@ -206,7 +207,7 @@ export function ResearchPeople(p: Props) {
                     <span className={`rsch-badge ${busy ? 'is-live' : r.guide && !stale(r) ? 'is-ok' : ''}`}>
                       {busy ? t('Learning…')
                         : r.guide ? (stale(r) ? t('Learn again') : t('Style learned'))
-                        : words ? fill(t('{n} words'), { n: words.toLocaleString() })
+                        : words ? fill(t('{n} words'), { n: words.toLocaleString(locale()) })
                         : t('No papers yet')}
                     </span>
                   </button>
@@ -327,7 +328,7 @@ function PersonView({ t, lang, target, book, ready, r, onBack, onWrite, onError 
         <span className="rsch-avatar" aria-hidden="true">{initials(r.name)}</span>
         <div className="rsch-title">
           <b dir="auto">{nameOf(r) || t('Unnamed researcher')}</b>
-          <span>{fill(t('{n} papers'), { n: r.samples.length })} · {fill(t('{n} words'), { n: r.samples.reduce((n, s) => n + s.words, 0).toLocaleString() })}</span>
+          <span>{fill(t('{n} papers'), { n: r.samples.length })} · {fill(t('{n} words'), { n: r.samples.reduce((n, s) => n + s.words, 0).toLocaleString(locale()) })}</span>
         </div>
         <button className="sb-act" onClick={() => void remove()} title={t('Delete this researcher')} aria-label={t('Delete this researcher')}>
           <Icon name="close" size={14} />
@@ -374,7 +375,7 @@ function PersonView({ t, lang, target, book, ready, r, onBack, onWrite, onError 
               <li key={s.id}>
                 <Icon name="file" size={12} />
                 <b dir="auto">{s.name}</b>
-                <span>{fill(t('{n} words'), { n: s.words.toLocaleString() })}{s.truncated ? ` · ${t('only the start could be kept')}` : ''}</span>
+                <span>{fill(t('{n} words'), { n: s.words.toLocaleString(locale()) })}{s.truncated ? ` · ${t('only the start could be kept')}` : ''}</span>
                 <button type="button" className="sb-act" onClick={() => change({ samples: r.samples.filter((x) => x.id !== s.id) })}
                         title={t('Remove')} aria-label={t('Remove')}><Icon name="close" size={11} /></button>
               </li>

@@ -1910,7 +1910,7 @@ export function TerminalPanel({
                                 aria-expanded={!isShut}
                                 title={isShut ? t('Open this group') : t('Fold this group')}
                                 aria-label={isShut ? t('Open this group') : t('Fold this group')}>
-                          <Icon name="chevron" size={11} turn={isShut ? -90 : 0} />
+                          <Icon name="chevron" size={11} turn={isShut ? -90 : 0} className="ic-dir" />
                         </button>
                         <button className="tsg-name" onDoubleClick={() => setRenamingGroup(node.path)}
                                 onClick={() => foldGroup(node.path)} title={node.path}>

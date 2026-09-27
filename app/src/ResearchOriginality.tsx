@@ -15,6 +15,7 @@ import {
 import { closeness, fingerprint, sampleOf, type Researcher } from './researchers';
 import { readPicked } from './researchfiles';
 import { Closeness } from './ResearchPeople';
+import { locale } from './fmt';
 
 /**
  * Research's originality check: how much of a text is somebody else's words,
@@ -324,7 +325,7 @@ function Checker({ t, doc, docs, people, lang, target, book, canRewrite, onRewri
     if (!report || !res) return;
     const lines = [
       doc ? (doc.meta.title || doc.request) : t('Pasted text'),
-      `${t('Similarity')}: ${report.score}% · ${fill(t('{n} words checked'), { n: report.words.toLocaleString() })}`,
+      `${t('Similarity')}: ${report.score}% · ${fill(t('{n} words checked'), { n: report.words.toLocaleString(locale()) })}`,
       '',
       ...report.byRef.map((b) => `${b.score}%  ${refOf(b.ref)?.label ?? b.ref}`),
       '',
@@ -341,7 +342,7 @@ function Checker({ t, doc, docs, people, lang, target, book, canRewrite, onRewri
                     placeholder={t('Paste the text to check — a chapter, an article, a whole thesis.')} />
           <div className="rsch-row">
             <button className="ghost" disabled={loading} onClick={() => void readFiles('check')}><Icon name="attach" size={12} />{t('Attach a file to check')}</button>
-            {text.trim() && <small>{fill(t('{n} words'), { n: text.trim().split(/\s+/).length.toLocaleString() })}</small>}
+            {text.trim() && <small>{fill(t('{n} words'), { n: text.trim().split(/\s+/).length.toLocaleString(locale()) })}</small>}
           </div>
         </div>
       )}
@@ -359,7 +360,7 @@ function Checker({ t, doc, docs, people, lang, target, book, canRewrite, onRewri
             {extra.map((x) => (
               <li key={x.id}>
                 <Icon name="file" size={12} /><b dir="auto">{x.label}</b>
-                <span>{fill(t('{n} words'), { n: x.text.trim().split(/\s+/).length.toLocaleString() })}</span>
+                <span>{fill(t('{n} words'), { n: x.text.trim().split(/\s+/).length.toLocaleString(locale()) })}</span>
                 <button type="button" className="sb-act" onClick={() => { extra = extra.filter((y) => y.id !== x.id); notify(); }}
                         title={t('Remove')} aria-label={t('Remove')}><Icon name="close" size={11} /></button>
               </li>
@@ -409,7 +410,7 @@ function Checker({ t, doc, docs, people, lang, target, book, canRewrite, onRewri
             </div>
             <div className="rsch-score-what">
               <b>{report.score <= 15 ? t('Low similarity') : report.score <= 30 ? t('Some similarity — read the passages below') : t('High similarity — rewrite the passages below')}</b>
-              <span>{fill(t('{n} words checked'), { n: report.words.toLocaleString() })} · {fill(t('against {n} texts'), { n: res.refs.length })}</span>
+              <span>{fill(t('{n} words checked'), { n: report.words.toLocaleString(locale()) })} · {fill(t('against {n} texts'), { n: res.refs.length })}</span>
               <i className="rsch-meter"><s style={{ inlineSize: `${Math.min(100, report.score)}%` }} /></i>
             </div>
           </div>

@@ -244,7 +244,7 @@ export function TodoTask({ task, acts, t, nested = true, depth = 0 }: Props) {
           )}
           <button className="todo-act" onClick={() => setOpen(!open)}
                   title={t('Details')} aria-label={`${t('Details')} — ${task.title}`}>
-            <Icon name="chevron" size={12} turn={open ? 180 : 0} />
+            <Icon name="chevron" size={12} turn={open ? 180 : 0} className="ic-dir" />
           </button>
         </span>
       </div>

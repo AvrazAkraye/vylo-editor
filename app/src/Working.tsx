@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Icon } from './Icon';
 import { elapsed, isSlow, line, type Progress } from './progress';
+import { locale } from './fmt';
 
 /**
  * The line shown while a turn is running, and what is under it.
@@ -62,7 +63,7 @@ export function Working({ progress, t, mode, model, context, onStop }: Props) {
             explaining. Before that it is a control nobody needs, on a line that
             is about to disappear. */}
         <Icon name="chevron" size={12} turn={open ? 180 : 0}
-              className={hint || open ? 'wk-more on' : 'wk-more'} />
+              className={hint || open ? 'wk-more on ic-dir' : 'wk-more ic-dir'} />
       </button>
 
       {open && (
@@ -74,7 +75,7 @@ export function Working({ progress, t, mode, model, context, onStop }: Props) {
           <div><dt>{t('Round-trip')}</dt><dd>{progress.hop} / {progress.maxHops}</dd></div>
           {progress.ran > 0 && <div><dt>{t('Tools run')}</dt><dd>{progress.ran}</dd></div>}
           {progress.written > 0 && (
-            <div><dt>{t('Written')}</dt><dd>{progress.written.toLocaleString()}</dd></div>
+            <div><dt>{t('Written')}</dt><dd>{progress.written.toLocaleString(locale())}</dd></div>
           )}
           {context !== null && <div><dt>{t('Context')}</dt><dd>{context}%</dd></div>}
           {progress.tool && (

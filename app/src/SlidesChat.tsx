@@ -11,6 +11,7 @@ import { Recorder, SpeechError, speechBackend, speechFileName, transcribe } from
 import { micLang } from './whatsappvoice';
 import { Dictation, OFF as DICTATION_OFF, browserOpen, recognitionLang, speechAvailable, type State as DictationState } from './dictate';
 import { langName, slideKindName, themeName } from './slidesnames';
+import { locale } from './fmt';
 
 /**
  * Talking to the slides: the Chat tab.
@@ -570,7 +571,7 @@ export function SlidesChat({
               <b>{status}</b>
               <span className="vid-chat-clock">
                 <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
-                {run.chars > 0 && <span>{fill(t('{n} characters'), { n: run.chars.toLocaleString() })}</span>}
+                {run.chars > 0 && <span>{fill(t('{n} characters'), { n: run.chars.toLocaleString(locale()) })}</span>}
                 {run.retry && <span>{fill(t('Trying again ({n} of {of})…'), { n: run.retry.attempt, of: run.retry.of })}</span>}
               </span>
             </div>

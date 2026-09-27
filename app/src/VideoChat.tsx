@@ -17,6 +17,7 @@ import { mergeBrief, researchVideo, siteLogo, withSiteLogo } from './videoresear
 import {
   MAX_OPS, MAX_SCENES, afterUndo, applyOps, chatPrompt, keptChat, parseChat, playedSeconds, type Change, type LookedUp,
 } from './videochatops';
+import { locale } from './fmt';
 
 /**
  * Talking to the video: the Chat tab.
@@ -736,7 +737,7 @@ export function VideoChat({ t, video, onChange, locked, ready, target, efforts, 
               <b>{status}</b>
               <span className="vid-chat-clock">
                 <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
-                {run.stage === 'asking' && run.chars > 0 && <span>{fill(t('{n} characters'), { n: run.chars.toLocaleString() })}</span>}
+                {run.stage === 'asking' && run.chars > 0 && <span>{fill(t('{n} characters'), { n: run.chars.toLocaleString(locale()) })}</span>}
                 {run.retry && <span>{fill(t('Trying again ({n} of {of})…'), { n: run.retry.attempt, of: run.retry.of })}</span>}
               </span>
             </div>

@@ -33,6 +33,7 @@ import { UndoRedo, VideoTimeline, selectScene, useVideoKeys } from './VideoTimel
 import { videoHistory } from './videohistory';
 import { TEMPLATES, sampleOf, sampleVideo, templateAbout, templateName, type Template } from './videotemplates';
 import { brandFromLogo, paletteOfImage, type Swatch } from './videopalette';
+import { locale, dateText } from './fmt';
 
 /**
  * Video, in the sidebar: describe a short film, and get a storyboard you can
@@ -461,7 +462,7 @@ function clock(ms: number): string {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
-const whenOf = (at: number) => new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const whenOf = (at: number) => dateText(at);
 
 /** Seconds, as the length a video will play for. */
 const lengthOf = (v: Video) => (v.scenes.length ? durationInFrames(v) / FPS : v.seconds);
@@ -728,7 +729,7 @@ function JobStatus({ t, video, job }: { t: T; video: Video; job: Job }) {
       </div>
       <p className="vid-clock">
         <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
-        {job.stage === 'planning' && job.chars > 0 && <span>{fill(t('{n} characters'), { n: job.chars.toLocaleString() })}</span>}
+        {job.stage === 'planning' && job.chars > 0 && <span>{fill(t('{n} characters'), { n: job.chars.toLocaleString(locale()) })}</span>}
         {job.retry && <span>{fill(t('Trying again ({n} of {of})…'), { n: job.retry.attempt, of: job.retry.of })}</span>}
       </p>
     </div>

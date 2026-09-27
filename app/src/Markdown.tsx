@@ -113,7 +113,7 @@ export function Markdown({ text, apply }: { text: string; apply?: ApplyHooks }) 
     const h = /^(#{1,4})\s+(.*)$/.exec(line);
     if (h) {
       blocks.push(
-        <div className={`md-h md-h${h[1].length}`} key={key++}>
+        <div className={`md-h md-h${h[1].length}`} key={key++} dir="auto">
           {inline(h[2], `h${key}`)}
         </div>,
       );
@@ -127,12 +127,15 @@ export function Markdown({ text, apply }: { text: string; apply?: ApplyHooks }) 
       const numbered = /^\s*\d+\./.test(line);
       while (i < lines.length && /^\s*([-*+]|\d+\.)\s+/.test(lines[i])) {
         const item = lines[i].replace(/^\s*([-*+]|\d+\.)\s+/, '');
-        items.push(<li key={items.length}>{inline(item, `l${key}-${items.length}`)}</li>);
+        items.push(<li key={items.length} dir="auto">{inline(item, `l${key}-${items.length}`)}</li>);
         i++;
       }
       blocks.push(
-        numbered ? <ol className="md-list" key={key++}>{items}</ol>
-                 : <ul className="md-list" key={key++}>{items}</ul>,
+        // Each block takes the direction of its own first words: an Arabic
+        // answer in the English interface reads right to left, and an English
+        // one in the Kurdish interface left to right, paragraph by paragraph.
+        numbered ? <ol className="md-list" key={key++} dir="auto">{items}</ol>
+                 : <ul className="md-list" key={key++} dir="auto">{items}</ul>,
       );
       continue;
     }
@@ -151,7 +154,7 @@ export function Markdown({ text, apply }: { text: string; apply?: ApplyHooks }) 
     }
     if (para.length) {
       blocks.push(
-        <p className="md-p" key={key++}>
+        <p className="md-p" key={key++} dir="auto">
           {para.join('\n').split('\n').map((l, n) => (
             <Fragment key={n}>{n > 0 && <br />}{inline(l, `p${key}-${n}`)}</Fragment>
           ))}

@@ -29,6 +29,7 @@ import {
   voiceHeaders, writeVoice, TARGETS, targetOf, type Voice,
   NOTE_LANG_KEY, SPOKEN, noteLang, readNoteLangs, withNoteLang, type SpokenLang, type VoiceLang,
 } from './whatsappvoice';
+import { dateText, timeText } from './fmt';
 
 /**
  * WhatsApp, in the sidebar.
@@ -138,7 +139,7 @@ function heardName(code: SpokenLang, t: (s: string) => string): string {
  * Sorani on a machine set to 24-hour time wants 14:05.
  */
 const clockOf = (at: number): string =>
-  at ? new Date(at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
+  at ? timeText(at) : '';
 
 /** Up to two letters for the avatar. Digits give the last two of the number. */
 function initialsOf(name: string): string {
@@ -1293,7 +1294,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
     const rel = relDay(at);
     if (rel === 'today') return t('Today');
     if (rel === 'yesterday') return t('Yesterday');
-    return new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    return dateText(at, { year: true });
   }
 
   if (state !== 'live') {
@@ -1302,11 +1303,11 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
         <div className="sb-sub">{t('Connect WhatsApp')}</div>
         <div className="wa-form">
           <label>{t('Server')}
-            <input value={form.baseUrl} spellCheck={false}
+            <input dir="ltr" value={form.baseUrl} spellCheck={false}
                    onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
                    placeholder={BLANK.baseUrl} /></label>
           <label>{t('Instance')}
-            <input value={form.instance} spellCheck={false}
+            <input dir="ltr" value={form.instance} spellCheck={false}
                    onChange={(e) => setForm({ ...form, instance: e.target.value })}
                    placeholder="vylo-personal" /></label>
           <label>{t('API key')}
@@ -1332,11 +1333,11 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
           <p className="wa-sect">{t('Sending voice notes')}</p>
           <p className="wa-why">{t('Made by whichever provider you have added that can. Reading a message out loud uses your own machine and needs nothing here.')}</p>
           <label>{t('Speech model')}
-            <input value={speech.model} spellCheck={false}
+            <input dir="ltr" value={speech.model} spellCheck={false}
                    onChange={(e) => setSpeech({ ...speech, model: e.target.value })}
                    placeholder={BLANK_SPEECH.model} /></label>
           <label>{t('Speaking voice')}
-            <input value={speech.voice} spellCheck={false}
+            <input dir="ltr" value={speech.voice} spellCheck={false}
                    onChange={(e) => setSpeech({ ...speech, voice: e.target.value })}
                    placeholder={BLANK_SPEECH.voice} /></label>
           {/* Typed rather than a slider: the useful values are a handful of
@@ -1352,7 +1353,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
 
           <p className="wa-sect">{t('Reading voice notes')}</p>
           <label>{t('Voice service')}
-            <input value={vc.baseUrl} spellCheck={false}
+            <input dir="ltr" value={vc.baseUrl} spellCheck={false}
                    onChange={(e) => setVc({ ...vc, baseUrl: e.target.value.replace(/\/+$/, '') })}
                    placeholder={BLANK_VOICE.baseUrl} /></label>
           <label>{t('Voice key')}
@@ -1681,7 +1682,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
                 )}
                 <button onClick={() => { setReplyTo(r.msg); setFind(''); }}
                         title={t('Reply to this')} aria-label={t('Reply to this')}>
-                  <Icon name="chevron" size={11} turn={180} />
+                  <Icon name="chevron" size={11} turn={180} className="ic-dir" />
                 </button>
               </span>
             )}
@@ -1712,7 +1713,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
             to the wrong message is not something you can take back. */}
         {replyTo && (
           <div className="wa-answering">
-            <Icon name="chevron" size={11} turn={180} />
+            <Icon name="chevron" size={11} turn={180} className="ic-dir" />
             <span className="wa-answering-what" dir="auto">
               <b>{replyTo.fromMe ? t('You:') : (replyTo.who || t('Reply to'))}</b>
               <span>{replyTo.text || kindLabel(replyTo.kind, t)}</span>

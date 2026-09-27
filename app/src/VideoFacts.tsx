@@ -5,6 +5,7 @@ import { fill } from './i18n';
 import { explain } from './errors';
 import type { Brief, Fact, Video } from './videotypes';
 import { LABELS, guessSubjects, pictureTitle, researchVideo, withSiteLogo } from './videoresearch';
+import { dateText } from './fmt';
 
 /**
  * "Found on the web": what was looked up about the video's subject before its
@@ -36,7 +37,7 @@ function sourceText(source: string, t: T): string {
   return web ? `${web[1]} · ${t('web search')}` : source;
 }
 
-const whenOf = (at: number) => new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+const whenOf = (at: number) => dateText(at, { year: true });
 
 /** A fresh lookup keeps the person's "leave it out" for a fact that is still there, word for word. */
 function keepSwitches(next: Brief, prev: Brief | undefined): Brief {

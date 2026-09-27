@@ -28,6 +28,7 @@ import { deckHistory } from './slideshistory';
 import { SlidesChat } from './SlidesChat';
 import { IS_MAC } from './Welcome';
 import './slides.css';
+import { locale, dateText } from './fmt';
 
 /**
  * Slides, in the sidebar: describe a presentation — or pick a document the
@@ -428,7 +429,7 @@ function clock(ms: number): string {
   return `${m}:${String(s % 60).padStart(2, '0')}`;
 }
 
-const whenOf = (at: number) => new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const whenOf = (at: number) => dateText(at);
 
 /** What the model is doing before its first words arrive; a line that changes says it is working. */
 function thinkingVerb(ms: number, t: T): string {
@@ -675,7 +676,7 @@ function JobStatus({ t, deck, job }: { t: T; deck: Deck; job: Job }) {
       <div className="vid-bar is-early" role="progressbar" aria-label={t('Progress')}><i /></div>
       <p className="vid-clock">
         <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
-        {job.chars > 0 && <span>{fill(t('{n} characters'), { n: job.chars.toLocaleString() })}</span>}
+        {job.chars > 0 && <span>{fill(t('{n} characters'), { n: job.chars.toLocaleString(locale()) })}</span>}
         {job.retry && <span>{fill(t('Trying again ({n} of {of})…'), { n: job.retry.attempt, of: job.retry.of })}</span>}
       </p>
     </div>

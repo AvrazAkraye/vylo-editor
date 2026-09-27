@@ -171,6 +171,7 @@ import { UsagePanel } from './UsagePanel';
 import { WhatsAppPanel } from './WhatsAppPanel';
 import { ResearchPanel, askResearch, askResearchDoc, toggleResearchFull } from './ResearchPanel';
 import { AskVylo } from './AskVylo';
+import { setUiLang } from './fmt';
 import type { Dest } from './askroute';
 import { KEY as WA_KEY, read as readWa } from './whatsapp';
 import { callerFor } from './whatsappwire';
@@ -596,6 +597,8 @@ export function App() {
   const [written, setWritten] = useState<string[]>([]);
   const [commitMsg, setCommitMsg] = useState('');
   const [lang, setLang] = useState<Lang>(() => storedLang());
+  // Dates and numbers follow the interface's language (fmt.ts), set before anything below draws one.
+  setUiLang(lang);
   const [update, setUpdate] = useState<Available | null>(null);
   const [updating, setUpdating] = useState<number | null | 'done'>(null);
   const [recents, setRecents] = useState(() => folders());
@@ -659,8 +662,15 @@ export function App() {
    */
   // v2 if it is there, otherwise whatever v1 held — see `migrate`. The effect
   // below writes v2 straight back, so this runs once per person, ever.
-  const [modules, setModules] = useState<ModuleLayout>(() =>
-    migrateModules(localStorage.getItem(MODULES_KEY), localStorage.getItem(OLD_MODULES_KEY)));
+  const [modules, setModules] = useState<ModuleLayout>(() => {
+    const saved = localStorage.getItem(MODULES_KEY);
+    const old = localStorage.getItem(OLD_MODULES_KEY);
+    const layout = migrateModules(saved, old);
+    // A first run in Arabic or Kurdish puts the sidebar where those readers
+    // start a page: on the right. Somebody who ever saved a layout keeps
+    // theirs — a saved "left" cannot be told from a chosen one.
+    return !saved && !old && dirFor(storedLang()) === 'rtl' ? { ...layout, side: 'right' } : layout;
+  });
   /**
    * The second sidebar: which docked module it shows, whether it is open, and
    * how wide it is. Separate from the rail's own state on purpose — the point
@@ -5234,7 +5244,7 @@ export function App() {
             <div className="crumbs" aria-label={t('Where this file is')}>
               {active.replace(root, '').replace(/^[\\/]+/, '').split(/[\\/]/).map((part, i, all) => (
                 <Fragment key={`${part}-${i}`}>
-                  {i > 0 && <Icon name="chevron" size={10} />}
+                  {i > 0 && <Icon name="chevron" size={10} className="ic-dir" />}
                   {i === all.length - 1 ? (
                     <b>{part}</b>
                   ) : (

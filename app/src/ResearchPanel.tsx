@@ -36,6 +36,7 @@ import { ResearchChat, sendWhenOpen } from './ResearchChat';
 import { ResearchHome, SkillCard } from './ResearchHome';
 import type { ChatTab, Work as ChatWork } from './researchchatops';
 import { fold } from './settings';
+import { locale, dateText } from './fmt';
 
 /**
  * Research, in the sidebar: say what you need, and get a document.
@@ -649,7 +650,7 @@ function samplesOf(k: Kind): string[] {
 
 const wordsOf = (doc: Doc) => doc.sections.reduce((n, s) => n + (s.text ? wordCount(s.text) : 0), 0);
 
-const whenOf = (at: number) => new Date(at).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+const whenOf = (at: number) => dateText(at);
 
 /**
  * One pass over a document as the reader draws it: the citation context, whose
@@ -821,7 +822,7 @@ function WriteSettings({ t, value, onChange, routes, efforts, plan, disabled }: 
             <button key={l} type="button" disabled={disabled}
                     className={!value.words && value.length === l ? 'on' : ''}
                     onClick={() => onChange({ words: undefined, length: l })}>
-              {fill(t('{length} — about {n} words'), { length: lengthName(l, t), n: kindOf(value.kind).words[l].toLocaleString() })}
+              {fill(t('{length} — about {n} words'), { length: lengthName(l, t), n: kindOf(value.kind).words[l].toLocaleString(locale()) })}
             </button>
           ))}
         </span>
@@ -1037,7 +1038,7 @@ function PartStatus({ t, job, index, live, want }: { t: (s: string) => string; j
       <b>{live ? t('Writing the part') : thinkingVerb(since, t)}…</b>
       <span>{clock(since)}</span>
       {live
-        ? <span>{want ? fill(t('{n} of {of} words'), { n: n.toLocaleString(), of: want.toLocaleString() }) : fill(t('{n} words'), { n: n.toLocaleString() })}</span>
+        ? <span>{want ? fill(t('{n} of {of} words'), { n: n.toLocaleString(locale()), of: want.toLocaleString(locale()) }) : fill(t('{n} words'), { n: n.toLocaleString(locale()) })}</span>
         : <span>{t('the words appear here as they are written')}</span>}
     </p>
   );
@@ -1072,7 +1073,7 @@ function logText(e: LogEntry, t: (s: string) => string): string {
   if (e.what === 'stage') return stageName(e.stage, t);
   if (e.what === 'sources') return fill(t('{n} sources kept for the document'), { n: e.n });
   if (e.what === 'outline') return fill(t('Outline ready: {n} parts'), { n: e.n });
-  if (e.what === 'part') return fill(t('Written: {heading} — {n} words'), { heading: e.heading, n: e.words.toLocaleString() });
+  if (e.what === 'part') return fill(t('Written: {heading} — {n} words'), { heading: e.heading, n: e.words.toLocaleString(locale()) });
   return noteText(e.note, t);
 }
 
@@ -1123,7 +1124,7 @@ function RunStatus({ t, doc, job, rows = 5 }: { t: (s: string) => string; doc: D
                 <span className="rsch-dot is-live" aria-hidden="true" />
                 <b>{fill(t('Writer {n}'), { n: w.agent })}</b>
                 <span className="rsch-writer-what" dir="auto">{sec.heading}</span>
-                <span className="rsch-writer-n">{n ? fill(t('{n} words'), { n: n.toLocaleString() }) : `${thinkingVerb(Date.now() - (job.began.get(w.index) ?? Date.now()), t)}…`}</span>
+                <span className="rsch-writer-n">{n ? fill(t('{n} words'), { n: n.toLocaleString(locale()) }) : `${thinkingVerb(Date.now() - (job.began.get(w.index) ?? Date.now()), t)}…`}</span>
                 {/* The part's own bar: its words against what the outline gave it. */}
                 <span className="rsch-writer-bar" aria-hidden="true"><i style={{ inlineSize: `${Math.min(100, sec.words ? (100 * n) / sec.words : 0)}%` }} /></span>
               </li>
@@ -1978,7 +1979,7 @@ function DocView({ doc, t, routes, efforts, plan, ready, inFull, docs, people, l
           <p className="rsch-count">
             {fill(t('{done} of {n} written'), { done, n: doc.sections.length })}
             {' · '}
-            {fill(t('{n} words'), { n: words.toLocaleString() })}
+            {fill(t('{n} words'), { n: words.toLocaleString(locale()) })}
             {' · '}
             {fill(t('{n} sources'), { n: doc.sources.filter((s) => s.use).length })}
           </p>
@@ -2131,7 +2132,7 @@ function OutlineTab({ doc, t, busy, writing, onRead, onChange, onRewrite, ready 
             <span className={`rsch-dot ${s.state === 'done' ? 'is-done' : s.state === 'failed' ? 'is-bad' : s.state === 'writing' || writing.has(i) ? 'is-live' : s.state === 'author' ? 'is-yours' : ''}`}
                   aria-label={stateName(writing.has(i) ? 'writing' : s.state, t)} />
             <span className="rsch-sec-name" dir="auto">{s.heading}</span>
-            <span className="rsch-sec-n">{s.text ? wordCount(s.text).toLocaleString() : s.words ? `~${s.words.toLocaleString()}` : ''}</span>
+            <span className="rsch-sec-n">{s.text ? wordCount(s.text).toLocaleString(locale()) : s.words ? `~${s.words.toLocaleString(locale())}` : ''}</span>
           </button>
           {!busy && (
             <span className="rsch-sec-acts">
@@ -3185,7 +3186,7 @@ function Reader({ doc, t, at, nonce, mode, onClose, begin }: {
     <div className="rsch-reader-head">
       {job && <span className="rsch-head-bar" aria-hidden="true"><i style={{ inlineSize: `${percentOf(doc, job)}%` }} /></span>}
       <b dir="auto">{doc.meta.title || doc.request}</b>
-      <span>{kindName(doc.kind, t)} · {styleName(doc.style, t)} · {fill(t('{n} words'), { n: wordsOf(doc).toLocaleString() })}</span>
+      <span>{kindName(doc.kind, t)} · {styleName(doc.style, t)} · {fill(t('{n} words'), { n: wordsOf(doc).toLocaleString(locale()) })}</span>
       {mode === 'overlay' && (
         <button className="sb-act" onClick={() => { if (!editing) onClose(); }} disabled={!!editing}
                 title={t('Close')} aria-label={t('Close')}><Icon name="close" size={14} /></button>

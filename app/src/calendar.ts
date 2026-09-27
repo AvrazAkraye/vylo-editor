@@ -16,6 +16,7 @@
 
 import type { Rolled } from './todo';
 import { dueOn, today } from './todoview';
+import { longDateText, monthText, weekdayText } from './fmt';
 
 /** `YYYY-MM-DD` for a local date. */
 export function key(year: number, month: number, day: number): string {
@@ -113,21 +114,19 @@ export function weekdays(starts: Weekday, lang: string): string[] {
   for (let i = 0; i < 7; i++) {
     // 2024-01-07 was a Sunday, so adding the weekday number lands on that day.
     const d = new Date(2024, 0, 7 + ((starts + i) % 7));
-    out.push(new Intl.DateTimeFormat(lang, { weekday: 'short' }).format(d));
+    out.push(weekdayText(d, lang));
   }
   return out;
 }
 
 /** "September 2026", in the language in use. */
 export function monthName(year: number, month: number, lang: string): string {
-  return new Intl.DateTimeFormat(lang, { month: 'long', year: 'numeric' })
-    .format(new Date(year, month, 1));
+  return monthText(year, month, lang);
 }
 
 /** "Wednesday, 2 September", for the heading over a day's list. */
 export function longDate(iso: string, lang: string): string {
   const [y, m, d] = iso.split('-').map(Number);
   if (!y || !m || !d) return iso;
-  return new Intl.DateTimeFormat(lang, { weekday: 'long', day: 'numeric', month: 'long' })
-    .format(new Date(y, m - 1, d));
+  return longDateText(new Date(y, m - 1, d), lang);
 }
