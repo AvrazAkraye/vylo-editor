@@ -40,7 +40,7 @@
 import type {
   Brand, Camera, Format, Ground, IconId, Picture, Scene, SceneArt, SceneKind, Shape, Style, TextEffect, Transition, Video, VideoDesign, VideoLang,
 } from './videotypes';
-import { CAMERAS, FORMATS, FPS, GROUNDS, ICON_IDS, SCENE_KINDS, SHAPES, TEXT_EFFECTS } from './videotypes';
+import { CAMERAS, FORMATS, FPS, GROUNDS, ICON_IDS, SCENE_KINDS, SHAPES, TEXT_EFFECTS, TRANSITIONS } from './videotypes';
 import { docLangOf } from './research';
 import { jsonIn } from './researchrun';
 import { fold } from './settings';
@@ -451,6 +451,7 @@ function creativeDirection(v: Pick<Video, 'seconds'>): string {
     '- A "shape" on at most half of the scenes; leave the others clean.',
     '- Cameras subtle: "push" or "drift" for most scenes, "still" when the words should simply stand.',
     '- Match the pace of the look: a calm look mostly "fade", "rise", "mask" and "type"; a punchy one "pop", "scale", "slide" and, once, "glitch".',
+    '- Transitions are part of the direction too: a calm film moves on with "fade", "iris" and "split"; an energetic one cuts with "panel", "flash", "zoom" and hard cuts ("none") on the beat. Never the same transition three times running.',
     '- "features" for two to four offers or benefits; "device" when the subject is an app, a website or anything on a screen.',
     '- The outro calm and clear: "fade" or "rise", no "glitch", nothing that competes with the call to action.',
   ].join('\n');
@@ -461,7 +462,7 @@ function creativeDirection(v: Pick<Video, 'seconds'>): string {
  * planning and for redoing one scene, so a kind reads the same either way.
  */
 export const SCHEMA = [
-  'Every scene has "kind", "seconds" (a number from 2 to 20) and "transition" — how it hands over to the next: "fade", "slide", "wipe", "zoom" or "none" (a hard cut). The kinds and their own fields:',
+  'Every scene has "kind", "seconds" (a number from 2 to 20) and "transition" — how it hands over to the next: "fade", "slide", "wipe", "zoom", "iris" (a circle opening from the middle), "flash" (a flash of light), "panel" (a panel in the accent colours sweeps across), "split" (the next scene opens from a line down the middle, like doors), "glitch" (a short digital jitter) or "none" (a hard cut). The kinds and their own fields:',
   '- {"kind":"title","title":"the hook, 2 to 7 words","subtitle":"optional, one short line","imageQuery":"optional"} — the opening scene.',
   '- {"kind":"kinetic","text":"one sentence of at most 12 words, shown a few words at a time"} — a statement with rhythm.',
   '- {"kind":"bullets","heading":"2 to 5 words","points":["2 to 4 points of 2 to 6 words each"]} — at most 5 points.',
@@ -521,7 +522,7 @@ function systemOf(v: Pick<Video, 'lang'>): string {
     '2. One idea per scene. If a scene needs "and", it is two scenes.',
     '3. Short lines, timed to be read. People read about three words a second and need a moment to see a scene arrive, so a scene\'s "seconds" is its words divided by 3, plus about one second, and at least 2: a 5-word headline is about 2.5 seconds, a sentence of 9 words about 4, three short points about 5. When a scene feels long, cut words; do not add seconds.',
     '4. An arc: the hook, then the problem or the context, then the points (what it is, how it works, why it matters), then proof, then the call to action. Proof is only what the request gives — a figure, a result, a quotation, a process. When the request gives none, leave proof out rather than make it up.',
-    '5. Variety. Never the same kind twice in a row. Mix words, pictures and lists. Choose transitions for rhythm: "fade" for a calm step, "slide" to move on to the next point, "wipe" between parts of the story, "zoom" for a reveal or a burst of energy, "none" for a hard cut on a beat. Do not use one transition everywhere. The last scene\'s transition is "none".',
+    '5. Variety. Never the same kind twice in a row. Mix words, pictures and lists. Choose transitions for rhythm: "fade" for a calm step, "slide" to move on to the next point, "wipe" between parts of the story, "zoom" for a reveal or a burst of energy, "iris" or "split" to open onto something new, "panel" or "flash" on a turn in the story, "glitch" once in an energetic film, "none" for a hard cut on a beat. Do not use one transition everywhere. The last scene\'s transition is "none".',
     '6. The close is an "outro": the brand or the main message as the headline, and one clear action a viewer can take.',
     '',
     'Rules that are never broken:',
@@ -824,7 +825,28 @@ const ALIASES: Readonly<Record<string, SceneKind>> = {
 };
 
 const KINDS = new Set<string>(SCENE_KINDS);
-const TRANSITIONS = new Set<string>(['fade', 'slide', 'wipe', 'zoom', 'none']);
+
+/** Words a model or a person uses for a transition, by the one the app draws. */
+const TRANSITION_WORDS: Readonly<Record<string, Transition>> = {
+  cut: 'none', 'hard cut': 'none', 'no transition': 'none', 'jump cut': 'none',
+  crossfade: 'fade', 'cross fade': 'fade', dissolve: 'fade', 'fade in': 'fade', 'fade out': 'fade',
+  push: 'slide', 'slide in': 'slide', swipe: 'slide', whip: 'slide', 'whip pan': 'slide',
+  'wipe in': 'wipe', reveal: 'wipe',
+  'zoom in': 'zoom', 'zoom out': 'zoom', 'cross zoom': 'zoom',
+  circle: 'iris', 'circle wipe': 'iris', 'iris wipe': 'iris', 'iris in': 'iris', 'iris open': 'iris', spotlight: 'iris',
+  'white flash': 'flash', 'flash cut': 'flash', 'light flash': 'flash', 'dip to white': 'flash', 'light leak': 'flash',
+  'color wipe': 'panel', 'colour wipe': 'panel', 'color panel': 'panel', 'colour panel': 'panel', 'shape wipe': 'panel', 'panel wipe': 'panel', 'block wipe': 'panel', sweep: 'panel',
+  doors: 'split', 'barn door': 'split', 'barn doors': 'split', 'split open': 'split', 'door open': 'split', open: 'split',
+  'glitch cut': 'glitch', digital: 'glitch', 'rgb split': 'glitch', static: 'glitch',
+};
+
+/** A transition in a model's or a person's words, or `undefined` when it names none the app draws. */
+export function transitionIn(x: unknown): Transition | undefined {
+  if (typeof x !== 'string') return undefined;
+  const s = x.trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+  if ((TRANSITIONS as readonly string[]).includes(s)) return s as Transition;
+  return TRANSITION_WORDS[s];
+}
 /** Kinds that show a picture, and so may carry words to search one with. */
 const PICTURED = new Set<SceneKind>(['image', 'split', 'title', 'device']);
 
@@ -1277,9 +1299,7 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
 
   const t = (field: unknown, cap: number) => clean(field, cap, lang);
   const opt = (field: unknown, cap: number) => t(field, cap) || undefined;
-  const transition: Transition = typeof o.transition === 'string' && TRANSITIONS.has(o.transition.trim().toLowerCase())
-    ? o.transition.trim().toLowerCase() as Transition
-    : 'fade';
+  const transition: Transition = transitionIn(o.transition) ?? 'fade';
   const base = { id: newId(), seconds: 0, transition };
   const query = queryOf(o.imageQuery ?? o.image_query ?? o.query);
   const imageQuery = PICTURED.has(kind) ? query : undefined;
@@ -1924,7 +1944,7 @@ export function parseScene(text: string, old: Scene, v: Video, newId: () => stri
     ...s,
     id: old.id || s.id,
     seconds: tenths(clampNum(Math.max(Number.isFinite(seconds) ? seconds : 0, readingSeconds(s)), SCENE_SECONDS.min, SCENE_SECONDS.max)),
-    transition: last ? 'none' : o && typeof o.transition === 'string' && TRANSITIONS.has(o.transition.trim().toLowerCase()) ? s.transition : old.transition,
+    transition: last ? 'none' : o && transitionIn(o.transition) ? s.transition : old.transition,
   };
   // The art the reply gave — or, when it gave none, the scene's own, kept — checked against the
   // new words. A photo ground may use the picture the scene already has.

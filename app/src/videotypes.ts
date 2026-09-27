@@ -37,8 +37,17 @@ export type VideoLang = 'ar' | 'ckb' | 'kmr' | 'en';
 /** A visual style: palette, type and motion. VideoScenes.tsx draws each one. */
 export type Style = 'modern' | 'bold' | 'elegant' | 'neon' | 'minimal' | 'warm';
 
-/** How one scene hands over to the next. */
-export type Transition = 'fade' | 'slide' | 'wipe' | 'zoom' | 'none';
+/**
+ * How one scene hands over to the next. The first four are the quiet ones;
+ * the next five are motion-design cuts: an iris opening from the middle, a
+ * flash of light, a panel in the accent colours sweeping across, the new
+ * scene opening from a line down the middle like doors, and a short digital
+ * glitch. 'none' is a hard cut.
+ */
+export type Transition = 'fade' | 'slide' | 'wipe' | 'zoom' | 'iris' | 'flash' | 'panel' | 'split' | 'glitch' | 'none';
+
+/** Every transition, in the order the pickers show them. */
+export const TRANSITIONS: readonly Transition[] = ['fade', 'slide', 'wipe', 'zoom', 'iris', 'flash', 'panel', 'split', 'glitch', 'none'];
 
 /** An image the app fetched for a scene, kept with its credit. */
 export interface Picture {

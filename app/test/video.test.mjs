@@ -12,7 +12,7 @@ import {
   pictureJobs, pictureSlots, picturesOf, planPrompt, qrModules, qrPath, qrText, sanitizeScene, sceneFrames, scenePrompt,
   secondsIn, styleIn, videoLangOf, withPicture,
   ART_SCHEMA, DESIGN_RULES, DESIGN_SHAPE, MAX_BIGTYPE_LINES, MAX_FEATURES, SCHEMA, artOf, artPrompt, designIn, designPrompt,
-  iconOf, mainTextOf, parseArt, readDesign, readingSeconds, sceneJson,
+  iconOf, mainTextOf, parseArt, readDesign, readingSeconds, sceneJson, transitionIn,
 } from '../.test-build/video.js';
 import { markPhrases, phraseOf } from '../.test-build/videoemphasis.js';
 
@@ -969,6 +969,22 @@ ok('Badini and Sorani new placeholders differ', mainTextOf(blankScene('features'
 ok('a blank device fits the frame: a phone upright, a laptop wide',
   blankScene('device', video({ format: 'portrait' }), newId).device === 'phone' && blankScene('device', video({ format: 'landscape' }), newId).device === 'laptop');
 ok('a blank marquee scrolls the brand\'s name when there is one', blankScene('marquee', video({ brand: { name: 'Nuri' } }), newId).text === 'Nuri');
+
+// ── transitions ────────────────────────────────────────────────────────────
+{
+  const ALL = ['fade', 'slide', 'wipe', 'zoom', 'iris', 'flash', 'panel', 'split', 'glitch', 'none'];
+  ok('every transition the app draws is read as itself, in any case', ALL.every((x) => transitionIn(x) === x && transitionIn(` ${x.toUpperCase()} `) === x));
+  ok('…and the words a model uses for them', transitionIn('Colour wipe') === 'panel' && transitionIn('barn_doors') === 'split' && transitionIn('circle') === 'iris'
+    && transitionIn('white-flash') === 'flash' && transitionIn('RGB split') === 'glitch' && transitionIn('hard cut') === 'none' && transitionIn('push') === 'slide' && transitionIn('dissolve') === 'fade');
+  ok('one it does not draw is nothing', transitionIn('explode') === undefined && transitionIn(3) === undefined && transitionIn(null) === undefined);
+  const v = video();
+  ok('a scene keeps a motion-design cut, and falls back to a fade for one the app does not draw',
+    sanitizeScene({ kind: 'kinetic', text: 'Now open', transition: 'Colour Wipe' }, v, newId)?.transition === 'panel'
+    && sanitizeScene({ kind: 'kinetic', text: 'Now open', transition: 'spin' }, v, newId)?.transition === 'fade');
+  ok('the schema lists every transition', ALL.every((x) => SCHEMA.includes(`"${x}"`)));
+  ok('the art direction covers transitions: calm and energetic, never three the same', /Transitions are part of the direction too/.test(planPrompt(video({ ai: true })).user)
+    && /Never the same transition three times running/.test(planPrompt(video({ ai: true })).user));
+}
 
 // ── emphasis as the scenes draw it ─────────────────────────────────────────
 {

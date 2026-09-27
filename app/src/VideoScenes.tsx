@@ -32,13 +32,10 @@ import { VideoAudioLayer } from './videoaudio';
 import type React from 'react';
 import { AbsoluteFill, Easing, Img, interpolate, useCurrentFrame, useDelayRender, useVideoConfig } from 'remotion';
 import { TransitionSeries, linearTiming } from '@remotion/transitions';
-import type { TransitionPresentation, TransitionPresentationComponentProps } from '@remotion/transitions';
-import { fade } from '@remotion/transitions/fade';
-import { slide } from '@remotion/transitions/slide';
-import { wipe } from '@remotion/transitions/wipe';
 import { Thumbnail } from '@remotion/player';
 import { FORMATS, FPS } from './videotypes';
-import type { Scene, Transition, Video } from './videotypes';
+import type { Scene, Video } from './videotypes';
+import { presentationOf } from './videocuts';
 import { TRANSITION_FRAMES, durationInFrames, isRtl, sceneFrames } from './video';
 import { SWATCHES, alpha, boxOf, emphasisOf, fontKeyOf, fontsReady, loadFonts, numeralsOf, sceneArtOf, sceneTheme, themeOf } from './videotheme';
 import type { Theme } from './videotheme';
@@ -94,33 +91,7 @@ function useVideoFonts(v: FontsOf): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Transitions
-
-/** A gentle push in: the new scene grows from slightly small, the old one grows past and fades. */
-function ZoomPresentation({ children, presentationDirection, presentationProgress }: TransitionPresentationComponentProps<Record<string, unknown>>) {
-  const p = presentationProgress;
-  const entering = presentationDirection === 'entering';
-  const style: React.CSSProperties = entering
-    ? { opacity: Math.min(1, p * 1.6), transform: `scale(${0.86 + 0.14 * p})` }
-    : { opacity: 1 - p, transform: `scale(${1 + 0.12 * p})` };
-  return <AbsoluteFill style={style}>{children}</AbsoluteFill>;
-}
-
-const zoom = (): TransitionPresentation<Record<string, unknown>> => ({ component: ZoomPresentation, props: {} });
-
-function presentationOf(t: Transition, rtl: boolean): TransitionPresentation<Record<string, unknown>> {
-  // Things move the way the language reads: a new scene comes from the end side.
-  switch (t) {
-    case 'slide':
-      return slide({ direction: rtl ? 'from-left' : 'from-right' }) as TransitionPresentation<Record<string, unknown>>;
-    case 'wipe':
-      return wipe({ direction: rtl ? 'from-left' : 'from-right' }) as TransitionPresentation<Record<string, unknown>>;
-    case 'zoom':
-      return zoom();
-    default:
-      return fade({ shouldFadeOutExitingScene: true }) as TransitionPresentation<Record<string, unknown>>;
-  }
-}
+// Transitions (videocuts.tsx draws them)
 
 const timing = linearTiming({ durationInFrames: TRANSITION_FRAMES, easing: Easing.bezier(0.65, 0, 0.35, 1) });
 
@@ -221,7 +192,10 @@ export function VideoComposition({ video }: { video: Video }): JSX.Element {
       </TransitionSeries.Sequence>,
     );
     if (i < video.scenes.length - 1 && s.transition !== 'none') {
-      items.push(<TransitionSeries.Transition key={`${s.id}-t`} timing={timing} presentation={presentationOf(s.transition, rtl)} />);
+      // The cut draws in the colours of the scene it brings in; a flash floods over the one it leaves, so it is white over a dark one.
+      const next = sceneTheme(video, i + 1);
+      const colours = { accent: next.accent, accent2: next.accent2, flash: sceneTheme(video, i).dark ? '#FFFFFF' : next.accent, rtl };
+      items.push(<TransitionSeries.Transition key={`${s.id}-t`} timing={timing} presentation={presentationOf(s.transition, colours)} />);
     }
   });
   return (

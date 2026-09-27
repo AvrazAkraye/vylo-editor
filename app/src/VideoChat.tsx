@@ -568,6 +568,11 @@ function transitionName(x: Transition, t: T): string {
   if (x === 'slide') return t('Slide');
   if (x === 'wipe') return t('Wipe');
   if (x === 'zoom') return t('Zoom');
+  if (x === 'iris') return t('Iris');
+  if (x === 'flash') return t('Flash');
+  if (x === 'panel') return t('Colour panel');
+  if (x === 'split') return t('Doors');
+  if (x === 'glitch') return t('Glitch');
   return t('Cut');
 }
 

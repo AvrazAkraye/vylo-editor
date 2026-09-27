@@ -72,10 +72,10 @@
 import type {
   Brand, ChatTurn, Format, LookSettings, MusicSpec, Scene, SceneArt, SceneKind, SceneLook, Style, Transition, Video, VideoAudio, VideoLang,
 } from './videotypes';
-import { CAMERAS, FORMATS, FPS, GROUNDS, SHAPES, TEXT_EFFECTS } from './videotypes';
+import { CAMERAS, FORMATS, FPS, GROUNDS, SHAPES, TEXT_EFFECTS, TRANSITIONS } from './videotypes';
 import {
   LANGUAGE, LANGUAGE_NAME, SCHEMA, TONE, WHERE, artOf, clean, durationInFrames, fitted, isRtl, mainTextOf, pictureJobs, quoted, readingSeconds,
-  pictureSlots, sanitizeScene, sceneJson, withPicture,
+  pictureSlots, sanitizeScene, sceneJson, transitionIn, withPicture,
 } from './video';
 import { duplicateScene, moveScene, snapSeconds } from './videohistory';
 import { MOODS, VOICES, cleanLine, moodFor, musicVolumeOf } from './videomix';
@@ -116,7 +116,6 @@ export type OpName = (typeof OPS)[number];
 export const MUSIC_MOODS: readonly MusicSpec['mood'][] = ['uplifting', 'calm', 'cinematic', 'corporate', 'electronic', 'lofi', 'epic', 'oriental'];
 
 const STYLES: readonly Style[] = ['modern', 'bold', 'elegant', 'neon', 'minimal', 'warm'];
-const TRANSITIONS: readonly Transition[] = ['fade', 'slide', 'wipe', 'zoom', 'none'];
 /** The kinds that show one picture of their own. VideoStoryboard.tsx keeps the same four. */
 const PICTURED = new Set<SceneKind>(['title', 'image', 'split', 'device']);
 
@@ -930,7 +929,7 @@ function catalogueOf(v: Video): string {
     '- {"op":"swap_scenes","a":2,"b":3} — the two scenes change places.',
     '- {"op":"duplicate_scene","scene":3} — a copy, right after it.',
     '- {"op":"set_seconds","scene":3,"seconds":4.5} — time on screen, 2 to 20, or "longer"/"shorter"; "scene":"all" for every scene.',
-    '- {"op":"set_transition","scene":3,"transition":"zoom"} — into the next scene: "fade", "slide", "wipe", "zoom" or "none" (a cut); "scene":"all".',
+    `- {"op":"set_transition","scene":3,"transition":"zoom"} — into the next scene: ${TRANSITIONS.map((x) => `"${x}"`).join(', ')} ("iris" a circle opening, "flash" a flash of light, "panel" a sweep of the accent colours, "split" opening like doors, "glitch" a digital jitter, "none" a hard cut); "scene":"all".`,
     '- {"op":"set_length","seconds":20} — the whole video, 5 to 180 s; every scene scales together, none below the time its words take to read.',
     '- {"op":"set_title","title":"…"} — the video\'s name in the list; the opening words are scene 1\'s.',
     '- {"op":"set_language","lang":"ckb"} — "ar", "ckb" (Sorani), "kmr" (Badini) or "en"; ONLY with an edit_scene for EVERY scene that has words, rewriting all of them (and each "narration") in it, in its spelling. Alone it is refused.',
@@ -1507,12 +1506,7 @@ const LANG_WORDS: Readonly<Record<string, VideoLang>> = {
 };
 
 function transitionOf(x: unknown): Transition | undefined {
-  const s = str(x).toLowerCase().replace(/[\s_-]+/g, ' ');
-  if ((TRANSITIONS as readonly string[]).includes(s)) return s as Transition;
-  if (['cut', 'hard cut', 'no transition'].includes(s)) return 'none';
-  if (['crossfade', 'cross fade', 'dissolve'].includes(s)) return 'fade';
-  if (['push'].includes(s)) return 'slide';
-  return undefined;
+  return transitionIn(str(x));
 }
 
 /** FNV-1a of a string, as a positive 31-bit seed: a fresh id gives a fresh piece of music. */

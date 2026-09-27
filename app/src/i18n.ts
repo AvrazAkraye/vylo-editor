@@ -1343,6 +1343,11 @@ const ar: Dict = {
   'Prices are what this gateway charges for a plan. Tokens have no price of their own here, so no conversation is shown as money.': 'الأسعار هي ما تتقاضاه هذه البوابة مقابل خطة. لا سعر للوحدات بحد ذاتها هنا، لذا لا تُعرض أي محادثة بالمال.',
   // Research: working papers, theses and dissertations.
   'Research': 'البحث العلمي',
+  // Video: transitions.
+  'Iris': 'انفتاح دائري',
+  'Flash': 'وميض',
+  'Colour panel': 'مسحة لونية',
+  'Doors': 'أبواب',
   // Research: researchers' manner, originality, the module's tabs.
   'The answer held no look that could be read.': 'لم يحمل الرد مظهرًا يمكن قراءته.',
   'The answer held no art direction that could be read.': 'لم يحمل الرد توجيهًا فنيًا يمكن قراءته.',
@@ -3929,6 +3934,11 @@ const ckb: Dict = {
   'Prices are what this gateway charges for a plan. Tokens have no price of their own here, so no conversation is shown as money.': 'نرخەکان ئەوەن کە ئەم دەروازەیە بۆ پلانێک وەریدەگرێت. لێرە تۆکن نرخی خۆی نییە، بۆیە هیچ گفتوگۆیەک بە پارە پیشان نادرێت.',
   // Research: working papers, theses and dissertations.
   'Research': 'توێژینەوە',
+  // Video: transitions.
+  'Iris': 'کرانەوەی بازنەیی',
+  'Flash': 'بریسکە',
+  'Colour panel': 'ماڵینی ڕەنگی',
+  'Doors': 'دەرگا',
   // Research: researchers' manner, originality, the module's tabs.
   'The answer held no look that could be read.': 'وەڵامەکە هیچ ڕووکارێکی خوێندراوەی تێدا نەبوو.',
   'The answer held no art direction that could be read.': 'وەڵامەکە هیچ ئاراستەی هونەریی خوێندراوەی تێدا نەبوو.',
@@ -6520,6 +6530,11 @@ const kmr: Dict = {
   'Prices are what this gateway charges for a plan. Tokens have no price of their own here, so no conversation is shown as money.': 'بها ئەو ن یێن ڤێ دەرگەهێ بۆ پلانەکێ دگریت. ل ڤێرێ تۆکن بهایێ خۆ نینە، لەوما چو ئاخفتن ب پارە نایێتە نیشاندان.',
   // Research: working papers, theses and dissertations.
   'Research': 'ڤەکولین',
+  // Video: transitions.
+  'Iris': 'ڤەبوونا بازنەیی',
+  'Flash': 'بریسک',
+  'Colour panel': 'مالینا ڕەنگی',
+  'Doors': 'دەرگەه',
   // Research: researchers' manner, originality, the module's tabs.
   'The answer held no look that could be read.': 'بەرسڤێ چ رووکارێن دهێنە خواندن تێدا نەبوون.',
   'The answer held no art direction that could be read.': 'بەرسڤێ چ ئاراستەیەکا هونەری یا دهێتە خواندن تێدا نەبوو.',

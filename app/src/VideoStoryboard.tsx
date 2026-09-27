@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from './Icon';
 import { fill } from './i18n';
 import { explain } from './errors';
-import { SCENE_KINDS, type Picture, type Scene, type SceneKind, type Transition, type Video } from './videotypes';
+import { SCENE_KINDS, TRANSITIONS, type Picture, type Scene, type SceneKind, type Transition, type Video } from './videotypes';
 import type { CompareScene, GalleryScene, LookSettings, PeopleScene, SceneLook, TimelineScene } from './videotypes';
 import { ICON_IDS, TEXT_EFFECTS, type Camera, type FeaturesScene, type Ground, type IconId, type SceneArt, type Shape, type TextEffect } from './videotypes';
 import { searchPictures, fetchPicture, type Candidate } from './videomedia';
@@ -87,10 +87,13 @@ function transitionName(x: Transition, t: T): string {
   if (x === 'slide') return t('Slide');
   if (x === 'wipe') return t('Wipe');
   if (x === 'zoom') return t('Zoom');
+  if (x === 'iris') return t('Iris');
+  if (x === 'flash') return t('Flash');
+  if (x === 'panel') return t('Colour panel');
+  if (x === 'split') return t('Doors');
+  if (x === 'glitch') return t('Glitch');
   return t('Cut');
 }
-
-const TRANSITIONS: readonly Transition[] = ['fade', 'slide', 'wipe', 'zoom', 'none'];
 
 /** The first words of a scene, for its card when it is folded. */
 export function gistOf(s: Scene): string {

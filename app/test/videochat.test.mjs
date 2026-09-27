@@ -265,6 +265,12 @@ console.log('scenes');
   const trAll = apply([{ op: 'set_transition', scene: 'all', transition: 'slide' }], v);
   ok('…for every scene that hands over, the last left as it is', trAll.next.scenes.slice(0, -1).every((s) => s.transition === 'slide') && trAll.next.scenes[5].transition === 'none');
   ok('…and one the app does not draw is invalid', skipped(apply([{ op: 'set_transition', scene: 3, transition: 'spin' }], v), 'invalid').length === 1);
+  ok('the motion-design cuts, by their names and the words people use for them',
+    ['iris', 'flash', 'panel', 'split', 'glitch'].every((x) => apply([{ op: 'set_transition', scene: 2, transition: x }], v).next.scenes[1].transition === x)
+    && apply([{ op: 'set_transition', scene: 2, transition: 'barn doors' }], v).next.scenes[1].transition === 'split'
+    && apply([{ op: 'set_transition', scene: 2, transition: 'Colour wipe' }], v).next.scenes[1].transition === 'panel');
+  const catalogue = chatPrompt(v, [], 'x').user.split('\n').find((l) => l.startsWith('- {"op":"set_transition"')) ?? '';
+  ok('…and the catalogue lists every one', ['fade', 'slide', 'wipe', 'zoom', 'iris', 'flash', 'panel', 'split', 'glitch', 'none'].every((x) => catalogue.includes(`"${x}"`)), catalogue);
 }
 
 // ── the length ────────────────────────────────────────────────────────────
