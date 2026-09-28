@@ -323,6 +323,15 @@ function AccountBar({ t, accounts, shown, onPick, onAdd }: {
   );
 }
 
+/**
+ * A name as the list shows it: a bare number (a chat nobody has named, a
+ * contact with no published name) as a phone number, with its plus. Kept
+ * left to right, or a right-to-left panel draws the plus after the digits.
+ */
+const isNumberName = (name: string) => /^\d{7,15}$/.test(name);
+const shown = (name: string) => (isNumberName(name) ? `+${name}` : name);
+const nameDir = (name: string): 'ltr' | 'auto' => (isNumberName(name) ? 'ltr' : 'auto');
+
 /** An empty account for the form, with a fresh id and a name no other account has. */
 const blankAccount = (a: Accounts): Account => ({
   ...BLANK, id: Math.random().toString(36).slice(2, 10), name: freshName(a),
@@ -370,6 +379,9 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
    */
   const [count, setCount] = useState(PAGE);
   const [total, setTotal] = useState(0);
+  /** A Reload asked for and not answered yet, and when the last fetch came back (either kind). */
+  const [pulling, setPulling] = useState(false);
+  const [pulledAt, setPulledAt] = useState(0);
   const [more, setMore] = useState(false);
   useEffect(() => { setCount(PAGE); setTotal(0); }, [acctId]);
   const [why, setWhy] = useState('');
@@ -689,12 +701,42 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
     let live = true;
     const pull = () => void call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`,
       newest(count))
-      .then((out) => { if (live) { setMsgs(messagesFrom(out)); setTotal(totalOf(out)); setWhy(''); } })
+      .then((out) => { if (live) { setMsgs(messagesFrom(out)); setTotal(totalOf(out)); setPulledAt(Date.now()); setWhy(''); } })
       .catch((e) => { if (live) setWhy(sayWhy(e)); });
     pull();
     const timer = setInterval(pull, EVERY_MS);
     return () => { live = false; clearInterval(timer); };
   }, [state, conn, call, sayWhy, count]);
+
+  /**
+   * Fetch now, rather than at the next tick: the newest messages, and with
+   * them the chat list, which is built from them. The tick keeps going; this
+   * only stops a person waiting for it, and shows that something happened.
+   */
+  async function reloadNow() {
+    if (!ready(conn) || pulling) return;
+    setPulling(true);
+    try {
+      const out = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, newest(count));
+      setMsgs(messagesFrom(out));
+      setTotal(totalOf(out));
+      setPulledAt(Date.now());
+      setWhy('');
+    } catch (e) {
+      setWhy(sayWhy(e));
+    } finally {
+      setPulling(false);
+    }
+  }
+
+  /** The Reload button, the same in the list and in a conversation. */
+  const reloadButton = () => (
+    <button className={`sb-act wa-reload${pulling ? ' is-busy' : ''}`} onClick={() => void reloadNow()} disabled={pulling}
+            title={pulledAt ? fill(t('Reload — updated at {time}'), { time: timeText(pulledAt) }) : t('Reload')}
+            aria-label={t('Reload')}>
+      <Icon name="refresh" size={13} />
+    </button>
+  );
 
   const foot = useRef<HTMLDivElement>(null);
   /*
@@ -1574,6 +1616,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
       <div className="wa">
         <div className="sb-head-bar">
           <span className="sb-sub">{t('Chats')}</span>
+          {reloadButton()}
           <button className="sb-act" onClick={() => setFull((v) => !v)}
                   title={full ? t('Leave full screen') : t('Full screen')}
                   aria-label={full ? t('Leave full screen') : t('Full screen')}>
@@ -1623,7 +1666,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
                   </span>
                   <span className="wa-what">
                     <span className="wa-line">
-                      <b dir="auto"><Mark text={c.name} q={find} /></b>
+                      <b dir={nameDir(c.name)}><Mark text={shown(c.name)} q={find} /></b>
                       {/* The clock is part of the row, not a detail behind a
                           hover: "when" is half of what a chat list is for. */}
                       <time className="wa-when">{clockOf(c.at)}</time>
@@ -1657,7 +1700,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
                   </span>
                   <span className="wa-what">
                     <span className="wa-line">
-                      <b dir="auto">{h.name}</b>
+                      <b dir={nameDir(h.name)}>{shown(h.name)}</b>
                       <time className="wa-when">{clockOf(h.msg.at)}</time>
                     </span>
                     <span className="wa-line">
@@ -1671,6 +1714,9 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
               </li>
             ))}
           </ul>
+        )}
+        {!searching && chats.length > 0 && chats.length < 5 && total <= msgs.length && (
+          <p className="wa-hint">{t('Only the messages the server has kept are here — for a newly linked number, those since it was linked.')}</p>
         )}
         {!searching && chats.length > 0 && total > msgs.length && (
           <button className="ghost wa-more" disabled={more}
@@ -1743,12 +1789,13 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
               called. Nothing true to say means no line, and the name centres
               itself against the avatar instead. */}
           <span className={`wa-who${sub ? '' : ' alone'}`}>
-            <b dir="auto">{name}</b>
+            <b dir={nameDir(name)}>{shown(name)}</b>
             {sub && <span>{sub}</span>}
           </span>
           {/* A bare tick, sitting beside a contact's name in a chat app, reads
               as a delivery receipt — the one thing in that position it is not.
               A clipboard says collect, which is what picking messages is for. */}
+          {reloadButton()}
           <button className="sb-act" onClick={() => setPicking(true)}
                   title={t('Pick messages')} aria-label={t('Pick messages')}>
             <Icon name="clipboard" size={13} />

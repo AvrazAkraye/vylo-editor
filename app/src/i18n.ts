@@ -1338,6 +1338,8 @@ const ar: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'البحث العلمي',
   // WhatsApp: more than one account.
+  'Reload — updated at {time}': 'إعادة التحميل — آخر تحديث {time}',
+  'Only the messages the server has kept are here — for a newly linked number, those since it was linked.': 'هنا فقط الرسائل التي احتفظ بها الخادم — ولرقم رُبط حديثاً، تلك التي وصلت منذ ربطه.',
   'Load more chats — {n} older messages': 'تحميل المزيد من المحادثات — {n} رسالة أقدم',
   'Loading…': 'جارٍ التحميل…',
   'WhatsApp account': 'حساب واتساب',
@@ -3950,6 +3952,8 @@ const ckb: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'توێژینەوە',
   // WhatsApp: more than one account.
+  'Reload — updated at {time}': 'نوێکردنەوە — دوایین نوێکردنەوە {time}',
+  'Only the messages the server has kept are here — for a newly linked number, those since it was linked.': 'تەنها ئەو نامانەی سێرڤەرەکە هەڵیگرتوون لێرەن — بۆ ژمارەیەکی تازە بەستراو، ئەوانەی لە کاتی بەستنەوەیەوە هاتوون.',
   'Load more chats — {n} older messages': 'بارکردنی گفتوگۆی زیاتر — {n} نامەی کۆنتر',
   'Loading…': 'بار دەکرێت…',
   'WhatsApp account': 'هەژماری واتسئاپ',
@@ -6567,6 +6571,8 @@ const kmr: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'ڤەکولین',
   // WhatsApp: more than one account.
+  'Reload — updated at {time}': 'نووکرن — دویماهیک نووکرن {time}',
+  'Only the messages the server has kept are here — for a newly linked number, those since it was linked.': 'تنێ ئەو نامێن سێرڤەری پاراستین ل ڤێرێنە — بۆ ژمارەکا نوو گرێدای، ئەوێن ژ دەمێ گرێدانێ هاتین.',
   'Load more chats — {n} older messages': 'بارکرنا ئاخفتنێن پتر — {n} نامێن کەڤنتر',
   'Loading…': 'بار دبیت…',
   'WhatsApp account': 'هەژمارا واتسئاپێ',

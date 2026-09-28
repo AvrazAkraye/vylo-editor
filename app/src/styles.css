@@ -2518,6 +2518,10 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
 .wa-acct-acts{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
 .wa-more{ display:flex; align-items:center; justify-content:center; gap:6px; margin:var(--sp-2) var(--sp-7) var(--sp-4); padding:var(--sp-2) var(--sp-3); border:1px dashed var(--rule); border-radius:var(--r-2); font-size:var(--fs-2); color:var(--mute); }
 .wa-more:hover:not(:disabled){ color:var(--ink); border-color:var(--rule-2); }
+.wa-hint{ margin:var(--sp-2) var(--sp-7); font-size:var(--fs-1); color:var(--mute); line-height:1.5; }
+.wa-reload.is-busy svg{ animation:wa-spin .8s linear infinite; }
+@keyframes wa-spin{ to{ transform:rotate(360deg); } }
+@media (prefers-reduced-motion: reduce){ .wa-reload.is-busy svg{ animation:none; opacity:.5; } }
 .wa-danger{ color:var(--err); }
 .wa-form{ display:grid; gap:var(--sp-5); padding:0 var(--sp-7) var(--sp-6); }
 .wa-form label{

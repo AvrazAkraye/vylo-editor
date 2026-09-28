@@ -89,6 +89,8 @@ const ICONS: Record<string, Stroke[]> = {
   // Replace: one arrow out, one back. Two rows rather than a crossed pair,
   // which at sixteen pixels reads as a knot.
   swap: [{ d: 'M4 9h13m-3.2-3.2L17 9l-3.2 3.2' }, { d: 'M20 15H7m3.2-3.2L7 15l3.2 3.2' }],
+  // Fetch again: a circle that is not closed, the arrow where it ends.
+  refresh: [{ d: 'M19.5 12a7.5 7.5 0 1 1-2.2-5.3' }, { d: 'M19.8 4.2v3.6h-3.6' }],
   // Research. An open book rather than a mortarboard: the module writes
   // documents, and a cap would promise a degree.
   book: [{ d: 'M12 6.8c-1.6-1.3-3.9-2-6.5-2H4.5v12.9h1c2.6 0 4.9.7 6.5 2 1.6-1.3 3.9-2 6.5-2h1V4.8h-1c-2.6 0-4.9.7-6.5 2zM12 6.8v12.9' }],
