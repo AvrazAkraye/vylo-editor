@@ -79,6 +79,126 @@ export const write = (c: Conn): string => JSON.stringify(c);
 export const ready = (c: Conn): boolean =>
   Boolean(c.baseUrl && c.instance && c.key);
 
+/* ── more than one account ───────────────────────────────────────────────
+   A person can connect several WhatsApp numbers — a personal one, a business
+   one, an OTP line — and switch between them in the panel. Each account is a
+   whole `Conn` with a name of its own, so the rule above still holds word for
+   word: an account's key travels only with that account's address, and
+   nothing here combines one account's key with another's server.
+
+   The single connection stored before this (`KEY`) becomes the first account,
+   with the id `main`; its read marks and drafts keep their old storage keys,
+   so nothing a person had is lost or reset by the move. */
+
+export interface Account extends Conn {
+  /** Stable, never shown. `main` for the connection that came before accounts. */
+  id: string;
+  /** What the person calls it: "Personal", "OTP line". Unique in the list. */
+  name: string;
+}
+
+export interface Accounts {
+  list: Account[];
+  /** The account the panel shows and the agent uses unless told otherwise. */
+  active: string;
+}
+
+/** Where the accounts are kept. */
+export const ACCOUNTS_KEY = 'vylo.whatsapp.accounts.v1';
+/** The most accounts the panel keeps. */
+export const MAX_ACCOUNTS = 8;
+/** The id the pre-accounts connection is given, so its old keys still find it. */
+export const FIRST_ID = 'main';
+
+const NO_ACCOUNTS: Accounts = { list: [], active: '' };
+
+/** One stored account, repaired, or null when it cannot be one. */
+function accountOf(x: unknown): Account | null {
+  if (!x || typeof x !== 'object') return null;
+  const o = x as Record<string, unknown>;
+  const id = trim(o.id).slice(0, 40);
+  if (!id) return null;
+  const conn = read(JSON.stringify(o));
+  return { ...conn, id, name: trim(o.name).slice(0, 40) || conn.instance || 'WhatsApp' };
+}
+
+/**
+ * The stored accounts, repaired — and, the first time, the one connection
+ * that was stored before accounts existed, moved in as the first account.
+ * A bad store is no accounts, never a throw (see `read`).
+ */
+export function readAccounts(raw: string | null, legacy: string | null = null): Accounts {
+  try {
+    const v = raw ? JSON.parse(raw) : null;
+    if (v && typeof v === 'object' && Array.isArray((v as Accounts).list)) {
+      const seen = new Set<string>();
+      const list = (v as Accounts).list
+        .map(accountOf)
+        .filter((a): a is Account => !!a && !seen.has(a.id) && (seen.add(a.id), true))
+        .slice(0, MAX_ACCOUNTS);
+      const active = list.some((a) => a.id === (v as Accounts).active) ? (v as Accounts).active : list[0]?.id ?? '';
+      return { list, active };
+    }
+  } catch { /* fall through to the old connection */ }
+  const old = read(legacy);
+  if (!ready(old)) return { ...NO_ACCOUNTS, list: [] };
+  return { list: [{ ...old, id: FIRST_ID, name: old.instance }], active: FIRST_ID };
+}
+
+export const writeAccounts = (a: Accounts): string => JSON.stringify(a);
+
+/** The account the panel shows, or null when there is none. */
+export const activeOf = (a: Accounts): Account | null =>
+  a.list.find((x) => x.id === a.active) ?? a.list[0] ?? null;
+
+/** Only the accounts that are complete enough to call. */
+export const readyAccounts = (a: Accounts): Account[] => a.list.filter(ready);
+
+/**
+ * An account by what someone called it — its name, any case, or its instance —
+ * or null. How the agent names one; it can only choose among these.
+ */
+export function accountNamed(a: Accounts, name: unknown): Account | null {
+  const want = trim(name).toLowerCase();
+  if (!want) return null;
+  return a.list.find((x) => x.name.toLowerCase() === want)
+    ?? a.list.find((x) => x.instance.toLowerCase() === want)
+    ?? a.list.find((x) => x.id === want)
+    ?? null;
+}
+
+/** A name for a new account that no other has: its instance, or "WhatsApp 2", "WhatsApp 3"… */
+export function freshName(a: Accounts, instance = ''): string {
+  const taken = new Set(a.list.map((x) => x.name.toLowerCase()));
+  const base = trim(instance);
+  if (base && !taken.has(base.toLowerCase())) return base.slice(0, 40);
+  for (let n = a.list.length + 1; ; n++) if (!taken.has(`whatsapp ${n}`)) return `WhatsApp ${n}`;
+}
+
+/**
+ * The list with this account in it — replacing the one with its id, or added
+ * at the end — and made the active one. A name another account has is made
+ * unique rather than refused, so saving never loses what was typed.
+ */
+export function withAccount(a: Accounts, acc: Account): Accounts {
+  const others = a.list.filter((x) => x.id !== acc.id);
+  let name = trim(acc.name).slice(0, 40) || freshName({ list: others, active: '' }, acc.instance);
+  if (others.some((x) => x.name.toLowerCase() === name.toLowerCase())) name = freshName({ list: others, active: '' }, `${name} 2`);
+  const next = { ...acc, name, baseUrl: acc.baseUrl.replace(/\/+$/, '') };
+  const has = a.list.some((x) => x.id === acc.id);
+  const list = has ? a.list.map((x) => (x.id === acc.id ? next : x)) : [...a.list, next].slice(0, MAX_ACCOUNTS);
+  return { list, active: next.id };
+}
+
+/** The list without this account; the active one moves to the first left. */
+export function withoutAccount(a: Accounts, id: string): Accounts {
+  const list = a.list.filter((x) => x.id !== id);
+  return { list, active: a.active === id ? list[0]?.id ?? '' : a.active };
+}
+
+/** Where an account's read marks are kept. The first account keeps the key they had before accounts. */
+export const seenKeyOf = (id: string): string => (id === FIRST_ID ? `${KEY}.seen` : `${KEY}.seen.${id}`);
+
 /* ── who a message is with ───────────────────────────────────────────────
    WhatsApp addresses are `<number>@s.whatsapp.net` for a person and
    `<id>@g.us` for a group. The suffix is the only thing that tells them
@@ -582,6 +702,9 @@ export function quoting(to: Msg | null, jid: string): Quoting {
  * "I closed the sidebar" is not "I changed my mind about what I was writing".
  */
 export const DRAFTS_KEY = 'vylo.whatsapp.drafts.v1';
+
+/** Where an account's drafts are kept. The first account keeps the key they had before accounts. */
+export const draftsKeyOf = (id: string): string => (id === FIRST_ID ? DRAFTS_KEY : `${DRAFTS_KEY}.${id}`);
 
 /**
  * How many conversations keep a draft.

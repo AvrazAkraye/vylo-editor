@@ -1337,6 +1337,14 @@ const ar: Dict = {
   'adds {models}': 'يضيف {models}',
   // Research: working papers, theses and dissertations.
   'Research': 'البحث العلمي',
+  // WhatsApp: more than one account.
+  'WhatsApp account': 'حساب واتساب',
+  'Add a WhatsApp account': 'إضافة حساب واتساب',
+  'WhatsApp accounts': 'حسابات واتساب',
+  'Personal, Business, OTP…': 'شخصي، عمل، OTP…',
+  'Back to the chats': 'العودة إلى المحادثات',
+  'Remove {name} from this machine': 'إزالة {name} من هذا الجهاز',
+  'Remove this account': 'إزالة هذا الحساب',
   // Video: directions.
   'Direction': 'التوجيه',
   'The app’s own': 'توجيه التطبيق',
@@ -3939,6 +3947,14 @@ const ckb: Dict = {
   'adds {models}': '{models} زیاد دەکات',
   // Research: working papers, theses and dissertations.
   'Research': 'توێژینەوە',
+  // WhatsApp: more than one account.
+  'WhatsApp account': 'هەژماری واتسئاپ',
+  'Add a WhatsApp account': 'زیادکردنی هەژمارێکی واتسئاپ',
+  'WhatsApp accounts': 'هەژمارەکانی واتسئاپ',
+  'Personal, Business, OTP…': 'کەسی، بازرگانی، OTP…',
+  'Back to the chats': 'گەڕانەوە بۆ گفتوگۆکان',
+  'Remove {name} from this machine': 'لابردنی {name} لەم ئامێرە',
+  'Remove this account': 'لابردنی ئەم هەژمارە',
   // Video: directions.
   'Direction': 'ئاراستە',
   'The app’s own': 'ئاراستەی ئەپەکە',
@@ -6546,6 +6562,14 @@ const kmr: Dict = {
   'adds {models}': '{models} زێدە دکەت',
   // Research: working papers, theses and dissertations.
   'Research': 'ڤەکولین',
+  // WhatsApp: more than one account.
+  'WhatsApp account': 'هەژمارا واتسئاپێ',
+  'Add a WhatsApp account': 'زێدەکرنا هەژمارەکا واتسئاپێ',
+  'WhatsApp accounts': 'هەژمارێت واتسئاپێ',
+  'Personal, Business, OTP…': 'کەسی، بازرگانی، OTP…',
+  'Back to the chats': 'زڤڕین بۆ ئاخفتنان',
+  'Remove {name} from this machine': 'ژێبرنا {name} ژ ڤی ئامیری',
+  'Remove this account': 'ژێبرنا ڤێ هەژمارێ',
   // Video: directions.
   'Direction': 'ئاراستە',
   'The app’s own': 'ئاراستا ئەپێ',

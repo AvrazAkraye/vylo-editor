@@ -14,7 +14,7 @@
 // an empty string, a name it invented. None of those may reach the wire.
 import {
   WHATSAPP_TOOLS, approvalLine, chatsResult, isWhatsAppTool, planSend,
-  runWhatsAppTool, targetOf, threadResult, whatsAppToolsFor,
+  runWhatsAppTool, targetOf, threadResult, whatsAppToolsFor, accountFor,
 } from '../.test-build/whatsapptool.js';
 import { chatsFrom, dayOf, messagesFrom, relDay, threadRows } from '../.test-build/whatsapp.js';
 import { decide, isRefused } from '../.test-build/auto.js';
@@ -336,6 +336,33 @@ function rig({ answer = 'pipe', rows = [], failWith = null } = {}) {
   ok('an ordinary command is untouched', decide('npm test', 'all').kind === 'run');
   ok('and so is one that merely mentions the word',
      decide('grep -r whatsapp src/', 'all').kind === 'run');
+}
+
+// ── more than one account ────────────────────────────────────────────────
+{
+  const A = { id: 'main', name: 'Personal', baseUrl: 'https://wa.one.com', instance: 'personal', key: 'k1' };
+  const B = { id: 'b2', name: 'OTP line', baseUrl: 'https://wa.two.com', instance: 'otpc-01', key: 'k2' };
+  const both = { list: [A, B], active: 'main' };
+  ok('one account: the tools as before, no account field', whatsAppToolsFor({ list: [A], active: 'main' }).every((t) => !t.input_schema.properties.account));
+  const tools = whatsAppToolsFor(both);
+  ok('two accounts: every tool can say which, only among the person\'s own names',
+    tools.length === 3 && tools.every((t) => JSON.stringify(t.input_schema.properties.account.enum) === JSON.stringify(['Personal', 'OTP line'])), tools[0].input_schema);
+  ok('…and the model is told which one it gets by default', /Leave it out for "Personal"/.test(tools[0].input_schema.properties.account.description));
+  ok('the shared tool list is not changed by it', WHATSAPP_TOOLS.every((t) => !t.input_schema.properties.account));
+  ok('no complete account, no tools', whatsAppToolsFor({ list: [{ ...A, key: '' }], active: 'main' }).length === 0 && whatsAppToolsFor({ list: [], active: '' }).length === 0);
+  ok('a call names an account by its name, any case', accountFor(both, { account: 'otp LINE' }).value?.id === 'b2');
+  ok('…or gets the one open in the panel', accountFor(both, {}).value?.id === 'main' && accountFor({ ...both, active: 'b2' }, {}).value?.id === 'b2');
+  const wrong = accountFor(both, { account: 'Work' });
+  ok('a name that is not one of them is refused, with the names', !wrong.ok && wrong.why.includes('"Personal"') && wrong.why.includes('"OTP line"'));
+  ok('nothing connected is said plainly', !accountFor({ list: [], active: '' }, {}).ok);
+  ok('an account half set up is never chosen', accountFor({ list: [{ ...A, key: '' }, B], active: 'main' }, {}).value?.id === 'b2');
+  const plan = planSend({ phone: '9647501112233', text: 'hi' }).value;
+  ok('the approval says which account it goes from, when there are two', approvalLine(plan, 'OTP line').startsWith('WhatsApp from OTP line to +9647501112233') && approvalLine(plan).startsWith('WhatsApp to +9647501112233'));
+  let asked = '';
+  const out = await runWhatsAppTool('whatsapp_send', { phone: '9647501112233', text: 'hi' }, {
+    conn: B, account: 'OTP line', call: async () => ({}), ask: async (r) => { asked = r.command + ' | ' + r.reason; return 'pipe'; },
+  });
+  ok('a send from the second account is asked about as from it, and says so after', asked.includes('from OTP line') && out.content.includes('from OTP line'), [asked, out.content]);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

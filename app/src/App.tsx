@@ -173,9 +173,9 @@ import { ResearchPanel, askResearch, askResearchDoc, toggleResearchFull } from '
 import { AskVylo } from './AskVylo';
 import { setUiLang } from './fmt';
 import type { Dest } from './askroute';
-import { KEY as WA_KEY, read as readWa } from './whatsapp';
+import { ACCOUNTS_KEY as WA_ACCOUNTS_KEY, KEY as WA_KEY, readAccounts as readWaAccounts } from './whatsapp';
 import { callerFor } from './whatsappwire';
-import { runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
+import { accountFor as waAccountFor, isWhatsAppTool as isWaTool, runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
 import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
@@ -876,7 +876,10 @@ export function App() {
    * the start of each turn, so connecting mid-session gives the agent the tools
    * without a restart, and disconnecting takes them away again.
    */
-  const whatsAppConn = useCallback(() => readWa(localStorage.getItem(WA_KEY)), []);
+  const whatsAppAccounts = useCallback(
+    () => readWaAccounts(localStorage.getItem(WA_ACCOUNTS_KEY), localStorage.getItem(WA_KEY)),
+    [],
+  );
   /**
    * Set when a close was intercepted. Holds what would be lost, so the dialog
    * can name it rather than asking about "unsaved changes" in the abstract.
@@ -4133,7 +4136,7 @@ export function App() {
             .flatMap(([server, tools]) => tools.map((t) => toSchema(server, t))),
           // Only when a connection exists -- see `whatsAppToolsFor`. A tool the
           // model is offered and cannot use costs a round trip and an apology.
-          ...whatsAppToolsFor(whatsAppConn()),
+          ...whatsAppToolsFor(whatsAppAccounts()),
         ],
         // The other half of the line above. `whatsapp_send` suspends the turn
         // on `askToRun` exactly as `run_command` does, and no auto-approve
@@ -4141,9 +4144,14 @@ export function App() {
         // one. A message cannot be unsent, so it is always a person who sends
         // it.
         extraRun: (callToRun, ask) => {
-          const conn = whatsAppConn();
+          // The account the call names, among the person's own, or the one open in the panel; its
+          // own address and key go together (whatsappwire.ts).
+          const accounts = whatsAppAccounts();
+          const acc = waAccountFor(accounts, callToRun.input);
+          if (!acc.ok) return Promise.resolve(isWaTool(callToRun.name) ? { content: acc.why, isError: true } : null);
+          const conn = { baseUrl: acc.value.baseUrl, instance: acc.value.instance, key: acc.value.key };
           return runWhatsAppTool(callToRun.name, callToRun.input, {
-            conn, call: callerFor(conn), ask,
+            conn, call: callerFor(conn), ask, ...(accounts.list.length > 1 ? { account: acc.value.name } : {}),
           });
         },
         runInTerminal: (command) => {

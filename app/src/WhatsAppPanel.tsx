@@ -2,9 +2,9 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Icon } from './Icon';
 import { fill, type Lang } from './i18n';
 import {
-  BLANK, DRAFTS_KEY, KEY, chatsFrom, inChat, isGroup, phoneOf, read, readDrafts,
-  quoting, ready, relDay, messagesFrom, setDraft as withDraft, threadRows, write,
-  type Chat, type Conn, type Msg, type Row, type Status,
+  ACCOUNTS_KEY, BLANK, KEY, activeOf, chatsFrom, draftsKeyOf, freshName, inChat, isGroup, phoneOf, readAccounts, readDrafts,
+  quoting, ready, relDay, messagesFrom, seenKeyOf, setDraft as withDraft, threadRows, withAccount, withoutAccount, writeAccounts,
+  type Account, type Accounts, type Chat, type Conn, type Msg, type Row, type Status,
 } from './whatsapp';
 import { findChats, findEverywhere, marked, snippet, type Hit } from './whatsappfind';
 import { WireError, apiCall } from './whatsappwire';
@@ -295,10 +295,70 @@ function Ticks({ status, t }: { status: Status; t: (s: string) => string }) {
   );
 }
 
+/**
+ * The accounts, as chips across the top of the panel: the one shown lit, the
+ * others a click away, and a + to connect another. One account shows its
+ * name, so it is always clear which number the chats are from.
+ */
+function AccountBar({ t, accounts, shown, onPick, onAdd }: {
+  t: (s: string) => string; accounts: Accounts; shown: string; onPick: (id: string) => void; onAdd: () => void;
+}) {
+  return (
+    <div className="wa-accts" role="tablist" aria-label={t('WhatsApp accounts')}>
+      {accounts.list.map((a) => (
+        <button key={a.id} type="button" role="tab" aria-selected={a.id === shown}
+                className={`wa-acct ${a.id === shown ? 'on' : ''} ${ready(a) ? '' : 'is-off'}`}
+                onClick={() => onPick(a.id)} title={`${a.name} — ${a.instance}`}>
+          <i aria-hidden="true" />
+          <bdi>{a.name}</bdi>
+        </button>
+      ))}
+      <button type="button" className="wa-acct wa-acct-add" onClick={onAdd}
+              title={t('Add a WhatsApp account')} aria-label={t('Add a WhatsApp account')}>
+        <Icon name="plus" size={11} />
+      </button>
+    </div>
+  );
+}
+
+/** An empty account for the form, with a fresh id and a name no other account has. */
+const blankAccount = (a: Accounts): Account => ({
+  ...BLANK, id: Math.random().toString(36).slice(2, 10), name: freshName(a),
+});
+
+const loadSeen = (id: string): Record<string, number> => {
+  try { return JSON.parse(localStorage.getItem(seenKeyOf(id)) || '{}'); } catch { return {}; }
+};
+const loadDrafts = (id: string): Record<string, string> => {
+  try { return readDrafts(localStorage.getItem(draftsKeyOf(id))); } catch { return {}; }
+};
+
 export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
-  const [conn, setConn] = useState<Conn>(() => read(localStorage.getItem(KEY)));
-  const [form, setForm] = useState<Conn>(conn);
+  /**
+   * Every WhatsApp account connected here, and which one is shown — a
+   * personal number, a business one, an OTP line. Each is a whole `Conn`
+   * (whatsapp.ts), so a key only ever goes to its own account's server. The
+   * connection kept before accounts existed becomes the first one.
+   */
+  const [accounts, setAccounts] = useState<Accounts>(
+    () => readAccounts(localStorage.getItem(ACCOUNTS_KEY), localStorage.getItem(KEY)),
+  );
+  useEffect(() => {
+    try { localStorage.setItem(ACCOUNTS_KEY, writeAccounts(accounts)); } catch { /* private mode */ }
+  }, [accounts]);
+  const current = activeOf(accounts);
+  const acctId = current?.id ?? '';
+  // The shown account as a plain connection, the same object until the account itself changes,
+  // so the polling below is not restarted by an unrelated change to the list.
+  const conn: Conn = useMemo(
+    () => (current ? { baseUrl: current.baseUrl, instance: current.instance, key: current.key } : { ...BLANK }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [current?.id, current?.baseUrl, current?.instance, current?.key],
+  );
+  const [form, setForm] = useState<Account>(() => current ?? blankAccount(accounts));
   const [state, setState] = useState<State>(() => (ready(conn) ? 'live' : 'setup'));
+  /** Removing the account in the form was asked once and waits for a second click. */
+  const [removing, setRemoving] = useState(false);
   const [why, setWhy] = useState('');
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [open, setOpen] = useState('');
@@ -352,11 +412,11 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
    * closing, because "I closed the sidebar" is not "I changed my mind about
    * what I was writing".
    */
-  const [drafts, setDrafts] = useState<Record<string, string>>(
-    () => readDrafts(localStorage.getItem(DRAFTS_KEY)),
-  );
+  const [drafts, setDrafts] = useState<Record<string, string>>(() => loadDrafts(acctId));
   useEffect(() => {
-    try { localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts)); } catch { /* private mode */ }
+    try { localStorage.setItem(draftsKeyOf(acctId), JSON.stringify(drafts)); } catch { /* private mode */ }
+    // Written under the account they belong to: switching sets both at once.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [drafts]);
 
   /**
@@ -366,11 +426,10 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
    * `chatsFrom`. This is the app's own record, and it is the only honest basis
    * for a count.
    */
-  const [seen, setSeen] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem(`${KEY}.seen`) || '{}'); } catch { return {}; }
-  });
+  const [seen, setSeen] = useState<Record<string, number>>(() => loadSeen(acctId));
   useEffect(() => {
-    try { localStorage.setItem(`${KEY}.seen`, JSON.stringify(seen)); } catch { /* private mode */ }
+    try { localStorage.setItem(seenKeyOf(acctId), JSON.stringify(seen)); } catch { /* private mode */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seen]);
 
   const chats = useMemo(() => chatsFrom(msgs, seen), [msgs, seen]);
@@ -521,7 +580,63 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
     [],
   );
 
-  async function check(c: Conn) {
+  /**
+   * Show another account: its own chats, read marks and drafts — the same
+   * person can write to two of your numbers, and what was read or half
+   * written on one is not so on the other. What was being typed here is kept
+   * for this account first.
+   */
+  function switchTo(id: string) {
+    if (id === acctId) return;
+    if (open) {
+      try {
+        const kept = withDraft(loadDrafts(acctId), open, draft, chats.map((c) => c.jid));
+        localStorage.setItem(draftsKeyOf(acctId), JSON.stringify(kept));
+      } catch { /* private mode */ }
+    }
+    const next = accounts.list.find((a) => a.id === id);
+    setAccounts({ ...accounts, active: id });
+    setSeen(loadSeen(id));
+    setDrafts(loadDrafts(id));
+    setMsgs([]);
+    setOpen('');
+    setDraft('');
+    setReplyTo(null);
+    setFind('');
+    setWhy('');
+    setState(next && ready(next) ? 'live' : 'setup');
+    if (next) setForm(next);
+  }
+
+  /** The form for a new account, over the chats until it is saved or cancelled. */
+  function addAccount() {
+    setForm(blankAccount(accounts));
+    setRemoving(false);
+    setWhy('');
+    setState('setup');
+  }
+
+  /** Take an account off this machine: its key, its read marks and its drafts. */
+  function removeAccount(id: string) {
+    const next = withoutAccount(accounts, id);
+    try {
+      localStorage.removeItem(seenKeyOf(id));
+      localStorage.removeItem(draftsKeyOf(id));
+    } catch { /* private mode */ }
+    setAccounts(next);
+    setRemoving(false);
+    const still = activeOf(next);
+    setSeen(loadSeen(still?.id ?? ''));
+    setDrafts(loadDrafts(still?.id ?? ''));
+    setMsgs([]);
+    setOpen('');
+    setDraft('');
+    setWhy('');
+    setForm(still ?? blankAccount(next));
+    setState(still && ready(still) ? 'live' : 'setup');
+  }
+
+  async function check(c: Account) {
     setState('checking');
     setWhy('');
     try {
@@ -535,8 +650,18 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
         setWhy(fill(t('That instance is {state}, not connected. Scan its QR code first.'), { state: st }));
         return;
       }
-      localStorage.setItem(KEY, write(c));
-      setConn(c);
+      const known = accounts.list.some((a) => a.id === c.id);
+      const next = withAccount(accounts, c);
+      setAccounts(next);
+      setForm(activeOf(next) ?? c);
+      if (!known || c.id !== acctId) {
+        // A new account, or another one than was shown: start it with its own marks and drafts.
+        setSeen(loadSeen(c.id));
+        setDrafts(loadDrafts(c.id));
+        setMsgs([]);
+        setOpen('');
+        setDraft('');
+      }
       setState('live');
     } catch (e) {
       setState('failed');
@@ -708,15 +833,14 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
    * because an unmount effect that depends on either would run on every
    * keystroke, saving the very thing it is trying to save at the end.
    */
-  const held = useRef({ open, draft, chats });
-  held.current = { open, draft, chats };
+  const held = useRef({ open, draft, chats, acctId });
+  held.current = { open, draft, chats, acctId };
   useEffect(() => () => {
-    const { open: at, draft: text, chats: list } = held.current;
+    const { open: at, draft: text, chats: list, acctId: id } = held.current;
     if (!at) return;
     try {
-      const next = withDraft(readDrafts(localStorage.getItem(DRAFTS_KEY)), at, text,
-        list.map((c) => c.jid));
-      localStorage.setItem(DRAFTS_KEY, JSON.stringify(next));
+      const next = withDraft(loadDrafts(id), at, text, list.map((c) => c.jid));
+      localStorage.setItem(draftsKeyOf(id), JSON.stringify(next));
     } catch { /* private mode */ }
   }, []);
 
@@ -1300,8 +1424,13 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
   if (state !== 'live') {
     return (
       <div className="wa">
-        <div className="sb-sub">{t('Connect WhatsApp')}</div>
+        <div className="sb-sub">{accounts.list.some((a) => a.id === form.id) ? t('WhatsApp account') : accounts.list.length ? t('Add a WhatsApp account') : t('Connect WhatsApp')}</div>
+        {accounts.list.length > 0 && <AccountBar t={t} accounts={accounts} shown={form.id} onPick={switchTo} onAdd={addAccount} />}
         <div className="wa-form">
+          <label>{t('Name')}
+            <input dir="auto" value={form.name} spellCheck={false} maxLength={40}
+                   onChange={(e) => setForm({ ...form, name: e.target.value })}
+                   placeholder={t('Personal, Business, OTP…')} /></label>
           <label>{t('Server')}
             <input dir="ltr" value={form.baseUrl} spellCheck={false}
                    onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
@@ -1317,6 +1446,21 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
                   onClick={() => void check(form)}>
             {state === 'checking' ? t('Checking…') : t('Check and save')}
           </button>
+          {why && <p className="wa-why">{why}</p>}
+          {(current && ready(current)) || accounts.list.some((a) => a.id === form.id) ? (
+            <div className="wa-acct-acts">
+              {current && ready(current) && (
+                <button type="button" className="ghost" onClick={() => { setForm(current); setWhy(''); setRemoving(false); setState('live'); }}>
+                  {t('Back to the chats')}
+                </button>
+              )}
+              {accounts.list.some((a) => a.id === form.id) && (
+                removing
+                  ? <button type="button" className="ghost wa-danger" onClick={() => removeAccount(form.id)}>{fill(t('Remove {name} from this machine'), { name: form.name })}</button>
+                  : <button type="button" className="ghost" onClick={() => setRemoving(true)}>{t('Remove this account')}</button>
+              )}
+            </div>
+          ) : null}
           {/* ── reading voice notes ──────────────────────────────────────
               Its own section, because it is a different service with its own
               key, and because the panel is otherwise silent about why a voice
@@ -1396,7 +1540,6 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
               <option value="accurate">{t('Accurate — several engines, best for Kurdish')}</option>
             </select>
           </label>
-          {why && <p className="wa-why">{why}</p>}
           {/* Said here rather than in a manual: the key can send messages as
               that number, so where it goes is worth one sentence. */}
           <p className="wa-note">
@@ -1423,11 +1566,12 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
                   aria-label={full ? t('Leave full screen') : t('Full screen')}>
             <Icon name={full ? 'restore' : 'maximise'} size={13} />
           </button>
-          <button className="sb-act" onClick={() => { setState('setup'); setForm(conn); }}
+          <button className="sb-act" onClick={() => { setState('setup'); setRemoving(false); setForm(current ?? blankAccount(accounts)); }}
                   title={t('Change the connection')} aria-label={t('Change the connection')}>
             <Icon name="settings" size={13} />
           </button>
         </div>
+        <AccountBar t={t} accounts={accounts} shown={acctId} onPick={switchTo} onAdd={addAccount} />
 
         {why && <p className="wa-why">{why}</p>}
 

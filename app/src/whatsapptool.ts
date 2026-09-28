@@ -36,8 +36,8 @@
  */
 
 import {
-  chatsFrom, inChat, isGroup, jidOf, messagesFrom, phoneOf, ready,
-  type Chat, type Conn, type Msg,
+  accountNamed, activeOf, chatsFrom, inChat, isGroup, jidOf, messagesFrom, phoneOf, ready, readyAccounts,
+  type Account, type Accounts, type Chat, type Conn, type Msg,
 } from './whatsapp';
 
 /** How many messages a read returns, and how many are fetched to find them. */
@@ -110,8 +110,43 @@ export const isWhatsAppTool = (name: string): boolean => NAMES.has(name);
  * broken costs a round trip and an apology; a tool that is absent costs
  * nothing and the model says it plainly.
  */
-export const whatsAppToolsFor = (conn: Conn): unknown[] =>
-  (ready(conn) ? [...WHATSAPP_TOOLS] : []);
+export function whatsAppToolsFor(from: Conn | Accounts): unknown[] {
+  if (!('list' in from)) return ready(from) ? [...WHATSAPP_TOOLS] : [];
+  const usable = readyAccounts(from);
+  if (!usable.length) return [];
+  if (usable.length === 1) return [...WHATSAPP_TOOLS];
+  // Two or more numbers: each tool says which, by the names the person gave them. The model
+  // only ever chooses among these — the address and the key stay with the account.
+  const shown = activeOf(from);
+  const fallback = shown && ready(shown) ? shown : usable[0];
+  const account = {
+    type: 'string',
+    enum: usable.map((a) => a.name),
+    description: `Which of the user's WhatsApp accounts: ${usable.map((a) => `"${a.name}"`).join(', ')}. `
+      + `Leave it out for "${fallback.name}", the one open in the WhatsApp panel. Say which account you used.`,
+  };
+  return WHATSAPP_TOOLS.map((tool) => ({
+    ...tool,
+    input_schema: { ...tool.input_schema, properties: { ...tool.input_schema.properties, account } },
+  }));
+}
+
+/**
+ * The account a tool call is for: the one it names — among the person's own,
+ * by the name they gave it — or, when it names none, the one open in the
+ * panel. A name that is not one of them is an error that lists them.
+ */
+export function accountFor(accounts: Accounts, input: Record<string, unknown>): Planned<Account> {
+  const usable = readyAccounts(accounts);
+  if (!usable.length) return bad('WhatsApp is not connected. The user sets that up in the WhatsApp panel; it is not something you can configure.');
+  const said = typeof input.account === 'string' ? input.account.trim() : '';
+  if (said) {
+    const named = accountNamed({ ...accounts, list: usable }, said);
+    return named ? { ok: true, value: named } : bad(`There is no WhatsApp account called "${said}". The accounts are: ${usable.map((a) => `"${a.name}"`).join(', ')}.`);
+  }
+  const shown = activeOf(accounts);
+  return { ok: true, value: shown && ready(shown) ? shown : usable[0] };
+}
 
 /* ── working out who is meant ────────────────────────────────────────────
    Two ways in, because the model has two kinds of knowledge: a jid it read
@@ -179,13 +214,14 @@ export function planSend(
  * whole and unabridged underneath: an approval for a truncated string is not
  * an approval for what would be sent.
  */
-export function approvalLine(plan: SendPlan): string {
+export function approvalLine(plan: SendPlan, from?: string): string {
   const who = plan.group
     ? `the group ${plan.name}`
     : plan.name && plan.name !== phoneOf(plan.jid)
       ? `${plan.name} (+${phoneOf(plan.jid)})`
       : `+${phoneOf(plan.jid)}`;
-  return `WhatsApp to ${who}\n\n${plan.text}`;
+  // With more than one number connected, which one it goes from is part of what is approved.
+  return `WhatsApp${from ? ` from ${from}` : ''} to ${who}\n\n${plan.text}`;
 }
 
 /* ── how a result reads ──────────────────────────────────────────────────
@@ -228,6 +264,8 @@ export interface Deps {
   conn: Conn;
   call: Call;
   ask: Ask;
+  /** The account's name, when the person has more than one: shown in the approval and the result. */
+  account?: string;
 }
 
 /** What `agent.ts` expects back from a tool. */
@@ -245,7 +283,7 @@ export async function runWhatsAppTool(
   name: string, input: Record<string, unknown>, deps: Deps,
 ): Promise<ToolOut | null> {
   if (!isWhatsAppTool(name)) return null;
-  const { conn, call, ask } = deps;
+  const { conn, call, ask, account } = deps;
   if (!ready(conn)) {
     return fail('WhatsApp is not connected. The user sets that up in the WhatsApp panel; '
       + 'it is not something you can configure.');
@@ -290,8 +328,10 @@ export async function runWhatsAppTool(
 
     // The gate. Nothing above this line left the machine.
     const answer = await ask({
-      command: approvalLine(plan.value),
-      reason: 'The agent wants to send this WhatsApp message as you. It cannot be unsent.',
+      command: approvalLine(plan.value, account),
+      reason: account
+        ? `The agent wants to send this WhatsApp message as you, from ${account}. It cannot be unsent.`
+        : 'The agent wants to send this WhatsApp message as you. It cannot be unsent.',
       kind: 'mcp',
     });
     if (answer === 'no') {
@@ -302,7 +342,7 @@ export async function runWhatsAppTool(
       number: phoneOf(plan.value.jid) || plan.value.jid,
       text: plan.value.text,
     });
-    return { content: `Sent to ${plan.value.name}.`, isError: false };
+    return { content: `Sent to ${plan.value.name}${account ? ` from ${account}` : ''}.`, isError: false };
   } catch (e) {
     return fail(e instanceof Error ? e.message : String(e));
   }

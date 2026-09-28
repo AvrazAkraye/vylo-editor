@@ -2502,6 +2502,21 @@ body.resizing .tdiv::before{ background:var(--brand); inline-size:2px; }
    `display:grid` to say so: a `<label>` is inline by default, and inline is
    what put Server, its field, Instance, its field and API key on one line
    running off the edge of a 248px column. */
+/* The accounts: chips across the top, the one shown lit, a dot for whether it is set up, + to add. */
+.wa-accts{ display:flex; flex-wrap:wrap; gap:6px; padding:0 var(--sp-7); }
+.wa-acct{
+  display:inline-flex; align-items:center; gap:6px; max-inline-size:100%;
+  padding:4px var(--sp-3); border-radius:99px; border:1px solid var(--rule);
+  background:var(--panel); color:var(--ink-2, var(--ink)); font-size:var(--fs-2); font-weight:500; cursor:pointer;
+}
+.wa-acct bdi{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wa-acct i{ flex:none; inline-size:7px; block-size:7px; border-radius:50%; background:#25D366; }
+.wa-acct.is-off i{ background:var(--mute); opacity:.6; }
+.wa-acct:hover{ border-color:var(--rule-2); }
+.wa-acct.on{ background:color-mix(in srgb, #25D366 14%, var(--panel)); border-color:color-mix(in srgb, #25D366 45%, transparent); color:var(--ink); font-weight:600; }
+.wa-acct-add{ padding-inline:var(--sp-2); border-style:dashed; color:var(--mute); }
+.wa-acct-acts{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+.wa-danger{ color:var(--err); }
 .wa-form{ display:grid; gap:var(--sp-5); padding:0 var(--sp-7) var(--sp-6); }
 .wa-form label{
   display:grid; gap:var(--sp-2);

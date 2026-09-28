@@ -771,7 +771,7 @@ mod tests {
         url_last_after_dashdash(&a, url);
         assert!(a.contains(&"--no-playlist".to_string()));
         assert!(a.windows(2).any(|w| w[0] == "-f" && w[1] == YTDLP_FORMAT));
-        assert!(a.windows(2).any(|w| w[0] == "-o" && w[1] == "/tmp/d/src.%(ext)s"));
+        assert!(a.windows(2).any(|w| w[0] == "-o" && w[1] == Path::new("/tmp/d").join("src.%(ext)s").to_string_lossy()));
         assert!(a.windows(2).any(|w| w[0] == "--ffmpeg-location" && w[1] == "/opt/homebrew/bin"));
         assert!(a.windows(2).any(|w| w[0] == "--max-filesize" && w[1] == "400M"));
         // Not even a URL that looks like an option can become one.

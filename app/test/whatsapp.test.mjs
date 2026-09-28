@@ -8,6 +8,10 @@ import {
   BLANK, KEY, MAX_DRAFTS, chatsFrom, inChat, isGroup, jidOf, messagesFrom,
   normalise, phoneOf, quoting, read, readDrafts, ready, setDraft, threadRows, write,
 } from '../.test-build/whatsapp.js';
+import {
+  ACCOUNTS_KEY, DRAFTS_KEY as DRAFTS_V1, FIRST_ID, KEY as CONN_V1, MAX_ACCOUNTS, accountNamed, activeOf, draftsKeyOf, freshName,
+  readAccounts, readyAccounts, seenKeyOf, withAccount, withoutAccount, writeAccounts,
+} from '../.test-build/whatsapp.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -445,6 +449,41 @@ ok('a reply in the envelope is still found', normalise({
     stanzaId: 'OLD', quotedMessage: { conversation: 'asked?' } } } },
   messageTimestamp: 1,
 }).quoted.text === 'asked?');
+
+// ── more than one account ────────────────────────────────────────────────
+{
+  const old = JSON.stringify({ baseUrl: 'https://wa.vylo-tech.com/', instance: 'otpc-01a086', key: 'k1' });
+  const moved = readAccounts(null, old);
+  ok('the connection kept before accounts becomes the first account, active, named by its instance',
+    moved.list.length === 1 && moved.active === FIRST_ID && moved.list[0].name === 'otpc-01a086' && moved.list[0].baseUrl === 'https://wa.vylo-tech.com' && moved.list[0].key === 'k1');
+  ok('its read marks and drafts keep the keys they had', seenKeyOf(FIRST_ID) === `${CONN_V1}.seen` && draftsKeyOf(FIRST_ID) === DRAFTS_V1);
+  ok('another account has its own', seenKeyOf('ab12') !== seenKeyOf(FIRST_ID) && draftsKeyOf('ab12') === `${DRAFTS_V1}.ab12`);
+  ok('nothing stored, no accounts; a half-made old connection is not one', readAccounts(null, null).list.length === 0 && readAccounts(null, JSON.stringify({ instance: 'x' })).list.length === 0);
+  ok('a broken store does not throw', readAccounts('{not json', null).list.length === 0 && readAccounts(JSON.stringify({ list: 'x' }), null).list.length === 0);
+
+  const two = withAccount(moved, { id: 'b2', name: 'Business', baseUrl: 'https://wa.example.com//', instance: 'biz', key: 'k2' });
+  ok('an account is added, made active, its address tidied', two.list.length === 2 && two.active === 'b2' && activeOf(two).baseUrl === 'https://wa.example.com');
+  ok('each keeps its own address and key together', two.list.find((a) => a.id === FIRST_ID).key === 'k1' && two.list.find((a) => a.id === 'b2').key === 'k2'
+    && two.list.every((a) => (a.key === 'k1') === (a.baseUrl === 'https://wa.vylo-tech.com')));
+  const clash = withAccount(two, { id: 'c3', name: 'business', baseUrl: 'https://x.com', instance: 'c', key: 'k3' });
+  ok('a name another account has is made unique, not refused', clash.list.length === 3 && clash.list[2].name.toLowerCase() !== 'business', clash.list.map((a) => a.name));
+  const renamed = withAccount(two, { ...two.list[0], name: 'Personal' });
+  ok('saving an account again replaces it in place', renamed.list.length === 2 && renamed.list[0].name === 'Personal' && renamed.list[0].id === FIRST_ID);
+  const same = (x, y) => x.active === y.active && x.list.length === y.list.length
+    && x.list.every((a, i) => ['id', 'name', 'baseUrl', 'instance', 'key'].every((k) => a[k] === y.list[i][k]));
+  ok('it survives being written and read back', same(readAccounts(writeAccounts(renamed), old), renamed));
+  ok('a stored list wins over the old connection', readAccounts(writeAccounts(renamed), JSON.stringify({ baseUrl: 'https://evil.example', instance: 'z', key: 'z' })).list.every((a) => a.baseUrl !== 'https://evil.example'));
+  const gone = withoutAccount(renamed, 'b2');
+  ok('removing the active account shows the first left', gone.list.length === 1 && gone.active === FIRST_ID);
+  ok('removing the last leaves none', withoutAccount(gone, FIRST_ID).list.length === 0 && activeOf(withoutAccount(gone, FIRST_ID)) === null);
+  ok('named by its name in any case, or its instance', accountNamed(renamed, 'personal')?.id === FIRST_ID && accountNamed(renamed, 'BIZ')?.id === 'b2' && accountNamed(renamed, 'nobody') === null && accountNamed(renamed, '') === null);
+  ok('a fresh name is the instance, or WhatsApp N', freshName(renamed, 'otp2') === 'otp2' && freshName(renamed) === 'WhatsApp 3');
+  ok('only complete accounts are usable', readyAccounts({ list: [...renamed.list, { id: 'd', name: 'half', baseUrl: 'https://x', instance: 'x', key: '' }], active: 'd' }).length === 2);
+  let many = { list: [], active: '' };
+  for (let i = 0; i < MAX_ACCOUNTS + 3; i++) many = withAccount(many, { id: `i${i}`, name: `n${i}`, baseUrl: 'https://x', instance: `x${i}`, key: 'k' });
+  ok('at most MAX_ACCOUNTS are kept', many.list.length === MAX_ACCOUNTS);
+  ok('the store has its own versioned key', ACCOUNTS_KEY === 'vylo.whatsapp.accounts.v1');
+}
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
