@@ -2,7 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { Icon } from './Icon';
 import { fill, type Lang } from './i18n';
 import {
-  ACCOUNTS_KEY, BLANK, KEY, activeOf, chatsFrom, draftsKeyOf, freshName, inChat, isGroup, phoneOf, readAccounts, readDrafts,
+  ACCOUNTS_KEY, BLANK, KEY, activeOf, chatsFrom, newest, totalOf, draftsKeyOf, freshName, inChat, isGroup, phoneOf, readAccounts, readDrafts,
   quoting, ready, relDay, messagesFrom, seenKeyOf, setDraft as withDraft, threadRows, withAccount, withoutAccount, writeAccounts,
   type Account, type Accounts, type Chat, type Conn, type Msg, type Row, type Status,
 } from './whatsapp';
@@ -113,6 +113,8 @@ interface Props {
 const EVERY_MS = 6000;
 /** How many messages to ask for. One page is a day of ordinary traffic. */
 const PAGE = 200;
+/** The most messages Load more reaches: a long history, still one request every few seconds. */
+const MAX_LOADED = 2000;
 
 type State = 'setup' | 'checking' | 'live' | 'failed';
 
@@ -359,6 +361,17 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
   const [state, setState] = useState<State>(() => (ready(conn) ? 'live' : 'setup'));
   /** Removing the account in the form was asked once and waits for a second click. */
   const [removing, setRemoving] = useState(false);
+  /**
+   * How many of the newest messages are fetched: a page to start, a page more
+   * for each Load more, and back to a page on another account. The chat list
+   * is built from them (`chatsFrom`), so more messages is more, and older,
+   * chats. `total` is what the server says it holds, so the button shows only
+   * while there is more to have.
+   */
+  const [count, setCount] = useState(PAGE);
+  const [total, setTotal] = useState(0);
+  const [more, setMore] = useState(false);
+  useEffect(() => { setCount(PAGE); setTotal(0); }, [acctId]);
   const [why, setWhy] = useState('');
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [open, setOpen] = useState('');
@@ -675,13 +688,13 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
     if (state !== 'live' || !ready(conn)) return;
     let live = true;
     const pull = () => void call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`,
-      { limit: PAGE })
-      .then((out) => { if (live) { setMsgs(messagesFrom(out)); setWhy(''); } })
+      newest(count))
+      .then((out) => { if (live) { setMsgs(messagesFrom(out)); setTotal(totalOf(out)); setWhy(''); } })
       .catch((e) => { if (live) setWhy(sayWhy(e)); });
     pull();
     const timer = setInterval(pull, EVERY_MS);
     return () => { live = false; clearInterval(timer); };
-  }, [state, conn, call, sayWhy]);
+  }, [state, conn, call, sayWhy, count]);
 
   const foot = useRef<HTMLDivElement>(null);
   /*
@@ -782,7 +795,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
       setDraft(left);
       setDrafts((d) => withDraft(d, open, left, chats.map((c) => c.jid)));
       if (left) setWhy(t('Only the first part went as a voice note. The rest is still in the box.'));
-      const back = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, { limit: PAGE });
+      const back = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, newest(count));
       setMsgs(messagesFrom(back));
     } catch (e) {
       setWhy(e instanceof WireError ? sayWhy(e)
@@ -1035,7 +1048,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
       setDrafts((d) => withDraft(d, open, '', chats.map((c) => c.jid)));
       // Straight back rather than waiting for the next tick, so the message
       // appears where it was typed.
-      const back = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, { limit: PAGE });
+      const back = await call(conn, `/chat/findMessages/${encodeURIComponent(conn.instance)}`, newest(count));
       setMsgs(messagesFrom(back));
     } catch (e) {
       setWhy(e instanceof WireError ? sayWhy(e) : t('That message did not send.'));
@@ -1658,6 +1671,18 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
               </li>
             ))}
           </ul>
+        )}
+        {!searching && chats.length > 0 && total > msgs.length && (
+          <button className="ghost wa-more" disabled={more}
+                  onClick={() => {
+                    setMore(true);
+                    setCount((n) => Math.min(n + PAGE, MAX_LOADED));
+                    // Let the next pull show the new page, then the button again.
+                    setTimeout(() => setMore(false), 1500);
+                  }}>
+            <Icon name="chevron" size={11} turn={90} />
+            {more ? t('Loading…') : fill(t('Load more chats — {n} older messages'), { n: Math.min(PAGE, total - msgs.length) })}
+          </button>
         )}
       </div>
   );

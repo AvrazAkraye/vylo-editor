@@ -10,7 +10,7 @@ import {
 } from '../.test-build/whatsapp.js';
 import {
   ACCOUNTS_KEY, DRAFTS_KEY as DRAFTS_V1, FIRST_ID, KEY as CONN_V1, MAX_ACCOUNTS, accountNamed, activeOf, draftsKeyOf, freshName,
-  readAccounts, readyAccounts, seenKeyOf, withAccount, withoutAccount, writeAccounts,
+  readAccounts, readyAccounts, seenKeyOf, withAccount, withoutAccount, writeAccounts, newest, totalOf,
 } from '../.test-build/whatsapp.js';
 
 let pass = 0, fail = 0;
@@ -483,6 +483,20 @@ ok('a reply in the envelope is still found', normalise({
   for (let i = 0; i < MAX_ACCOUNTS + 3; i++) many = withAccount(many, { id: `i${i}`, name: `n${i}`, baseUrl: 'https://x', instance: `x${i}`, key: 'k' });
   ok('at most MAX_ACCOUNTS are kept', many.list.length === MAX_ACCOUNTS);
   ok('the store has its own versioned key', ACCOUNTS_KEY === 'vylo.whatsapp.accounts.v1');
+}
+
+// ── privacy addresses and paging ─────────────────────────────────────────
+{
+  const lid = normalise(rec({ key: { id: 'x', fromMe: true, remoteJid: '75244303814856@lid', remoteJidAlt: '9647501378577@s.whatsapp.net', addressingMode: 'lid' } }));
+  ok('a @lid conversation is filed under the real number when the server gives it', lid.jid === '9647501378577@s.whatsapp.net' && phoneOf(lid.jid) === '9647501378577');
+  const bare = normalise(rec({ key: { id: 'y', fromMe: false, remoteJid: '75244303814856@lid' } }));
+  ok('…and stays the @lid, never an invented number, when it does not', bare.jid === '75244303814856@lid' && phoneOf(bare.jid) === '');
+  ok('an alternative that is not a phone is not used', normalise(rec({ key: { id: 'z', remoteJid: '1@lid', remoteJidAlt: '2@lid' } })).jid === '1@lid');
+  ok('a phone conversation is untouched', normalise(rec()).jid === '9647510010742@s.whatsapp.net');
+  const b = newest(200);
+  ok('the fetch asks for the newest N the way Evolution v2 pages (offset is its page size)', b.offset === 200 && b.page === 1 && b.limit === 200);
+  ok('…never zero or a fraction', newest(0).offset === 1 && newest(12.6).offset === 13);
+  ok('the server\'s total is read from the envelope', totalOf(body([rec(), rec()])) === 2 && totalOf({ messages: { total: 731, records: [] } }) === 731 && totalOf(null) === 0 && totalOf({}) === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -1338,6 +1338,8 @@ const ar: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'البحث العلمي',
   // WhatsApp: more than one account.
+  'Load more chats — {n} older messages': 'تحميل المزيد من المحادثات — {n} رسالة أقدم',
+  'Loading…': 'جارٍ التحميل…',
   'WhatsApp account': 'حساب واتساب',
   'Add a WhatsApp account': 'إضافة حساب واتساب',
   'WhatsApp accounts': 'حسابات واتساب',
@@ -3948,6 +3950,8 @@ const ckb: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'توێژینەوە',
   // WhatsApp: more than one account.
+  'Load more chats — {n} older messages': 'بارکردنی گفتوگۆی زیاتر — {n} نامەی کۆنتر',
+  'Loading…': 'بار دەکرێت…',
   'WhatsApp account': 'هەژماری واتسئاپ',
   'Add a WhatsApp account': 'زیادکردنی هەژمارێکی واتسئاپ',
   'WhatsApp accounts': 'هەژمارەکانی واتسئاپ',
@@ -6563,6 +6567,8 @@ const kmr: Dict = {
   // Research: working papers, theses and dissertations.
   'Research': 'ڤەکولین',
   // WhatsApp: more than one account.
+  'Load more chats — {n} older messages': 'بارکرنا ئاخفتنێن پتر — {n} نامێن کەڤنتر',
+  'Loading…': 'بار دبیت…',
   'WhatsApp account': 'هەژمارا واتسئاپێ',
   'Add a WhatsApp account': 'زێدەکرنا هەژمارەکا واتسئاپێ',
   'WhatsApp accounts': 'هەژمارێت واتسئاپێ',

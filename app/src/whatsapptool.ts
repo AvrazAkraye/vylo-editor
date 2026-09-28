@@ -36,7 +36,7 @@
  */
 
 import {
-  accountNamed, activeOf, chatsFrom, inChat, isGroup, jidOf, messagesFrom, phoneOf, ready, readyAccounts,
+  accountNamed, activeOf, chatsFrom, inChat, isGroup, jidOf, messagesFrom, newest, phoneOf, ready, readyAccounts,
   type Account, type Accounts, type Chat, type Conn, type Msg,
 } from './whatsapp';
 
@@ -291,7 +291,7 @@ export async function runWhatsAppTool(
   const inst = encodeURIComponent(conn.instance);
 
   const fetchAll = async (): Promise<Msg[]> =>
-    messagesFrom(await call(`/chat/findMessages/${inst}`, { limit: PAGE }));
+    messagesFrom(await call(`/chat/findMessages/${inst}`, newest(PAGE)));
 
   try {
     if (name === 'whatsapp_chats') {

@@ -450,7 +450,14 @@ export function normalise(raw: unknown): Msg | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const key = (r.key && typeof r.key === 'object' ? r.key : {}) as Record<string, unknown>;
-  const jid = trim(key.remoteJid);
+  // WhatsApp's privacy addressing names a person by a `@lid` — a long number
+  // that is not a phone number and cannot be rung or written to. Evolution
+  // sends the real number beside it as `remoteJidAlt` when it knows it, and
+  // that is the conversation: named by a number a person recognises, and
+  // answered at it.
+  const lid = trim(key.remoteJid);
+  const alt = trim(key.remoteJidAlt);
+  const jid = lid.endsWith('@lid') && isPhone(alt) ? alt : lid;
   if (!jid || !jid.includes('@')) return null;
   // Status broadcasts are not a conversation with anybody.
   if (jid.startsWith('status@')) return null;
@@ -478,6 +485,27 @@ export function normalise(raw: unknown): Msg | null {
     status: key.fromMe === true ? statusOf(r) : '',
     quoted: quotedOf(r, message),
   };
+}
+
+/**
+ * The body that asks `findMessages` for the newest `count` messages.
+ *
+ * Evolution v2 pages by `offset` (its page size — the name is its own) and
+ * `page`, newest first; a `limit` it does not read was all this app sent, so
+ * every fetch came back at the server's default of 50. `limit` stays for a
+ * server that does read it.
+ */
+export const newest = (count: number) => {
+  const n = Math.max(1, Math.round(count) || 1);
+  return { offset: n, page: 1, limit: n };
+};
+
+/** How many messages the server holds for the instance, from a `findMessages` body; 0 when it did not say. */
+export function totalOf(body: unknown): number {
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  const box = (b.messages && typeof b.messages === 'object' ? b.messages : b) as Record<string, unknown>;
+  const n = Number(box.total);
+  return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 /** Every usable message out of a `findMessages` body, oldest first. */
