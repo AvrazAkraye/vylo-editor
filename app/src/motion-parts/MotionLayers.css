@@ -1,0 +1,134 @@
+/* ── Motion: the Layers tab (MotionLayers.tsx) ───────────────────────────────
+   The layers as a short card of rows, front first, and the selected one's
+   inspector below it as a second card of folding sections. A row's actions
+   are quiet until the row is pointed at or has the keyboard, and stay lit
+   while they are on. Dragging a row uses useReorder's own classes. */
+
+.mo-layers{
+  --mo-label:clamp(72px, 30%, 108px);
+  display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-3) var(--sp-6) var(--sp-10);
+}
+.mo-layers .ghost{ min-block-size:28px; }
+.mo-layers .ghost:disabled{ opacity:var(--dim); cursor:default; }
+
+.mo-bar{ display:flex; align-items:center; gap:var(--sp-3); min-block-size:30px; }
+.mo-bar-title{ flex:1; min-inline-size:0; font-size:var(--fs-2); font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--mute); }
+:root[dir="rtl"] .mo-bar-title{ letter-spacing:0; }
+.mo-bar .mo-pop-anchor{ flex:none; }
+.ghost.mo-add{ border-color:var(--rule); background:var(--panel); color:var(--ink); padding-inline:var(--sp-4) var(--sp-5); }
+.ghost.mo-add:hover:not(:disabled){ border-color:var(--rule-2); }
+.ghost.mo-add[aria-expanded="true"]{ border-color:var(--brand); color:var(--brand); }
+
+/* The eight kinds: the add menu, and the empty list. */
+.mo-add-menu{
+  position:absolute; z-index:40; inset-block-start:calc(100% + 6px); inset-inline-end:0; inline-size:272px; padding:var(--sp-3);
+  border:1px solid var(--rule-2); border-radius:var(--r-3); background:var(--panel);
+  box-shadow:0 18px 40px -14px rgb(0 0 0 / .35), 0 2px 6px rgb(0 0 0 / .08);
+  animation:mo-pop .14s ease-out;
+}
+.mo-kinds{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--sp-1); }
+.mo-kind{
+  display:flex; align-items:center; gap:var(--sp-3); min-inline-size:0; min-block-size:40px; padding-inline:var(--sp-2) var(--sp-3);
+  border:1px solid transparent; border-radius:var(--r-2); background:transparent; color:var(--ink);
+  font:inherit; font-size:var(--fs-4); text-align:start; cursor:pointer;
+}
+.mo-kind > span:last-child{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-kind:hover:not(:disabled){ background:var(--panel-2); border-color:var(--rule); }
+.mo-kind:disabled{ opacity:var(--dim); cursor:default; }
+.mo-kind-glyph{ flex:none; display:grid; place-items:center; inline-size:30px; block-size:30px; border-radius:var(--r-2); background:var(--brand-wash); color:var(--brand); }
+
+.mo-empty{ padding:var(--sp-6); border:1px dashed var(--rule-2); border-radius:var(--r-3); background:var(--panel); }
+.mo-empty p{ margin:0 0 var(--sp-4); font-size:var(--fs-3); color:var(--mute); }
+.mo-empty .mo-kind{ border-color:var(--rule); }
+
+/* The list: a card of rows that scrolls on its own once it is long. */
+.mo-list{
+  list-style:none; margin:0; padding:var(--sp-1); display:flex; flex-direction:column; gap:1px;
+  max-block-size:min(44vh, 420px); overflow-y:auto; overscroll-behavior:contain;
+  border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); box-shadow:var(--shadow);
+}
+.mo-layer{ display:flex; align-items:center; min-block-size:32px; border-radius:var(--r-2); }
+.mo-layer:hover{ background:color-mix(in srgb, var(--ink) 5%, transparent); }
+.mo-layer.is-on{ background:var(--brand-wash); }
+.mo-layer-main{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-2); block-size:32px; padding-inline:var(--sp-1) var(--sp-2);
+  border:0; border-radius:var(--r-2); background:transparent; color:var(--ink); font:inherit; font-size:var(--fs-4); text-align:start; cursor:default;
+}
+.mo-layer-main:focus-visible{ outline-offset:-2px; }
+.mo-layer-grip{ flex:none; display:grid; place-items:center; inline-size:14px; color:var(--mute); opacity:0; cursor:grab; transition:opacity .12s ease; }
+.mo-layer:hover .mo-layer-grip{ opacity:.7; }
+.mo-layer-glyph{ flex:none; display:grid; place-items:center; inline-size:22px; color:var(--mute); }
+.mo-layer.is-on .mo-layer-glyph{ color:var(--brand); }
+.mo-layer-name{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-layer.is-on .mo-layer-name{ font-weight:600; }
+.mo-layer.is-hidden .mo-layer-name, .mo-layer.is-hidden .mo-layer-glyph{ opacity:var(--dim); }
+.mo-layer-acts{ flex:none; display:flex; align-items:center; padding-inline-end:2px; }
+.mo-layer-act{
+  display:grid; place-items:center; inline-size:28px; block-size:28px; padding:0; border:0; border-radius:var(--r-2);
+  background:transparent; color:var(--mute); cursor:pointer; opacity:0; transition:opacity .12s ease;
+}
+.mo-layer:hover .mo-layer-act, .mo-layer:focus-within .mo-layer-act, .mo-layer.is-on .mo-layer-more, .mo-layer-act.is-set,
+.mo-layer-act[aria-expanded="true"]{ opacity:1; }
+.mo-layer-act.is-set{ color:var(--ink); }
+.mo-layer-act:hover{ color:var(--ink); background:color-mix(in srgb, var(--ink) 8%, transparent); }
+.mo-layer-act:focus-visible{ outline-offset:-2px; }
+@media (hover: none){ .mo-layer-act{ opacity:1; } }
+.mo-layer-main.is-naming{ padding-inline-start:calc(14px + var(--sp-1) + var(--sp-2)); }
+.mo-rename{
+  flex:1; min-inline-size:0; block-size:26px; padding-inline:var(--sp-2); border:1px solid var(--brand); border-radius:var(--r-1);
+  background:var(--panel); color:var(--ink); font:inherit; font-size:var(--fs-4); box-shadow:0 0 0 2px var(--brand-wash);
+  -webkit-user-select:text; user-select:text;
+}
+.mo-rename:focus{ outline:none; }
+.mo-rename.mo-rename-head{ block-size:28px; font-size:var(--fs-5); font-weight:600; }
+
+.mo-pick{ padding-block:var(--sp-6); text-align:center; }
+
+/* The row's menu is the app's ContextMenu: menu.ts gives it a physical x, and it is moved there with a transform from
+   its inline-start edge — which right to left is the RIGHT edge, so the menu opened past the window, out of sight
+   (measured at x 2037 in a 1400px window). Here it is moved from the left edge, as the transform assumes. */
+:root[dir="rtl"] .mo-layers .mn{ inset-inline-start:auto !important; inset-inline-end:0 !important; }
+
+/* The inspector: a header naming the layer, then its sections. */
+.mo-insp{ border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); box-shadow:var(--shadow); }
+/* The header stays at the top of the column while the sections scroll under it, so a deep section still says whose it is. */
+.mo-insp-head{
+  position:sticky; inset-block-start:0; z-index:2; display:flex; align-items:center; gap:var(--sp-4);
+  padding-block:var(--sp-4); padding-inline:var(--sp-5) var(--sp-3);
+  border-start-start-radius:var(--r-3); border-start-end-radius:var(--r-3); background:var(--panel);
+  box-shadow:0 1px 0 var(--rule);
+}
+.mo-insp-head + .mo-sec{ border-block-start:0; }
+/* A control reached going back up with Shift+Tab was scrolled into view under that header — 9 of 44 in a text
+   layer's inspector, some wholly hidden. The column keeps the header's height clear when it brings one into view
+   (WebKit honours scroll-padding on the scroller for this, not scroll-margin on the control). */
+.mo-full-side, .sb-panel:has(.mo-insp){ scroll-padding-block-start:80px; }
+.mo-insp-glyph{ flex:none; display:grid; place-items:center; inline-size:32px; block-size:32px; border-radius:var(--r-2); background:var(--brand-wash); color:var(--brand); }
+.mo-insp-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.mo-insp-what b{ font-size:var(--fs-5); font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-insp-what small{ font-size:var(--fs-2); color:var(--mute); }
+
+/* Position: the anchor beside the two offsets. */
+.mo-place .mo-ctl{ align-items:center; gap:var(--sp-4); }
+.mo-place-xy{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+.mo-place-xy .mo-num{ flex:none; }
+
+/* Timing: the length, and where the layer sits in the graphic. */
+.mo-readout{ flex:none; font-size:var(--fs-3); color:var(--ink); font-variant-numeric:tabular-nums; }
+.mo-span{
+  position:relative; flex:1; min-inline-size:24px; block-size:6px; overflow:hidden; border-radius:999px;
+  background:var(--panel-2); box-shadow:inset 0 0 0 1px var(--rule);
+}
+.mo-span i{ position:absolute; inset-block:0; border-radius:999px; background:var(--brand); }
+.ghost.mo-to-end{ flex:none; padding-inline:var(--sp-3); font-size:var(--fs-2); border-color:var(--rule); }
+:root[dir="rtl"] .mo-to-end .mo-glyph{ transform:scaleX(-1); }
+
+/* Animation: an entrance, an exit, a loop; each effect said in a line. */
+.mo-anim{ display:flex; flex-direction:column; gap:var(--sp-2); }
+.mo-about{ padding-inline-start:calc(var(--mo-label) + var(--sp-4)); }
+.mo-note{ padding-block:var(--sp-1) var(--sp-2); }
+
+@media (prefers-reduced-motion: reduce){
+  .mo-add-menu{ animation:none; }
+  .mo-layer-grip, .mo-layer-act{ transition:none; }
+}

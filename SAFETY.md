@@ -20,7 +20,7 @@ the app starts, and nothing but a person can turn it on.
 This document says what that means in practice, where it is enforced, and — the
 part that earns the rest of it — what it does *not* cover. Every claim names the
 file that makes it true, so you can check it rather than trust it. It describes
-version 0.131.2.
+version 0.132.0.
 
 ---
 
@@ -158,7 +158,8 @@ catalogues of scholarly work, OpenAlex and Crossref; and the Video panel looks
 the subject of a video up in Wikidata and Wikipedia, looks for pictures and
 music in two public collections of openly licensed media, Openverse and
 Wikimedia Commons, takes its styles' fonts from Google Fonts, and lets Remotion
-count each film or poster you export.
+count each film or poster you export. The Motion panel, which draws and saves its
+graphics with this app's own code, contacts nothing but the model you ask it to.
 
 **Added providers** (Settings → Account → Model providers) each have their own
 address and their own key, and one rule governs them, pinned by
@@ -190,7 +191,7 @@ to your own speech provider, one for fonts and one to Remotion:
 | `app/src/inline.ts` | `POST {gateway}/v1/messages` | ⌘K rewrite, apply-from-chat |
 | `app/src/complete.ts` | `POST {gateway}/v1/complete` | inline (ghost-text) completion |
 | `app/src/gateway.ts` | `POST {gateway}/v1/messages` | checking a key you just pasted |
-| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again, and answering what you say or write in its Chat tab; and learning a researcher's style from their papers; and answering what you ask in a Research document's Chat tab |
+| `app/src/generate.ts` | `POST {gateway}/v1/messages` | writing a Research document: the plan, the outline, each section, the abstract; for a video: naming its subject, planning its storyboard, redoing one scene of it, writing its narration, answering what you write in its Chat tab; for a presentation: writing its slides and speaker notes, and writing one slide again, and answering what you say or write in its Chat tab; for a motion graphic: choosing a template and writing its words, or designing it layer by layer, and making the changes you ask for in its Ask tab; and learning a researcher's style from their papers; and answering what you ask in a Research document's Chat tab |
 | `app/src/account.ts` | `POST {gateway}/app/api/auth/login` | signing in — `/auth/register` and `/auth/logout` are the same shape |
 | `app/src/account.ts` | `GET {gateway}/app/api/me` | the plan balance: on launch, when a turn ends, otherwise every five minutes |
 | `app/src/account.ts` | `POST {gateway}/app/api/keys` | minting this app's own key, once, at the end of a sign-in |
@@ -332,6 +333,26 @@ is in it. The app cannot switch it off — the renderer sends it for every rende
 which renders three films and sends three. Subtitles and the storyboard backup
 are text written out in the page, and send nothing.
 
+**A motion graphic contacts no one but the model you ask.** The Motion panel makes a graphic
+from a template — code in this app, `app/src/motiontemplates.ts`, which sends
+nothing — or from words you write, which go to the model you chose exactly as
+the Video panel's requests do, through `app/src/generate.ts` and the request
+listed above. When you later ask it to change the graphic, that request carries
+the graphic's current words, colours and layer settings — never a picture you
+added. What comes back is a description in a fixed vocabulary — words
+chosen from lists, numbers within limits, and text — never code:
+`app/src/motionread.ts` checks every word and clamps every number, takes no
+picture from the model at all — a picture in a graphic is only ever one you
+added — and only then is anything drawn
+(`app/src/motiondraw.ts`, on a canvas in this window). No font, picture or
+library is fetched for it: its typefaces are the ones your system has and the
+Arabic face bundled with the app, and a picture you add is kept inside the
+graphic. Saving happens in the window too — the frames are encoded by the
+window's own H.264 encoder and written into an MP4 by a writer that is part of
+this app (`app/src/motionencode.ts`, `app/src/motionmp4.ts`), or one frame is
+saved as a PNG — and **no telemetry event is sent for either**: the buttons
+that render send nothing.
+
 **The eighteenth is WhatsApp, and it goes where you send it.** Every request is
 built in one place, `app/src/whatsappwire.ts`, from an Evolution API instance
 whose address and key you enter together in `app/src/WhatsAppPanel.tsx`. No
@@ -450,7 +471,7 @@ Wikimedia Commons, the hosts their pictures and music are kept on, Google Fonts
 and Remotion: the lookup's addresses are built only in
 `app/src/videoresearch.ts`, the collections' only in `app/src/videomedia.ts` and
 `app/src/videomix.ts`, the fonts' and the telemetry's only inside Remotion's own
-packages, and no key is sent to any of them. The one exception is a narration,
+packages, and no key is sent to any of them. The Motion panel adds none. The one exception is a narration,
 which goes to the speech provider you added, with its own key. `chat.vylo-tech.com`
 appears as text in three error messages (two in `app/src/errors.ts`, one in
 `app/src/gateway.ts`), but nothing in the app fetches it.
@@ -623,9 +644,10 @@ item, and every one of them is absent from the tool schema below:
   refused, and no folder is created. Its bytes are built by
   `app/src/slidespptx.ts` from exactly the slides the panel was showing you. The
   panel's **Save as PDF** is `save_pdf` again, on pages the shape of a slide.
-- `export_write_video` writes what the Video panel exports — an MP4 or WebM
-  film, a PNG poster, SRT subtitles, or the storyboard as JSON — after you
-  pressed the button for that file. **Save as MP4…** writes to the path the save
+- `export_write_video` writes what the Video and Motion panels export — an MP4
+  or WebM film, a PNG poster, SRT subtitles, or the storyboard as JSON, and
+  from the Motion panel an MP4 or a PNG — after you pressed the button for that
+  file. **Save as MP4…** writes to the path the save
   panel returned, replacing a file there only because the panel asked you
   first. **Download MP4** and the other downloads write into your Downloads
   folder, and never over a file already there: if `Title.mp4` is taken it
@@ -639,11 +661,13 @@ item, and every one of them is absent from the tool schema below:
   MP4 without its `ftyp` mark, a WebM without its EBML header, a PNG without its
   signature, subtitles that are not plain UTF-8 text, a storyboard that is not
   JSON — or that are too many: 1 GiB for a film, 64 MiB for a poster, 5 MiB for
-  text. It creates no folders.
+  text. It creates no folders. The Motion panel's **Download** and **Save as…**
+  write an MP4 or a PNG the same two ways, from exactly the graphic you were
+  previewing.
 - `reveal_path` writes nothing and opens nothing: it selects a file in Finder
   or Explorer — a row of the file tree, or a document you have just saved.
 - `open_exported` writes nothing: when you press **Open** beside a file the
-  Video panel has just saved, it opens that file in the app your system opens
+  Video or Motion panel has just saved, it opens that file in the app your system opens
   it with — the film in your video player. It opens only a path
   `export_write_video` wrote since the app started, only a .mp4, .webm, .png or
   .srt, and only while that is still a plain file beginning the way it did when
@@ -712,9 +736,9 @@ than one the model supplied. `read_image`,
 dragged in or picked — each says so in its doc comment in `lib.rs`; the
 Research panel's data files come through the last three. `export_write`,
 `export_write_docx`, `export_write_pptx` and `export_write_video` *write* to an absolute path, which is the save panel's
-(or, for the Video panel's downloads, one in your Downloads folder), and
+(or, for the Video and Motion panels' downloads, one in your Downloads folder), and
 so does `save_pdf`; `reveal_path` shows one in Finder or Explorer, and
-`open_exported` opens one the Video panel has just written. All eleven are
+`open_exported` opens one the Video or Motion panel has just written. All eleven are
 absent from the tool schema, so no tool call reaches any of them however
 the model is prompted.
 
@@ -925,6 +949,19 @@ already has, or, with **Save as MP4…**, where you choose — and only there. T
 resolution, bitrate and sound you last chose for a download are remembered in
 `localStorage` (`vylo.video.download`).
 
+**Motion graphics are not one of them either.** Each graphic — what you asked
+for, its layers and words, its colours, and any picture you added, kept as data
+— is in the webview's IndexedDB, in a database named `vylo-motion`, on this
+machine (`app/src/motionstore.ts`). Deleting one in the panel deletes it there.
+A video file or a picture is written only when you press **Download** or
+**Save as…**, and only there. The format, size and quality you last chose for a
+save are remembered in `localStorage` (`vylo.motion.export.v1`). So that the
+last words you typed are not lost when the window is closed a moment later, a
+graphic whose latest change had not yet been written to the database is also
+held in `localStorage` under `vylo.motion.unsaved.v1` — only that graphic, and
+only until the window is shown again or the next start has moved it into the
+database; then it is removed.
+
 **Presentations are not one of them either.** Each presentation — what you
 asked for, its slides and speaker notes, its colours, the names and logo on its
 title slide and, for one made from a Research document, the part of that
@@ -939,7 +976,7 @@ or **Save as PDF**, and only where you choose.
 Chats, settings, your gateway key, your session token, which MCP servers you
 enabled, any model providers you added, the clipboard history, the terminal
 sessions and the Research and Slides cover details above are in the webview's
-`localStorage`, and the Research drafts, the videos and the presentations in its IndexedDB — not in that
+`localStorage`, and the Research drafts, the videos, the motion graphics and the presentations in its IndexedDB — not in that
 directory.
 
 Nothing here is encrypted at rest beyond whatever your disk already does.
@@ -991,7 +1028,7 @@ signature. A gateway that answers your requests can answer them with anything.
 What it cannot do is push an unsigned build at you, or reach your files without
 going through a dialog you saw.
 
-**The builds are not yet signed.** As of 0.131.2 the macOS and Windows binaries
+**The builds are not yet signed.** As of 0.132.0 the macOS and Windows binaries
 are not code-signed or notarised, so Gatekeeper and SmartScreen will warn about
 them. That warning is correct: check where you got the app from before you
 override it.
@@ -1016,6 +1053,6 @@ about most — it is worth reporting even if you are not sure it is exploitable.
 
 ---
 
-*Last checked against 0.131.2. Every statement above was read out of the code. If
+*Last checked against 0.132.0. Every statement above was read out of the code. If
 the code and this document ever disagree, the code is right and this document is
 the bug.*

@@ -1,0 +1,252 @@
+/* ── Motion: the panel (MotionPanel.tsx) ──────────────────────────────────
+   The shell the studio's parts live in: the request form, the templates to
+   start from, the list, one graphic's view with its tabs, and the full
+   window. Video's language on purpose (.vid-ask, .vid-seg, .vid-status,
+   .vid-tabs are reused as they are), so the two studios read as one app;
+   what is Motion's own is below. Logical properties throughout: the panel is
+   used in Arabic and Kurdish first. */
+
+.mo{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block-end:var(--sp-8); }
+/* Focusable so a click in the panel puts its keys (undo, the chosen layer's) to work; the focus is the panel's, not a control's. */
+.mo:focus{ outline:none; }
+
+/* ── the request ── */
+
+/* Auto and the four shapes, each drawn at its own proportions over its ratio. */
+.mo-form-shapes{ display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:var(--sp-2); }
+.mo-form-shapes button{
+  display:grid; grid-template-rows:18px auto; place-items:center; row-gap:var(--sp-2); min-inline-size:0;
+  padding:var(--sp-3) var(--sp-1) var(--sp-2); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--mute); font:inherit; cursor:pointer;
+  transition:border-color .15s ease, background .15s ease, color .15s ease;
+}
+.mo-form-shapes button:hover{ border-color:var(--rule-2); color:var(--ink); }
+.mo-form-shapes button.on{ border-color:var(--brand); background:var(--brand-wash); color:var(--brand); }
+.mo-form-shapes button:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
+.mo-form-shapes b{ font-size:var(--fs-2); font-weight:600; line-height:1.2; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mo-form-shape{ display:block; border:1.5px solid currentColor; border-radius:2px; }
+.mo-form-shape.is-wide{ inline-size:21px; block-size:12px; }
+.mo-form-shape.is-tall{ inline-size:10px; block-size:18px; }
+.mo-form-shape.is-square{ inline-size:15px; block-size:15px; }
+.mo-form-shape.is-feed{ inline-size:13px; block-size:16px; }
+
+/* The palette: its name, and its five colours beside it. */
+.mo-form-pal{ display:flex; align-items:center; gap:var(--sp-4); }
+.mo-form-pal select{
+  flex:1; min-inline-size:0; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+  color:var(--ink); font:inherit; font-size:var(--fs-3); line-height:1.5; cursor:pointer;
+}
+/* An outline, not the fields' box-shadow: WebKit drops a box-shadow on a select it draws itself. */
+.mo-form-pal select:focus-visible{ outline:1px solid var(--brand); outline-offset:0; border-color:var(--brand); background:var(--panel); }
+.mo-form-dots{ flex:none; display:inline-flex; align-items:center; padding-inline-start:4px; }
+.mo-form-dots i{
+  inline-size:16px; block-size:16px; margin-inline-start:-4px; border-radius:50%;
+  box-shadow:0 0 0 2px var(--panel), 0 0 0 3px var(--rule);
+}
+/* Auto: the model's or the template's own, which is no one colour. */
+.mo-form-dots.is-auto i{ background:conic-gradient(from 200deg, var(--brand), var(--ok), var(--warn), var(--err), var(--brand)); }
+
+/* Why the last graphic could not be made, above the button that tries again. */
+.mo-form-error{
+  display:flex; align-items:flex-start; gap:var(--sp-3); margin:0; padding:var(--sp-3) var(--sp-4);
+  border-radius:var(--r-2); background:var(--err-wash); color:var(--err); font-size:var(--fs-2); line-height:1.5;
+}
+.mo-form-error > svg{ flex:none; margin-block-start:3px; }
+.mo-form-error > span{ flex:1; min-inline-size:0; overflow-wrap:anywhere; }
+.mo-form-error .sb-act{ display:inline-grid; place-items:center; inline-size:20px; block-size:20px; color:inherit; }
+
+/* ── templates to start from ── */
+
+.mo-tpls{ display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-6) var(--sp-6) var(--sp-2); }
+.mo-tpls-head{ display:flex; align-items:center; justify-content:space-between; gap:var(--sp-4); padding-inline-start:var(--sp-1); }
+.mo-tpls-head > span{ font-size:var(--fs-2); font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--mute); }
+/* Arabic script has no capitals, and spacing its letters apart breaks their joins. */
+:root[dir="rtl"] .mo-tpls-head > span{ letter-spacing:0; }
+.mo-tpls-all{
+  display:inline-flex; align-items:center; gap:var(--sp-1); padding:var(--sp-1) var(--sp-2);
+  border:0; border-radius:var(--r-1); background:transparent; color:var(--brand);
+  font:inherit; font-size:var(--fs-2); font-weight:600; white-space:nowrap; cursor:pointer;
+}
+.mo-tpls-all:hover{ background:var(--brand-wash); }
+.mo-tpls-all:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
+:root[dir="rtl"] .mo-tpls-all svg{ transform:scaleX(-1); }
+.mo-tpls-grid{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--sp-5) var(--sp-4); }
+.mo-tpls-grid.is-three{ grid-template-columns:repeat(3, minmax(0, 1fr)); }
+.mo-tpl{
+  display:flex; flex-direction:column; gap:var(--sp-2); min-inline-size:0; padding:0;
+  border:0; background:transparent; color:var(--ink-2); font:inherit; text-align:start; cursor:pointer;
+}
+/* The pictures stand on the gallery's dark ground in both themes (MotionHome.css): an overlay is white words on nothing. */
+.mo-tpl-art{
+  position:relative; display:block; aspect-ratio:16 / 9; overflow:hidden; border-radius:var(--r-2);
+  background:hsl(var(--h, 230) 25% 13%); box-shadow:0 0 0 1px var(--rule);
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.mo-tpl-art > .mo-thumb{ position:absolute; inset-block-start:0; inset-inline-start:0; }
+.mo-tpl:hover .mo-tpl-art{ transform:translateY(-1px); box-shadow:0 0 0 1px hsl(var(--h, 230) 70% 55% / .7), 0 8px 18px -10px hsl(var(--h, 230) 80% 40% / .7); }
+.mo-tpl:focus-visible{ outline:none; }
+.mo-tpl:focus-visible .mo-tpl-art{ outline:2px solid var(--brand); outline-offset:2px; }
+.mo-tpl-name{ padding-inline:var(--sp-1); font-size:var(--fs-2); font-weight:500; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-tpl:hover .mo-tpl-name{ color:var(--ink); }
+
+/* ── your graphics ── */
+
+.mo-graphics{ list-style:none; margin:0; padding:0 var(--sp-3); display:flex; flex-direction:column; gap:1px; }
+.mo-graphic{ display:flex; align-items:center; border-radius:var(--r-2); transition:background .12s ease; }
+.mo-graphic:hover, .mo-graphic:focus-within{ background:var(--panel-3); }
+.mo-graphic-open{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-3) var(--sp-4);
+  border:0; border-radius:var(--r-2); background:transparent; color:inherit; font:inherit; text-align:start; cursor:pointer;
+}
+.mo-graphic-open:focus-visible{ outline:2px solid var(--brand); outline-offset:-2px; }
+/* The graphic, still, in its own shape. The checkerboard is what has no background, as every editor draws it:
+   a convention in two fixed greys, not a theme colour (MotionStage.css does the same). */
+.mo-graphic-thumb{
+  flex:none; display:grid; place-items:center; inline-size:64px; block-size:40px; overflow:hidden; border-radius:var(--r-1);
+  background:repeating-conic-gradient(#26272C 0 25%, #1C1D22 0 50%) 0 0 / 10px 10px;
+  box-shadow:0 0 0 1px var(--rule);
+}
+.mo-graphic-del{ display:inline-grid; place-items:center; margin-inline-end:var(--sp-3); opacity:0; transition:opacity .12s ease, color .12s ease; }
+.mo-graphic:hover .mo-graphic-del, .mo-graphic:focus-within .mo-graphic-del{ opacity:1; }
+.mo-graphic-del:hover{ color:var(--err); }
+.mo-graphic-del:focus-visible{ opacity:1; outline:2px solid var(--brand); outline-offset:1px; }
+@media (hover: none){ .mo-graphic-del{ opacity:1; } }
+
+/* ── one graphic ── */
+
+.mo-view{ display:flex; flex-direction:column; gap:var(--sp-3); }
+
+/* A run: Video's card, with Cancel under the clock. */
+.mo-status-acts{ display:flex; }
+.mo-status-acts .ghost.bordered{ inline-size:auto; width:auto; gap:var(--sp-3); padding-block:var(--sp-2); font-size:var(--fs-3); }
+
+/* The frame the graphic being made will fill, in its shape, with a light moving across it. */
+.mo-wait{ display:flex; flex-direction:column; align-items:center; gap:var(--sp-5); padding:var(--sp-2) var(--sp-6) 0; text-align:center; }
+.mo-wait-frame{
+  display:grid; place-items:center; inline-size:100%; border-radius:var(--r-2); box-shadow:0 0 0 1px var(--rule);
+  background:linear-gradient(110deg, var(--panel-2) 30%, var(--panel-3) 50%, var(--panel-2) 70%) 0 0 / 200% 100%;
+  animation:mo-sheen 1.8s linear infinite;
+}
+.mo-wait-frame.is-idle{ animation:none; background:var(--panel-2); }
+.mo-wait-frame.is-wide{ aspect-ratio:16 / 9; }
+.mo-wait-frame.is-square{ aspect-ratio:1; inline-size:min(100%, 240px); }
+.mo-wait-frame.is-feed{ aspect-ratio:4 / 5; inline-size:min(100%, 200px); }
+.mo-wait-frame.is-tall{ aspect-ratio:9 / 16; inline-size:min(100%, 150px); }
+.mo-wait.is-big{ inline-size:min(760px, 100%); padding:0; }
+.mo-wait.is-big .mo-wait-frame{ box-shadow:0 12px 32px rgb(0 0 0 / .18), 0 0 0 1px var(--rule); }
+.mo-wait.is-big .mo-wait-frame.is-square{ inline-size:min(100%, 420px); }
+.mo-wait.is-big .mo-wait-frame.is-feed{ inline-size:min(100%, 360px); }
+.mo-wait.is-big .mo-wait-frame.is-tall{ inline-size:min(100%, 250px); }
+.mo-wait.is-big > b{ font-size:var(--fs-6); color:var(--ink); }
+.mo-wait.is-big > p{ margin:0; max-inline-size:60ch; font-size:var(--fs-4); line-height:1.6; color:var(--mute); overflow-wrap:anywhere; }
+@keyframes mo-sheen{ from{ background-position:200% 0; } to{ background-position:-200% 0; } }
+
+/* The model's numbers are examples until the person puts in theirs. */
+.mo-examples{
+  display:flex; align-items:flex-start; gap:var(--sp-3); margin:0 var(--sp-6); padding:var(--sp-3) var(--sp-4);
+  border-inline-start:2px solid var(--warn); border-start-start-radius:0; border-end-start-radius:0;
+  border-start-end-radius:var(--r-2); border-end-end-radius:var(--r-2);
+  background:var(--warn-wash); color:var(--warn); font-size:var(--fs-2); line-height:1.5;
+}
+.mo-examples > svg{ flex:none; margin-block-start:2px; }
+.mo-examples > span{ flex:1; min-inline-size:0; }
+.mo-examples .sb-act{ display:inline-grid; place-items:center; inline-size:20px; block-size:20px; color:inherit; }
+
+/* A message being answered, said while another tab is shown. */
+.mo-answering{
+  display:flex; align-items:center; gap:var(--sp-3); margin:0 var(--sp-6); padding-block:var(--sp-2); padding-inline:var(--sp-4) var(--sp-2);
+  border:1px solid color-mix(in srgb, var(--brand) 30%, var(--rule)); border-radius:var(--r-2);
+  background:var(--brand-wash); color:var(--ink-2); font-size:var(--fs-2);
+}
+.mo-answering > span:not(.vid-glyph){ flex:1; min-inline-size:0; }
+.mo-answering .ghost{ padding:var(--sp-1) var(--sp-3); font-size:var(--fs-2); font-weight:600; color:var(--brand); }
+
+/* The tabs: Video's, one line, the Ask tab marked while its message is answered. */
+.mo-tabs button{ display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2); white-space:nowrap; }
+.mo-tabs button:focus-visible{ outline:2px solid var(--brand); outline-offset:-1px; }
+.mo-tabs-dot{ inline-size:6px; block-size:6px; border-radius:50%; background:var(--brand); animation:p 1.2s ease-in-out infinite; }
+.mo-tabs-panel{ display:flex; flex-direction:column; gap:var(--sp-4); min-inline-size:0; padding-block-start:var(--sp-2); }
+
+/* A graphic the app closed on while the model was making it. */
+.mo-unmade{
+  display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-4); margin:var(--sp-2) var(--sp-6) 0; padding:var(--sp-5);
+  border:1px dashed var(--rule-2); border-radius:var(--r-3); background:var(--panel);
+}
+.mo-unmade > p{ margin:0; font-size:var(--fs-3); line-height:1.55; color:var(--ink-2); }
+.mo-unmade .mo-unmade-asked{
+  align-self:stretch; padding:var(--sp-3) var(--sp-4); border-radius:var(--r-2); background:var(--panel-2);
+  color:var(--ink); font-size:var(--fs-4); overflow-wrap:anywhere;
+}
+.mo-unmade .sb-cta{ align-self:stretch; padding:0; }
+
+/* ── the full window ── */
+
+.mo-full{ position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; background:var(--bg); animation:rise .18s ease-out; }
+.mo-full:focus{ outline:none; }
+.mo-full-head{
+  flex:none; display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-4) var(--sp-7);
+  border-block-end:1px solid var(--rule); background:var(--panel);
+}
+.mac .mo-full-head{ padding-block-start:calc(var(--titlebar) + var(--sp-2)); }
+.mo-full-head > svg{ flex:none; color:var(--brand); }
+.mo-full-head b{ font-size:var(--fs-5); color:var(--ink); }
+.mo-full-head span{ flex:1; min-inline-size:0; font-size:var(--fs-3); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-full-head .sb-act, .mo-full-error .sb-act{ display:inline-grid; place-items:center; }
+.mo-full-head .sb-act:focus-visible, .mo-full-error .sb-act:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
+.mo-full-error{
+  flex:none; display:flex; align-items:center; gap:var(--sp-4); margin:0;
+  padding:var(--sp-3) var(--sp-7); border-block-end:1px solid var(--rule);
+  background:var(--err-wash); color:var(--err); font-size:var(--fs-2); line-height:1.5;
+}
+.mo-full-error span{ flex:1; min-inline-size:0; overflow-wrap:anywhere; }
+.mo-full-error .sb-act{ color:inherit; }
+.mo-full-main{ flex:1; min-block-size:0; display:flex; }
+/* The sidebar's body, as wide as a generous sidebar: the tabs and the form keep the measure they were made for. */
+.mo-full-side{
+  flex:none; inline-size:clamp(300px, 30vw, 420px); padding-block-start:var(--sp-3); overflow-y:auto;
+  border-inline-end:1px solid var(--rule); background:var(--panel-2);
+}
+.mo-full-stage{
+  flex:1; min-inline-size:0; min-block-size:0; display:flex; flex-direction:column; overflow:hidden;
+  background:radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--brand) 9%, var(--bg)), var(--bg) 70%);
+}
+.mo-full-stage > .mo-examples{ flex:none; margin:var(--sp-6) var(--sp-10) 0; }
+/* The stage takes what the timeline leaves; the timeline, at most a bit more than a third. When even the smallest
+   frame and the transport do not fit — the app zoomed to 175% and more — the stage scrolls rather than let the
+   timeline cover the scrubber. */
+.mo-full-canvas{ flex:1; min-block-size:0; display:flex; flex-direction:column; overflow-y:auto; }
+/* The timeline's own scroll area fills the room it is given here rather than keeping its 340px: in a window of the
+   default size that room is 291px, and the last rows — and a row chosen on the stage, scrolled "into view" — sat
+   under the window's edge, behind a second scroll bar. */
+.mo-full-time{ flex:none; display:flex; flex-direction:column; max-block-size:40%; min-block-size:0; overflow:hidden; border-block-start:1px solid var(--rule); background:var(--panel); }
+.mo-full-time > .mo-tl{ flex:1 1 auto; min-block-size:0; }
+.mo-full-time .mo-tl-scroll{ flex:1 1 auto; min-block-size:0; max-block-size:none; }
+.mo-full-wait{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--sp-8); padding:var(--sp-10) 40px; overflow-y:auto; }
+/* A small window. The stage's column is the window less the side column (300px below 1000px), so the
+   breakpoints are the window's. Narrow: the transport keeps every control — the time drops the length the
+   timeline shows anyway, then the scrubber takes a line of its own. Short: the frame gives up room before the
+   transport does, which would otherwise be cut off under the timeline. */
+@media (max-width: 840px){
+  .mo-full .mo-full-canvas .mo-stage{ padding-inline:var(--sp-5); }
+  .mo-full .mo-full-canvas .mo-stage-of, .mo-full .mo-full-canvas .mo-stage-rule{ display:none; }
+}
+@media (max-width: 760px){
+  .mo-full .mo-full-canvas .mo-stage-bar{ flex-wrap:wrap; row-gap:var(--sp-1); }
+  .mo-full .mo-full-canvas .mo-stage-bar > .mo-stage-scrub{ order:1; flex:1 0 100%; margin:0; }
+}
+@media (max-height: 640px){
+  .mo-full .mo-full-canvas .mo-stage{ padding-block:var(--sp-4) var(--sp-3); gap:var(--sp-3); }
+  .mo-full .mo-full-canvas .mo-stage-area{ min-block-size:120px; }
+}
+
+/* A title in the other script — English in Arabic, Arabic in English — keeps its own direction (dir="auto") but sits
+   on the interface's reading side, beside what it names: measured in Arabic, an English title stood 1,110px from the
+   window's "Motion" label, at the far end by the restore button. */
+.mo-full-head span, .mo-view .vid-title b, .mo-graphic .vid-row-what b, .mo-tpl-name{ text-align:match-parent; }
+
+@media (prefers-reduced-motion: reduce){
+  .mo-full, .mo-wait-frame, .mo-tabs-dot{ animation:none; }
+  .mo-form-shapes button, .mo-tpl-art, .mo-graphic, .mo-graphic-del{ transition:none; }
+  .mo-tpl:hover .mo-tpl-art{ transform:none; }
+}

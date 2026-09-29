@@ -1,0 +1,17 @@
+Text
+Icon
+Counter
+Chart
+Particles
+Position in the graphic
+Show the layer
+Hide the layer
+Locked
+Unlock the layer
+Lock the layer
+Timing of {name}
+From {start} s to {end} s
+Timeline
+No layers yet
+Layers
+Up and down arrows go from layer to layer. Left and right arrows move the layer by a twentieth of a second, half a second with Shift, one frame with Alt. Home and End move it to the start or the end. [ and ] set its start or its end at the playhead. Drag a bar to move it, or its ends to change when it starts and stops; hold Alt to stop it snapping.

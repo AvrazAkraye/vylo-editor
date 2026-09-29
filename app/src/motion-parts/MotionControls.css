@@ -1,0 +1,256 @@
+/* ── Motion: the inspector's controls (MotionControls.tsx) ──────────────────
+   One row shape for every property: the label in a column of its own
+   (`--mo-label`, set by the inspector), the control after it. Fields sit on
+   --panel-2 inside the --panel card with a hairline, so they read as fields in
+   both themes. A number box is left to right in every language — a number and
+   its unit are one run — and its glyph is a drag handle. Logical properties
+   throughout; the transparency checkerboard is the one drawn colour. */
+
+.mo-glyph{ flex:none; display:block; }
+
+.mo-row{
+  display:grid; grid-template-columns:var(--mo-label, 96px) minmax(0, 1fr); align-items:center;
+  column-gap:var(--sp-4); min-block-size:30px;
+}
+.mo-label{
+  min-inline-size:0; font-size:var(--fs-3); line-height:1.25; color:var(--mute);
+  overflow-wrap:anywhere; -webkit-user-select:none; user-select:none;
+}
+.mo-ctl{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-1) var(--sp-2); min-inline-size:0; }
+/* A note about a value goes on its own line under it. */
+.mo-ctl > .mo-hint{ flex:1 1 100%; min-inline-size:0; }
+.mo-scrub{ cursor:ew-resize; touch-action:none; }
+
+/* A number: its glyph, the value, its unit. */
+.mo-num{
+  flex:1 1 0; display:flex; align-items:center; gap:var(--sp-2); min-inline-size:0; block-size:28px;
+  padding-inline:var(--sp-3); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink); transition:border-color .12s ease, background .12s ease;
+}
+.mo-num:hover{ border-color:var(--rule-2); }
+.mo-num:focus-within{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--panel); }
+.mo-num input{
+  flex:1; inline-size:100%; min-inline-size:0; padding:0; border:0; background:transparent; color:inherit;
+  font:inherit; font-size:var(--fs-3); font-variant-numeric:tabular-nums; text-align:start;
+}
+.mo-num input:focus, .mo-num input:focus-visible{ outline:none; }
+.mo-num input::placeholder{ color:var(--mute); opacity:1; }
+.mo-num.is-off{ opacity:var(--dim); }
+.mo-num-glyph{ flex:none; display:grid; place-items:center; inline-size:16px; block-size:100%; margin-inline-start:-2px; color:var(--mute); }
+.mo-num-glyph:hover{ color:var(--ink); }
+.mo-num-unit{ flex:none; font-size:var(--fs-2); color:var(--mute); -webkit-user-select:none; user-select:none; }
+.mo-num-short{ flex:0 0 76px; }
+
+/* A slider and its number. */
+.mo-range{ min-inline-size:0; block-size:28px; margin:0; accent-color:var(--brand); cursor:pointer; }
+/* The slider, a line of words and a select take the width their row leaves. */
+.mo-ctl > .mo-range, .mo-ctl > .mo-text, .mo-ctl > .mo-sel{ flex:1 1 0; }
+
+/* Words: a line, and a block of lines with its label above. */
+.mo-text{
+  inline-size:100%; min-inline-size:0; block-size:28px; padding-inline:var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-3);
+}
+.mo-text.is-mono, .mo-textarea.is-mono{ font-family:var(--mono); }
+.mo-area{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block:var(--sp-1); }
+.mo-area-top{ display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-3); }
+.mo-count{ font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
+.mo-textarea{
+  display:block; inline-size:100%; min-block-size:64px; padding:var(--sp-3) var(--sp-4); resize:vertical;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-4); line-height:1.45;
+}
+.mo-text:hover, .mo-textarea:hover, .mo-sel:hover{ border-color:var(--rule-2); }
+.mo-text:focus, .mo-textarea:focus, .mo-sel:focus{
+  outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background-color:var(--panel);
+}
+.mo-text[aria-invalid="true"], .mo-textarea[aria-invalid="true"]{ border-color:var(--err); box-shadow:0 0 0 1px var(--err); }
+
+/* A select, drawn like the boxes, its caret two strokes of --mute. */
+.mo-sel{
+  inline-size:100%; min-inline-size:0; block-size:28px; padding-inline:var(--sp-4) 26px;
+  border:1px solid var(--rule); border-radius:var(--r-2); color:var(--ink); font:inherit; font-size:var(--fs-3);
+  -webkit-appearance:none; appearance:none; cursor:pointer;
+  background-color:var(--panel-2);
+  background-image:linear-gradient(45deg, transparent 50%, var(--mute) 50%), linear-gradient(135deg, var(--mute) 50%, transparent 50%);
+  background-position:calc(100% - 14px) 52%, calc(100% - 10px) 52%;
+  background-size:4px 4px, 4px 4px; background-repeat:no-repeat;
+}
+:root[dir="rtl"] .mo-sel{ padding-inline:var(--sp-4) 26px; background-position:10px 52%, 14px 52%; }
+.mo-sel:disabled{ opacity:var(--dim); cursor:default; }
+
+/* Segments: a track of choices, the chosen one lit. */
+.mo-seg{
+  flex:1 1 auto; display:flex; gap:1px; min-inline-size:0;
+  padding:1px; border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+}
+/* Laid out in columns when asked (the voices, the pieces of a split); otherwise a longer word gets more room. */
+.mo-seg.is-grid{ display:grid; }
+/* A long word wraps onto a second line inside its segment rather than being cut. */
+.mo-seg button{
+  flex:1 1 auto; display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-1); min-inline-size:0; min-block-size:28px;
+  padding:var(--sp-1) var(--sp-2); border:0; border-radius:var(--r-1); background:transparent; color:var(--mute);
+  font:inherit; font-size:var(--fs-2); line-height:1.15; text-align:center; overflow-wrap:break-word; cursor:pointer;
+}
+.mo-seg button:hover{ color:var(--ink); background:color-mix(in srgb, var(--ink) 5%, transparent); }
+.mo-seg button.on{ background:var(--brand-wash); color:var(--brand); font-weight:600; box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--brand) 35%, transparent); }
+.mo-seg button:disabled{ opacity:var(--dim); cursor:default; }
+.mo-seg button:focus-visible{ outline-offset:-2px; }
+
+/* A switch row: the whole row is the switch's label. */
+.mo-toggle{ cursor:pointer; }
+.mo-toggle .mo-ctl{ gap:var(--sp-4); }
+.mo-toggle.is-off{ cursor:default; }
+.mo-toggle.is-off .mo-label{ opacity:var(--dim); }
+
+/* Headings inside a section: a group, or a group that exists while it is on. */
+.mo-sub{
+  display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); min-block-size:28px;
+  margin-block-start:var(--sp-3); padding-block-start:var(--sp-3); border-block-start:1px dashed var(--rule);
+  font-size:var(--fs-2); font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--mute);
+}
+.mo-sub-toggle{ cursor:pointer; }
+.mo-sub-toggle:hover{ color:var(--ink); }
+:root[dir="rtl"] .mo-sub{ letter-spacing:0; }
+
+.mo-hint{ margin:0; font-size:var(--fs-2); line-height:1.45; color:var(--mute); }
+.mo-hint.is-bad{ color:var(--err); }
+
+.mo-icon-btn{
+  flex:none; display:grid; place-items:center; inline-size:28px; block-size:28px; padding:0;
+  border:0; border-radius:var(--r-2); background:transparent; color:var(--mute); cursor:pointer;
+}
+.mo-icon-btn:hover:not(:disabled){ color:var(--ink); background:color-mix(in srgb, var(--ink) 7%, transparent); }
+.mo-icon-btn:disabled{ opacity:var(--dim); cursor:default; }
+
+/* A section: a header that folds it, and what it says while folded. */
+.mo-sec{ border-block-start:1px solid var(--rule); }
+.mo-sec-h{ margin:0; font:inherit; }
+.mo-sec-btn{
+  display:flex; align-items:center; gap:var(--sp-3); inline-size:100%; min-block-size:38px; padding:0 var(--sp-5);
+  border:0; background:transparent; color:var(--ink); font:inherit; font-size:var(--fs-3); font-weight:600; text-align:start; cursor:pointer;
+}
+.mo-sec-btn:hover{ background:color-mix(in srgb, var(--ink) 3%, transparent); }
+.mo-sec-btn:focus-visible{ outline-offset:-2px; }
+.mo-sec-caret{ color:var(--mute); transition:transform .15s ease; }
+.mo-sec-btn[aria-expanded="true"] .mo-sec-caret{ transform:rotate(90deg); }
+:root[dir="rtl"] .mo-sec-btn[aria-expanded="false"] .mo-sec-caret{ transform:rotate(180deg); }
+.mo-sec-title{ flex:none; }
+.mo-sec-sum{
+  flex:1; min-inline-size:0; text-align:end; font-weight:400; font-size:var(--fs-2); color:var(--mute);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.mo-sec-body{ display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-1) var(--sp-5) var(--sp-6); }
+.mo-sec-body > .mo-sub:first-child, .mo-sec-body > :first-child > .mo-sub:first-child{ margin-block-start:0; padding-block-start:0; border-block-start:0; }
+
+/* A colour: its swatch button, and the chip it shows. */
+.mo-pop-anchor{ position:relative; flex:1 1 auto; display:flex; min-inline-size:0; }
+.mo-swatch{
+  flex:1; display:flex; align-items:center; gap:var(--sp-3); min-inline-size:0; block-size:28px; padding-inline:3px var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-3); text-align:start; cursor:pointer;
+}
+.mo-swatch:hover{ border-color:var(--rule-2); }
+.mo-swatch[aria-expanded="true"]{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+.mo-swatch:disabled{ opacity:var(--dim); cursor:default; }
+.mo-swatch-name{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-chip{
+  position:relative; flex:none; display:block; inline-size:20px; block-size:20px; overflow:hidden; border-radius:var(--r-1);
+  background:repeating-conic-gradient(rgb(0 0 0 / .14) 0 25%, rgb(255 255 255 / .9) 0 50%) 0 0 / 8px 8px;
+}
+/* The edge is drawn over the colour, so a white chip on a pale field still has one. */
+.mo-chip::before{ content:''; position:absolute; inset:0; z-index:1; border-radius:inherit; box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent); }
+.mo-chip i{ position:absolute; inset:0; }
+.mo-chip.is-none::after{
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(135deg, transparent 44%, var(--err) 44% 56%, transparent 56%);
+}
+
+/* The popover a colour opens. */
+.mo-pop{
+  position:absolute; z-index:40; inset-block-start:calc(100% + 6px); inset-inline-end:0; inline-size:248px;
+  display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-5);
+  border:1px solid var(--rule-2); border-radius:var(--r-3); background:var(--panel);
+  box-shadow:0 18px 40px -14px rgb(0 0 0 / .35), 0 2px 6px rgb(0 0 0 / .08);
+  animation:mo-pop .14s ease-out;
+}
+.mo-pop.is-up{ inset-block-start:auto; inset-block-end:calc(100% + 6px); }
+.mo-pop.is-wide{ inline-size:276px; }
+.mo-pop .mo-seg{ flex:none; }
+.mo-pop-remove{ align-self:flex-start; color:var(--err); }
+@keyframes mo-pop{ from{ opacity:0; transform:translateY(-3px); } to{ opacity:1; transform:none; } }
+
+.mo-picker{ display:flex; flex-direction:column; gap:var(--sp-3); }
+.mo-tones{ display:flex; gap:var(--sp-2); }
+.mo-tone{
+  flex:1 1 0; display:grid; place-items:center; min-inline-size:28px; block-size:30px; padding:0;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); cursor:pointer;
+}
+.mo-tone:hover{ border-color:var(--rule-2); }
+.mo-tone .mo-chip{ inline-size:18px; block-size:18px; border-radius:50%; }
+.mo-tone[aria-pressed="true"], .mo-tone[aria-expanded="true"]{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--brand-wash); }
+.mo-hexrow{ display:flex; gap:var(--sp-2); }
+.mo-hex input{ font-family:var(--mono); text-transform:uppercase; }
+.mo-native{
+  position:relative; flex:none; display:grid; place-items:center; inline-size:30px; block-size:28px; overflow:hidden;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--mute); cursor:pointer;
+}
+.mo-native:hover{ color:var(--ink); border-color:var(--rule-2); }
+.mo-native:focus-within{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+.mo-native input{ position:absolute; inset:0; inline-size:100%; block-size:100%; margin:0; padding:0; border:0; opacity:0; cursor:pointer; }
+
+/* A gradient: its stops on a bar, which runs left to right as the angle does. */
+.mo-grad{ display:flex; flex-direction:column; gap:var(--sp-4); }
+.mo-grad-top{ display:flex; align-items:center; gap:var(--sp-2); }
+.mo-grad-track{ position:relative; block-size:30px; margin-inline:9px; }
+.mo-grad-bar{
+  position:absolute; inset-inline:0; inset-block:8px; overflow:hidden; border-radius:999px;
+  background:repeating-conic-gradient(rgb(0 0 0 / .14) 0 25%, rgb(255 255 255 / .9) 0 50%) 0 0 / 8px 8px;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.mo-grad-bar i{ position:absolute; inset:0; }
+.mo-stop{
+  position:absolute; inset-block-start:3px; inline-size:16px; block-size:24px; margin-inline-start:-8px; padding:0;
+  border:2px solid var(--panel); border-radius:var(--r-1); cursor:ew-resize; touch-action:none;
+  background:repeating-conic-gradient(rgb(0 0 0 / .14) 0 25%, rgb(255 255 255 / .9) 0 50%) 0 0 / 6px 6px;
+  box-shadow:0 0 0 1px var(--rule-2), 0 1px 3px rgb(0 0 0 / .25);
+}
+.mo-stop::before{ content:''; position:absolute; inset-block:-4px; inset-inline:-8px; }
+.mo-stop i{ position:absolute; inset:0; border-radius:2px; }
+.mo-stop.is-on{ box-shadow:0 0 0 2px var(--brand), 0 1px 3px rgb(0 0 0 / .25); z-index:1; }
+.mo-grad-foot{ display:flex; align-items:center; gap:var(--sp-2); }
+.mo-add-stop{ margin-inline-start:auto; }
+
+/* The nine points of the frame. */
+.mo-pin{
+  flex:none; display:grid; grid-template-columns:repeat(3, 28px); grid-template-rows:repeat(3, 28px); padding:2px;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+}
+.mo-pin button{ display:grid; place-items:center; padding:0; border:0; border-radius:var(--r-1); background:transparent; cursor:pointer; }
+.mo-pin button i{
+  display:block; inline-size:6px; block-size:6px; border-radius:50%; background:var(--rule-2);
+  transition:inline-size .12s ease, block-size .12s ease, background .12s ease;
+}
+.mo-pin button:hover i{ background:var(--mute); }
+.mo-pin button.on i{ inline-size:10px; block-size:10px; background:var(--brand); box-shadow:0 0 0 3px var(--brand-wash); }
+.mo-pin button:focus-visible{ outline-offset:-2px; }
+
+/* A timing curve, drawn beside its select. */
+.mo-curve{ flex:none; border:1px solid var(--rule); border-radius:var(--r-1); background:var(--panel-2); color:var(--brand); }
+.mo-curve polyline{ fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.mo-curve-guide{ fill:none; stroke:var(--rule-2); stroke-width:1; stroke-dasharray:2 2; }
+
+/* Forced colours: the fields' focus was a border colour and a shadow, both overridden — an outline is kept. The nine
+   points were fills; a colour's chip is there to show the colour, so it keeps it. */
+@media (forced-colors: active){
+  .mo-num:focus-within, .mo-text:focus, .mo-textarea:focus, .mo-sel:focus{ outline:2px solid; outline-offset:1px; }
+  .mo-pin button i{ border:1px solid; }
+  .mo-pin button.on i{ border-width:5px; }
+  .mo-chip, .mo-grad-bar, .mo-stop{ forced-color-adjust:none; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .mo-pop{ animation:none; }
+  .mo-sec-caret, .mo-pin button i, .mo-num{ transition:none; }
+}

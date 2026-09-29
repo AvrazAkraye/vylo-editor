@@ -1,9 +1,10 @@
 // Ask Vylo's router: one box, and where each request goes.
 //
 // What matters: a presentation or a video named anywhere is that, even from a
-// document ("slides from my thesis"); a document of your own is its chat, not
-// a new thesis; a kind of document is a new one; and a module that is off is
-// never where anything is sent.
+// document ("slides from my thesis"); a motion graphic is asked for by its own
+// words and wins over the word "video" it may sit beside; a document of your
+// own is its chat, not a new thesis; a kind of document is a new one; and a
+// module that is off is never where anything is sent.
 import { destinations, route } from '../.test-build/askroute.js';
 
 let pass = 0, fail = 0;
@@ -12,7 +13,7 @@ const ok = (name, cond, detail = '') => {
   cond ? pass++ : fail++;
 };
 
-const all = new Set(['research', 'video', 'slides']);
+const all = new Set(['research', 'video', 'motion', 'slides']);
 const docs = [
   { id: 'old', title: 'Old', kind: 'article', updated: 1 },
   { id: 'thesis', title: 'Thesis', kind: 'masters', updated: 2 },
@@ -32,6 +33,21 @@ ok('فيديو', r('اصنع فيديو قصير عن جامعة دهوك').dest
 ok('ڤیدیۆ in Sorani', r('ڤیدیۆیەک دروست بکە دەربارەی زانکۆ').dest === 'video');
 ok('a bare مقطع is a passage, not a video', r('اكتب مقطعا عن الفيدرالية').dest !== 'video');
 ok('a video word inside another word does not count', r('write about videography history').dest !== 'video');
+
+// ── motion graphics ───────────────────────────────────────────────────────
+ok('a lower third', r('make a lower third for our speaker').dest === 'motion' && r('make a lower third for our speaker').phrase === 'lower third');
+ok('an animated logo reveal', r('an animated logo reveal for my studio').dest === 'motion');
+ok('motion graphics, plural', r('I need motion graphics for the conference').dest === 'motion');
+ok('a motion graphic video is still a motion graphic', r('a motion graphic video about our clinic').dest === 'motion');
+ok('kinetic typography', r('kinetic typography for the chorus').dest === 'motion');
+ok('موشن جرافيك', r('اصنع موشن جرافيك لشركتنا').dest === 'motion');
+ok('شعار متحرك', r('أريد شعار متحرك لمتجري').dest === 'motion');
+ok('مۆشن گرافیک in Sorani', r('مۆشن گرافیکێک دروست بکە بۆ کۆمپانیاکەم').dest === 'motion');
+ok('a plain video is still a video with motion on', r('make a 30 second video about our clinic').dest === 'video');
+ok('slides that mention an animated title are still slides', r('slides with an animated title').dest === 'slides');
+ok('"animation" alone is not enough: it is as likely to be about code', r('add an animation to this button').dest === 'chat');
+ok('motion off: a motion graphic video falls to video', r('a motion graphic video about our clinic', new Set(['research', 'video', 'slides'])).dest === 'video');
+ok('motion off: a lower third falls to the chat', r('make a lower third', new Set(['research', 'slides'])).dest === 'chat');
 
 // ── slides ────────────────────────────────────────────────────────────────
 ok('slides from words', r('make slides about climate change').dest === 'slides' && !r('make slides about climate change').docId);
@@ -55,7 +71,7 @@ ok('slides off: slides from my thesis falls to the document', r('turn my thesis 
 ok('research off: a thesis request is the chat', r('write a master\'s thesis on X', new Set(['video'])).dest === 'chat');
 
 // ── what the box offers ───────────────────────────────────────────────────
-ok('every destination when all are on and there are documents', destinations(all, true).join() === 'research,doc-chat,video,slides,chat');
+ok('every destination when all are on and there are documents', destinations(all, true).join() === 'research,doc-chat,video,motion,slides,chat');
 ok('no document chat without documents', !destinations(all, false).includes('doc-chat'));
 ok('only the chat when every module is off', destinations(new Set(), true).join() === 'chat');
 

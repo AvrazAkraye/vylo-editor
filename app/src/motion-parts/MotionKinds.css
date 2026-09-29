@@ -1,0 +1,60 @@
+/* ── Motion: what a layer shows, by kind (MotionKinds.tsx) ─────────────────
+   The voices written in their own faces, the icon grid, the picture and its
+   frame, a chart's table of numbers, a list of colour chips. */
+
+/* Six voices, three a row: a specimen in the face and its name. */
+.mo-voices button{ flex-direction:column; gap:0; min-block-size:44px; padding-block:var(--sp-1); }
+.mo-voice-spec{ font-size:var(--fs-7); font-weight:600; line-height:1.15; }
+.mo-voice-name{ max-inline-size:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--fs-2); line-height:1.25; }
+
+/* The icons: a search, and a grid that scrolls on its own. */
+.mo-icons{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block:var(--sp-1); }
+.mo-icon-search{ flex:none; color:var(--mute); }
+.mo-icon-search input{ color:var(--ink); }
+.mo-icon-clear{ margin-inline-end:calc(-1 * var(--sp-3)); }
+.mo-icon-grid{
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(34px, 1fr)); gap:2px; max-block-size:184px; overflow-y:auto;
+  overscroll-behavior:contain; padding:2px; border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+}
+.mo-icon-grid button{
+  display:grid; place-items:center; block-size:34px; padding:0; border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--ink); cursor:pointer;
+}
+.mo-icon-grid button:hover{ background:var(--panel); }
+.mo-icon-grid button.on{ background:var(--brand-wash); color:var(--brand); box-shadow:inset 0 0 0 1px var(--brand); }
+.mo-icon-grid button:focus-visible{ outline-offset:-2px; }
+
+/* A picture: its frame over the checkerboard, and what to do with it. */
+.mo-pic{ display:flex; align-items:center; gap:var(--sp-5); padding-block:var(--sp-2); }
+.mo-pic-frame{
+  position:relative; flex:none; display:grid; place-items:center; inline-size:104px; block-size:74px; overflow:hidden;
+  border:1px solid var(--rule); border-radius:var(--r-2); color:var(--mute);
+  background:repeating-conic-gradient(rgb(0 0 0 / .1) 0 25%, rgb(255 255 255 / .85) 0 50%) 0 0 / 10px 10px;
+}
+.mo-pic.is-empty .mo-pic-frame{ background:var(--panel-2); border-style:dashed; border-color:var(--rule-2); }
+/* A pixel of overscan: a downscaled picture's outermost row comes out part-transparent, and the checkerboard would show through it as a seam. */
+.mo-pic-frame img{ position:absolute; inset:-1px; display:block; inline-size:calc(100% + 2px); block-size:calc(100% + 2px); }
+.mo-pic-busy{ position:absolute; inset:0; opacity:.75; }
+.mo-pic-side{ flex:1; min-inline-size:0; display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-2); }
+.ghost.mo-pic-choose{ border-color:var(--rule); background:var(--panel-2); color:var(--ink); }
+.ghost.mo-pic-choose:hover{ border-color:var(--rule-2); }
+
+/* A chart's numbers. */
+.mo-data{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block:var(--sp-1); }
+.mo-data-rows{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); }
+.mo-data-row{ display:flex; align-items:center; gap:var(--sp-1); }
+.mo-data-row .mo-text{ flex:1 1 0; }
+.mo-num-value{ flex:0 0 78px; }
+.mo-data-acts{ flex:none; display:flex; }
+.mo-add-row{ align-self:flex-start; }
+
+/* Colours as chips, and the plus for another. */
+.mo-colours{ position:relative; flex:1; display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2); min-inline-size:0; }
+/* A chip's popover hangs from the whole row, so it opens inside the column whichever chip it is. */
+.mo-colours .mo-pop-anchor{ position:static; flex:none; }
+.mo-colour-chip{ flex:none; inline-size:30px; }
+.mo-colour-add{ border:1px dashed var(--rule-2); }
+
+.ghost.mo-shuffle{ flex:none; border-color:var(--rule); background:var(--panel-2); color:var(--ink); }
+.ghost.mo-shuffle:hover{ border-color:var(--rule-2); }
+.mo-seed{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }

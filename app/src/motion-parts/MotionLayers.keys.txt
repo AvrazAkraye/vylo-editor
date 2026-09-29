@@ -1,0 +1,81 @@
+Drop in
+Typing
+Blur
+Spin
+Flip
+Grow
+Draw on
+Fades up from nothing.
+Rises a short way into place as it fades in.
+Drops a short way into place as it fades in.
+Slides in from one side, solid before it lands.
+Springs up from small, a little past its size.
+Settles from larger to its size as it fades in.
+A clean edge uncovers it from one side.
+Rises from behind its own line: the classic title reveal.
+Its letters appear one after another.
+Comes into focus from a soft blur.
+Turns a quarter turn into place, growing as it comes.
+Flips open about its middle.
+Extends from its base, like a bar or a rule.
+Its outline draws itself along its path.
+Float
+Pulse
+Sway
+Breathe
+Shimmer
+Drifts gently up and down.
+Swells a little and settles, again and again.
+Turns round and round.
+Rocks gently from side to side.
+Fades a little and back, slowly.
+A glint of light passes across it.
+Screen
+Multiply
+Overlay
+Additive
+Line by line
+Word by word
+Letter by letter
+All at once
+From below
+From above
+From the reading side
+From the far side
+Your words
+Add a layer
+A graphic holds at most {n} layers.
+Opacity
+A background always fills the frame.
+Anchor
+Horizontal
+Vertical
+Scale
+Rotation
+Starts at
+Ends at
+To the end
+Entrance
+Exit
+An exit is its entrance played backwards.
+Strength
+Split
+Arabic script runs word by word: a letter alone would lose its joins.
+Loop
+Cycle
+Shadow
+Offset
+Blend
+Locked
+Timing
+Animation
+Duplicate
+Bring to front
+Send to back
+Layers
+No layers yet. Add the first:
+Show the layer
+Hide the layer
+Unlock the layer
+Lock the layer
+Choose a layer to edit it.

@@ -55,6 +55,9 @@ const VideoPanel = lazy(() => import('./VideoPanel').then((m) => ({ default: m.V
 // Lazy for the same reason: its PowerPoint writer and slide renderer are nothing
 // anyone who never opens Slides should load.
 const SlidesPanel = lazy(() => import('./SlidesPanel').then((m) => ({ default: m.SlidesPanel })));
+// Lazy for the same reason again: Motion's engine, renderer and MP4 writer are
+// nothing anyone who never opens it should load.
+const MotionPanel = lazy(() => import('./MotionPanel').then((m) => ({ default: m.MotionPanel })));
 import { Icon } from './Icon';
 import { Rail } from './Rail';
 import {
@@ -2819,11 +2822,12 @@ export function App() {
    * in its sidebar — which is what mounts its panel — and then opened over
    * the whole window, as its own full-screen button does.
    */
-  function openStudio(id: 'research' | 'video' | 'slides') {
+  function openStudio(id: 'research' | 'video' | 'motion' | 'slides') {
     if (dockOf(modules, id) === 'other') { setRightRail(id); setRightOpen(true); }
     else { setRail(id); setRailOpen(true); }
     if (id === 'research') toggleResearchFull(true);
     else if (id === 'video') void import('./VideoPanel').then((m) => m.toggleVideoFull(true));
+    else if (id === 'motion') void import('./MotionPanel').then((m) => m.toggleMotionFull(true));
     else void import('./SlidesPanel').then((m) => m.toggleSlidesFull(true));
   }
 
@@ -2836,6 +2840,7 @@ export function App() {
     if (dest === 'research') { openStudio('research'); askResearch(text); return; }
     if (dest === 'doc-chat' && docId) { openStudio('research'); askResearchDoc(docId, text); return; }
     if (dest === 'video') { openStudio('video'); void import('./VideoPanel').then((m) => m.askVideo(text)); return; }
+    if (dest === 'motion') { openStudio('motion'); void import('./MotionPanel').then((m) => m.askMotion(text)); return; }
     if (dest === 'slides') { openStudio('slides'); void import('./SlidesPanel').then((m) => m.askSlides(text, docId)); return; }
     goTo('chat');
     setPrompt(text);
@@ -4406,6 +4411,12 @@ export function App() {
                 <Icon name="maximise" size={14} />
               </button>
             )}
+            {shown === 'motion' && (
+              <button className="sb-act" onClick={() => void import('./MotionPanel').then((m) => m.toggleMotionFull(true))}
+                      title={t('Full screen')} aria-label={t('Full screen')}>
+                <Icon name="maximise" size={14} />
+              </button>
+            )}
             {shown === 'slides' && (
               <button className="sb-act" onClick={() => void import('./SlidesPanel').then((m) => m.toggleSlidesFull(true))}
                       title={t('Full screen')} aria-label={t('Full screen')}>
@@ -4491,6 +4502,13 @@ export function App() {
               <Suspense fallback={<div className="panel-load">{t('Opening…')}</div>}>
                 <VideoPanel t={t} lang={lang} gw={wired} efforts={efforts} plan={plan}
                       providers={providers} choice={choice} gateway={{ baseUrl, apiKey }}
+                      onProviders={() => { setSettingsAt('account'); setShowSettings(true); }}
+                      onError={(m) => push({ kind: 'error', text: m })} />
+              </Suspense>
+            )}
+            {shown === 'motion' && (
+              <Suspense fallback={<div className="panel-load">{t('Opening…')}</div>}>
+                <MotionPanel t={t} lang={lang} gw={wired} efforts={efforts}
                       onProviders={() => { setSettingsAt('account'); setShowSettings(true); }}
                       onError={(m) => push({ kind: 'error', text: m })} />
               </Suspense>
@@ -4803,13 +4821,13 @@ export function App() {
           {/* The studios, each while its module is on: they open over the
               whole window, so they sit in the same switch as the ways of
               working, after a rule. */}
-          {(['research', 'video', 'slides'] as const).some((id) => enabledModules(modules).some((m) => m.id === id)) && <i className="seg-cut" aria-hidden="true" />}
-          {(['research', 'video', 'slides'] as const).filter((id) => enabledModules(modules).some((m) => m.id === id)).map((id) => (
+          {(['research', 'video', 'motion', 'slides'] as const).some((id) => enabledModules(modules).some((m) => m.id === id)) && <i className="seg-cut" aria-hidden="true" />}
+          {(['research', 'video', 'motion', 'slides'] as const).filter((id) => enabledModules(modules).some((m) => m.id === id)).map((id) => (
             <button key={id} className="seg-studio" onClick={() => openStudio(id)}
-                    aria-label={t(id === 'research' ? 'Research' : id === 'video' ? 'Video' : 'Slides')}
-                    title={t(id === 'research' ? 'Research — open over the whole window' : id === 'video' ? 'Video — open over the whole window' : 'Slides — open over the whole window')}>
-              <Icon name={id === 'research' ? 'book' : id === 'video' ? 'film' : 'slides'} size={12} />
-              <span className="seg-studio-name">{t(id === 'research' ? 'Research' : id === 'video' ? 'Video' : 'Slides')}</span>
+                    aria-label={t(id === 'research' ? 'Research' : id === 'video' ? 'Video' : id === 'motion' ? 'Motion' : 'Slides')}
+                    title={t(id === 'research' ? 'Research — open over the whole window' : id === 'video' ? 'Video — open over the whole window' : id === 'motion' ? 'Motion — open over the whole window' : 'Slides — open over the whole window')}>
+              <Icon name={id === 'research' ? 'book' : id === 'video' ? 'film' : id === 'motion' ? 'motion' : 'slides'} size={12} />
+              <span className="seg-studio-name">{t(id === 'research' ? 'Research' : id === 'video' ? 'Video' : id === 'motion' ? 'Motion' : 'Slides')}</span>
             </button>
           ))}
         </span>
@@ -4857,7 +4875,7 @@ export function App() {
       <AskHost t={t} />
       {askVylo && (
         <AskVylo t={t} onClose={() => setAskVylo(false)} onSend={askSend}
-                 on={new Set((['research', 'video', 'slides'] as const).filter((id) => enabledModules(modules).some((m) => m.id === id)))} />
+                 on={new Set((['research', 'video', 'motion', 'slides'] as const).filter((id) => enabledModules(modules).some((m) => m.id === id)))} />
       )}
       {canDictate && (
         <PushToTalk

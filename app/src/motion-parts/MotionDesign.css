@@ -1,0 +1,60 @@
+/* ── Motion: the Design tab (MotionDesign.tsx) ──
+   The whole graphic, a section at a time, in the Video module's own controls:
+   `.vid-f` fields, `.vid-seg` choices, `.vid-formats` shapes, the Look tab's
+   slider and colour rows, `.vid-styles` swatches, the gallery's chips. What is
+   here is only what those do not do — the headings, four shapes in a row, the
+   palettes' dots, the hex codes — and a floor of 28 px under every control,
+   which the Video panel's denser ones sit below. Selectors that adjust a
+   shared control carry both classes, so they win wherever this is merged. */
+.mo-de{ display:flex; flex-direction:column; min-inline-size:0; }
+.mo-de-sec{
+  display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-6) var(--sp-7);
+  border-block-start:1px solid var(--rule);
+}
+.mo-de-sec:first-child{ border-block-start:0; }
+.mo-de-h{ margin:0; font-size:var(--fs-2); font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+:root[dir="rtl"] .mo-de-h{ letter-spacing:0; }
+.mo-de-off{
+  margin:0; padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--mute); font-size:var(--fs-3); line-height:1.55;
+}
+.mo-de .vid-seg button, .mo-de .gal-chip{ min-block-size:28px; }
+/* A number reads left to right; in a right-to-left form it still lines up with the words above it. */
+.mo-de-num{ font-variant-numeric:tabular-nums; }
+:root[dir="rtl"] .mo-de-num{ text-align:end; }
+
+/* The four shapes, each drawn at its own proportions above its ratio. */
+.vid-formats.mo-de-shapes{ grid-template-columns:repeat(4, minmax(0, 1fr)); }
+.vid-formats.mo-de-shapes button{ flex-direction:column; gap:var(--sp-2); min-block-size:54px; padding:var(--sp-3) var(--sp-2); }
+.vid-formats.mo-de-shapes b{ font-size:var(--fs-2); font-variant-numeric:tabular-nums; }
+.mo-de-frame{ display:block; flex:none; border:1.5px solid currentColor; border-radius:2px; }
+
+/* The length: the slider and its value on one line, the usual lengths under it. */
+.vid-look-slider.mo-de-len{ grid-template-columns:minmax(0, 1fr) auto; }
+.vid-look-slider.mo-de-len input{ block-size:28px; }
+.mo-de-chips{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+
+/* The palettes: five dots and a name each; then the five colours, each with its hex code. */
+.vid-styles.mo-de-pals button{ align-items:center; gap:var(--sp-3); min-inline-size:0; padding:var(--sp-4) var(--sp-2) var(--sp-3); }
+.vid-styles.mo-de-pals b{ max-inline-size:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:inherit; }
+.mo-de-dots{ display:inline-flex; }
+.mo-de-dots i{
+  inline-size:14px; block-size:14px; margin-inline-start:-4px; border-radius:50%;
+  border:1.5px solid var(--panel); box-shadow:0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent);
+}
+.mo-de-dots i:first-child{ margin-inline-start:0; }
+.mo-de-tones{ display:flex; flex-direction:column; gap:var(--sp-3); padding-block-start:var(--sp-2); }
+.mo-de-tone .vid-look-swatch input[type="color"]{ inline-size:40px; block-size:28px; }
+.mo-de-hex{
+  inline-size:8.5em; min-inline-size:0; block-size:28px; padding-block:0; padding-inline:var(--sp-3);
+  border:1px solid var(--rule); border-radius:var(--r-1); background:var(--panel-2); color:var(--ink);
+  font-family:var(--mono); font-size:var(--fs-2); text-transform:uppercase;
+}
+.mo-de-hex:focus{ outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--panel); }
+
+/* Forced colours: the hex field's focus was a border colour and a shadow, both overridden; a palette's dots are its
+   colours, so they keep them. */
+@media (forced-colors: active){
+  .mo-de-hex:focus{ outline:2px solid; outline-offset:1px; }
+  .mo-de-dots i{ forced-color-adjust:none; }
+}

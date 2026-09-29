@@ -1,0 +1,19 @@
+Feed 4:5
+Second accent
+Muted colour
+Aurora
+Rays
+Waves
+Bokeh
+Stripes
+One per line — Label: value
+One per line
+{name} as a hex code
+This graphic has no template words to change here. Change its words in Layers.
+What the graphic is called in your list, and the name it is saved with.
+Frame rate
+Sets the direction, the digits and the typefaces.
+Frame
+Solid
+Transparent
+An MP4 cannot keep transparency. Save a PNG to keep it.

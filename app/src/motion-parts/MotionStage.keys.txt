@@ -1,0 +1,12 @@
+Playing
+Paused at {time}
+Motion blur (smoother, slower to preview)
+Safe area guides
+Play in a loop
+Preview of {title}
+Preview of the graphic
+Playback
+Previous frame
+Next frame
+Position in the graphic
+Click a layer to choose it, and drag it to move it. The arrow keys move the chosen layer; Space plays; comma and full stop step one frame.

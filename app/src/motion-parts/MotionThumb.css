@@ -1,0 +1,6 @@
+/* ── Motion: a graphic drawn live (MotionThumb.tsx) ──────────────────────
+   A canvas the studio's renderer paints into. Its CSS size is set by the
+   component from the width it is given and the graphic's shape; its backing
+   store follows the display, at most twice. Where it sits is the container's
+   business (MotionHome.css). */
+.mo-thumb{ display:block; flex:none; }

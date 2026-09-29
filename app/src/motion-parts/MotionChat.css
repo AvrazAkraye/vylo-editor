@@ -1,0 +1,15 @@
+/* ── Motion: the Ask tab (MotionChat.tsx) ─────────────────────────────────
+   Video's conversation, as it is (.vid-chat-*): the person's words at the
+   inline end in the brand's wash, the model's at the start beside its mark,
+   and under every answer what it changed — a tick for what was done, a dimmed
+   line for what was skipped and why. What is Motion's own is only where the
+   conversation sits: under the stage in the sidebar, and taller in the full
+   window, where the side column has the room. */
+
+.mo-chat{ padding-block:var(--sp-2) var(--sp-4); }
+/* The no-key card inside the tab: the tab's own margins are its indent. */
+.mo-chat-key{ padding:var(--sp-2) 0 0; }
+.mo-chat-key > .ft-empty{ padding-block:var(--sp-2) 0; }
+.mo-full .mo-chat .vid-chat-log{ max-block-size:min(62vh, 820px); }
+/* Two lines of the hint, when it takes two, of even length rather than one word left over. */
+.mo-chat .vid-chat-hint{ text-wrap:balance; }

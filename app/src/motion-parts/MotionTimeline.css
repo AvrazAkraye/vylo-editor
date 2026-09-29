@@ -1,0 +1,173 @@
+/* ── Motion: the timeline (MotionTimeline.tsx) ──
+   One row a layer, the front one first: a head on the interface's reading
+   side — the kind, the name, shown and locked — and a track that runs left to
+   right in every language (the track and the ruler are `dir="ltr"`, so the
+   insets inside them are left-to-right on purpose). Bars are the accent,
+   tinted: the entrance and the exit are ramps, the time a layer waits unseen
+   is paler still, a loop is a row of dots. The switches show on the chosen
+   row, on hover and on focus, and always when they are on. */
+.mo-tl{
+  --mo-tl-head:clamp(128px, 30%, 176px);
+  --mo-tl-row:28px;
+  --mo-tl-now:var(--err);
+  --mo-tl-line:color-mix(in srgb, var(--rule) 60%, transparent);
+  --mo-tl-fill:color-mix(in srgb, var(--brand) 30%, var(--panel));
+  --mo-tl-edge:color-mix(in srgb, var(--brand) 55%, transparent);
+  --mo-tl-erase:color-mix(in srgb, var(--panel) 84%, transparent);
+  position:relative; display:flex; flex-direction:column; min-inline-size:0;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel); overflow:hidden;
+  font-size:var(--fs-3); color:var(--ink);
+}
+.mo-tl-scroll{
+  position:relative; overflow-x:hidden; overflow-y:auto; max-block-size:var(--mo-tl-max, 340px);
+  overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--rule-2) transparent;
+}
+
+/* The corner and the ruler stay on top while the rows scroll under them. */
+.mo-tl-top{
+  position:sticky; inset-block-start:0; z-index:4; display:flex; block-size:26px;
+  background:var(--panel-2); border-block-end:1px solid var(--rule);
+}
+.mo-tl-corner{
+  flex:none; display:flex; align-items:center; inline-size:var(--mo-tl-head); min-inline-size:0; overflow:hidden;
+  padding-inline:var(--sp-5); border-inline-end:1px solid var(--rule);
+}
+.mo-tl-clock{ display:inline-flex; align-items:baseline; gap:var(--sp-1); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mo-tl-clock b{ font-size:var(--fs-4); font-weight:600; color:var(--ink); }
+.mo-tl-clock span{ font-size:var(--fs-2); color:var(--mute); }
+.mo-tl-ruler{
+  position:relative; flex:1; min-inline-size:0; cursor:pointer;
+  touch-action:none; user-select:none; -webkit-user-select:none;
+}
+.mo-tl-tick{ position:absolute; inset-block-end:0; inline-size:1px; block-size:4px; background:var(--rule-2); pointer-events:none; }
+.mo-tl-tick.mo-tl-halfsec{ block-size:2px; }
+.mo-tl-tick.mo-tl-numbered{ block-size:8px; background:var(--mute); }
+.mo-tl-tick b{
+  position:absolute; inset-block-end:8px; inset-inline-start:3px; font-size:var(--fs-1); font-weight:500; line-height:1;
+  color:var(--mute); font-variant-numeric:tabular-nums;
+}
+/* The last number sits before its tick, so the edge of the track does not cut it. */
+.mo-tl-tick.mo-tl-lastnum b{ inset-inline-start:auto; inset-inline-end:3px; }
+/* The playhead's knob. It is the ruler's slider too, so the ring is drawn on the knob. */
+.mo-tl-knob{ position:absolute; inset-block:0; inset-inline-start:0; z-index:2; inline-size:1px; outline:none; will-change:transform; }
+.mo-tl-knob::before{
+  content:''; position:absolute; inset-block-start:3px; inset-inline-start:-5px; inline-size:11px; block-size:11px;
+  border-start-start-radius:3px; border-start-end-radius:3px; border-end-start-radius:6px; border-end-end-radius:6px;
+  background:var(--mo-tl-now);
+}
+.mo-tl-knob::after{ content:''; position:absolute; inset-block:12px 0; inset-inline-start:0; inline-size:1px; background:var(--mo-tl-now); }
+.mo-tl-knob:focus-visible{ outline:none; }
+.mo-tl-knob:focus-visible::before{ box-shadow:0 0 0 2px var(--panel-2), 0 0 0 4px var(--brand); }
+.mo-tl-badge{
+  position:absolute; inset-block-start:4px; z-index:3; translate:-50% 0; padding:0 var(--sp-3); border-radius:999px;
+  background:var(--ink); color:var(--panel); font-size:var(--fs-1); font-weight:600; line-height:16px;
+  font-variant-numeric:tabular-nums; white-space:nowrap; pointer-events:none;
+}
+
+/* The rows, and over their tracks the playhead's line and a snap's guide. */
+.mo-tl-rows{ position:relative; }
+.mo-tl-over{ position:absolute; inset-block:0; inset-inline-start:var(--mo-tl-head); inset-inline-end:0; z-index:3; pointer-events:none; }
+.mo-tl-over-in{ position:absolute; inset:0; }
+.mo-tl-now{ position:absolute; inset-block:0; inset-inline-start:0; inline-size:1px; background:var(--mo-tl-now); will-change:transform; }
+.mo-tl-guide{ position:absolute; inset-block:0; inset-inline-start:0; inline-size:0; border-inline-start:1px dashed var(--brand); }
+.mo-tl-empty{ margin:0; padding:var(--sp-10) var(--sp-8); text-align:center; font-size:var(--fs-3); color:var(--mute); }
+
+.mo-tl-row{ position:relative; display:flex; block-size:var(--mo-tl-row); border-block-end:1px solid var(--mo-tl-line); }
+.mo-tl-row:last-child{ border-block-end:0; }
+.mo-tl-head{
+  position:relative; flex:none; display:flex; align-items:center; inline-size:var(--mo-tl-head); min-inline-size:0;
+  padding-inline:var(--sp-1); border-inline-end:1px solid var(--rule); background:var(--panel);
+}
+.mo-tl-row:hover .mo-tl-head{ background:color-mix(in srgb, var(--ink) 4%, var(--panel)); }
+.mo-tl-row.mo-tl-on .mo-tl-head{ background:var(--brand-wash); }
+.mo-tl-name{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-3); block-size:100%;
+  padding-block:0; padding-inline:var(--sp-3); border:0; border-radius:var(--r-1); background:transparent; color:var(--ink);
+  font:inherit; font-size:var(--fs-3); text-align:start; cursor:pointer;
+}
+.mo-tl-name:focus-visible, .mo-tl-tog:focus-visible{ outline-offset:-2px; }
+.mo-tl-kind{ flex:none; display:inline-grid; place-items:center; inline-size:16px; color:var(--mute); }
+/* Its own width, not the row's: a name in the other direction then sits by the glyph, and ellipsises at its own end. */
+.mo-tl-text{ flex:0 1 auto; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-tl-row.mo-tl-on .mo-tl-name, .mo-tl-row.mo-tl-on .mo-tl-kind{ color:var(--brand); }
+.mo-tl-row.mo-tl-on .mo-tl-name{ font-weight:600; }
+.mo-tl-row.mo-tl-hidden .mo-tl-text, .mo-tl-row.mo-tl-hidden .mo-tl-kind{ opacity:var(--dim); }
+/* In the row's flow, not over the name: a name then ellipsises before them, at its own end, in either direction. */
+.mo-tl-togs{ flex:none; display:flex; align-items:center; }
+.mo-tl-tog{
+  display:none; place-items:center; inline-size:28px; block-size:28px; padding:0; border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.mo-tl-tog.mo-tl-on, .mo-tl-row:hover .mo-tl-tog, .mo-tl-row:focus-within .mo-tl-tog, .mo-tl-row.mo-tl-on .mo-tl-tog{ display:grid; }
+.mo-tl-tog:hover{ color:var(--ink); background:color-mix(in srgb, var(--ink) 7%, transparent); }
+.mo-tl-tog.mo-tl-on{ color:var(--brand); }
+
+/* The track: a hairline at every numbered second, from the same PAD the bars are placed from. */
+.mo-tl-lane{
+  position:relative; flex:1; min-inline-size:0; touch-action:pan-y;
+  background-image:linear-gradient(to right, var(--mo-tl-line) 1px, transparent 1px);
+  background-size:var(--mo-tl-step) 100%; background-position:var(--mo-tl-pad) 0; background-repeat:repeat-x;
+}
+.mo-tl-row:hover .mo-tl-lane{ background-color:color-mix(in srgb, var(--ink) 2.5%, transparent); }
+.mo-tl-row.mo-tl-on .mo-tl-lane{ background-color:color-mix(in srgb, var(--brand) 6%, transparent); }
+
+/* A bar: the whole row's height to press, the drawn part inset inside it. */
+.mo-tl-bar{ position:absolute; inset-block:0; z-index:1; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
+.mo-tl-bar:focus-visible{ outline:none; }
+.mo-tl-bar.mo-tl-dragging{ z-index:2; cursor:grabbing; }
+.mo-tl-row.mo-tl-locked .mo-tl-bar{ cursor:default; }
+/* The fill is the layer being seen: it fades in over the entrance and out over the exit, as the layer does,
+   and is all but gone while the layer waits. The outline is drawn over all of it, so a bar still reads as one. */
+.mo-tl-body{
+  position:absolute; inset-block:4px; inset-inline:0; display:flex; align-items:center; overflow:hidden;
+  border-radius:var(--r-1); background:var(--mo-tl-fill); color:var(--ink);
+}
+.mo-tl-body::after{
+  content:''; position:absolute; inset:0; z-index:1; border-radius:inherit; pointer-events:none;
+  box-shadow:inset 0 0 0 1px var(--mo-tl-edge);
+}
+.mo-tl-row.mo-tl-on .mo-tl-body{ --mo-tl-fill:color-mix(in srgb, var(--brand) 52%, var(--panel)); --mo-tl-edge:var(--brand); }
+.mo-tl-row.mo-tl-on .mo-tl-body::after{ box-shadow:inset 0 0 0 1.5px var(--mo-tl-edge); }
+.mo-tl-bar:focus-visible .mo-tl-body{ box-shadow:0 0 0 2px var(--panel), 0 0 0 3.5px var(--brand); }
+.mo-tl-row.mo-tl-hidden .mo-tl-body{ opacity:var(--dim); }
+.mo-tl-wait, .mo-tl-in, .mo-tl-out, .mo-tl-loop{ position:absolute; inset-block:0; pointer-events:none; }
+.mo-tl-wait{ background:var(--mo-tl-erase); }
+.mo-tl-in{ background:linear-gradient(to right, var(--mo-tl-erase), transparent); }
+.mo-tl-out{ background:linear-gradient(to left, var(--mo-tl-erase), transparent); }
+.mo-tl-loop{
+  inset-block:auto 2px; inset-inline:3px; block-size:4px;
+  background-image:radial-gradient(circle, color-mix(in srgb, var(--ink) 55%, transparent) 1px, transparent 1.6px);
+  background-size:5px 4px; background-position:0 50%; background-repeat:repeat-x;
+}
+.mo-tl-label{
+  position:relative; z-index:2; flex:0 1 auto; min-inline-size:0; padding-inline:var(--sp-5);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--fs-2); font-weight:500; line-height:1.2;
+}
+.mo-tl-row.mo-tl-on .mo-tl-label{ font-weight:600; }
+.mo-tl-grip{ position:absolute; inset-block:0; z-index:1; inline-size:10px; cursor:ew-resize; }
+.mo-tl-grip-start{ inset-inline-start:-4px; }
+.mo-tl-grip-end{ inset-inline-end:-4px; }
+.mo-tl-bar.mo-tl-narrow .mo-tl-grip-start{ inset-inline-start:-10px; }
+.mo-tl-bar.mo-tl-narrow .mo-tl-grip-end{ inset-inline-end:-10px; }
+.mo-tl-grip::after{
+  content:''; position:absolute; inset-block:10px; inline-size:2px; border-radius:1px; background:var(--ink);
+  opacity:0; transition:opacity .12s ease;
+}
+.mo-tl-grip-start::after{ inset-inline-start:7px; }
+.mo-tl-grip-end::after{ inset-inline-end:7px; }
+.mo-tl-bar:hover .mo-tl-grip::after, .mo-tl-bar.mo-tl-dragging .mo-tl-grip::after, .mo-tl-row.mo-tl-on .mo-tl-grip::after{ opacity:1; }
+
+/* Forced colours (Windows High Contrast) paint every background the page's colour and drop every shadow, so a bar,
+   the playhead and the ticks — all fills — vanished, and so did the bar's and the knob's focus rings. Borders and
+   outlines are kept (in the system's colours). */
+@media (forced-colors: active){
+  .mo-tl-body{ border:1px solid; }
+  .mo-tl-row.mo-tl-on .mo-tl-body{ border-width:2px; }
+  .mo-tl-now, .mo-tl-knob::after, .mo-tl-tick{ border-inline-start:1px solid; }
+  .mo-tl-knob::before{ border:2px solid; }
+  .mo-tl-bar:focus-visible .mo-tl-body, .mo-tl-knob:focus-visible::before{ outline:2px solid; outline-offset:2px; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .mo-tl-grip::after{ transition:none; }
+}

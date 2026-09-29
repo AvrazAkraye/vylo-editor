@@ -1,0 +1,16 @@
+Titles
+Overlays
+Backgrounds
+Over video
+A motion graphic from one sentence
+Say what it should show — a title, a name over a video, a number that counts up — in Arabic, Kurdish or English. The model builds it, and you can change every word, colour and timing.
+Describe a graphic
+Templates
+Templates that move
+{n} templates — titles, lower thirds, charts, logo reveals and moving backgrounds — already in your language. Point at one to watch it play.
+See the templates
+On this machine
+No libraries, no uploads
+Drawn and saved on this machine: the app’s own code draws every frame and writes the MP4 or the PNG. Nothing is sent anywhere unless you ask the model.
+Start from one and change the words, the colours and the timing — or name one in your request and the model fills it in.
+Your graphics

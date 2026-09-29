@@ -16,14 +16,15 @@ import { destinations, route, type Dest, type DocRef } from './askroute';
  */
 
 type T = (s: string) => string;
-type Studio = 'research' | 'video' | 'slides';
+type Studio = 'research' | 'video' | 'motion' | 'slides';
 
-const ICON: Readonly<Record<Dest, IconName>> = { research: 'book', 'doc-chat': 'chat', video: 'film', slides: 'slides', chat: 'sparkle' };
+const ICON: Readonly<Record<Dest, IconName>> = { research: 'book', 'doc-chat': 'chat', video: 'film', motion: 'motion', slides: 'slides', chat: 'sparkle' };
 
 function destName(d: Dest, t: T): string {
   if (d === 'research') return t('New research document');
   if (d === 'doc-chat') return t('Ask one of your documents');
   if (d === 'video') return t('New video');
+  if (d === 'motion') return t('New motion graphic');
   if (d === 'slides') return t('New presentation');
   return t('Chat');
 }
@@ -32,6 +33,7 @@ function destAbout(d: Dest, t: T): string {
   if (d === 'research') return t('Planned, sourced and written as the Research form would — with footnotes and a reference list.');
   if (d === 'doc-chat') return t('Sent to that document’s Chat tab: answered from it, or changed as you ask.');
   if (d === 'video') return t('A storyboard planned from your words, to preview, edit and export.');
+  if (d === 'motion') return t('An animated graphic from your words — a title, a lower third, a chart — to preview, edit and export.');
   if (d === 'slides') return t('Slides from your words — or from one of your documents, with its sources.');
   return t('Put in the chat box, for you to send.');
 }
@@ -81,7 +83,7 @@ export function AskVylo({ t, on, onClose, onSend }: {
         <header className="askv-head">
           <span className="askv-mark" aria-hidden="true"><Icon name="sparkle" size={14} /></span>
           <b>{t('Ask Vylo')}</b>
-          <small>{t('Write a thesis, make a video or slides, ask one of your documents — or anything else.')}</small>
+          <small>{t('Write a thesis, make a video, slides or a motion graphic, ask one of your documents — or anything else.')}</small>
         </header>
         <textarea ref={box} className="askv-box" dir="auto" rows={3} value={text} onChange={(e) => setText(e.target.value)}
                   placeholder={t('For example: a working paper on federalism in Sorani · slides from my thesis · a 30-second video about our college')}

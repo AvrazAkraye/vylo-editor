@@ -3,7 +3,7 @@ import { fold } from './settings';
 
 /**
  * Ask Vylo: one box, anywhere in the app, that sends what you ask to the part
- * of the app that does it — a new Research document, a video, a presentation
+ * of the app that does it — a new Research document, a video, a motion graphic, a presentation
  * (from words, or from a Research document you wrote), a message to one of
  * your documents' Chat tab, or the ordinary chat.
  *
@@ -19,7 +19,7 @@ import { fold } from './settings';
  * Pure, and tested in test/askroute.test.mjs.
  */
 
-export type Dest = 'research' | 'video' | 'slides' | 'doc-chat' | 'chat';
+export type Dest = 'research' | 'video' | 'motion' | 'slides' | 'doc-chat' | 'chat';
 
 export interface DocRef { id: string; title: string; kind: Kind; updated: number }
 
@@ -38,6 +38,21 @@ const VIDEO = [
   'video', 'videos', 'clip', 'reel', 'reels', 'tiktok', 'short film', 'promo video', 'mp4',
   'فيديو', 'فديو', 'مقطع فيديو', 'ريلز',
   'ڤیدیۆ', 'ڤیدیو', 'ڤیدۆ', 'ڤیدیۆیەک', 'ڤیدیۆیەکی', 'ڤیدیۆیەکێ', 'کلیپ',
+];
+
+/**
+ * Words that ask for a motion graphic: an animated title, a lower third, a logo
+ * reveal, a chart that draws itself. Specific on purpose — "animation" alone is
+ * as likely to be about a button in the code, and a request that names a video
+ * as well ("a motion graphic video") is still this, so it is checked first.
+ */
+const MOTION = [
+  'motion graphic', 'motion graphics', 'lower third', 'lower thirds', 'logo reveal', 'logo sting', 'intro sting',
+  'animated title', 'animated titles', 'animated text', 'animated logo', 'animated chart', 'animated graph',
+  'animated counter', 'animated number', 'kinetic type', 'kinetic typography', 'title animation', 'text animation',
+  'موشن جرافيك', 'موشن غرافيك', 'موشن', 'عنوان متحرك', 'نص متحرك', 'شعار متحرك', 'مخطط متحرك', 'ثلث سفلي', 'لوير ثيرد', 'إنترو', 'انترو',
+  'مۆشن گرافیک', 'مۆشن', 'ناونیشانی جوڵاو', 'نووسینی جوڵاو', 'لۆگۆی جوڵاو', 'گرافیکی جوڵاو', 'ئەنیمەیشن',
+  'ناڤونیشانێ جوڵاو', 'لۆگۆیێ جوڵاو', 'گرافیکا جوڵاو',
 ];
 
 /** Words that ask for a presentation. */
@@ -106,7 +121,7 @@ function docFor(kind: Kind | undefined, docs: readonly DocRef[]): string | undef
  * named is a new Research document. Anything else is the chat. A module that
  * is off is never chosen; its request goes on down the list.
  */
-export function route(text: string, ctx: { docs: readonly DocRef[]; on: ReadonlySet<'research' | 'video' | 'slides'> }): Route {
+export function route(text: string, ctx: { docs: readonly DocRef[]; on: ReadonlySet<'research' | 'video' | 'motion' | 'slides'> }): Route {
   const s = typeof text === 'string' ? text : '';
   if (!s.trim()) return { dest: 'chat', phrase: '' };
   const mine = find(s, MINE);
@@ -116,6 +131,8 @@ export function route(text: string, ctx: { docs: readonly DocRef[]; on: Readonly
     const docId = mine && ctx.docs.length ? docFor(found?.kind, ctx.docs) : undefined;
     return { dest: 'slides', phrase: slides, ...(docId ? { docId } : {}) };
   }
+  const motion = find(s, MOTION);
+  if (motion && ctx.on.has('motion')) return { dest: 'motion', phrase: motion };
   const video = find(s, VIDEO);
   if (video && ctx.on.has('video')) return { dest: 'video', phrase: video };
   if (mine && ctx.docs.length && ctx.on.has('research')) {
@@ -126,11 +143,12 @@ export function route(text: string, ctx: { docs: readonly DocRef[]; on: Readonly
 }
 
 /** The destinations the box offers, in order, given what is switched on and whether there are documents. */
-export function destinations(on: ReadonlySet<'research' | 'video' | 'slides'>, hasDocs: boolean): Dest[] {
+export function destinations(on: ReadonlySet<'research' | 'video' | 'motion' | 'slides'>, hasDocs: boolean): Dest[] {
   return [
     ...(on.has('research') ? ['research' as const] : []),
     ...(on.has('research') && hasDocs ? ['doc-chat' as const] : []),
     ...(on.has('video') ? ['video' as const] : []),
+    ...(on.has('motion') ? ['motion' as const] : []),
     ...(on.has('slides') ? ['slides' as const] : []),
     'chat' as const,
   ];

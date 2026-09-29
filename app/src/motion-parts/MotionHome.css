@@ -1,0 +1,103 @@
+/* ── Motion: the gallery home (MotionHome.tsx) ───────────────────────────
+   Built from the shared .gal-* parts, like Video's and Research's homes. What
+   is Motion's own is that every picture is the graphic itself, drawn live by
+   MotionThumb.tsx: on a screen in the banner, the whole frame on a card, in
+   its own shape on a cover. The pictures stand on the gallery's dark ground in
+   both themes, as every gallery picture does; the words around them follow
+   the theme's tokens. Logical properties throughout, so it mirrors. */
+
+/* The banner: the gallery's ground in the template's hue — mirrored right to
+   left like any other scene — and the template playing on a screen at the far
+   side from the words. The screen is never mirrored: there are words on it.
+   Its size and its distance from the far edge are measured (MotionHome.tsx's
+   roomIn), so it keeps clear of the words and the arrow at every width. */
+.mo-hero-art{ position:absolute; inset:0; display:block; }
+[dir="rtl"] .mo-hero-art > .gal-art-svg{ transform:scaleX(-1); }
+.mo-hero-screen{
+  position:absolute; inset-block-start:50%; inset-inline-end:64px; display:block; overflow:hidden;
+  border-radius:10px; transform:translateY(-50%);
+  box-shadow:0 0 0 1px rgb(255 255 255 / .14), 0 30px 60px -24px rgb(0 0 0 / .9), 0 0 90px -20px hsl(var(--h) 90% 60% / .6);
+}
+
+/* The heading "See the templates" scrolls to, kept clear of the top edge. */
+.mo-head{ scroll-margin-block-start:var(--sp-8); }
+
+/* A template's card. The art is the whole frame, 16:9, in the template's own
+   colours, and a template fills its frame with words — so the scrim under the
+   name is a little deeper than the gallery's. Still until it is pointed at or
+   focused; while it plays, the scrim, the name and the badges step aside and
+   the graphic is seen whole. */
+.gal-card-art.mo-card-art{ block-size:auto; aspect-ratio:16 / 9; }
+.mo-card-art > .mo-thumb{ position:absolute; inset-block-start:0; inset-inline-start:0; }
+.mo-card .gal-card-art::after{ background:linear-gradient(180deg, transparent 42%, rgb(0 0 0 / .5) 68%, rgb(0 0 0 / .82)); }
+.mo-card .gal-card-art::after, .mo-card .gal-card-name, .mo-card .gal-badge, .mo-over{ transition:opacity .25s ease; }
+.mo-card.is-live .gal-card-art::after{ opacity:.15; }
+.mo-card.is-live .gal-card-name, .mo-card.is-live .gal-badge, .mo-card.is-live .mo-over{ opacity:0; }
+
+/* The name and the group badge share one line at the foot, over the scrim.
+   The gallery's badge corner, top-end, is where templates set their titles
+   (a chart's heading, "Our year in numbers"), so here it joins the name. A
+   long name wraps above the badge rather than running under it. */
+.mo-card-label{
+  position:absolute; z-index:1; inset-inline:var(--sp-5) var(--sp-4); inset-block-end:var(--sp-4);
+  display:flex; align-items:flex-end; justify-content:space-between; gap:var(--sp-4);
+}
+.mo-card-label .gal-card-name, .mo-card-label .gal-badge{ position:static; }
+.mo-card-label .gal-card-name{ min-inline-size:0; }
+.mo-card-tags{ flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:var(--sp-2); margin-block-end:1px; }
+
+/* Transparent — an overlay's card, a clear graphic's cover — shows the
+   checkerboard every editor draws under what has no background, in the
+   card's hue and dark like the rest of the gallery's ground. */
+.mo-card-art.is-clear, .mo-cover-frame.is-clear, .mo-hero-screen.is-clear{
+  background:repeating-conic-gradient(hsl(var(--h) 14% 20%) 0 25%, hsl(var(--h) 16% 14%) 0 50%) 0 0 / 14px 14px;
+}
+
+/* An overlay is the other way up: its words sit at the foot of the frame — a
+   lower third, a handle, a button — and its top is left clear for the video,
+   so its card's line goes to the top and the scrim turns with it. */
+.mo-card-art.is-clear::after{ background:linear-gradient(0deg, transparent 45%, rgb(0 0 0 / .55)); }
+.mo-card-art.is-clear .mo-card-label{ inset-block-end:auto; inset-block-start:var(--sp-4); align-items:flex-start; }
+.mo-card-art.is-clear .mo-card-tags{ margin-block:1px 0; }
+
+/* What the checkerboard means, under the overlay's group: the foot of the
+   frame stays the overlay's own. */
+.mo-over{
+  display:inline-flex; align-items:center; gap:var(--sp-2); padding:2px var(--sp-3); border-radius:10px;
+  background:rgb(10 8 20 / .62); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  color:#fff; font-size:10px; font-weight:600;
+}
+
+/* Your graphics: each drawn as it is, in its own shape and colours, on the
+   cover's ground; its shape and its length as a player shows them. */
+/* The focus ring, in the card's own hue taken toward the ink: the hue alone (the gallery's 60% light) stood at 1.2
+   to 2.5:1 against the light page, under the 3:1 a ring needs. Mixed, every hue is 3.5:1 or more in both themes. */
+.mo-card:focus-visible, .mo-cover:focus-visible{ outline:2px solid color-mix(in srgb, hsl(var(--h) 80% 55%), var(--ink) 45%); outline-offset:2px; }
+.mo-cover-slot{ position:absolute; inset:16px; display:flex; align-items:center; justify-content:center; }
+.mo-cover-frame{
+  position:relative; display:block; flex:none; overflow:hidden; border-radius:6px;
+  box-shadow:0 8px 24px rgb(0 0 0 / .45); transition:transform .3s ease;
+}
+.mo-cover:hover .mo-cover-frame{ transform:translateY(-3px); }
+/* The Research reader's cover page has a `.gal-cover-foot` of its own — the
+   double rule under the years — and its rule reaches the gallery's foot too. */
+.mo-cover .gal-cover-foot{ border-block-start:0; font-weight:600; }
+.mo-cover .gal-cover-foot small{ font-weight:400; }
+/* Its title on the reading side whatever script it is in (MotionPanel.css says why). */
+.mo-cover .gal-cover-foot span{ text-align:match-parent; }
+.mo-cover-time{
+  position:absolute; z-index:1; inset-block-end:var(--sp-3); inset-inline-end:var(--sp-3); padding:1px 6px; border-radius:4px;
+  background:rgb(0 0 0 / .7); color:#fff; font-size:10px; font-weight:700; font-variant-numeric:tabular-nums;
+}
+.mo-dot{ flex:none; inline-size:8px; block-size:8px; border-radius:50%; background:var(--rule-2); }
+.mo-dot.is-live{ background:var(--brand); animation:p 1.2s ease-in-out infinite; }
+.mo-dot.is-done{ background:var(--ok); }
+.mo-dot.is-bad{ background:var(--err); }
+
+@media (prefers-reduced-motion: reduce){
+  .mo-card .gal-card-art::after, .mo-card .gal-card-name, .mo-card .gal-badge, .mo-over, .mo-cover-frame{ transition:none; }
+  /* Nothing plays, so nothing steps aside. */
+  .mo-card.is-live .gal-card-art::after, .mo-card.is-live .gal-card-name, .mo-card.is-live .gal-badge, .mo-card.is-live .mo-over{ opacity:1; }
+  .mo-cover:hover .mo-cover-frame{ transform:none; }
+  .mo-dot.is-live{ animation:none; }
+}

@@ -1,0 +1,32 @@
+Second accent
+Muted colour
+Hex colour
+Custom colour
+Remove this colour
+Linear
+Radial
+Conic
+Angle
+Position
+Remove this stop
+Add a stop
+Top centre
+Middle, reading side
+Middle, far side
+Bottom centre
+Ease in
+Ease out
+Ease in and out
+Soft
+Cubic out
+Quart out
+Expo out
+Expo in and out
+Circular out
+Overshoot
+Overshoot both ways
+Elastic
+Bounce
+Spring
+Snappy
+Custom curve

@@ -1,0 +1,83 @@
+Text
+Icon
+Counter
+Chart
+Particles
+Sans
+Heavy
+Serif
+Mono
+Rectangle
+Ellipse
+Arc
+Polygon
+Straight line
+Path
+Bars across
+Line chart
+Donut
+Aurora
+Rays
+Waves
+Bokeh
+Stripes
+Confetti
+Sparks
+Bubbles
+Stars
+Snow
+1 u is a hundredth of the frame’s shorter side.
+Width
+Height
+Variation
+Shuffle
+Add a colour
+Phrase
+Not in the text, so not kept.
+Box
+Underline
+Weight
+Line height
+Letter spacing
+Capitals
+Wrap width
+Shrink to fit
+Needs a wrap width.
+Stroke
+Flat
+Square
+Sides
+Corner radius
+Inner size
+Sweep
+Only path letters and numbers can be drawn.
+SVG path in a 100 × 100 box
+Fill
+Line ends
+Dashed
+Dash
+Gap
+Line weight
+Badge
+Padding
+This file is not a picture. Choose a PNG, JPEG, WebP, GIF or SVG.
+This picture is larger than 12 MB.
+This picture is too large to keep, even made smaller.
+This picture could not be read.
+Preparing the picture…
+To
+Decimals
+Thousands separator
+Roll
+Duration
+Delay
+Curve
+Add a row
+Labels
+Values
+Thickness
+Stagger
+Count
+Spread
+Whole frame
+One burst

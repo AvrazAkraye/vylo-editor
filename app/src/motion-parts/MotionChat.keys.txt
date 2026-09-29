@@ -1,0 +1,34 @@
+Conversation with the graphic
+Talk to your graphic
+Say what to change in your own words — faster, bigger words, other colours, one more line. The model changes the graphic and lists every change under its answer; one undo takes a whole message back.
+Tell the graphic what to change…
+Message to the graphic
+The change could not be read from the model’s reply. Try again, or say it another way.
+Looking at the layers
+Checking the timing
+Make it faster
+Make the title bigger
+Change the colours
+Add a subtitle
+Second accent
+Muted colour
+New words: {fields}
+Colours: {name}
+New colour: {tones}
+The graphic now runs {n} s
+Changed the layer “{name}”
+Added a layer: {name}
+Removed the layer “{name}”
+Started again from the template “{name}”
+Everything moves {n} times as fast
+Everything moves more slowly: {n} times the speed
+It is no longer a template: from now on its words are changed layer by layer
+A number nobody gave is an example for now: put in the real one in Design
+Skipped: there is no layer “{id}”
+Skipped: “{field}” is not a setting of that layer
+Skipped: the words are changed layer by layer now, not in the template
+Skipped: “{field}” would show a number nobody gave — write the number in your message
+Not changed to {lang}: the words were not rewritten in it
+Skipped “{field}”: a picture comes only from you, never from the model
+Skipped: a chart needs numbers to draw
+Skipped: a graphic holds at most {n} layers

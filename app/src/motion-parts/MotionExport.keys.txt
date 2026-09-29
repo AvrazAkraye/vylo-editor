@@ -1,0 +1,21 @@
+Format
+Quality
+Frame
+Motion blur
+Smoother movement, as a camera would see it; saving takes several times as long.
+Keep transparency
+An MP4 cannot keep transparency; the background colour is used. Save a PNG to keep it.
+The frame at the playhead: {time}. Move the playhead to choose another.
+Download PNG
+Save as…
+Export PNG
+up to about {n} MB
+This window cannot make an MP4 here. Save a PNG instead.
+This window cannot make an MP4 this large.
+Rendering the picture…
+Frame {n} of {of}
+save the file
+The video could not be encoded: {why}
+The video is too large to save. Choose a smaller size, or make it shorter.
+This window cannot draw a frame this large. Choose a smaller size.
+The picture could not be made in this window.

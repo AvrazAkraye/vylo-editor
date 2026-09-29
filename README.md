@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.131.2</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.132.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -132,6 +132,22 @@ message. Edit it on a timeline with undo, start from one of ten templates, take
 the brand colours from your logo, and **Download MP4** — or WebM, 4K, all three shapes at once, a
 poster, subtitles — rendered in the app itself. The model never writes code; it
 writes the storyboard.
+
+**Motion, drawn with no library at all.** Turn on the Motion module and describe a
+motion graphic — *a lower third for Dr. Layla, cardiologist, in Arabic* — or
+start from one of eighteen templates: big titles, kinetic type, a split reveal, a
+quote, steps, a subscribe button, a callout, a social handle, a number that counts
+up, bar, line and donut charts, three figures with icons, a logo reveal, a
+countdown, an intro sting and moving backgrounds. Every one animates in your
+language — right to left where it should — and in landscape, vertical, square or
+4:5. Change the words and the palette, edit every layer's timing on a timeline,
+drag things on the canvas, ask the model for changes ("faster", "a bigger
+title"), undo any of it, and save an **MP4** or a **PNG** — with transparency for
+the overlays that sit on video. Unlike Video, Motion uses no animation, rendering
+or encoding library: the easing, the canvas renderer and the MP4 writer are this
+repository's own code, it fetches nothing, and it sends no telemetry. The model
+writes a description in a fixed vocabulary, and the app checks it; it never
+writes code.
 
 **Slides, from a sentence or a Research document.** Turn on the Slides module
 and describe the presentation — or pick a paper, thesis or defence the Research

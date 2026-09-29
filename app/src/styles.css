@@ -7387,3 +7387,1359 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   .vid-restyle.is-live .ghost svg{ animation:none; }
   .vid-icon-btn, .vid-icon-grid button{ transition:none; }
 }
+
+/* ── Motion studio: begin ─────────────────────────────────────────────────
+ *
+ * The studio's screens, in the order they compose: the stage and the thumbnails, the gallery, the
+ * timeline, the Design and Layers tabs and their controls, Export, the chat, and the panel that holds them.
+ * Every class is `mo-` prefixed. Written beside each component and merged here.
+ */
+
+/* MotionStage
+ */
+/* ── Motion: the stage (MotionStage.tsx) ──────────────────────────────────
+   The graphic, large, and the transport bar under it. The canvas holds only
+   what an export would; the checkerboard, the safe-area guide and the
+   selection outline are CSS around and over it. The frame and the bar are
+   dir="ltr" in every language (see the component), so the few physical
+   things below -- the outline's transform origin, a translate -- are
+   physical on purpose, inside a box that never mirrors. */
+
+.mo-stage{
+  flex:1; min-inline-size:0; min-block-size:0;
+  display:flex; flex-direction:column; gap:var(--sp-6);
+  padding:var(--sp-8) var(--sp-10) var(--sp-7);
+}
+/* In the sidebar: as tall as its content, the column's width. */
+.mo-stage.mo-is-compact{ flex:none; gap:var(--sp-3); padding:var(--sp-3) var(--sp-6) var(--sp-4); }
+
+/* The room the frame is fitted into. The margin the fit leaves is where the
+   focus ring and the shadow go; past it is the pasteboard. */
+.mo-stage-area{
+  position:relative; flex:1; min-block-size:220px;
+  display:flex; align-items:center; justify-content:center; overflow:hidden;
+}
+.mo-stage.mo-is-compact .mo-stage-area{ flex:none; min-block-size:0; }
+
+.mo-stage-frame{
+  position:relative; flex:none; border-radius:var(--r-1);
+  background:var(--panel-2);
+  box-shadow:0 10px 30px -12px rgb(0 0 0 / .5), 0 0 0 1px var(--rule);
+  touch-action:none; user-select:none; -webkit-user-select:none;
+}
+.mo-stage-frame.mo-is-over{ cursor:move; }
+.mo-stage-frame.mo-is-drag{ cursor:grabbing; }
+.mo-stage-frame:focus-visible{ outline:2px solid var(--brand); outline-offset:4px; border-radius:var(--r-1); }
+.mo-stage.mo-is-compact .mo-stage-frame:focus-visible{ outline-offset:1px; }
+
+/* A graphic with no backdrop is transparent, and says so the way every
+   editor does. The checkerboard is the one place colours are written here:
+   it is a convention, not a theme colour. */
+.mo-stage-frame.mo-is-clear{
+  background-color:#FFFFFF;
+  background-image:conic-gradient(#E3E3E8 25%, transparent 0 50%, #E3E3E8 0 75%, transparent 0);
+  background-size:16px 16px;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]) .mo-stage-frame.mo-is-clear{
+    background-color:#26272C;
+    background-image:conic-gradient(#34353C 25%, transparent 0 50%, #34353C 0 75%, transparent 0);
+  }
+}
+:root[data-theme="dark"] .mo-stage-frame.mo-is-clear{
+  background-color:#26272C;
+  background-image:conic-gradient(#34353C 25%, transparent 0 50%, #34353C 0 75%, transparent 0);
+}
+
+.mo-stage-canvas{ display:block; inline-size:100%; block-size:100%; border-radius:inherit; }
+
+/* The safe area: a dashed line 5% in from every edge, and the centre. Drawn
+   twice, light over dark, so it reads over any picture. */
+.mo-stage-safe{
+  position:absolute; inset:5%; pointer-events:none;
+  border:1px dashed rgb(255 255 255 / .8);
+  box-shadow:0 0 0 1px rgb(0 0 0 / .28), inset 0 0 0 1px rgb(0 0 0 / .28);
+}
+.mo-stage-safe::before, .mo-stage-safe::after{
+  content:''; position:absolute; inset-block-start:50%; inset-inline-start:50%;
+  background:rgb(255 255 255 / .85); box-shadow:0 0 0 1px rgb(0 0 0 / .28);
+  transform:translate(-50%, -50%);
+}
+.mo-stage-safe::before{ inline-size:22px; block-size:1px; }
+.mo-stage-safe::after{ inline-size:1px; block-size:22px; }
+
+/* The chosen layer: its box, turned with it, placed by the component in the
+   canvas's pixels. The halo keeps the line visible over a layer the same blue. */
+.mo-stage-sel{
+  position:absolute; inset-block-start:0; inset-inline-start:0; transform-origin:0 0;
+  outline:1.5px solid var(--brand); box-shadow:0 0 0 2.5px rgb(0 0 0 / .22);
+  pointer-events:none;
+}
+.mo-stage-sel i{
+  position:absolute; inline-size:7px; block-size:7px;
+  border:1.5px solid var(--brand); border-radius:1.5px; background:var(--panel);
+}
+.mo-stage-sel i:nth-child(1){ inset-block-start:-4.25px; inset-inline-start:-4.25px; }
+.mo-stage-sel i:nth-child(2){ inset-block-start:-4.25px; inset-inline-end:-4.25px; }
+.mo-stage-sel i:nth-child(3){ inset-block-end:-4.25px; inset-inline-start:-4.25px; }
+.mo-stage-sel i:nth-child(4){ inset-block-end:-4.25px; inset-inline-end:-4.25px; }
+/* A locked layer is shown, not offered: dashed, and nothing to take hold of. */
+.mo-stage-sel.mo-is-locked{ outline-style:dashed; }
+.mo-stage-sel.mo-is-locked i{ display:none; }
+
+/* ── the transport ── */
+.mo-stage-bar{
+  position:relative; flex:none; display:flex; align-items:center; gap:var(--sp-1);
+  inline-size:100%; max-inline-size:960px; margin-inline:auto; padding:var(--sp-2) var(--sp-3);
+  border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); box-shadow:var(--shadow);
+}
+.mo-stage.mo-is-compact .mo-stage-bar{
+  max-inline-size:none; gap:var(--sp-2); padding:0; border:0; background:transparent; box-shadow:none;
+}
+
+.mo-stage-btn{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  min-inline-size:30px; block-size:30px; padding:0 var(--sp-2);
+  border:0; border-radius:var(--r-2); background:transparent; color:var(--mute);
+  font:inherit; font-size:var(--fs-3); font-weight:600; font-variant-numeric:tabular-nums;
+  cursor:pointer; transition:background-color .12s ease, color .12s ease;
+}
+.mo-stage-btn:hover{ background:var(--panel-2); color:var(--ink); }
+.mo-stage-btn:active{ transform:translateY(1px); }
+.mo-stage-btn[aria-pressed="true"]{ background:var(--brand-wash); color:var(--brand); }
+.mo-stage-btn:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; border-radius:var(--r-2); }
+
+/* Play is the one filled control: the verb the bar exists for. */
+.mo-stage-play{
+  inline-size:34px; block-size:34px; padding:0; margin-inline:var(--sp-1);
+  border-radius:50%; background:var(--fill); color:var(--on-fill);
+}
+.mo-stage-play:hover{ background:var(--fill); color:var(--on-fill); filter:brightness(1.08); }
+/* A ring the colour of the fill it sits on is not a ring. */
+.mo-stage-play:focus-visible{ outline-color:var(--ink); border-radius:50%; }
+.mo-stage.mo-is-compact .mo-stage-play{ inline-size:30px; block-size:30px; margin-inline:0; }
+
+/* Wide enough for 0.25x, so the bar does not shift as the speed goes round. */
+.mo-stage-speed{ inline-size:48px; }
+
+/* The scrubber is drawn here rather than left to the engine: WebKit's own
+   slider ignores accent-color and paints a bright track in the dark theme.
+   The played part is --mo-played, which the component sets as a percentage;
+   the bar is always left to right, so the gradient runs that way. */
+.mo-stage-scrub{
+  -webkit-appearance:none; appearance:none;
+  min-inline-size:48px; block-size:28px; margin:0 var(--sp-3);
+  background:transparent; cursor:pointer;
+}
+.mo-stage-scrub::-webkit-slider-runnable-track{
+  block-size:4px; border-radius:999px;
+  background:linear-gradient(to right, var(--brand) var(--mo-played, 0%), var(--rule-2) var(--mo-played, 0%));
+}
+.mo-stage-scrub::-webkit-slider-thumb{
+  -webkit-appearance:none; appearance:none;
+  inline-size:14px; block-size:14px; margin-block-start:-5px; border-radius:50%;
+  border:2px solid var(--brand); background:var(--panel); box-shadow:0 1px 3px rgb(0 0 0 / .3);
+}
+.mo-stage-scrub:hover::-webkit-slider-thumb{ background:var(--brand-wash); }
+.mo-stage-scrub:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; border-radius:var(--r-1); }
+.mo-stage-bar > .mo-stage-scrub{ flex:1; }
+.mo-stage.mo-is-compact .mo-stage-scrub{ margin:0; }
+
+.mo-stage-time{
+  flex:none; padding-inline:var(--sp-2) var(--sp-3);
+  font-size:var(--fs-3); font-weight:600; color:var(--ink);
+  font-variant-numeric:tabular-nums; white-space:nowrap;
+}
+.mo-stage-of{ font-weight:400; color:var(--mute); }
+.mo-stage.mo-is-compact .mo-stage-time{ padding-inline:0; font-size:var(--fs-2); }
+
+.mo-stage-rule{ flex:none; inline-size:1px; block-size:18px; margin-inline:var(--sp-1) var(--sp-2); background:var(--rule); }
+
+/* Read by a screen reader, not shown: the speed's name, the stage's keys, and what changed. */
+.mo-stage-sr{
+  position:absolute; inline-size:1px; block-size:1px; margin:-1px; padding:0; overflow:hidden;
+  clip-path:inset(50%); white-space:nowrap; border:0;
+}
+
+/* Forced colours drop the scrubber's painted track: it is drawn as an outline instead. */
+@media (forced-colors: active){
+  .mo-stage-scrub::-webkit-slider-runnable-track{ border:1px solid; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .mo-stage-btn{ transition:none; }
+  .mo-stage-btn:active{ transform:none; }
+}
+
+/* MotionThumb
+ */
+/* ── Motion: a graphic drawn live (MotionThumb.tsx) ──────────────────────
+   A canvas the studio's renderer paints into. Its CSS size is set by the
+   component from the width it is given and the graphic's shape; its backing
+   store follows the display, at most twice. Where it sits is the container's
+   business (MotionHome.css). */
+.mo-thumb{ display:block; flex:none; }
+
+/* MotionHome
+ */
+/* ── Motion: the gallery home (MotionHome.tsx) ───────────────────────────
+   Built from the shared .gal-* parts, like Video's and Research's homes. What
+   is Motion's own is that every picture is the graphic itself, drawn live by
+   MotionThumb.tsx: on a screen in the banner, the whole frame on a card, in
+   its own shape on a cover. The pictures stand on the gallery's dark ground in
+   both themes, as every gallery picture does; the words around them follow
+   the theme's tokens. Logical properties throughout, so it mirrors. */
+
+/* The banner: the gallery's ground in the template's hue — mirrored right to
+   left like any other scene — and the template playing on a screen at the far
+   side from the words. The screen is never mirrored: there are words on it.
+   Its size and its distance from the far edge are measured (MotionHome.tsx's
+   roomIn), so it keeps clear of the words and the arrow at every width. */
+.mo-hero-art{ position:absolute; inset:0; display:block; }
+[dir="rtl"] .mo-hero-art > .gal-art-svg{ transform:scaleX(-1); }
+.mo-hero-screen{
+  position:absolute; inset-block-start:50%; inset-inline-end:64px; display:block; overflow:hidden;
+  border-radius:10px; transform:translateY(-50%);
+  box-shadow:0 0 0 1px rgb(255 255 255 / .14), 0 30px 60px -24px rgb(0 0 0 / .9), 0 0 90px -20px hsl(var(--h) 90% 60% / .6);
+}
+
+/* The heading "See the templates" scrolls to, kept clear of the top edge. */
+.mo-head{ scroll-margin-block-start:var(--sp-8); }
+
+/* A template's card. The art is the whole frame, 16:9, in the template's own
+   colours, and a template fills its frame with words — so the scrim under the
+   name is a little deeper than the gallery's. Still until it is pointed at or
+   focused; while it plays, the scrim, the name and the badges step aside and
+   the graphic is seen whole. */
+.gal-card-art.mo-card-art{ block-size:auto; aspect-ratio:16 / 9; }
+.mo-card-art > .mo-thumb{ position:absolute; inset-block-start:0; inset-inline-start:0; }
+.mo-card .gal-card-art::after{ background:linear-gradient(180deg, transparent 42%, rgb(0 0 0 / .5) 68%, rgb(0 0 0 / .82)); }
+.mo-card .gal-card-art::after, .mo-card .gal-card-name, .mo-card .gal-badge, .mo-over{ transition:opacity .25s ease; }
+.mo-card.is-live .gal-card-art::after{ opacity:.15; }
+.mo-card.is-live .gal-card-name, .mo-card.is-live .gal-badge, .mo-card.is-live .mo-over{ opacity:0; }
+
+/* The name and the group badge share one line at the foot, over the scrim.
+   The gallery's badge corner, top-end, is where templates set their titles
+   (a chart's heading, "Our year in numbers"), so here it joins the name. A
+   long name wraps above the badge rather than running under it. */
+.mo-card-label{
+  position:absolute; z-index:1; inset-inline:var(--sp-5) var(--sp-4); inset-block-end:var(--sp-4);
+  display:flex; align-items:flex-end; justify-content:space-between; gap:var(--sp-4);
+}
+.mo-card-label .gal-card-name, .mo-card-label .gal-badge{ position:static; }
+.mo-card-label .gal-card-name{ min-inline-size:0; }
+.mo-card-tags{ flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:var(--sp-2); margin-block-end:1px; }
+
+/* Transparent — an overlay's card, a clear graphic's cover — shows the
+   checkerboard every editor draws under what has no background, in the
+   card's hue and dark like the rest of the gallery's ground. */
+.mo-card-art.is-clear, .mo-cover-frame.is-clear, .mo-hero-screen.is-clear{
+  background:repeating-conic-gradient(hsl(var(--h) 14% 20%) 0 25%, hsl(var(--h) 16% 14%) 0 50%) 0 0 / 14px 14px;
+}
+
+/* An overlay is the other way up: its words sit at the foot of the frame — a
+   lower third, a handle, a button — and its top is left clear for the video,
+   so its card's line goes to the top and the scrim turns with it. */
+.mo-card-art.is-clear::after{ background:linear-gradient(0deg, transparent 45%, rgb(0 0 0 / .55)); }
+.mo-card-art.is-clear .mo-card-label{ inset-block-end:auto; inset-block-start:var(--sp-4); align-items:flex-start; }
+.mo-card-art.is-clear .mo-card-tags{ margin-block:1px 0; }
+
+/* What the checkerboard means, under the overlay's group: the foot of the
+   frame stays the overlay's own. */
+.mo-over{
+  display:inline-flex; align-items:center; gap:var(--sp-2); padding:2px var(--sp-3); border-radius:10px;
+  background:rgb(10 8 20 / .62); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px);
+  color:#fff; font-size:10px; font-weight:600;
+}
+
+/* Your graphics: each drawn as it is, in its own shape and colours, on the
+   cover's ground; its shape and its length as a player shows them. */
+/* The focus ring, in the card's own hue taken toward the ink: the hue alone (the gallery's 60% light) stood at 1.2
+   to 2.5:1 against the light page, under the 3:1 a ring needs. Mixed, every hue is 3.5:1 or more in both themes. */
+.mo-card:focus-visible, .mo-cover:focus-visible{ outline:2px solid color-mix(in srgb, hsl(var(--h) 80% 55%), var(--ink) 45%); outline-offset:2px; }
+.mo-cover-slot{ position:absolute; inset:16px; display:flex; align-items:center; justify-content:center; }
+.mo-cover-frame{
+  position:relative; display:block; flex:none; overflow:hidden; border-radius:6px;
+  box-shadow:0 8px 24px rgb(0 0 0 / .45); transition:transform .3s ease;
+}
+.mo-cover:hover .mo-cover-frame{ transform:translateY(-3px); }
+/* The Research reader's cover page has a `.gal-cover-foot` of its own — the
+   double rule under the years — and its rule reaches the gallery's foot too. */
+.mo-cover .gal-cover-foot{ border-block-start:0; font-weight:600; }
+.mo-cover .gal-cover-foot small{ font-weight:400; }
+/* Its title on the reading side whatever script it is in (MotionPanel.css says why). */
+.mo-cover .gal-cover-foot span{ text-align:match-parent; }
+.mo-cover-time{
+  position:absolute; z-index:1; inset-block-end:var(--sp-3); inset-inline-end:var(--sp-3); padding:1px 6px; border-radius:4px;
+  background:rgb(0 0 0 / .7); color:#fff; font-size:10px; font-weight:700; font-variant-numeric:tabular-nums;
+}
+.mo-dot{ flex:none; inline-size:8px; block-size:8px; border-radius:50%; background:var(--rule-2); }
+.mo-dot.is-live{ background:var(--brand); animation:p 1.2s ease-in-out infinite; }
+.mo-dot.is-done{ background:var(--ok); }
+.mo-dot.is-bad{ background:var(--err); }
+
+@media (prefers-reduced-motion: reduce){
+  .mo-card .gal-card-art::after, .mo-card .gal-card-name, .mo-card .gal-badge, .mo-over, .mo-cover-frame{ transition:none; }
+  /* Nothing plays, so nothing steps aside. */
+  .mo-card.is-live .gal-card-art::after, .mo-card.is-live .gal-card-name, .mo-card.is-live .gal-badge, .mo-card.is-live .mo-over{ opacity:1; }
+  .mo-cover:hover .mo-cover-frame{ transform:none; }
+  .mo-dot.is-live{ animation:none; }
+}
+
+/* MotionTimeline
+ */
+/* ── Motion: the timeline (MotionTimeline.tsx) ──
+   One row a layer, the front one first: a head on the interface's reading
+   side — the kind, the name, shown and locked — and a track that runs left to
+   right in every language (the track and the ruler are `dir="ltr"`, so the
+   insets inside them are left-to-right on purpose). Bars are the accent,
+   tinted: the entrance and the exit are ramps, the time a layer waits unseen
+   is paler still, a loop is a row of dots. The switches show on the chosen
+   row, on hover and on focus, and always when they are on. */
+.mo-tl{
+  --mo-tl-head:clamp(128px, 30%, 176px);
+  --mo-tl-row:28px;
+  --mo-tl-now:var(--err);
+  --mo-tl-line:color-mix(in srgb, var(--rule) 60%, transparent);
+  --mo-tl-fill:color-mix(in srgb, var(--brand) 30%, var(--panel));
+  --mo-tl-edge:color-mix(in srgb, var(--brand) 55%, transparent);
+  --mo-tl-erase:color-mix(in srgb, var(--panel) 84%, transparent);
+  position:relative; display:flex; flex-direction:column; min-inline-size:0;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel); overflow:hidden;
+  font-size:var(--fs-3); color:var(--ink);
+}
+.mo-tl-scroll{
+  position:relative; overflow-x:hidden; overflow-y:auto; max-block-size:var(--mo-tl-max, 340px);
+  overscroll-behavior:contain; scrollbar-width:thin; scrollbar-color:var(--rule-2) transparent;
+}
+
+/* The corner and the ruler stay on top while the rows scroll under them. */
+.mo-tl-top{
+  position:sticky; inset-block-start:0; z-index:4; display:flex; block-size:26px;
+  background:var(--panel-2); border-block-end:1px solid var(--rule);
+}
+.mo-tl-corner{
+  flex:none; display:flex; align-items:center; inline-size:var(--mo-tl-head); min-inline-size:0; overflow:hidden;
+  padding-inline:var(--sp-5); border-inline-end:1px solid var(--rule);
+}
+.mo-tl-clock{ display:inline-flex; align-items:baseline; gap:var(--sp-1); white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mo-tl-clock b{ font-size:var(--fs-4); font-weight:600; color:var(--ink); }
+.mo-tl-clock span{ font-size:var(--fs-2); color:var(--mute); }
+.mo-tl-ruler{
+  position:relative; flex:1; min-inline-size:0; cursor:pointer;
+  touch-action:none; user-select:none; -webkit-user-select:none;
+}
+.mo-tl-tick{ position:absolute; inset-block-end:0; inline-size:1px; block-size:4px; background:var(--rule-2); pointer-events:none; }
+.mo-tl-tick.mo-tl-halfsec{ block-size:2px; }
+.mo-tl-tick.mo-tl-numbered{ block-size:8px; background:var(--mute); }
+.mo-tl-tick b{
+  position:absolute; inset-block-end:8px; inset-inline-start:3px; font-size:var(--fs-1); font-weight:500; line-height:1;
+  color:var(--mute); font-variant-numeric:tabular-nums;
+}
+/* The last number sits before its tick, so the edge of the track does not cut it. */
+.mo-tl-tick.mo-tl-lastnum b{ inset-inline-start:auto; inset-inline-end:3px; }
+/* The playhead's knob. It is the ruler's slider too, so the ring is drawn on the knob. */
+.mo-tl-knob{ position:absolute; inset-block:0; inset-inline-start:0; z-index:2; inline-size:1px; outline:none; will-change:transform; }
+.mo-tl-knob::before{
+  content:''; position:absolute; inset-block-start:3px; inset-inline-start:-5px; inline-size:11px; block-size:11px;
+  border-start-start-radius:3px; border-start-end-radius:3px; border-end-start-radius:6px; border-end-end-radius:6px;
+  background:var(--mo-tl-now);
+}
+.mo-tl-knob::after{ content:''; position:absolute; inset-block:12px 0; inset-inline-start:0; inline-size:1px; background:var(--mo-tl-now); }
+.mo-tl-knob:focus-visible{ outline:none; }
+.mo-tl-knob:focus-visible::before{ box-shadow:0 0 0 2px var(--panel-2), 0 0 0 4px var(--brand); }
+.mo-tl-badge{
+  position:absolute; inset-block-start:4px; z-index:3; translate:-50% 0; padding:0 var(--sp-3); border-radius:999px;
+  background:var(--ink); color:var(--panel); font-size:var(--fs-1); font-weight:600; line-height:16px;
+  font-variant-numeric:tabular-nums; white-space:nowrap; pointer-events:none;
+}
+
+/* The rows, and over their tracks the playhead's line and a snap's guide. */
+.mo-tl-rows{ position:relative; }
+.mo-tl-over{ position:absolute; inset-block:0; inset-inline-start:var(--mo-tl-head); inset-inline-end:0; z-index:3; pointer-events:none; }
+.mo-tl-over-in{ position:absolute; inset:0; }
+.mo-tl-now{ position:absolute; inset-block:0; inset-inline-start:0; inline-size:1px; background:var(--mo-tl-now); will-change:transform; }
+.mo-tl-guide{ position:absolute; inset-block:0; inset-inline-start:0; inline-size:0; border-inline-start:1px dashed var(--brand); }
+.mo-tl-empty{ margin:0; padding:var(--sp-10) var(--sp-8); text-align:center; font-size:var(--fs-3); color:var(--mute); }
+
+.mo-tl-row{ position:relative; display:flex; block-size:var(--mo-tl-row); border-block-end:1px solid var(--mo-tl-line); }
+.mo-tl-row:last-child{ border-block-end:0; }
+.mo-tl-head{
+  position:relative; flex:none; display:flex; align-items:center; inline-size:var(--mo-tl-head); min-inline-size:0;
+  padding-inline:var(--sp-1); border-inline-end:1px solid var(--rule); background:var(--panel);
+}
+.mo-tl-row:hover .mo-tl-head{ background:color-mix(in srgb, var(--ink) 4%, var(--panel)); }
+.mo-tl-row.mo-tl-on .mo-tl-head{ background:var(--brand-wash); }
+.mo-tl-name{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-3); block-size:100%;
+  padding-block:0; padding-inline:var(--sp-3); border:0; border-radius:var(--r-1); background:transparent; color:var(--ink);
+  font:inherit; font-size:var(--fs-3); text-align:start; cursor:pointer;
+}
+.mo-tl-name:focus-visible, .mo-tl-tog:focus-visible{ outline-offset:-2px; }
+.mo-tl-kind{ flex:none; display:inline-grid; place-items:center; inline-size:16px; color:var(--mute); }
+/* Its own width, not the row's: a name in the other direction then sits by the glyph, and ellipsises at its own end. */
+.mo-tl-text{ flex:0 1 auto; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-tl-row.mo-tl-on .mo-tl-name, .mo-tl-row.mo-tl-on .mo-tl-kind{ color:var(--brand); }
+.mo-tl-row.mo-tl-on .mo-tl-name{ font-weight:600; }
+.mo-tl-row.mo-tl-hidden .mo-tl-text, .mo-tl-row.mo-tl-hidden .mo-tl-kind{ opacity:var(--dim); }
+/* In the row's flow, not over the name: a name then ellipsises before them, at its own end, in either direction. */
+.mo-tl-togs{ flex:none; display:flex; align-items:center; }
+.mo-tl-tog{
+  display:none; place-items:center; inline-size:28px; block-size:28px; padding:0; border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--mute); cursor:pointer;
+}
+.mo-tl-tog.mo-tl-on, .mo-tl-row:hover .mo-tl-tog, .mo-tl-row:focus-within .mo-tl-tog, .mo-tl-row.mo-tl-on .mo-tl-tog{ display:grid; }
+.mo-tl-tog:hover{ color:var(--ink); background:color-mix(in srgb, var(--ink) 7%, transparent); }
+.mo-tl-tog.mo-tl-on{ color:var(--brand); }
+
+/* The track: a hairline at every numbered second, from the same PAD the bars are placed from. */
+.mo-tl-lane{
+  position:relative; flex:1; min-inline-size:0; touch-action:pan-y;
+  background-image:linear-gradient(to right, var(--mo-tl-line) 1px, transparent 1px);
+  background-size:var(--mo-tl-step) 100%; background-position:var(--mo-tl-pad) 0; background-repeat:repeat-x;
+}
+.mo-tl-row:hover .mo-tl-lane{ background-color:color-mix(in srgb, var(--ink) 2.5%, transparent); }
+.mo-tl-row.mo-tl-on .mo-tl-lane{ background-color:color-mix(in srgb, var(--brand) 6%, transparent); }
+
+/* A bar: the whole row's height to press, the drawn part inset inside it. */
+.mo-tl-bar{ position:absolute; inset-block:0; z-index:1; cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none; }
+.mo-tl-bar:focus-visible{ outline:none; }
+.mo-tl-bar.mo-tl-dragging{ z-index:2; cursor:grabbing; }
+.mo-tl-row.mo-tl-locked .mo-tl-bar{ cursor:default; }
+/* The fill is the layer being seen: it fades in over the entrance and out over the exit, as the layer does,
+   and is all but gone while the layer waits. The outline is drawn over all of it, so a bar still reads as one. */
+.mo-tl-body{
+  position:absolute; inset-block:4px; inset-inline:0; display:flex; align-items:center; overflow:hidden;
+  border-radius:var(--r-1); background:var(--mo-tl-fill); color:var(--ink);
+}
+.mo-tl-body::after{
+  content:''; position:absolute; inset:0; z-index:1; border-radius:inherit; pointer-events:none;
+  box-shadow:inset 0 0 0 1px var(--mo-tl-edge);
+}
+.mo-tl-row.mo-tl-on .mo-tl-body{ --mo-tl-fill:color-mix(in srgb, var(--brand) 52%, var(--panel)); --mo-tl-edge:var(--brand); }
+.mo-tl-row.mo-tl-on .mo-tl-body::after{ box-shadow:inset 0 0 0 1.5px var(--mo-tl-edge); }
+.mo-tl-bar:focus-visible .mo-tl-body{ box-shadow:0 0 0 2px var(--panel), 0 0 0 3.5px var(--brand); }
+.mo-tl-row.mo-tl-hidden .mo-tl-body{ opacity:var(--dim); }
+.mo-tl-wait, .mo-tl-in, .mo-tl-out, .mo-tl-loop{ position:absolute; inset-block:0; pointer-events:none; }
+.mo-tl-wait{ background:var(--mo-tl-erase); }
+.mo-tl-in{ background:linear-gradient(to right, var(--mo-tl-erase), transparent); }
+.mo-tl-out{ background:linear-gradient(to left, var(--mo-tl-erase), transparent); }
+.mo-tl-loop{
+  inset-block:auto 2px; inset-inline:3px; block-size:4px;
+  background-image:radial-gradient(circle, color-mix(in srgb, var(--ink) 55%, transparent) 1px, transparent 1.6px);
+  background-size:5px 4px; background-position:0 50%; background-repeat:repeat-x;
+}
+.mo-tl-label{
+  position:relative; z-index:2; flex:0 1 auto; min-inline-size:0; padding-inline:var(--sp-5);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--fs-2); font-weight:500; line-height:1.2;
+}
+.mo-tl-row.mo-tl-on .mo-tl-label{ font-weight:600; }
+.mo-tl-grip{ position:absolute; inset-block:0; z-index:1; inline-size:10px; cursor:ew-resize; }
+.mo-tl-grip-start{ inset-inline-start:-4px; }
+.mo-tl-grip-end{ inset-inline-end:-4px; }
+.mo-tl-bar.mo-tl-narrow .mo-tl-grip-start{ inset-inline-start:-10px; }
+.mo-tl-bar.mo-tl-narrow .mo-tl-grip-end{ inset-inline-end:-10px; }
+.mo-tl-grip::after{
+  content:''; position:absolute; inset-block:10px; inline-size:2px; border-radius:1px; background:var(--ink);
+  opacity:0; transition:opacity .12s ease;
+}
+.mo-tl-grip-start::after{ inset-inline-start:7px; }
+.mo-tl-grip-end::after{ inset-inline-end:7px; }
+.mo-tl-bar:hover .mo-tl-grip::after, .mo-tl-bar.mo-tl-dragging .mo-tl-grip::after, .mo-tl-row.mo-tl-on .mo-tl-grip::after{ opacity:1; }
+
+/* Forced colours (Windows High Contrast) paint every background the page's colour and drop every shadow, so a bar,
+   the playhead and the ticks — all fills — vanished, and so did the bar's and the knob's focus rings. Borders and
+   outlines are kept (in the system's colours). */
+@media (forced-colors: active){
+  .mo-tl-body{ border:1px solid; }
+  .mo-tl-row.mo-tl-on .mo-tl-body{ border-width:2px; }
+  .mo-tl-now, .mo-tl-knob::after, .mo-tl-tick{ border-inline-start:1px solid; }
+  .mo-tl-knob::before{ border:2px solid; }
+  .mo-tl-bar:focus-visible .mo-tl-body, .mo-tl-knob:focus-visible::before{ outline:2px solid; outline-offset:2px; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .mo-tl-grip::after{ transition:none; }
+}
+
+/* MotionDesign
+ */
+/* ── Motion: the Design tab (MotionDesign.tsx) ──
+   The whole graphic, a section at a time, in the Video module's own controls:
+   `.vid-f` fields, `.vid-seg` choices, `.vid-formats` shapes, the Look tab's
+   slider and colour rows, `.vid-styles` swatches, the gallery's chips. What is
+   here is only what those do not do — the headings, four shapes in a row, the
+   palettes' dots, the hex codes — and a floor of 28 px under every control,
+   which the Video panel's denser ones sit below. Selectors that adjust a
+   shared control carry both classes, so they win wherever this is merged. */
+.mo-de{ display:flex; flex-direction:column; min-inline-size:0; }
+.mo-de-sec{
+  display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-6) var(--sp-7);
+  border-block-start:1px solid var(--rule);
+}
+.mo-de-sec:first-child{ border-block-start:0; }
+.mo-de-h{ margin:0; font-size:var(--fs-2); font-weight:600; letter-spacing:.08em; text-transform:uppercase; color:var(--mute); }
+:root[dir="rtl"] .mo-de-h{ letter-spacing:0; }
+.mo-de-off{
+  margin:0; padding:var(--sp-4) var(--sp-5); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--mute); font-size:var(--fs-3); line-height:1.55;
+}
+.mo-de .vid-seg button, .mo-de .gal-chip{ min-block-size:28px; }
+/* A number reads left to right; in a right-to-left form it still lines up with the words above it. */
+.mo-de-num{ font-variant-numeric:tabular-nums; }
+:root[dir="rtl"] .mo-de-num{ text-align:end; }
+
+/* The four shapes, each drawn at its own proportions above its ratio. */
+.vid-formats.mo-de-shapes{ grid-template-columns:repeat(4, minmax(0, 1fr)); }
+.vid-formats.mo-de-shapes button{ flex-direction:column; gap:var(--sp-2); min-block-size:54px; padding:var(--sp-3) var(--sp-2); }
+.vid-formats.mo-de-shapes b{ font-size:var(--fs-2); font-variant-numeric:tabular-nums; }
+.mo-de-frame{ display:block; flex:none; border:1.5px solid currentColor; border-radius:2px; }
+
+/* The length: the slider and its value on one line, the usual lengths under it. */
+.vid-look-slider.mo-de-len{ grid-template-columns:minmax(0, 1fr) auto; }
+.vid-look-slider.mo-de-len input{ block-size:28px; }
+.mo-de-chips{ display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+
+/* The palettes: five dots and a name each; then the five colours, each with its hex code. */
+.vid-styles.mo-de-pals button{ align-items:center; gap:var(--sp-3); min-inline-size:0; padding:var(--sp-4) var(--sp-2) var(--sp-3); }
+.vid-styles.mo-de-pals b{ max-inline-size:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:inherit; }
+.mo-de-dots{ display:inline-flex; }
+.mo-de-dots i{
+  inline-size:14px; block-size:14px; margin-inline-start:-4px; border-radius:50%;
+  border:1.5px solid var(--panel); box-shadow:0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent);
+}
+.mo-de-dots i:first-child{ margin-inline-start:0; }
+.mo-de-tones{ display:flex; flex-direction:column; gap:var(--sp-3); padding-block-start:var(--sp-2); }
+.mo-de-tone .vid-look-swatch input[type="color"]{ inline-size:40px; block-size:28px; }
+.mo-de-hex{
+  inline-size:8.5em; min-inline-size:0; block-size:28px; padding-block:0; padding-inline:var(--sp-3);
+  border:1px solid var(--rule); border-radius:var(--r-1); background:var(--panel-2); color:var(--ink);
+  font-family:var(--mono); font-size:var(--fs-2); text-transform:uppercase;
+}
+.mo-de-hex:focus{ outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--panel); }
+
+/* Forced colours: the hex field's focus was a border colour and a shadow, both overridden; a palette's dots are its
+   colours, so they keep them. */
+@media (forced-colors: active){
+  .mo-de-hex:focus{ outline:2px solid; outline-offset:1px; }
+  .mo-de-dots i{ forced-color-adjust:none; }
+}
+
+/* MotionControls
+ */
+/* ── Motion: the inspector's controls (MotionControls.tsx) ──────────────────
+   One row shape for every property: the label in a column of its own
+   (`--mo-label`, set by the inspector), the control after it. Fields sit on
+   --panel-2 inside the --panel card with a hairline, so they read as fields in
+   both themes. A number box is left to right in every language — a number and
+   its unit are one run — and its glyph is a drag handle. Logical properties
+   throughout; the transparency checkerboard is the one drawn colour. */
+
+.mo-glyph{ flex:none; display:block; }
+
+.mo-row{
+  display:grid; grid-template-columns:var(--mo-label, 96px) minmax(0, 1fr); align-items:center;
+  column-gap:var(--sp-4); min-block-size:30px;
+}
+.mo-label{
+  min-inline-size:0; font-size:var(--fs-3); line-height:1.25; color:var(--mute);
+  overflow-wrap:anywhere; -webkit-user-select:none; user-select:none;
+}
+.mo-ctl{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-1) var(--sp-2); min-inline-size:0; }
+/* A note about a value goes on its own line under it. */
+.mo-ctl > .mo-hint{ flex:1 1 100%; min-inline-size:0; }
+.mo-scrub{ cursor:ew-resize; touch-action:none; }
+
+/* A number: its glyph, the value, its unit. */
+.mo-num{
+  flex:1 1 0; display:flex; align-items:center; gap:var(--sp-2); min-inline-size:0; block-size:28px;
+  padding-inline:var(--sp-3); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--ink); transition:border-color .12s ease, background .12s ease;
+}
+.mo-num:hover{ border-color:var(--rule-2); }
+.mo-num:focus-within{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--panel); }
+.mo-num input{
+  flex:1; inline-size:100%; min-inline-size:0; padding:0; border:0; background:transparent; color:inherit;
+  font:inherit; font-size:var(--fs-3); font-variant-numeric:tabular-nums; text-align:start;
+}
+.mo-num input:focus, .mo-num input:focus-visible{ outline:none; }
+.mo-num input::placeholder{ color:var(--mute); opacity:1; }
+.mo-num.is-off{ opacity:var(--dim); }
+.mo-num-glyph{ flex:none; display:grid; place-items:center; inline-size:16px; block-size:100%; margin-inline-start:-2px; color:var(--mute); }
+.mo-num-glyph:hover{ color:var(--ink); }
+.mo-num-unit{ flex:none; font-size:var(--fs-2); color:var(--mute); -webkit-user-select:none; user-select:none; }
+.mo-num-short{ flex:0 0 76px; }
+
+/* A slider and its number. */
+.mo-range{ min-inline-size:0; block-size:28px; margin:0; accent-color:var(--brand); cursor:pointer; }
+/* The slider, a line of words and a select take the width their row leaves. */
+.mo-ctl > .mo-range, .mo-ctl > .mo-text, .mo-ctl > .mo-sel{ flex:1 1 0; }
+
+/* Words: a line, and a block of lines with its label above. */
+.mo-text{
+  inline-size:100%; min-inline-size:0; block-size:28px; padding-inline:var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-3);
+}
+.mo-text.is-mono, .mo-textarea.is-mono{ font-family:var(--mono); }
+.mo-area{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block:var(--sp-1); }
+.mo-area-top{ display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-3); }
+.mo-count{ font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
+.mo-textarea{
+  display:block; inline-size:100%; min-block-size:64px; padding:var(--sp-3) var(--sp-4); resize:vertical;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-4); line-height:1.45;
+}
+.mo-text:hover, .mo-textarea:hover, .mo-sel:hover{ border-color:var(--rule-2); }
+.mo-text:focus, .mo-textarea:focus, .mo-sel:focus{
+  outline:none; border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background-color:var(--panel);
+}
+.mo-text[aria-invalid="true"], .mo-textarea[aria-invalid="true"]{ border-color:var(--err); box-shadow:0 0 0 1px var(--err); }
+
+/* A select, drawn like the boxes, its caret two strokes of --mute. */
+.mo-sel{
+  inline-size:100%; min-inline-size:0; block-size:28px; padding-inline:var(--sp-4) 26px;
+  border:1px solid var(--rule); border-radius:var(--r-2); color:var(--ink); font:inherit; font-size:var(--fs-3);
+  -webkit-appearance:none; appearance:none; cursor:pointer;
+  background-color:var(--panel-2);
+  background-image:linear-gradient(45deg, transparent 50%, var(--mute) 50%), linear-gradient(135deg, var(--mute) 50%, transparent 50%);
+  background-position:calc(100% - 14px) 52%, calc(100% - 10px) 52%;
+  background-size:4px 4px, 4px 4px; background-repeat:no-repeat;
+}
+:root[dir="rtl"] .mo-sel{ padding-inline:var(--sp-4) 26px; background-position:10px 52%, 14px 52%; }
+.mo-sel:disabled{ opacity:var(--dim); cursor:default; }
+
+/* Segments: a track of choices, the chosen one lit. */
+.mo-seg{
+  flex:1 1 auto; display:flex; gap:1px; min-inline-size:0;
+  padding:1px; border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+}
+/* Laid out in columns when asked (the voices, the pieces of a split); otherwise a longer word gets more room. */
+.mo-seg.is-grid{ display:grid; }
+/* A long word wraps onto a second line inside its segment rather than being cut. */
+.mo-seg button{
+  flex:1 1 auto; display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-1); min-inline-size:0; min-block-size:28px;
+  padding:var(--sp-1) var(--sp-2); border:0; border-radius:var(--r-1); background:transparent; color:var(--mute);
+  font:inherit; font-size:var(--fs-2); line-height:1.15; text-align:center; overflow-wrap:break-word; cursor:pointer;
+}
+.mo-seg button:hover{ color:var(--ink); background:color-mix(in srgb, var(--ink) 5%, transparent); }
+.mo-seg button.on{ background:var(--brand-wash); color:var(--brand); font-weight:600; box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--brand) 35%, transparent); }
+.mo-seg button:disabled{ opacity:var(--dim); cursor:default; }
+.mo-seg button:focus-visible{ outline-offset:-2px; }
+
+/* A switch row: the whole row is the switch's label. */
+.mo-toggle{ cursor:pointer; }
+.mo-toggle .mo-ctl{ gap:var(--sp-4); }
+.mo-toggle.is-off{ cursor:default; }
+.mo-toggle.is-off .mo-label{ opacity:var(--dim); }
+
+/* Headings inside a section: a group, or a group that exists while it is on. */
+.mo-sub{
+  display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); min-block-size:28px;
+  margin-block-start:var(--sp-3); padding-block-start:var(--sp-3); border-block-start:1px dashed var(--rule);
+  font-size:var(--fs-2); font-weight:600; letter-spacing:.07em; text-transform:uppercase; color:var(--mute);
+}
+.mo-sub-toggle{ cursor:pointer; }
+.mo-sub-toggle:hover{ color:var(--ink); }
+:root[dir="rtl"] .mo-sub{ letter-spacing:0; }
+
+.mo-hint{ margin:0; font-size:var(--fs-2); line-height:1.45; color:var(--mute); }
+.mo-hint.is-bad{ color:var(--err); }
+
+.mo-icon-btn{
+  flex:none; display:grid; place-items:center; inline-size:28px; block-size:28px; padding:0;
+  border:0; border-radius:var(--r-2); background:transparent; color:var(--mute); cursor:pointer;
+}
+.mo-icon-btn:hover:not(:disabled){ color:var(--ink); background:color-mix(in srgb, var(--ink) 7%, transparent); }
+.mo-icon-btn:disabled{ opacity:var(--dim); cursor:default; }
+
+/* A section: a header that folds it, and what it says while folded. */
+.mo-sec{ border-block-start:1px solid var(--rule); }
+.mo-sec-h{ margin:0; font:inherit; }
+.mo-sec-btn{
+  display:flex; align-items:center; gap:var(--sp-3); inline-size:100%; min-block-size:38px; padding:0 var(--sp-5);
+  border:0; background:transparent; color:var(--ink); font:inherit; font-size:var(--fs-3); font-weight:600; text-align:start; cursor:pointer;
+}
+.mo-sec-btn:hover{ background:color-mix(in srgb, var(--ink) 3%, transparent); }
+.mo-sec-btn:focus-visible{ outline-offset:-2px; }
+.mo-sec-caret{ color:var(--mute); transition:transform .15s ease; }
+.mo-sec-btn[aria-expanded="true"] .mo-sec-caret{ transform:rotate(90deg); }
+:root[dir="rtl"] .mo-sec-btn[aria-expanded="false"] .mo-sec-caret{ transform:rotate(180deg); }
+.mo-sec-title{ flex:none; }
+.mo-sec-sum{
+  flex:1; min-inline-size:0; text-align:end; font-weight:400; font-size:var(--fs-2); color:var(--mute);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.mo-sec-body{ display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-1) var(--sp-5) var(--sp-6); }
+.mo-sec-body > .mo-sub:first-child, .mo-sec-body > :first-child > .mo-sub:first-child{ margin-block-start:0; padding-block-start:0; border-block-start:0; }
+
+/* A colour: its swatch button, and the chip it shows. */
+.mo-pop-anchor{ position:relative; flex:1 1 auto; display:flex; min-inline-size:0; }
+.mo-swatch{
+  flex:1; display:flex; align-items:center; gap:var(--sp-3); min-inline-size:0; block-size:28px; padding-inline:3px var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--ink);
+  font:inherit; font-size:var(--fs-3); text-align:start; cursor:pointer;
+}
+.mo-swatch:hover{ border-color:var(--rule-2); }
+.mo-swatch[aria-expanded="true"]{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+.mo-swatch:disabled{ opacity:var(--dim); cursor:default; }
+.mo-swatch-name{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-chip{
+  position:relative; flex:none; display:block; inline-size:20px; block-size:20px; overflow:hidden; border-radius:var(--r-1);
+  background:repeating-conic-gradient(rgb(0 0 0 / .14) 0 25%, rgb(255 255 255 / .9) 0 50%) 0 0 / 8px 8px;
+}
+/* The edge is drawn over the colour, so a white chip on a pale field still has one. */
+.mo-chip::before{ content:''; position:absolute; inset:0; z-index:1; border-radius:inherit; box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--ink) 22%, transparent); }
+.mo-chip i{ position:absolute; inset:0; }
+.mo-chip.is-none::after{
+  content:''; position:absolute; inset:0;
+  background:linear-gradient(135deg, transparent 44%, var(--err) 44% 56%, transparent 56%);
+}
+
+/* The popover a colour opens. */
+.mo-pop{
+  position:absolute; z-index:40; inset-block-start:calc(100% + 6px); inset-inline-end:0; inline-size:248px;
+  display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-5);
+  border:1px solid var(--rule-2); border-radius:var(--r-3); background:var(--panel);
+  box-shadow:0 18px 40px -14px rgb(0 0 0 / .35), 0 2px 6px rgb(0 0 0 / .08);
+  animation:mo-pop .14s ease-out;
+}
+.mo-pop.is-up{ inset-block-start:auto; inset-block-end:calc(100% + 6px); }
+.mo-pop.is-wide{ inline-size:276px; }
+.mo-pop .mo-seg{ flex:none; }
+.mo-pop-remove{ align-self:flex-start; color:var(--err); }
+@keyframes mo-pop{ from{ opacity:0; transform:translateY(-3px); } to{ opacity:1; transform:none; } }
+
+.mo-picker{ display:flex; flex-direction:column; gap:var(--sp-3); }
+.mo-tones{ display:flex; gap:var(--sp-2); }
+.mo-tone{
+  flex:1 1 0; display:grid; place-items:center; min-inline-size:28px; block-size:30px; padding:0;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); cursor:pointer;
+}
+.mo-tone:hover{ border-color:var(--rule-2); }
+.mo-tone .mo-chip{ inline-size:18px; block-size:18px; border-radius:50%; }
+.mo-tone[aria-pressed="true"], .mo-tone[aria-expanded="true"]{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); background:var(--brand-wash); }
+.mo-hexrow{ display:flex; gap:var(--sp-2); }
+.mo-hex input{ font-family:var(--mono); text-transform:uppercase; }
+.mo-native{
+  position:relative; flex:none; display:grid; place-items:center; inline-size:30px; block-size:28px; overflow:hidden;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2); color:var(--mute); cursor:pointer;
+}
+.mo-native:hover{ color:var(--ink); border-color:var(--rule-2); }
+.mo-native:focus-within{ border-color:var(--brand); box-shadow:0 0 0 1px var(--brand); }
+.mo-native input{ position:absolute; inset:0; inline-size:100%; block-size:100%; margin:0; padding:0; border:0; opacity:0; cursor:pointer; }
+
+/* A gradient: its stops on a bar, which runs left to right as the angle does. */
+.mo-grad{ display:flex; flex-direction:column; gap:var(--sp-4); }
+.mo-grad-top{ display:flex; align-items:center; gap:var(--sp-2); }
+.mo-grad-track{ position:relative; block-size:30px; margin-inline:9px; }
+.mo-grad-bar{
+  position:absolute; inset-inline:0; inset-block:8px; overflow:hidden; border-radius:999px;
+  background:repeating-conic-gradient(rgb(0 0 0 / .14) 0 25%, rgb(255 255 255 / .9) 0 50%) 0 0 / 8px 8px;
+  box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--ink) 14%, transparent);
+}
+.mo-grad-bar i{ position:absolute; inset:0; }
+.mo-stop{
+  position:absolute; inset-block-start:3px; inline-size:16px; block-size:24px; margin-inline-start:-8px; padding:0;
+  border:2px solid var(--panel); border-radius:var(--r-1); cursor:ew-resize; touch-action:none;
+  background:repeating-conic-gradient(rgb(0 0 0 / .14) 0 25%, rgb(255 255 255 / .9) 0 50%) 0 0 / 6px 6px;
+  box-shadow:0 0 0 1px var(--rule-2), 0 1px 3px rgb(0 0 0 / .25);
+}
+.mo-stop::before{ content:''; position:absolute; inset-block:-4px; inset-inline:-8px; }
+.mo-stop i{ position:absolute; inset:0; border-radius:2px; }
+.mo-stop.is-on{ box-shadow:0 0 0 2px var(--brand), 0 1px 3px rgb(0 0 0 / .25); z-index:1; }
+.mo-grad-foot{ display:flex; align-items:center; gap:var(--sp-2); }
+.mo-add-stop{ margin-inline-start:auto; }
+
+/* The nine points of the frame. */
+.mo-pin{
+  flex:none; display:grid; grid-template-columns:repeat(3, 28px); grid-template-rows:repeat(3, 28px); padding:2px;
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+}
+.mo-pin button{ display:grid; place-items:center; padding:0; border:0; border-radius:var(--r-1); background:transparent; cursor:pointer; }
+.mo-pin button i{
+  display:block; inline-size:6px; block-size:6px; border-radius:50%; background:var(--rule-2);
+  transition:inline-size .12s ease, block-size .12s ease, background .12s ease;
+}
+.mo-pin button:hover i{ background:var(--mute); }
+.mo-pin button.on i{ inline-size:10px; block-size:10px; background:var(--brand); box-shadow:0 0 0 3px var(--brand-wash); }
+.mo-pin button:focus-visible{ outline-offset:-2px; }
+
+/* A timing curve, drawn beside its select. */
+.mo-curve{ flex:none; border:1px solid var(--rule); border-radius:var(--r-1); background:var(--panel-2); color:var(--brand); }
+.mo-curve polyline{ fill:none; stroke:currentColor; stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; }
+.mo-curve-guide{ fill:none; stroke:var(--rule-2); stroke-width:1; stroke-dasharray:2 2; }
+
+/* Forced colours: the fields' focus was a border colour and a shadow, both overridden — an outline is kept. The nine
+   points were fills; a colour's chip is there to show the colour, so it keeps it. */
+@media (forced-colors: active){
+  .mo-num:focus-within, .mo-text:focus, .mo-textarea:focus, .mo-sel:focus{ outline:2px solid; outline-offset:1px; }
+  .mo-pin button i{ border:1px solid; }
+  .mo-pin button.on i{ border-width:5px; }
+  .mo-chip, .mo-grad-bar, .mo-stop{ forced-color-adjust:none; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .mo-pop{ animation:none; }
+  .mo-sec-caret, .mo-pin button i, .mo-num{ transition:none; }
+}
+
+/* MotionKinds
+ */
+/* ── Motion: what a layer shows, by kind (MotionKinds.tsx) ─────────────────
+   The voices written in their own faces, the icon grid, the picture and its
+   frame, a chart's table of numbers, a list of colour chips. */
+
+/* Six voices, three a row: a specimen in the face and its name. */
+.mo-voices button{ flex-direction:column; gap:0; min-block-size:44px; padding-block:var(--sp-1); }
+.mo-voice-spec{ font-size:var(--fs-7); font-weight:600; line-height:1.15; }
+.mo-voice-name{ max-inline-size:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--fs-2); line-height:1.25; }
+
+/* The icons: a search, and a grid that scrolls on its own. */
+.mo-icons{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block:var(--sp-1); }
+.mo-icon-search{ flex:none; color:var(--mute); }
+.mo-icon-search input{ color:var(--ink); }
+.mo-icon-clear{ margin-inline-end:calc(-1 * var(--sp-3)); }
+.mo-icon-grid{
+  display:grid; grid-template-columns:repeat(auto-fill, minmax(34px, 1fr)); gap:2px; max-block-size:184px; overflow-y:auto;
+  overscroll-behavior:contain; padding:2px; border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+}
+.mo-icon-grid button{
+  display:grid; place-items:center; block-size:34px; padding:0; border:0; border-radius:var(--r-1);
+  background:transparent; color:var(--ink); cursor:pointer;
+}
+.mo-icon-grid button:hover{ background:var(--panel); }
+.mo-icon-grid button.on{ background:var(--brand-wash); color:var(--brand); box-shadow:inset 0 0 0 1px var(--brand); }
+.mo-icon-grid button:focus-visible{ outline-offset:-2px; }
+
+/* A picture: its frame over the checkerboard, and what to do with it. */
+.mo-pic{ display:flex; align-items:center; gap:var(--sp-5); padding-block:var(--sp-2); }
+.mo-pic-frame{
+  position:relative; flex:none; display:grid; place-items:center; inline-size:104px; block-size:74px; overflow:hidden;
+  border:1px solid var(--rule); border-radius:var(--r-2); color:var(--mute);
+  background:repeating-conic-gradient(rgb(0 0 0 / .1) 0 25%, rgb(255 255 255 / .85) 0 50%) 0 0 / 10px 10px;
+}
+.mo-pic.is-empty .mo-pic-frame{ background:var(--panel-2); border-style:dashed; border-color:var(--rule-2); }
+/* A pixel of overscan: a downscaled picture's outermost row comes out part-transparent, and the checkerboard would show through it as a seam. */
+.mo-pic-frame img{ position:absolute; inset:-1px; display:block; inline-size:calc(100% + 2px); block-size:calc(100% + 2px); }
+.mo-pic-busy{ position:absolute; inset:0; opacity:.75; }
+.mo-pic-side{ flex:1; min-inline-size:0; display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-2); }
+.ghost.mo-pic-choose{ border-color:var(--rule); background:var(--panel-2); color:var(--ink); }
+.ghost.mo-pic-choose:hover{ border-color:var(--rule-2); }
+
+/* A chart's numbers. */
+.mo-data{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block:var(--sp-1); }
+.mo-data-rows{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); }
+.mo-data-row{ display:flex; align-items:center; gap:var(--sp-1); }
+.mo-data-row .mo-text{ flex:1 1 0; }
+.mo-num-value{ flex:0 0 78px; }
+.mo-data-acts{ flex:none; display:flex; }
+.mo-add-row{ align-self:flex-start; }
+
+/* Colours as chips, and the plus for another. */
+.mo-colours{ position:relative; flex:1; display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2); min-inline-size:0; }
+/* A chip's popover hangs from the whole row, so it opens inside the column whichever chip it is. */
+.mo-colours .mo-pop-anchor{ position:static; flex:none; }
+.mo-colour-chip{ flex:none; inline-size:30px; }
+.mo-colour-add{ border:1px dashed var(--rule-2); }
+
+.ghost.mo-shuffle{ flex:none; border-color:var(--rule); background:var(--panel-2); color:var(--ink); }
+.ghost.mo-shuffle:hover{ border-color:var(--rule-2); }
+.mo-seed{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:var(--fs-2); color:var(--mute); font-variant-numeric:tabular-nums; }
+
+/* MotionLayers
+ */
+/* ── Motion: the Layers tab (MotionLayers.tsx) ───────────────────────────────
+   The layers as a short card of rows, front first, and the selected one's
+   inspector below it as a second card of folding sections. A row's actions
+   are quiet until the row is pointed at or has the keyboard, and stay lit
+   while they are on. Dragging a row uses useReorder's own classes. */
+
+.mo-layers{
+  --mo-label:clamp(72px, 30%, 108px);
+  display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-3) var(--sp-6) var(--sp-10);
+}
+.mo-layers .ghost{ min-block-size:28px; }
+.mo-layers .ghost:disabled{ opacity:var(--dim); cursor:default; }
+
+.mo-bar{ display:flex; align-items:center; gap:var(--sp-3); min-block-size:30px; }
+.mo-bar-title{ flex:1; min-inline-size:0; font-size:var(--fs-2); font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--mute); }
+:root[dir="rtl"] .mo-bar-title{ letter-spacing:0; }
+.mo-bar .mo-pop-anchor{ flex:none; }
+.ghost.mo-add{ border-color:var(--rule); background:var(--panel); color:var(--ink); padding-inline:var(--sp-4) var(--sp-5); }
+.ghost.mo-add:hover:not(:disabled){ border-color:var(--rule-2); }
+.ghost.mo-add[aria-expanded="true"]{ border-color:var(--brand); color:var(--brand); }
+
+/* The eight kinds: the add menu, and the empty list. */
+.mo-add-menu{
+  position:absolute; z-index:40; inset-block-start:calc(100% + 6px); inset-inline-end:0; inline-size:272px; padding:var(--sp-3);
+  border:1px solid var(--rule-2); border-radius:var(--r-3); background:var(--panel);
+  box-shadow:0 18px 40px -14px rgb(0 0 0 / .35), 0 2px 6px rgb(0 0 0 / .08);
+  animation:mo-pop .14s ease-out;
+}
+.mo-kinds{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--sp-1); }
+.mo-kind{
+  display:flex; align-items:center; gap:var(--sp-3); min-inline-size:0; min-block-size:40px; padding-inline:var(--sp-2) var(--sp-3);
+  border:1px solid transparent; border-radius:var(--r-2); background:transparent; color:var(--ink);
+  font:inherit; font-size:var(--fs-4); text-align:start; cursor:pointer;
+}
+.mo-kind > span:last-child{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-kind:hover:not(:disabled){ background:var(--panel-2); border-color:var(--rule); }
+.mo-kind:disabled{ opacity:var(--dim); cursor:default; }
+.mo-kind-glyph{ flex:none; display:grid; place-items:center; inline-size:30px; block-size:30px; border-radius:var(--r-2); background:var(--brand-wash); color:var(--brand); }
+
+.mo-empty{ padding:var(--sp-6); border:1px dashed var(--rule-2); border-radius:var(--r-3); background:var(--panel); }
+.mo-empty p{ margin:0 0 var(--sp-4); font-size:var(--fs-3); color:var(--mute); }
+.mo-empty .mo-kind{ border-color:var(--rule); }
+
+/* The list: a card of rows that scrolls on its own once it is long. */
+.mo-list{
+  list-style:none; margin:0; padding:var(--sp-1); display:flex; flex-direction:column; gap:1px;
+  max-block-size:min(44vh, 420px); overflow-y:auto; overscroll-behavior:contain;
+  border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); box-shadow:var(--shadow);
+}
+.mo-layer{ display:flex; align-items:center; min-block-size:32px; border-radius:var(--r-2); }
+.mo-layer:hover{ background:color-mix(in srgb, var(--ink) 5%, transparent); }
+.mo-layer.is-on{ background:var(--brand-wash); }
+.mo-layer-main{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-2); block-size:32px; padding-inline:var(--sp-1) var(--sp-2);
+  border:0; border-radius:var(--r-2); background:transparent; color:var(--ink); font:inherit; font-size:var(--fs-4); text-align:start; cursor:default;
+}
+.mo-layer-main:focus-visible{ outline-offset:-2px; }
+.mo-layer-grip{ flex:none; display:grid; place-items:center; inline-size:14px; color:var(--mute); opacity:0; cursor:grab; transition:opacity .12s ease; }
+.mo-layer:hover .mo-layer-grip{ opacity:.7; }
+.mo-layer-glyph{ flex:none; display:grid; place-items:center; inline-size:22px; color:var(--mute); }
+.mo-layer.is-on .mo-layer-glyph{ color:var(--brand); }
+.mo-layer-name{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-layer.is-on .mo-layer-name{ font-weight:600; }
+.mo-layer.is-hidden .mo-layer-name, .mo-layer.is-hidden .mo-layer-glyph{ opacity:var(--dim); }
+.mo-layer-acts{ flex:none; display:flex; align-items:center; padding-inline-end:2px; }
+.mo-layer-act{
+  display:grid; place-items:center; inline-size:28px; block-size:28px; padding:0; border:0; border-radius:var(--r-2);
+  background:transparent; color:var(--mute); cursor:pointer; opacity:0; transition:opacity .12s ease;
+}
+.mo-layer:hover .mo-layer-act, .mo-layer:focus-within .mo-layer-act, .mo-layer.is-on .mo-layer-more, .mo-layer-act.is-set,
+.mo-layer-act[aria-expanded="true"]{ opacity:1; }
+.mo-layer-act.is-set{ color:var(--ink); }
+.mo-layer-act:hover{ color:var(--ink); background:color-mix(in srgb, var(--ink) 8%, transparent); }
+.mo-layer-act:focus-visible{ outline-offset:-2px; }
+@media (hover: none){ .mo-layer-act{ opacity:1; } }
+.mo-layer-main.is-naming{ padding-inline-start:calc(14px + var(--sp-1) + var(--sp-2)); }
+.mo-rename{
+  flex:1; min-inline-size:0; block-size:26px; padding-inline:var(--sp-2); border:1px solid var(--brand); border-radius:var(--r-1);
+  background:var(--panel); color:var(--ink); font:inherit; font-size:var(--fs-4); box-shadow:0 0 0 2px var(--brand-wash);
+  -webkit-user-select:text; user-select:text;
+}
+.mo-rename:focus{ outline:none; }
+.mo-rename.mo-rename-head{ block-size:28px; font-size:var(--fs-5); font-weight:600; }
+
+.mo-pick{ padding-block:var(--sp-6); text-align:center; }
+
+/* The row's menu is the app's ContextMenu: menu.ts gives it a physical x, and it is moved there with a transform from
+   its inline-start edge — which right to left is the RIGHT edge, so the menu opened past the window, out of sight
+   (measured at x 2037 in a 1400px window). Here it is moved from the left edge, as the transform assumes. */
+:root[dir="rtl"] .mo-layers .mn{ inset-inline-start:auto !important; inset-inline-end:0 !important; }
+
+/* The inspector: a header naming the layer, then its sections. */
+.mo-insp{ border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); box-shadow:var(--shadow); }
+/* The header stays at the top of the column while the sections scroll under it, so a deep section still says whose it is. */
+.mo-insp-head{
+  position:sticky; inset-block-start:0; z-index:2; display:flex; align-items:center; gap:var(--sp-4);
+  padding-block:var(--sp-4); padding-inline:var(--sp-5) var(--sp-3);
+  border-start-start-radius:var(--r-3); border-start-end-radius:var(--r-3); background:var(--panel);
+  box-shadow:0 1px 0 var(--rule);
+}
+.mo-insp-head + .mo-sec{ border-block-start:0; }
+/* A control reached going back up with Shift+Tab was scrolled into view under that header — 9 of 44 in a text
+   layer's inspector, some wholly hidden. The column keeps the header's height clear when it brings one into view
+   (WebKit honours scroll-padding on the scroller for this, not scroll-margin on the control). */
+.mo-full-side, .sb-panel:has(.mo-insp){ scroll-padding-block-start:80px; }
+.mo-insp-glyph{ flex:none; display:grid; place-items:center; inline-size:32px; block-size:32px; border-radius:var(--r-2); background:var(--brand-wash); color:var(--brand); }
+.mo-insp-what{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:1px; }
+.mo-insp-what b{ font-size:var(--fs-5); font-weight:600; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-insp-what small{ font-size:var(--fs-2); color:var(--mute); }
+
+/* Position: the anchor beside the two offsets. */
+.mo-place .mo-ctl{ align-items:center; gap:var(--sp-4); }
+.mo-place-xy{ flex:1; min-inline-size:0; display:flex; flex-direction:column; gap:var(--sp-2); }
+.mo-place-xy .mo-num{ flex:none; }
+
+/* Timing: the length, and where the layer sits in the graphic. */
+.mo-readout{ flex:none; font-size:var(--fs-3); color:var(--ink); font-variant-numeric:tabular-nums; }
+.mo-span{
+  position:relative; flex:1; min-inline-size:24px; block-size:6px; overflow:hidden; border-radius:999px;
+  background:var(--panel-2); box-shadow:inset 0 0 0 1px var(--rule);
+}
+.mo-span i{ position:absolute; inset-block:0; border-radius:999px; background:var(--brand); }
+.ghost.mo-to-end{ flex:none; padding-inline:var(--sp-3); font-size:var(--fs-2); border-color:var(--rule); }
+:root[dir="rtl"] .mo-to-end .mo-glyph{ transform:scaleX(-1); }
+
+/* Animation: an entrance, an exit, a loop; each effect said in a line. */
+.mo-anim{ display:flex; flex-direction:column; gap:var(--sp-2); }
+.mo-about{ padding-inline-start:calc(var(--mo-label) + var(--sp-4)); }
+.mo-note{ padding-block:var(--sp-1) var(--sp-2); }
+
+@media (prefers-reduced-motion: reduce){
+  .mo-add-menu{ animation:none; }
+  .mo-layer-grip, .mo-layer-act{ transition:none; }
+}
+
+/* MotionExport
+ */
+/* ── Motion: the Export tab (MotionExport.tsx) ────────────────────────────
+   The choices first -- what kind of file, how large, how good -- then one
+   filled action, Download, with Save as… beside it; while it runs, the
+   progress and Cancel in the buttons' place; when it is done, where the file
+   went. Video's download pieces are reused as they are (.vid-seg,
+   .vid-dl-set, .vid-dl-spec, .vid-status, .vid-dl-done…), so the two studios
+   save a file the same way; what is here is only what Motion adds. Tokens
+   only, so light and dark follow the theme; logical properties throughout,
+   so the tab mirrors in Arabic and Kurdish. */
+
+.mo-ex{ display:flex; flex-direction:column; gap:var(--sp-6); padding:var(--sp-5) var(--sp-7) var(--sp-8); }
+.mo-ex > .vid-status{ margin-inline:0; }
+
+/* What kind of file: two choices side by side, each with its icon and, as a
+   tag kept left to right, its extension. */
+.mo-ex-kinds{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.mo-ex-kinds button{
+  display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-3); min-inline-size:0;
+  padding-block:var(--sp-3); font-size:var(--fs-3);
+}
+.mo-ex-kinds button .ic{ flex:none; }
+.mo-ex-kinds button.on .ic{ color:var(--brand); }
+
+/* A size over its pixels, so the three are compared at a glance. */
+.mo-ex-sizes button{ display:flex; flex-direction:column; align-items:center; gap:1px; min-inline-size:0; padding-block:var(--sp-3); line-height:1.25; }
+.mo-ex-px{ font-size:var(--fs-1); font-weight:400; color:var(--mute); }
+.mo-ex-sizes button.on .mo-ex-px{ color:var(--ink-2); }
+
+/* A checkbox whose label has a line of explanation under it. */
+.mo-ex-check > span{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-1) var(--sp-3); min-inline-size:0; }
+.mo-ex-check b{ font-weight:500; }
+.mo-ex-check small{ flex-basis:100%; font-size:var(--fs-1); color:var(--mute); line-height:1.45; }
+.mo-ex-check input:disabled + span{ opacity:var(--dim); }
+
+/* Transparency, drawn the way every editor draws it: a checkerboard. */
+.mo-ex-alpha{
+  flex:none; display:inline-block; inline-size:12px; block-size:12px; border-radius:3px;
+  background:repeating-conic-gradient(var(--rule-2) 0% 25%, var(--panel) 0% 50%) 0 0 / 6px 6px;
+  box-shadow:inset 0 0 0 1px var(--rule-2);
+}
+
+/* A calm sentence, not a warning: nothing is wrong, this is what the choice cannot hold. */
+.mo-ex-note{
+  display:flex; align-items:flex-start; gap:var(--sp-3); margin:0; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel);
+  color:var(--ink-2); font-size:var(--fs-2); line-height:1.5;
+}
+.mo-ex-note > .mo-ex-alpha{ margin-block-start:2px; }
+
+/* Which frame a still is: the playhead's, as a time. */
+.mo-ex-frame{ margin:0; font-size:var(--fs-3); color:var(--ink-2); line-height:1.5; }
+.mo-ex-frame bdi{ font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+
+/* Download, filled, takes the room; Save as… sits beside it, quieter. */
+.mo-ex-acts{ display:flex; flex-wrap:wrap; gap:var(--sp-3); }
+.mo-ex-go{ flex:1 1 auto; min-inline-size:0; padding-block:var(--sp-4); }
+.mo-ex-go .ic{ flex:none; }
+.mo-ex-saveas{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  padding:var(--sp-4) var(--sp-5); border:1px solid var(--rule-2); border-radius:var(--r-2);
+  background:var(--panel); color:var(--ink); font:inherit; font-size:var(--fs-4); font-weight:500;
+  white-space:nowrap; cursor:pointer; transition:background .12s ease;
+}
+.mo-ex-saveas:hover:not(:disabled){ background:var(--panel-3); }
+.mo-ex-saveas:disabled{ color:var(--mute); opacity:var(--dim); cursor:default; }
+
+/* Done: the file's own name first, then the folder it is in, under the name. */
+.mo-ex-name{ font-weight:600; color:var(--ink); }
+.mo-ex-where{
+  margin:0; margin-block-start:calc(-1 * var(--sp-2)); padding-inline-start:calc(14px + var(--sp-3));
+  font-size:var(--fs-2); color:var(--mute); line-height:1.5; overflow-wrap:anywhere;
+}
+
+/* The segmented choices sit on a tinted track that an outset ring would
+   blend into; the ring is drawn a pixel closer, in the accent. */
+.mo-ex-kinds button:focus-visible, .mo-ex-sizes button:focus-visible, .mo-ex-saveas:focus-visible{
+  outline:2px solid var(--brand); outline-offset:1px;
+}
+
+@media (prefers-reduced-motion: reduce){
+  .mo-ex-saveas{ transition:none; }
+}
+
+/* MotionChat
+ */
+/* ── Motion: the Ask tab (MotionChat.tsx) ─────────────────────────────────
+   Video's conversation, as it is (.vid-chat-*): the person's words at the
+   inline end in the brand's wash, the model's at the start beside its mark,
+   and under every answer what it changed — a tick for what was done, a dimmed
+   line for what was skipped and why. What is Motion's own is only where the
+   conversation sits: under the stage in the sidebar, and taller in the full
+   window, where the side column has the room. */
+
+.mo-chat{ padding-block:var(--sp-2) var(--sp-4); }
+/* The no-key card inside the tab: the tab's own margins are its indent. */
+.mo-chat-key{ padding:var(--sp-2) 0 0; }
+.mo-chat-key > .ft-empty{ padding-block:var(--sp-2) 0; }
+.mo-full .mo-chat .vid-chat-log{ max-block-size:min(62vh, 820px); }
+/* Two lines of the hint, when it takes two, of even length rather than one word left over. */
+.mo-chat .vid-chat-hint{ text-wrap:balance; }
+
+/* MotionPanel
+ */
+/* ── Motion: the panel (MotionPanel.tsx) ──────────────────────────────────
+   The shell the studio's parts live in: the request form, the templates to
+   start from, the list, one graphic's view with its tabs, and the full
+   window. Video's language on purpose (.vid-ask, .vid-seg, .vid-status,
+   .vid-tabs are reused as they are), so the two studios read as one app;
+   what is Motion's own is below. Logical properties throughout: the panel is
+   used in Arabic and Kurdish first. */
+
+.mo{ display:flex; flex-direction:column; gap:var(--sp-2); padding-block-end:var(--sp-8); }
+/* Focusable so a click in the panel puts its keys (undo, the chosen layer's) to work; the focus is the panel's, not a control's. */
+.mo:focus{ outline:none; }
+
+/* ── the request ── */
+
+/* Auto and the four shapes, each drawn at its own proportions over its ratio. */
+.mo-form-shapes{ display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:var(--sp-2); }
+.mo-form-shapes button{
+  display:grid; grid-template-rows:18px auto; place-items:center; row-gap:var(--sp-2); min-inline-size:0;
+  padding:var(--sp-3) var(--sp-1) var(--sp-2); border:1px solid var(--rule); border-radius:var(--r-2);
+  background:var(--panel-2); color:var(--mute); font:inherit; cursor:pointer;
+  transition:border-color .15s ease, background .15s ease, color .15s ease;
+}
+.mo-form-shapes button:hover{ border-color:var(--rule-2); color:var(--ink); }
+.mo-form-shapes button.on{ border-color:var(--brand); background:var(--brand-wash); color:var(--brand); }
+.mo-form-shapes button:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
+.mo-form-shapes b{ font-size:var(--fs-2); font-weight:600; line-height:1.2; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.mo-form-shape{ display:block; border:1.5px solid currentColor; border-radius:2px; }
+.mo-form-shape.is-wide{ inline-size:21px; block-size:12px; }
+.mo-form-shape.is-tall{ inline-size:10px; block-size:18px; }
+.mo-form-shape.is-square{ inline-size:15px; block-size:15px; }
+.mo-form-shape.is-feed{ inline-size:13px; block-size:16px; }
+
+/* The palette: its name, and its five colours beside it. */
+.mo-form-pal{ display:flex; align-items:center; gap:var(--sp-4); }
+.mo-form-pal select{
+  flex:1; min-inline-size:0; padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel-2);
+  color:var(--ink); font:inherit; font-size:var(--fs-3); line-height:1.5; cursor:pointer;
+}
+/* An outline, not the fields' box-shadow: WebKit drops a box-shadow on a select it draws itself. */
+.mo-form-pal select:focus-visible{ outline:1px solid var(--brand); outline-offset:0; border-color:var(--brand); background:var(--panel); }
+.mo-form-dots{ flex:none; display:inline-flex; align-items:center; padding-inline-start:4px; }
+.mo-form-dots i{
+  inline-size:16px; block-size:16px; margin-inline-start:-4px; border-radius:50%;
+  box-shadow:0 0 0 2px var(--panel), 0 0 0 3px var(--rule);
+}
+/* Auto: the model's or the template's own, which is no one colour. */
+.mo-form-dots.is-auto i{ background:conic-gradient(from 200deg, var(--brand), var(--ok), var(--warn), var(--err), var(--brand)); }
+
+/* Why the last graphic could not be made, above the button that tries again. */
+.mo-form-error{
+  display:flex; align-items:flex-start; gap:var(--sp-3); margin:0; padding:var(--sp-3) var(--sp-4);
+  border-radius:var(--r-2); background:var(--err-wash); color:var(--err); font-size:var(--fs-2); line-height:1.5;
+}
+.mo-form-error > svg{ flex:none; margin-block-start:3px; }
+.mo-form-error > span{ flex:1; min-inline-size:0; overflow-wrap:anywhere; }
+.mo-form-error .sb-act{ display:inline-grid; place-items:center; inline-size:20px; block-size:20px; color:inherit; }
+
+/* ── templates to start from ── */
+
+.mo-tpls{ display:flex; flex-direction:column; gap:var(--sp-4); padding:var(--sp-6) var(--sp-6) var(--sp-2); }
+.mo-tpls-head{ display:flex; align-items:center; justify-content:space-between; gap:var(--sp-4); padding-inline-start:var(--sp-1); }
+.mo-tpls-head > span{ font-size:var(--fs-2); font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--mute); }
+/* Arabic script has no capitals, and spacing its letters apart breaks their joins. */
+:root[dir="rtl"] .mo-tpls-head > span{ letter-spacing:0; }
+.mo-tpls-all{
+  display:inline-flex; align-items:center; gap:var(--sp-1); padding:var(--sp-1) var(--sp-2);
+  border:0; border-radius:var(--r-1); background:transparent; color:var(--brand);
+  font:inherit; font-size:var(--fs-2); font-weight:600; white-space:nowrap; cursor:pointer;
+}
+.mo-tpls-all:hover{ background:var(--brand-wash); }
+.mo-tpls-all:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
+:root[dir="rtl"] .mo-tpls-all svg{ transform:scaleX(-1); }
+.mo-tpls-grid{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--sp-5) var(--sp-4); }
+.mo-tpls-grid.is-three{ grid-template-columns:repeat(3, minmax(0, 1fr)); }
+.mo-tpl{
+  display:flex; flex-direction:column; gap:var(--sp-2); min-inline-size:0; padding:0;
+  border:0; background:transparent; color:var(--ink-2); font:inherit; text-align:start; cursor:pointer;
+}
+/* The pictures stand on the gallery's dark ground in both themes (MotionHome.css): an overlay is white words on nothing. */
+.mo-tpl-art{
+  position:relative; display:block; aspect-ratio:16 / 9; overflow:hidden; border-radius:var(--r-2);
+  background:hsl(var(--h, 230) 25% 13%); box-shadow:0 0 0 1px var(--rule);
+  transition:transform .15s ease, box-shadow .15s ease;
+}
+.mo-tpl-art > .mo-thumb{ position:absolute; inset-block-start:0; inset-inline-start:0; }
+.mo-tpl:hover .mo-tpl-art{ transform:translateY(-1px); box-shadow:0 0 0 1px hsl(var(--h, 230) 70% 55% / .7), 0 8px 18px -10px hsl(var(--h, 230) 80% 40% / .7); }
+.mo-tpl:focus-visible{ outline:none; }
+.mo-tpl:focus-visible .mo-tpl-art{ outline:2px solid var(--brand); outline-offset:2px; }
+.mo-tpl-name{ padding-inline:var(--sp-1); font-size:var(--fs-2); font-weight:500; line-height:1.35; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-tpl:hover .mo-tpl-name{ color:var(--ink); }
+
+/* ── your graphics ── */
+
+.mo-graphics{ list-style:none; margin:0; padding:0 var(--sp-3); display:flex; flex-direction:column; gap:1px; }
+.mo-graphic{ display:flex; align-items:center; border-radius:var(--r-2); transition:background .12s ease; }
+.mo-graphic:hover, .mo-graphic:focus-within{ background:var(--panel-3); }
+.mo-graphic-open{
+  flex:1; min-inline-size:0; display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-3) var(--sp-4);
+  border:0; border-radius:var(--r-2); background:transparent; color:inherit; font:inherit; text-align:start; cursor:pointer;
+}
+.mo-graphic-open:focus-visible{ outline:2px solid var(--brand); outline-offset:-2px; }
+/* The graphic, still, in its own shape. The checkerboard is what has no background, as every editor draws it:
+   a convention in two fixed greys, not a theme colour (MotionStage.css does the same). */
+.mo-graphic-thumb{
+  flex:none; display:grid; place-items:center; inline-size:64px; block-size:40px; overflow:hidden; border-radius:var(--r-1);
+  background:repeating-conic-gradient(#26272C 0 25%, #1C1D22 0 50%) 0 0 / 10px 10px;
+  box-shadow:0 0 0 1px var(--rule);
+}
+.mo-graphic-del{ display:inline-grid; place-items:center; margin-inline-end:var(--sp-3); opacity:0; transition:opacity .12s ease, color .12s ease; }
+.mo-graphic:hover .mo-graphic-del, .mo-graphic:focus-within .mo-graphic-del{ opacity:1; }
+.mo-graphic-del:hover{ color:var(--err); }
+.mo-graphic-del:focus-visible{ opacity:1; outline:2px solid var(--brand); outline-offset:1px; }
+@media (hover: none){ .mo-graphic-del{ opacity:1; } }
+
+/* ── one graphic ── */
+
+.mo-view{ display:flex; flex-direction:column; gap:var(--sp-3); }
+
+/* A run: Video's card, with Cancel under the clock. */
+.mo-status-acts{ display:flex; }
+.mo-status-acts .ghost.bordered{ inline-size:auto; width:auto; gap:var(--sp-3); padding-block:var(--sp-2); font-size:var(--fs-3); }
+
+/* The frame the graphic being made will fill, in its shape, with a light moving across it. */
+.mo-wait{ display:flex; flex-direction:column; align-items:center; gap:var(--sp-5); padding:var(--sp-2) var(--sp-6) 0; text-align:center; }
+.mo-wait-frame{
+  display:grid; place-items:center; inline-size:100%; border-radius:var(--r-2); box-shadow:0 0 0 1px var(--rule);
+  background:linear-gradient(110deg, var(--panel-2) 30%, var(--panel-3) 50%, var(--panel-2) 70%) 0 0 / 200% 100%;
+  animation:mo-sheen 1.8s linear infinite;
+}
+.mo-wait-frame.is-idle{ animation:none; background:var(--panel-2); }
+.mo-wait-frame.is-wide{ aspect-ratio:16 / 9; }
+.mo-wait-frame.is-square{ aspect-ratio:1; inline-size:min(100%, 240px); }
+.mo-wait-frame.is-feed{ aspect-ratio:4 / 5; inline-size:min(100%, 200px); }
+.mo-wait-frame.is-tall{ aspect-ratio:9 / 16; inline-size:min(100%, 150px); }
+.mo-wait.is-big{ inline-size:min(760px, 100%); padding:0; }
+.mo-wait.is-big .mo-wait-frame{ box-shadow:0 12px 32px rgb(0 0 0 / .18), 0 0 0 1px var(--rule); }
+.mo-wait.is-big .mo-wait-frame.is-square{ inline-size:min(100%, 420px); }
+.mo-wait.is-big .mo-wait-frame.is-feed{ inline-size:min(100%, 360px); }
+.mo-wait.is-big .mo-wait-frame.is-tall{ inline-size:min(100%, 250px); }
+.mo-wait.is-big > b{ font-size:var(--fs-6); color:var(--ink); }
+.mo-wait.is-big > p{ margin:0; max-inline-size:60ch; font-size:var(--fs-4); line-height:1.6; color:var(--mute); overflow-wrap:anywhere; }
+@keyframes mo-sheen{ from{ background-position:200% 0; } to{ background-position:-200% 0; } }
+
+/* The model's numbers are examples until the person puts in theirs. */
+.mo-examples{
+  display:flex; align-items:flex-start; gap:var(--sp-3); margin:0 var(--sp-6); padding:var(--sp-3) var(--sp-4);
+  border-inline-start:2px solid var(--warn); border-start-start-radius:0; border-end-start-radius:0;
+  border-start-end-radius:var(--r-2); border-end-end-radius:var(--r-2);
+  background:var(--warn-wash); color:var(--warn); font-size:var(--fs-2); line-height:1.5;
+}
+.mo-examples > svg{ flex:none; margin-block-start:2px; }
+.mo-examples > span{ flex:1; min-inline-size:0; }
+.mo-examples .sb-act{ display:inline-grid; place-items:center; inline-size:20px; block-size:20px; color:inherit; }
+
+/* A message being answered, said while another tab is shown. */
+.mo-answering{
+  display:flex; align-items:center; gap:var(--sp-3); margin:0 var(--sp-6); padding-block:var(--sp-2); padding-inline:var(--sp-4) var(--sp-2);
+  border:1px solid color-mix(in srgb, var(--brand) 30%, var(--rule)); border-radius:var(--r-2);
+  background:var(--brand-wash); color:var(--ink-2); font-size:var(--fs-2);
+}
+.mo-answering > span:not(.vid-glyph){ flex:1; min-inline-size:0; }
+.mo-answering .ghost{ padding:var(--sp-1) var(--sp-3); font-size:var(--fs-2); font-weight:600; color:var(--brand); }
+
+/* The tabs: Video's, one line, the Ask tab marked while its message is answered. */
+.mo-tabs button{ display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2); white-space:nowrap; }
+.mo-tabs button:focus-visible{ outline:2px solid var(--brand); outline-offset:-1px; }
+.mo-tabs-dot{ inline-size:6px; block-size:6px; border-radius:50%; background:var(--brand); animation:p 1.2s ease-in-out infinite; }
+.mo-tabs-panel{ display:flex; flex-direction:column; gap:var(--sp-4); min-inline-size:0; padding-block-start:var(--sp-2); }
+
+/* A graphic the app closed on while the model was making it. */
+.mo-unmade{
+  display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-4); margin:var(--sp-2) var(--sp-6) 0; padding:var(--sp-5);
+  border:1px dashed var(--rule-2); border-radius:var(--r-3); background:var(--panel);
+}
+.mo-unmade > p{ margin:0; font-size:var(--fs-3); line-height:1.55; color:var(--ink-2); }
+.mo-unmade .mo-unmade-asked{
+  align-self:stretch; padding:var(--sp-3) var(--sp-4); border-radius:var(--r-2); background:var(--panel-2);
+  color:var(--ink); font-size:var(--fs-4); overflow-wrap:anywhere;
+}
+.mo-unmade .sb-cta{ align-self:stretch; padding:0; }
+
+/* ── the full window ── */
+
+.mo-full{ position:fixed; inset:0; z-index:50; display:flex; flex-direction:column; background:var(--bg); animation:rise .18s ease-out; }
+.mo-full:focus{ outline:none; }
+.mo-full-head{
+  flex:none; display:flex; align-items:center; gap:var(--sp-4); padding:var(--sp-4) var(--sp-7);
+  border-block-end:1px solid var(--rule); background:var(--panel);
+}
+.mac .mo-full-head{ padding-block-start:calc(var(--titlebar) + var(--sp-2)); }
+.mo-full-head > svg{ flex:none; color:var(--brand); }
+.mo-full-head b{ font-size:var(--fs-5); color:var(--ink); }
+.mo-full-head span{ flex:1; min-inline-size:0; font-size:var(--fs-3); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-full-head .sb-act, .mo-full-error .sb-act{ display:inline-grid; place-items:center; }
+.mo-full-head .sb-act:focus-visible, .mo-full-error .sb-act:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
+.mo-full-error{
+  flex:none; display:flex; align-items:center; gap:var(--sp-4); margin:0;
+  padding:var(--sp-3) var(--sp-7); border-block-end:1px solid var(--rule);
+  background:var(--err-wash); color:var(--err); font-size:var(--fs-2); line-height:1.5;
+}
+.mo-full-error span{ flex:1; min-inline-size:0; overflow-wrap:anywhere; }
+.mo-full-error .sb-act{ color:inherit; }
+.mo-full-main{ flex:1; min-block-size:0; display:flex; }
+/* The sidebar's body, as wide as a generous sidebar: the tabs and the form keep the measure they were made for. */
+.mo-full-side{
+  flex:none; inline-size:clamp(300px, 30vw, 420px); padding-block-start:var(--sp-3); overflow-y:auto;
+  border-inline-end:1px solid var(--rule); background:var(--panel-2);
+}
+.mo-full-stage{
+  flex:1; min-inline-size:0; min-block-size:0; display:flex; flex-direction:column; overflow:hidden;
+  background:radial-gradient(ellipse at 50% 0%, color-mix(in srgb, var(--brand) 9%, var(--bg)), var(--bg) 70%);
+}
+.mo-full-stage > .mo-examples{ flex:none; margin:var(--sp-6) var(--sp-10) 0; }
+/* The stage takes what the timeline leaves; the timeline, at most a bit more than a third. When even the smallest
+   frame and the transport do not fit — the app zoomed to 175% and more — the stage scrolls rather than let the
+   timeline cover the scrubber. */
+.mo-full-canvas{ flex:1; min-block-size:0; display:flex; flex-direction:column; overflow-y:auto; }
+/* The timeline's own scroll area fills the room it is given here rather than keeping its 340px: in a window of the
+   default size that room is 291px, and the last rows — and a row chosen on the stage, scrolled "into view" — sat
+   under the window's edge, behind a second scroll bar. */
+.mo-full-time{ flex:none; display:flex; flex-direction:column; max-block-size:40%; min-block-size:0; overflow:hidden; border-block-start:1px solid var(--rule); background:var(--panel); }
+.mo-full-time > .mo-tl{ flex:1 1 auto; min-block-size:0; }
+.mo-full-time .mo-tl-scroll{ flex:1 1 auto; min-block-size:0; max-block-size:none; }
+.mo-full-wait{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--sp-8); padding:var(--sp-10) 40px; overflow-y:auto; }
+/* A small window. The stage's column is the window less the side column (300px below 1000px), so the
+   breakpoints are the window's. Narrow: the transport keeps every control — the time drops the length the
+   timeline shows anyway, then the scrubber takes a line of its own. Short: the frame gives up room before the
+   transport does, which would otherwise be cut off under the timeline. */
+@media (max-width: 840px){
+  .mo-full .mo-full-canvas .mo-stage{ padding-inline:var(--sp-5); }
+  .mo-full .mo-full-canvas .mo-stage-of, .mo-full .mo-full-canvas .mo-stage-rule{ display:none; }
+}
+@media (max-width: 760px){
+  .mo-full .mo-full-canvas .mo-stage-bar{ flex-wrap:wrap; row-gap:var(--sp-1); }
+  .mo-full .mo-full-canvas .mo-stage-bar > .mo-stage-scrub{ order:1; flex:1 0 100%; margin:0; }
+}
+@media (max-height: 640px){
+  .mo-full .mo-full-canvas .mo-stage{ padding-block:var(--sp-4) var(--sp-3); gap:var(--sp-3); }
+  .mo-full .mo-full-canvas .mo-stage-area{ min-block-size:120px; }
+}
+
+/* A title in the other script — English in Arabic, Arabic in English — keeps its own direction (dir="auto") but sits
+   on the interface's reading side, beside what it names: measured in Arabic, an English title stood 1,110px from the
+   window's "Motion" label, at the far end by the restore button. */
+.mo-full-head span, .mo-view .vid-title b, .mo-graphic .vid-row-what b, .mo-tpl-name{ text-align:match-parent; }
+
+@media (prefers-reduced-motion: reduce){
+  .mo-full, .mo-wait-frame, .mo-tabs-dot{ animation:none; }
+  .mo-form-shapes button, .mo-tpl-art, .mo-graphic, .mo-graphic-del{ transition:none; }
+  .mo-tpl:hover .mo-tpl-art{ transform:none; }
+}
+
+/* ── Motion studio: end ───────────────────────────────────────────────────── */

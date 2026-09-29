@@ -100,6 +100,14 @@ const ICONS: Record<string, Stroke[]> = {
   // Slides. A board on a stand with a rising line on it: a talk given from
   // slides, which `board` (the kanban) and `grid` already cannot say.
   slides: [{ d: 'M3.5 4.5h17M5 4.5V14a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V4.5M12 15v3M9 20.5l3-2.5 3 2.5M8.5 12l2.5-2.5 2 2 3-3' }],
+  // Motion. The curve every animation is timed on, between the two moments it
+  // joins. `film` already means a finished video here, and a sparkle means the
+  // model, so neither could say "this moves".
+  motion: [
+    { d: 'M7.4 18C13 18 11 6 16.6 6' },
+    { d: 'M5.6 16.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z', fill: true },
+    { d: 'M18.4 4.3a1.7 1.7 0 1 0 0 3.4 1.7 1.7 0 0 0 0-3.4z', fill: true },
+  ],
   pencil: [{ d: 'M4.6 19.4l.7-3.5a2 2 0 0 1 .55-1.02L15.9 4.7a2.2 2.2 0 0 1 3.4 2.77l-.28.33-10.03 10.03a2 2 0 0 1-1.02.55zM14.4 6.2l3.4 3.4' }],
   // Research's researchers: a person, head and shoulders — the people whose
   // manner a document can be written in.

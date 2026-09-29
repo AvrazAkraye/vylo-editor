@@ -1,0 +1,32 @@
+Layers
+Export
+Design
+Not finished
+Making the graphic…
+The numbers here are examples. Replace them with yours in Design.
+make the graphic
+Delete this graphic?
+It is removed from this machine. An MP4 or PNG you exported is not touched.
+The graphic changed while the model was answering, so nothing was applied. Send the message again.
+Graphics cannot be kept on this machine right now. Export before you close the app.
+Motion is open over the whole window.
+What should the graphic show?
+Describe a motion graphic…
+Make it
+The model designs it from the app’s own shapes, effects and typefaces, never code. Change anything afterwards.
+Templates need no key: start from one below.
+Your graphics
+All templates
+Making…
+Delete this graphic
+This graphic was not finished: the app closed while the model was making it.
+Make it again
+The model is answering your message…
+Feed 4:5
+Writing the graphic…
+Choosing a design
+Placing the layers
+Timing the motion
+The graphic could not be read from the model’s reply. Try again, or say it another way.
+The model’s reply could not be read. Try again.
+Templates need no key: start from one in the gallery.
