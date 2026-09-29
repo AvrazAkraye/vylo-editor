@@ -472,6 +472,32 @@ const alphaOfColour = (s) => {
   let loaded = false;
   await preload(docOf({ layers: [HAND.image({}), text()] })).then(() => { loaded = true; });
   ok('preload resolves without a browser to load in', loaded);
+  {
+    // A logo on a transparent ground is its own outline: it casts its shadow, and takes its shimmer, from the
+    // pixels it has and not from the box round them. (A picture that fills its box, or has rounded corners, keeps the box.)
+    class FakeImage { constructor() { this.naturalWidth = 100; this.naturalHeight = 100; } decode() { return Promise.resolve(); } }
+    globalThis.Image = FakeImage;
+    try {
+      const shadow = { color: '#000000aa', blur: 4, x: 0, y: 2 };
+      const shimmer = { fx: 'shimmer', d: 2, delay: 0, ease: 'linear', amount: 1 };
+      const logo = (o) => HAND.image({ src: `data:image/png;base64,LOGO${++seq}`, fit: 'contain', radius: 0, w: 40, h: 40, ...o });
+      const layers = { shadowed: logo({ shadow }), shining: logo({ loop: shimmer }), photoShadow: logo({ fit: 'cover', radius: 2, shadow }), photoShine: logo({ fit: 'cover', radius: 2, loop: shimmer }), slightly: logo({ radius: 1.5, shadow }), rounded: logo({ radius: 8, shadow }) };
+      await preload(docOf({ layers: Object.values(layers) }));
+      const drawn = (l, t = 1) => calls(l, t);
+      const lit = (l) => { const before = offscreens.length; const c = drawn(l); return { c, scratch: offscreens.slice(before).filter((o) => o.rec.calls.some((x) => x.set && x.name === 'globalCompositeOperation' && x.args[0] === 'destination-in')) }; };
+      ok('a logo (fitted whole, square corners) casts its shadow by drawing the picture itself, not its box', named(drawn(layers.shadowed), 'drawImage').length === 2, named(drawn(layers.shadowed), 'drawImage').length);
+      ok('a picture with rounded corners, or that fills its box, still casts the box\'s shadow', named(drawn(layers.photoShadow), 'drawImage').length === 1);
+      ok('the default 1.5u rounding of a new picture does not stop a logo casting its own shadow; a real corner radius does', named(drawn(layers.slightly), 'drawImage').length === 2 && named(drawn(layers.rounded), 'drawImage').length === 1, [named(drawn(layers.slightly), 'drawImage').length, named(drawn(layers.rounded), 'drawImage').length]);
+      const l = lit(layers.shining);
+      ok('the shimmer on a logo is laid on the logo\'s pixels only: made on a scratch canvas and kept where the picture is', l.scratch.length === 1 && named(l.c, 'drawImage').length === 2, [l.scratch.length, named(l.c, 'drawImage').length]);
+      ok('  and the box is not filled with light', named(l.c, 'fillRect').length === 0);
+      const p = lit(layers.photoShine);
+      ok('the shimmer on a picture that fills its box lights the box, as before', p.scratch.length === 0 && named(p.c, 'fillRect').length === 1);
+      ok('the band starts outside the picture: at the loop\'s first instant only the picture is drawn', named(drawn(layers.shining, 0), 'drawImage').length === 1, named(drawn(layers.shining, 0), 'drawImage').length);
+    } finally {
+      delete globalThis.Image;
+    }
+  }
   const line = run(docOf({ layers: [shape({ shape: 'line', w: 30, h: 0, fill: 'accent', pin: 'bs' })] }), 2);
   const lb = layerBox(makeEnv(line.ctx, docOf(), 2, 1920, 1080), shape({ shape: 'line', w: 30, h: 0, fill: 'accent', pin: 'bs' }));
   ok('a line is a stroke 0.6u thick by default, and its box is that thick', sets(line.calls, 'lineWidth').some((w) => near(w, 0.6 * 10.8)) && near(lb.h, 0.6 * 10.8), lb);

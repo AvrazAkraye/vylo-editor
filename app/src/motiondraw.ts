@@ -805,6 +805,40 @@ function glintOf(ctx: Ctx, glint: number, w: number, h: number, amount: unknown 
   return grad;
 }
 
+/**
+ * A `shimmer` on a picture whose own shape is its outline — a logo on a
+ * transparent ground: the band is laid on the picture's pixels only, not on
+ * the box round them. It is drawn on a scratch canvas, kept where the picture
+ * has pixels (`destination-in`), and added over the picture already drawn.
+ * False when there is no scratch canvas; the caller then lights the box.
+ */
+function litPicture(ctx: Ctx, img: CanvasImageSource, dw: number, dh: number, glint: number, amount: unknown, k: number): boolean {
+  const m = typeof ctx.getTransform === 'function' ? ctx.getTransform() : null;
+  const px = m ? Math.max(0.05, Math.hypot(m.a, m.b)) : 1;
+  const py = m ? Math.max(0.05, Math.hypot(m.c, m.d)) : 1;
+  const w = clamp(Math.ceil(dw * px), 2, 2048);
+  const h = clamp(Math.ceil(dh * py), 2, 2048);
+  const g = scratchOf('lit', w, h);
+  if (!g) return false;
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'source-over';
+  g.globalAlpha = 1;
+  g.clearRect(0, 0, w, h);
+  g.setTransform(w / dw, 0, 0, h / dh, w / 2, h / 2);
+  const band = glintOf(g, glint, dw, dh, amount, k);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  if (!band) return true;
+  g.setTransform(w / dw, 0, 0, h / dh, w / 2, h / 2);
+  g.fillStyle = band;
+  g.fillRect(-dw / 2, -dh / 2, dw, dh);
+  g.setTransform(1, 0, 0, 1, 0, 0);
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(img, 0, 0, w, h);
+  g.globalCompositeOperation = 'source-over';
+  ctx.drawImage(g.canvas as CanvasImageSource, -dw / 2, -dh / 2, dw, dh);
+  return true;
+}
+
 // ── measuring ─────────────────────────────────────────────────────────────
 
 /** A font's line metrics, in px: the same for every string in it, which is what keeps a baseline still. */
@@ -2496,13 +2530,18 @@ function drawPicture(env: Env, layer: ImageLayer, pose: Pose, W: number, H: numb
   const f = contain ? Math.min(W / iw, H / ih) : Math.max(W / iw, H / ih);
   const dw = iw * f;
   const dh = ih * f;
+  // A picture fitted whole, with (almost) square corners, is its own outline: a logo on a transparent ground casts
+  // its shadow, and takes its shimmer, from the pixels it has and not from the box round them. The default 1.5u
+  // rounding of a new picture is not a shape; a corner radius of more than 4% of the picture is.
+  const outline = contain && r <= Math.min(dw, dh) * 0.04;
   if (layer.shadow) {
     ctx.save();
     try {
       const sh = layer.shadow;
       const s = k * scale;
       const shape = contain ? rectPath(dw, dh, Math.min(r, Math.min(dw, dh) / 2)) : frame;
-      soft(env, clamp(finite(sh.blur, 0), 0, 50) * s, env.color(sh.color), () => paintPath(ctx, shape, 'fill'),
+      const caster = outline ? () => ctx.drawImage(pic.img, -dw / 2, -dh / 2, dw, dh) : () => paintPath(ctx, shape, 'fill');
+      soft(env, clamp(finite(sh.blur, 0), 0, 50) * s, env.color(sh.color), caster,
         clamp(finite(sh.x, 0), -50, 50) * s, clamp(finite(sh.y, 0), -50, 50) * s);
     } finally {
       ctx.restore();
@@ -2524,7 +2563,7 @@ function drawPicture(env: Env, layer: ImageLayer, pose: Pose, W: number, H: numb
     if (ctx.globalAlpha > 0.001) ctx.drawImage(pic.img, -dw / 2, -dh / 2, dw, dh);
     ctx.globalAlpha = base;
     const glint = glintOf(ctx, pose.glint, W, H, layer.loop?.amount, k);
-    if (glint) {
+    if (glint && !(outline && litPicture(ctx, pic.img, dw, dh, pose.glint, layer.loop?.amount, k))) {
       ctx.fillStyle = glint;
       ctx.fillRect(-W / 2, -H / 2, W, H);
     }
