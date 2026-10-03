@@ -89,7 +89,7 @@ const sig = (calls, digits = true) => JSON.stringify(calls.map((c) => [c.name, c
 const draws = (calls) => calls.filter((c) => ['fill', 'stroke', 'fillRect', 'fillText'].includes(c.name)).length;
 
 // ── the vocabulary ────────────────────────────────────────────────────────
-ok('the contract lists seven backdrops and five particle styles', BACKDROPS.length === 7 && PARTICLES.length === 5, { BACKDROPS, PARTICLES });
+ok('the contract lists twelve backdrops (seven grounds, five finishes) and five particle styles', BACKDROPS.length === 12 && PARTICLES.length === 5, { BACKDROPS, PARTICLES });
 
 // ── backdrops: clean, in every shape, at every moment ─────────────────────
 {
@@ -193,7 +193,8 @@ ok('the contract lists seven backdrops and five particle styles', BACKDROPS.leng
     ops(darkAurora).has('screen') && !ops(lightAurora).has('screen'), [[...ops(darkAurora)], [...ops(lightAurora)]]);
   ok('a layer with a blend of its own keeps it', !ops(blended).has('screen'), [...ops(blended)]);
   // The grain that dithers the soft styles must never paint where nothing is, or a transparent graphic turns opaque.
-  const grained = BACKDROPS.filter((style) => bd(backdrop({ style }), 2).calls.some((c) => c.name === 'createPattern'));
+  // (Film grain is a finish, not a dither: its flecks are meant to lie over a transparent frame. pro-templates-b checks it.)
+  const grained = BACKDROPS.filter((style) => style !== 'grain' && bd(backdrop({ style }), 2).calls.some((c) => c.name === 'createPattern'));
   const atop = grained.every((style) => {
     const calls = bd(backdrop({ style }), 2).calls;
     const at = calls.findIndex((c) => c.name === 'createPattern');

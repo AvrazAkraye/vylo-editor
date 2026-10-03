@@ -1,5 +1,5 @@
 import type { Lang } from './i18n';
-import type { Backdrop, Layer, Particles, RecipeId, ShapeLayer, TextLayer } from './motiontypes';
+import type { Ground, Layer, Particles, RecipeId, ShapeLayer, TextLayer } from './motiontypes';
 import { BACKDROPS } from './motiontypes';
 import { E, T, type Kit, type Recipe } from './motionrecipe';
 import { contrast } from './motionmath';
@@ -937,7 +937,7 @@ interface LoopLook {
  * over the grid, the halftone and the bokeh, dust drifting across the
  * stripes — few and faint, so the ground stays calm enough to put words on.
  */
-const LOOKS: Record<Backdrop, LoopLook> = {
+const LOOKS: Record<Ground, LoopLook> = {
   aurora: { colors: ['accent', 'accent2', 'muted'], density: 0.6, particles: 'stars', count: 30, size: 0.9, speed: 1, opacity: 0.7 },
   grid: { colors: ['fg', 'accent'], density: 0.45, particles: 'stars', count: 16, size: 0.8, speed: 1, opacity: 0.55 },
   dots: { colors: ['fg', 'accent'], density: 0.5, particles: 'stars', count: 16, size: 0.8, speed: 1, opacity: 0.65 },
@@ -955,7 +955,8 @@ const LOOKS: Record<Backdrop, LoopLook> = {
  */
 function loopBg(c: Kit): Layer[] {
   const raw = c.fields.style ?? '';
-  const style: Backdrop = (BACKDROPS as readonly string[]).includes(raw) ? (raw as Backdrop) : 'aurora';
+  // A ground, never a finish (grain, vignette...): those lie over a picture and have no loop look of their own.
+  const style: Ground = (BACKDROPS as readonly string[]).includes(raw) && Object.prototype.hasOwnProperty.call(LOOKS, raw) ? (raw as Ground) : 'aurora';
   const look = LOOKS[style];
   return [
     c.backdrop('background', { name: 'Background', style, colors: look.colors, density: look.density, speed: 1 }),

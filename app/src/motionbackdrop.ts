@@ -1,6 +1,6 @@
 import type { Backdrop, BackdropLayer, Ctx, Env, Particles, ParticlesLayer, Pose } from './motiontypes';
 import { LIMITS } from './motiontypes';
-import { clamp, clamp01, finite, hash01, lerp, luminance, mixColors, rng, smoothstep, withAlpha } from './motionmath';
+import { clamp, clamp01, finite, hash01, lerp, luminance, mixColors, parseColor, rng, smoothstep, withAlpha } from './motionmath';
 
 /**
  * Moving backgrounds and particles: the two kinds of layer that are not one
@@ -46,6 +46,26 @@ import { clamp, clamp01, finite, hash01, lerp, luminance, mixColors, rng, smooth
  * either, so the soft styles carry a still grain of a level or two, and every
  * large gradient is sampled finely enough that its straight pieces do not
  * show as rings.
+ *
+ * ## Grounds and finishes
+ *
+ * The first seven styles are grounds: a moving background to put words on.
+ * The last five are finishes, made to lie over a picture as the last layers
+ * of a graphic (or over video, in a transparent one) and leave it legible:
+ *
+ * | style | colours | density | speed | seed |
+ * |---|---|---|---|---|
+ * | `grain` | the light grains, the dark ones (white, black) | the film stock: 0 fine and faint, 1 coarse and heavy | how often the grain changes: 1 is 24 times a second, as film is; 0.5 on twos; never more than once a frame | which grain, frame by frame |
+ * | `vignette` | the edge colour (black) | how far in it reaches and how dark it gets | a slow breath of its edge, a whole number per graphic | where in the breath it starts |
+ * | `lightleak` | the warm lights, one per leak (orange, amber, rose) | how many leaks (one to three) and how strong | how many times each blooms and fades in the graphic | where they come in |
+ * | `scanlines` | the lines, the rolling band of light (black, white) | the pitch: 0 coarse and faint, 1 fine and darker | how many times the band rolls down the frame | where the band starts |
+ * | `halftone` | the dots, and the colour they turn toward in the light (text, accent) | the screen: 0 large dots far apart, 1 small and close | how many times the field of light flows round | the field |
+ *
+ * Every one is drawn in u, so it is the same fraction of the frame at any
+ * size; costs a bounded number of fills whatever the frame (the halftone,
+ * the heaviest, at most about six thousand dots in a few dozen fills); and
+ * is transparent where it has nothing to say, so a finish over a transparent
+ * frame stays a finish.
  */
 
 const TAU = Math.PI * 2;
@@ -228,6 +248,15 @@ interface Scene {
   /** The frame's area over a 16:9 frame's, in u: counts scale with it. */
   area: number;
   colors: string[];
+  /** The layer's opacity, which everything a finish draws is relative to. */
+  base: number;
+  /** The cycle, in seconds, and frames a second: film grain changes a whole number of times in one. */
+  period: number;
+  fps: number;
+  /** Speed above 0: the backdrop moves at all. */
+  moving: boolean;
+  /** 0 to 3: the layer's speed, as given. */
+  speed: number;
 }
 
 const BACKDROP_COLORS: Record<Backdrop, readonly string[]> = {
@@ -238,7 +267,19 @@ const BACKDROP_COLORS: Record<Backdrop, readonly string[]> = {
   waves: ['accent', 'accent2', 'muted'],
   bokeh: ['accent', 'accent2', 'fg'],
   stripes: ['fg', 'accent'],
+  grain: ['#FFFFFF', '#000000'],
+  vignette: ['#000000'],
+  lightleak: ['#FF5A1F', '#FFA826', '#FF2D55'],
+  scanlines: ['#000000', '#FFFFFF'],
+  halftone: ['fg', 'accent'],
 };
+
+/**
+ * The styles drawn from large soft gradients, which the dither keeps from
+ * showing their 8-bit steps. The rest are made of hard marks (lines, dots) or
+ * are a grain already.
+ */
+const DITHERED: ReadonlySet<Backdrop> = new Set<Backdrop>(['aurora', 'rays', 'waves', 'bokeh', 'stripes', 'vignette', 'lightleak']);
 
 /**
  * Draw a backdrop: the whole frame, under everything after it. The layer's
@@ -270,6 +311,11 @@ export function drawBackdrop(env: Env, layer: BackdropLayer, _pose: Pose): void 
     reach: clamp(seconds / 10, 0.25, 1) * Math.min(1, speed),
     area: clamp((W / k) * (H / k) / WIDE_AREA, 0.3, 2),
     colors: colorsOf(env, layer.colors, BACKDROP_COLORS[style]),
+    base: clamp01(finite(ctx.globalAlpha, 1)),
+    period,
+    fps: clamp(finite(env.doc?.fps, 30), 1, 120),
+    moving: speed > 0,
+    speed,
   };
   ctx.save();
   switch (style) {
@@ -279,16 +325,21 @@ export function drawBackdrop(env: Env, layer: BackdropLayer, _pose: Pose): void 
     case 'waves': waves(scene); break;
     case 'bokeh': bokeh(scene); break;
     case 'stripes': stripes(scene); break;
+    case 'grain': filmGrain(scene); break;
+    case 'vignette': lensVignette(scene); break;
+    case 'lightleak': lightLeak(scene); break;
+    case 'scanlines': scanlines(scene); break;
+    case 'halftone': halftone(scene); break;
     default: aurora(scene); break;
   }
-  if (style !== 'grid' && style !== 'dots') grain(scene);
+  if (DITHERED.has(style)) dither(scene);
   ctx.restore();
 }
 
-/** The grain's tile: made once, the same on every frame; null where there is no canvas to make it on (Node without one). */
+/** The dither's tile: made once, the same on every frame; null where there is no canvas to make it on (Node without one). */
 let grainTile: CanvasImageSource | null | undefined;
 
-function grainOf(): CanvasImageSource | null {
+function ditherTile(): CanvasImageSource | null {
   if (grainTile !== undefined) return grainTile;
   grainTile = null;
   try {
@@ -320,8 +371,8 @@ function grainOf(): CanvasImageSource | null {
  * paint already, so a transparent graphic stays transparent. It is the same
  * on every frame, so the loop still meets itself.
  */
-function grain(sc: Scene): void {
-  const tile = grainOf();
+function dither(sc: Scene): void {
+  const tile = ditherTile();
   if (!tile) return;
   const pattern = sc.ctx.createPattern(tile, 'repeat');
   if (!pattern) return;
@@ -736,6 +787,341 @@ function stripes(sc: Scene): void {
   ctx.fillRect(0, 0, W, H);
   ctx.restore();
   vignette(sc, dark ? 0.4 : 0.22);
+}
+
+// ── finishes ──────────────────────────────────────────────────────────────
+
+/** Film's frames a second: how often speed 1 changes the grain. */
+const FILM_RATE = 24;
+/** A grain tile's side, in its own pixels, and how many tiles one grain has to choose from. */
+const GRAIN_SIZE = 256;
+const GRAIN_TILES = 3;
+
+/**
+ * Grain tiles by their two colours, made the first time a pair is asked for
+ * and kept, as the soft discs are. A tile depends on its colours alone, never
+ * on a frame or a layer — the frame only chooses which tile shows, where, and
+ * which way round — so keeping it changes no frame. Colours come from
+ * documents, so the keeping is bounded: eight pairs, three tiles each.
+ */
+const grainBanks = new Map<string, CanvasImageSource[] | null>();
+
+function grainBank(light: string, dark: string): CanvasImageSource[] | null {
+  const key = `${light}|${dark}`;
+  const kept = grainBanks.get(key);
+  if (kept !== undefined) return kept;
+  const L = parseColor(light) ?? { r: 255, g: 255, b: 255, a: 1 };
+  const D = parseColor(dark) ?? { r: 0, g: 0, b: 0, a: 1 };
+  let made: CanvasImageSource[] | null = [];
+  try {
+    for (let n = 0; n < GRAIN_TILES && made; n++) {
+      const s = scratch(GRAIN_SIZE);
+      if (!s) {
+        made = null;
+        break;
+      }
+      const img = s.ctx.createImageData(GRAIN_SIZE, GRAIN_SIZE);
+      const next = rng(0x6a11 + n * 7919);
+      for (let i = 0; i < img.data.length; i += 4) {
+        // Close to a bell between -1 and 1 (four even draws, centred): most flecks faint and a few strong, light and dark alike.
+        const g = (next() + next() + next() + next() - 2) / 2;
+        const c = g >= 0 ? L : D;
+        img.data[i] = c.r;
+        img.data[i + 1] = c.g;
+        img.data[i + 2] = c.b;
+        img.data[i + 3] = Math.round(Math.min(1, Math.abs(g) * 1.7) * 255 * c.a);
+      }
+      s.ctx.putImageData(img, 0, 0);
+      made.push(s.canvas);
+    }
+  } catch {
+    made = null;
+  }
+  if (grainBanks.size >= 8) grainBanks.clear();
+  grainBanks.set(key, made);
+  return made;
+}
+
+/**
+ * `grain`: film grain. Three tiles of noise are made once; each film frame
+ * shows one of them at a place, a quarter turn and a mirroring that the seed
+ * and the frame choose, scaled so that a fleck is a fixed share of the frame
+ * (0.16u to 0.4u) and smoothed, so it is soft rather than square. Light
+ * flecks lighten and dark ones darken, so the grain reads on any picture; on
+ * a transparent frame it is flecks over nothing, ready to lie over video. A
+ * grain that changes frame by frame flickers as film does, and with it the
+ * exposure flickers by a hair. It changes a whole number of times in a cycle,
+ * so a looping export meets itself.
+ *
+ * Where no canvas can be made for the tiles, a few hundred flecks are drawn
+ * straight onto the frame instead: coarser, never nothing.
+ */
+function filmGrain(sc: Scene): void {
+  const { ctx, W, H, k } = sc;
+  const light = sc.colors[0];
+  const dark = sc.colors[1 % sc.colors.length];
+  const rate = Math.min(sc.fps, FILM_RATE * sc.speed);
+  const changes = Math.max(1, Math.round(sc.period * rate));
+  // A hair added before rounding down, so two times a period apart (whose turns differ in the last bits) show the same grain.
+  const frame = sc.moving ? Math.floor(sc.turn * changes + 1e-7) % changes : 0;
+  const h = (ch: number) => hash01(sc.seed, frame, ch);
+  const strength = lerp(0.07, 0.3, sc.density);
+  const cell = Math.max(0.05, k * lerp(0.16, 0.4, sc.density));
+  const bank = grainBank(light, dark);
+  const tile = bank && bank.length ? bank[Math.min(bank.length - 1, Math.floor(h(1) * bank.length))] : null;
+  const pattern = tile ? ctx.createPattern(tile, 'repeat') : null;
+  ctx.save();
+  if (pattern) {
+    const ox = h(4) * GRAIN_SIZE;
+    const oy = h(5) * GRAIN_SIZE;
+    // Tile pixels from the middle of the frame to a corner, and a little more: the fill covers the frame however it is turned.
+    const R = Math.hypot(W, H) / 2 / cell + 2;
+    ctx.globalAlpha = sc.base * strength;
+    ctx.translate(W / 2, H / 2);
+    ctx.rotate(Math.floor(h(2) * 4) * (Math.PI / 2));
+    ctx.scale(h(3) < 0.5 ? -cell : cell, cell);
+    ctx.translate(-ox, -oy);
+    ctx.fillStyle = pattern;
+    ctx.fillRect(ox - R, oy - R, 2 * R, 2 * R);
+  } else {
+    const count = Math.round(lerp(260, 520, sc.density) * sc.area);
+    const size = cell * 2.2;
+    for (const [tone, color] of [[0, light], [1, dark]] as const) {
+      ctx.beginPath();
+      for (let i = tone; i < count; i += 2) {
+        ctx.rect(hash01(sc.seed + frame * 31, i, 1) * W, hash01(sc.seed + frame * 31, i, 2) * H, size, size);
+      }
+      ctx.fillStyle = rgba(color, 0.5);
+      ctx.globalAlpha = sc.base * strength;
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+  if (sc.moving) {
+    // The exposure's flicker: the whole frame a hair lighter or darker, frame by frame.
+    const f = (h(6) - 0.5) * 2 * lerp(0.008, 0.03, sc.density);
+    if (Math.abs(f) > 0.002) {
+      ctx.fillStyle = rgba(f > 0 ? light : dark, Math.abs(f));
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+}
+
+/** How a vignette darkens, from where it begins (0) to just past the corners (1): slowly at first, as a lens's light falls off. */
+const LENS = falloff(16, (r) => Math.pow(smoothstep(0, 1, r), 1.6));
+
+/**
+ * `vignette`: the edges drawn down toward the edge colour, as a lens darkens
+ * its corners. Its shape is halfway between the frame's own ellipse and a
+ * circle: a circle would leave a wide frame's sides bright, and the frame's
+ * ellipse alone darkens a tall frame's top and bottom first. `density` takes
+ * it from a touch at the corners to deep and heavy. A moving one breathes,
+ * its edge drifting in and out by a few per cent, once or a whole number of
+ * times a graphic; the middle is always clear.
+ */
+function lensVignette(sc: Scene): void {
+  const { ctx, W, H } = sc;
+  const R = Math.hypot(W, H) / 2;
+  const ax = lerp(W / Math.SQRT2, R, 0.5);
+  const ay = lerp(H / Math.SQRT2, R, 0.5);
+  const breath = sc.moving ? 0.04 * sc.reach * Math.sin(sc.phase + hash01(sc.seed, 41) * TAU) : 0;
+  const inner = clamp(lerp(0.56, 0.16, sc.density) + breath, 0.05, 0.9);
+  const strength = lerp(0.5, 0.95, sc.density);
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.scale(ax, ay);
+  const g = ctx.createRadialGradient(0, 0, inner, 0, 0, 1.04);
+  for (const [at, v] of LENS) g.addColorStop(at, rgba(sc.colors[0], strength * v));
+  ctx.fillStyle = g;
+  const hx = W / 2 / ax + 0.01;
+  const hy = H / 2 / ay + 0.01;
+  ctx.fillRect(-hx, -hy, 2 * hx, 2 * hy);
+  ctx.restore();
+}
+
+/** A streak's profile across its width: nothing at either side, its light in the middle. */
+const STREAK = falloff(12, (r) => Math.pow(Math.sin(Math.PI * r), 2));
+
+/**
+ * `lightleak`: warm light spilling in at the side of the frame, as it does
+ * where a film gate leaks — a broad glow with a hot core, drifting along the
+ * edge while it blooms and fades, now and then a soft streak sweeping across
+ * the frame with it, and a faint warm wash over everything that swells with
+ * the bloom. One to three leaks (`density`), staggered through the cycle so
+ * one rises as another dies; each blooms once a cycle and comes in somewhere
+ * else the next time. Added as light (`screen`) unless the layer has a blend
+ * of its own: a dark picture glows, a light one only warms, and over a
+ * transparent frame it is the light alone. A still one (speed 0) is held at a
+ * bloom, not between two.
+ */
+function lightLeak(sc: Scene): void {
+  const { ctx, W, H } = sc;
+  const n = 1 + Math.round(sc.density * 2);
+  const strong = lerp(0.7, 1, sc.density);
+  const now = sc.moving ? sc.turn : 0.3;
+  ctx.save();
+  if (sc.plain) ctx.globalCompositeOperation = 'screen';
+  let bloomed = 0;
+  for (let j = 0; j < n; j++) {
+    const v = now + j / n + hash01(sc.seed, j, 1) * 0.15;
+    const life = Math.floor(v);
+    const u = v - life;
+    const h = (ch: number) => hash01(sc.seed + life * 977, j, ch);
+    const bloom = smoothstep(0, 0.3, u) * (1 - smoothstep(0.45, 0.92, u));
+    bloomed = Math.max(bloomed, bloom);
+    if (bloom <= 0.003) continue;
+    const color = sc.colors[(j + life) % sc.colors.length];
+    // The start and end sides mostly, where a gate leaks; the top or the bottom one time in five.
+    const pick = h(2);
+    const side = pick < 0.4 ? 0 : pick < 0.8 ? 1 : pick < 0.9 ? 2 : 3;
+    const across = side < 2;
+    const depth = across ? W : H;
+    const length = across ? H : W;
+    const along = 0.15 + 0.7 * lerp(h(3), h(4), smoothstep(0, 1, u));
+    const reach = depth * lerp(0.38, 0.65, h(5)) * (0.85 + 0.15 * bloom);
+    const spread = length * lerp(0.42, 0.7, h(6));
+    // The glow's centre sits a little outside its edge, so the frame shows its inner side: light coming in, not a spot.
+    const out = reach * 0.22;
+    const cx = side === 0 ? -out : side === 1 ? W + out : along * W;
+    const cy = side === 2 ? -out : side === 3 ? H + out : along * H;
+    ctx.save();
+    ctx.translate(cx, cy);
+    if (!across) ctx.rotate(Math.PI / 2);
+    ctx.scale(reach, spread);
+    ctx.fillStyle = unitGradient(ctx, color, SOFT.map(([at, a]) => [at, Math.min(1, a * 1.2) * strong * bloom] as const));
+    ctx.fillRect(-1, -1, 2, 2);
+    // The hot core: smaller, nearer the edge, nearly white.
+    ctx.scale(0.5, 0.42);
+    ctx.fillStyle = unitGradient(ctx, mixColors(color, '#FFE6B8', 0.45), SOFT.map(([at, a]) => [at, a * strong * bloom * 0.85] as const));
+    ctx.fillRect(-1, -1, 2, 2);
+    ctx.restore();
+
+    if (h(7) < 0.6) {
+      // A streak: a soft band across the frame, crossing it once in this leak's life.
+      const angle = (across ? 0 : Math.PI / 2) + lerp(-0.45, 0.45, h(8));
+      const ux = Math.cos(angle);
+      const uy = Math.sin(angle);
+      const proj = [0, W * ux, H * uy, W * ux + H * uy];
+      const lo = Math.min(...proj);
+      const hi = Math.max(...proj);
+      const band = depth * lerp(0.1, 0.2, h(9));
+      const travel = side === 1 || side === 3 ? 1 - u : u;
+      const mid = lerp(lo - band, hi + band, travel);
+      const g = ctx.createLinearGradient(ux * (mid - band), uy * (mid - band), ux * (mid + band), uy * (mid + band));
+      const tint = mixColors(color, '#FFF4DC', 0.3);
+      for (const [at, a] of STREAK) g.addColorStop(at, rgba(tint, a * strong * bloom * 0.32));
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, W, H);
+    }
+  }
+  // The wash: the whole frame a little warm, more so at the height of a bloom.
+  ctx.fillStyle = rgba(mixColors(sc.colors[0], '#FFFFFF', 0.25), strong * (0.02 + 0.06 * bloomed));
+  ctx.fillRect(0, 0, W, H);
+  ctx.restore();
+}
+
+/** The rolling band's profile, top to bottom: soft at both edges. */
+const BAND = falloff(12, (r) => Math.pow(Math.sin(Math.PI * r), 2));
+
+/**
+ * `scanlines`: a television's lines — fine dark rules across the whole frame
+ * at a pitch in u — with a soft band of light rolling down it as an old set's
+ * picture does. The band crosses once a cycle, entering above the frame and
+ * leaving below it, so the loop meets itself where nothing is lit. The lines
+ * are one path and one fill, so a 4K frame costs what a small one does.
+ */
+function scanlines(sc: Scene): void {
+  const { ctx, W, H, k } = sc;
+  const pitch = Math.max(1.5, k * lerp(1.1, 0.4, sc.density));
+  const thick = Math.max(0.6, pitch * 0.42);
+  const rows = Math.ceil(H / pitch) + 1;
+  ctx.beginPath();
+  for (let i = 0; i < rows; i++) ctx.rect(0, i * pitch, W, thick);
+  ctx.fillStyle = rgba(sc.colors[0], lerp(0.16, 0.3, sc.density));
+  ctx.fill();
+  const bandH = H * 0.24;
+  const at = sc.moving ? turnOf(sc.turn + hash01(sc.seed, 51)) : hash01(sc.seed, 51);
+  const y = -bandH / 2 + at * (H + bandH);
+  const g = ctx.createLinearGradient(0, y - bandH / 2, 0, y + bandH / 2);
+  for (const [stop, a] of BAND) g.addColorStop(stop, rgba(sc.colors[1 % sc.colors.length], 0.09 * a));
+  ctx.fillStyle = g;
+  ctx.fillRect(0, y - bandH / 2, W, bandH);
+}
+
+/** The angles a press turns its screens to; a halftone uses one of them. */
+const SCREEN_ANGLES = [15, 45, 75].map((d) => (d * Math.PI) / 180);
+
+/**
+ * `halftone`: a printer's screen of dots, turned to one of the angles a press
+ * uses, whose sizes follow a field of light flowing slowly across the frame —
+ * broad bands where the dots swell and run together, dark between them where
+ * they shrink to nothing: a poster printed in one ink. The field is three
+ * long waves at seeded angles and a ring spreading from a seeded point, each
+ * moving a whole number of wavelengths a cycle (so it comes back to where it
+ * was), summed — an interference with no grid in it, which value noise
+ * shows as square blots at this size — pressed toward its ends so the bands
+ * are bands, and a little calmer in the middle, where words sit. A dot's area is the field's
+ * brightness, as in print, and swelling dots take on the second colour. The
+ * dots go in a few dozen batches by size and tint, one fill each; at the
+ * finest screen a 16:9 frame has about six thousand.
+ */
+function halftone(sc: Scene): void {
+  const { ctx, W, H, k, dark } = sc;
+  const pitch = k * lerp(3.6, 1.8, sc.density);
+  if (!(pitch > 0.5)) return;
+  const angle = SCREEN_ANGLES[Math.floor(hash01(sc.seed, 61) * 3) % 3];
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  const cx = W / 2;
+  const cy = H / 2;
+  const R = Math.hypot(W, H) / 2;
+  const span = Math.ceil(R / pitch) + 1;
+  // Three waves, each about 30 to 55u long, a third of a turn apart give or take (two near square to each other would weave a
+  // checkerboard), two travelling one way and one the other, the third twice as fast.
+  const turn0 = hash01(sc.seed, 64) * Math.PI;
+  const waves = [0, 1, 2].map((j) => {
+    const a = turn0 + (j * Math.PI) / 3 + (hash01(sc.seed, 64, j) - 0.5) * 0.35;
+    const len = k * lerp(30, 55, hash01(sc.seed, 65, j));
+    return { ux: Math.cos(a) / len, uy: Math.sin(a) / len, p: hash01(sc.seed, 66, j) * TAU, v: j === 1 ? -1 : j === 2 ? 2 : 1 };
+  });
+  const rx = W * hash01(sc.seed, 67);
+  const ry = H * hash01(sc.seed, 68);
+  const ring = k * 40;
+  const levels = 12;
+  const tints = 3;
+  const buckets = new Map<number, number[]>();
+  for (let i = -span; i <= span; i++) {
+    for (let j = -span; j <= span; j++) {
+      const x = cx + (i * ux - j * uy) * pitch;
+      const y = cy + (i * uy + j * ux) * pitch;
+      if (x < -pitch || x > W + pitch || y < -pitch || y > H + pitch) continue;
+      let f = 0;
+      for (const w of waves) f += Math.sin((x * w.ux + y * w.uy) * TAU + w.p + w.v * sc.phase);
+      f += Math.sin((Math.hypot(x - rx, y - ry) / ring) * TAU - sc.phase);
+      const calm = lerp(0.62, 1, smoothstep(0.05, 0.75, Math.hypot(x - cx, y - cy) / R));
+      const tone = smoothstep(0.2, 0.8, 0.5 + f / 8) * calm;
+      const level = Math.round(tone * levels);
+      if (level <= 0) continue;
+      const key = level * tints + Math.min(tints - 1, Math.floor(tone * tints));
+      const list = buckets.get(key) ?? [];
+      list.push(x, y);
+      buckets.set(key, list);
+    }
+  }
+  const strength = dark ? 0.3 : 0.22;
+  for (const [key, list] of [...buckets.entries()].sort((p, q) => p[0] - q[0])) {
+    const level = Math.floor(key / tints);
+    const tint = key % tints;
+    // A dot's area is the field's brightness: at full, a little over the cell, so the brightest dots run together.
+    const r = pitch * 0.56 * Math.sqrt(level / levels);
+    ctx.beginPath();
+    for (let p = 0; p < list.length; p += 2) {
+      ctx.moveTo(list[p] + r, list[p + 1]);
+      ctx.arc(list[p], list[p + 1], r, 0, TAU);
+    }
+    ctx.fillStyle = rgba(mixColors(sc.colors[0], sc.colors[1 % sc.colors.length], (tint / (tints - 1)) * 0.8), strength * lerp(0.6, 1, level / levels));
+    ctx.fill();
+  }
 }
 
 // ── particles ─────────────────────────────────────────────────────────────
