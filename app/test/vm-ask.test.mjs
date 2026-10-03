@@ -622,11 +622,11 @@ console.log('the files around it');
   const root = (f) => readFileSync(new URL(`../../${f}`, import.meta.url), 'utf8');
   const safety = ['SAFETY.md', 'SAFETY.ar.md', 'SAFETY.ckb.md', 'SAFETY.kmr.md'].map(root);
   ok('SAFETY in all four languages names the search\'s file once, in the Motion paragraph', safety.every((s) => s.split('`app/src/motionresearch.ts`').length === 2 && s.indexOf('`app/src/motionresearch.ts`') > s.indexOf('`app/src/motiontemplates.ts`')));
-  ok('SAFETY.md says it as the plan does: the search is the model\'s, through the gateway; the addresses shown and kept', /When you ask Motion for facts it does not have/.test(safety[0])
-    && /search the web through the gateway/.test(safety[0]) && /addresses are shown under the answer and kept with the graphic/.test(safety[0]));
+  ok('SAFETY.md says it as the plan does: the search is the model\'s, through the same route (the gateway, or a provider added on the Anthropic wire); the addresses shown and kept', /When you ask Motion for facts it does not have/.test(safety[0])
+    && /search the web through the same route/.test(safety[0]) && /addresses are shown under the answer and kept with the graphic/.test(safety[0]));
   const readme = root('README.md');
   ok('the README no longer says Motion fetches nothing without saying when the model searches', !readme.includes('it fetches nothing, and it sends no telemetry')
-    && readme.includes('the\nmodel may search the web through the gateway'));
+    && readme.includes('the\nmodel may search the web through the same route'));
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
   const block = css.slice(css.indexOf('/* vm:ask start */'), css.indexOf('/* vm:ask end */'));
   ok('the stylesheet\'s part is between its markers, at the end, in logical properties only', block.length > 100 && css.trimEnd().endsWith('/* vm:ask end */')
