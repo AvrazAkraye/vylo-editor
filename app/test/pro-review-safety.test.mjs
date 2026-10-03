@@ -36,8 +36,8 @@ import { GIF, gifFrames, gifPlan, renderGif } from '../.test-build/motiongifops.
 import { checkMotion, autofix } from '../.test-build/motioncheck.js';
 import { journalOf } from '../.test-build/motionstate.js';
 import { readAutomation, readLane } from '../.test-build/audioauto.js';
-import { readChain, readFx } from '../.test-build/audiofx.js';
-import { readDuck } from '../.test-build/audioduck.js';
+import { MAX_CHAIN, readChain, readFx } from '../.test-build/audiofx.js';
+import { duckLaneFor, readDuck } from '../.test-build/audioduck.js';
 import { buildMotion } from '../.test-build/motiontemplates.js';
 import { META } from '../.test-build/motionrecipe.js';
 import { paint } from '../.test-build/motiondraw.js';
@@ -131,6 +131,20 @@ function readers() {
     'autofix.findings': { f: (x) => autofix(doc, x) }, 'autofix.ids': { f: (x) => autofix(doc, [], x) },
     // The journal is a string from localStorage: the value itself, and the value as JSON where JSON can write it.
     journalOf: { f: (x) => [journalOf(x), journalOf(jsonOf(x))] },
+    // The audio library's readers (docs/pro/requests/R1.md, item 1): no outside data reaches them yet, and these hold
+    // them to the same promise for when it does. Each value is read as itself and in the field the reader reads lists from.
+    readAutomation: { f: readAutomation, again: readAutomation },
+    'readAutomation.lanes': { f: (x) => readAutomation({ lanes: x }), again: readAutomation },
+    'readAutomation.lane': { f: (x) => readAutomation({ lanes: [x, { target: 'volume', points: x }, { target: 'rate', points: [x, { t: 1, v: 2 }] }] }), again: readAutomation },
+    readLane: { f: readLane, again: readLane },
+    'readLane.points': { f: (x) => readLane({ target: 'volume', points: x }), again: readLane },
+    'readLane.point': { f: (x) => readLane({ target: 'fx.a.mix', points: [x, { t: x, v: x, curve: x, viaX: x, viaY: x }, { t: 2, v: 1, curve: 'bezier', viaX: x, viaY: 0.5 }] }), again: (l) => readLane(l) },
+    readFx: { f: readFx, again: readFx },
+    'readFx.knobs': { f: (x) => ['eq', 'filter', 'compressor', 'limiter', 'delay', 'reverb'].map((type) => readFx({ type, id: x, on: x, mode: x, slope: x, truePeak: x, lowGain: x, freq: x, ratio: x, ceiling: x, time: x, seed: x, size: x })) },
+    readChain: { f: readChain, again: readChain },
+    'readChain.entry': { f: (x) => readChain([x, { type: 'eq', id: 'a' }, x, { type: 'delay', id: 'a' }]), again: readChain },
+    readDuck: { f: readDuck, again: readDuck },
+    'readDuck.fields': { f: (x) => readDuck({ depth: x, attack: x, release: x, hold: x, lead: x, threshold: x, range: x, minSpeech: x }), again: readDuck },
   };
 }
 
@@ -493,7 +507,7 @@ async function main() {
     ok(`every template's tags, notes and pairings (${Object.keys(META).length}) are words, short, and name templates that exist`, bad.length === 0, bad);
   }
 
-  // ── 4. the audio library's readers (not yet fed outside data: docs/pro/requests/R1.md) ──
+  // ── 4. the audio library's readers (not yet fed outside data; hardened by F2, docs/pro/requests/R1.md item 1) ──
   console.log('audio library');
   {
     let deep = {};
@@ -507,12 +521,45 @@ async function main() {
       if (g.error || g.ms > 1500 || !numbersSound(g.value)) bad.push(`${n}: ${String(g.error ?? g.ms)}`);
     }
     ok('readAutomation, readLane, readFx, readChain, readDuck: anything JSON can hold, a million entries, 100,000 deep — no throw, at once, finite', bad.length === 0, bad);
-    // What does not hold yet, and is asked for in docs/pro/requests/R1.md (audio*.ts is not this review's to change):
-    // a Proxy or a throwing getter throws out of every one of them, and readChain walks a sparse list of four
-    // billion holes for about a minute. Nothing feeds them outside data today; when something does, these must hold.
+    // What the review found and asked for (docs/pro/requests/R1.md, item 1), each now held. The whole hostile matrix
+    // above runs the five as well; these name the cases the review measured.
     const trap = () => { throw new Error('trap'); };
-    const known = [new Proxy({}, { get: trap }), { get lanes() { throw new Error('g'); } }].filter((x) => Object.values(fns).some((f) => timed(() => f(x)).error));
-    console.log(`  KNOWN  ${known.length} of 2 hostile objects still throw out of the audio readers (docs/pro/requests/R1.md, item 1)`);
+    const traps = { get: trap, has: trap, ownKeys: trap, getOwnPropertyDescriptor: trap, getPrototypeOf: trap };
+    const revoked = (target) => { const p = Proxy.revocable(target, {}); p.revoke(); return p.proxy; };
+    const throwing = { get lanes() { throw new Error('g'); }, get target() { throw new Error('g'); }, get points() { throw new Error('g'); }, get type() { throw new Error('g'); }, get depth() { throw new Error('g'); } };
+    const hostile = { proxy: new Proxy({}, traps), proxyList: new Proxy([], traps), revoked: revoked({}), revokedList: revoked([]), getters: throwing };
+    const threw = [];
+    for (const [n, f] of Object.entries(fns)) for (const [hn, x] of Object.entries(hostile)) if (timed(() => f(x)).error) threw.push(`${n}(${hn})`);
+    ok('R1 item 1: a Proxy whose traps throw, a revoked Proxy (object or list) and throwing getters throw out of none of the five (all five threw on at least one)',
+      threw.length === 0, threw);
+    const inner = [
+      timed(() => readAutomation({ lanes: [hostile.proxy, { target: 'volume', points: [hostile.revoked, { t: 0, v: 0.5 }, throwing] }] })),
+      timed(() => readLane({ target: 'volume', points: hostile.proxyList })),
+      timed(() => readChain([hostile.proxy, { type: 'eq', lowGain: 3 }, throwing, hostile.revoked])),
+      timed(() => readFx({ type: 'eq', get lowGain() { throw new Error('g'); }, midGain: 2 })),
+    ];
+    ok('and a bad entry inside a good list is that entry skipped, not the list: the readable lane, the readable effect, the readable knob are kept',
+      inner.every((g) => !g.error) && inner[0].value.lanes.length === 1 && inner[0].value.lanes[0].points.length === 1 && inner[0].value.lanes[0].points[0].v === 0.5
+      && same(inner[1].value, { target: 'volume', points: [] }) && inner[2].value.length === 1 && inner[2].value[0].lowGain === 3
+      && inner[3].value.lowGain === 0 && inner[3].value.midGain === 2, inner.map((g) => String(g.error ?? JSON.stringify(g.value)).slice(0, 120)));
+    const sparse = [];
+    sparse.length = 2 ** 32 - 1;
+    const walks = [() => readChain(sparse), () => readAutomation({ lanes: sparse }), () => readLane({ target: 'volume', points: sparse }), () => duckLaneFor(sparse)]
+      .map((f) => timed(f));
+    ok(`readChain of four billion holes is at once (${walks[0].ms.toFixed(1)} ms; it was about 57 s), and so are the lanes', the points' and the spans' (${walks.slice(1).map((g) => g.ms.toFixed(1)).join(', ')} ms)`,
+      walks.every((g) => !g.error && g.ms < 300) && walks[0].value.length === 0, walks.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
+    const looked = readChain([...Array.from({ length: MAX_CHAIN * 4 }, () => 'junk'), { type: 'eq' }]);
+    ok(`readChain looks at the first ${MAX_CHAIN * 4} entries: an effect after that many entries of junk is not read`, looked.length === 0
+      && readChain([...Array.from({ length: MAX_CHAIN * 4 - 1 }, () => 'junk'), { type: 'eq' }]).length === 1);
+    const inherited = Object.create({ target: 'volume', points: [{ t: 0, v: 1 }], lanes: [{ target: 'volume', points: [{ t: 0, v: 1 }] }], type: 'eq', depth: 0.9 });
+    ok('only an object\'s own fields are read: an inherited target, lanes, type or depth is not there',
+      readLane(inherited) === undefined && readAutomation(inherited).lanes.length === 0 && readFx(inherited) === undefined && readDuck(inherited).depth === readDuck({}).depth);
+    const zero = readLane({ target: 'volume', points: [{ t: -0, v: -0 }, { t: 1, v: -0.5, curve: 'bezier', viaX: -0, viaY: -0 }] });
+    const zeroFx = readFx({ type: 'eq', lowGain: -0, midGain: '-0' });
+    const zeroDuck = readDuck({ depth: -0, hold: -0, lead: -0, threshold: -0, minSpeech: -0 });
+    ok('-0 is read as 0 everywhere: a point\'s time and value ({ t: -0, v: -0 } read back as -0), a knob, a duck setting',
+      Object.is(zero.points[0].t, 0) && Object.is(zero.points[0].v, 0) && Object.is(zero.points[1].v, 0) && Object.is(zeroFx.lowGain, 0) && Object.is(zeroFx.midGain, 0)
+      && ['depth', 'hold', 'lead', 'threshold', 'minSpeech'].every((k) => Object.is(zeroDuck[k], 0)), [zero.points, zeroFx.lowGain, zeroDuck]);
   }
 
   // ── 5. the promises: what Motion's code can reach ───────────────────────
@@ -552,16 +599,20 @@ async function main() {
   const NET = /\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|navigator\.connection|import\(\s*['"`]https?:/;
   const net = [...closure].filter((f) => NET.test(strip(text(f)))).sort();
   // Each file that can reach the network and is reachable from Motion, and why that is not a request of Motion's.
+  // (account.ts and gateway.ts were here, reached through MotionExport.tsx -> Welcome.tsx -> SignIn.tsx for one boolean,
+  // IS_MAC; it now comes from platform.ts, which imports nothing: docs/pro/requests/R1.md, item 2.)
   const REACHED = {
     'generate.ts': 'the one request Motion causes: the model the person asks (SAFETY.md, the request table)',
     'videomix.ts': 'through videosynth.ts, which takes encodeWav, sceneStarts and toDataUrl from it: pure functions (checked below)',
     'videomedia.ts': 'imported by videomix.ts for its picture search, which nothing in Motion calls',
-    'account.ts': 'through MotionExport.tsx -> Welcome.tsx (IS_MAC) -> SignIn.tsx; Motion calls none of it (docs/pro/requests/R1.md, item 2)',
-    'gateway.ts': 'the same path, through SignIn.tsx',
   };
   ok(`Motion's run-time import closure is ${closure.size} files; the ones that can reach the network are exactly the pinned list, each for a stated reason`,
     same(net, Object.keys(REACHED).sort()), { found: net, pinned: Object.keys(REACHED).sort() });
   ok(`and none of Motion's own ${motionFiles.length} files is one of them`, motionFiles.every((f) => !net.includes(f)));
+  const signIn = ['Welcome.tsx', 'SignIn.tsx', 'account.ts', 'gateway.ts', 'environment.ts'].filter((f) => closure.has(f));
+  ok('Motion reaches no network module of the sign-in screen: Welcome, SignIn, account, gateway and environment are outside its closure, and the Export tab takes IS_MAC from platform.ts, which imports nothing',
+    signIn.length === 0 && closure.has('platform.ts') && importsOf('platform.ts').local.length === 0 && importsOf('platform.ts').pkgs.length === 0
+    && importsOf('MotionExport.tsx').local.includes('platform.ts') && !importsOf('MotionExport.tsx').local.includes('Welcome.tsx'), signIn);
   const synth = strip(text('videosynth.ts'));
   const fromMix = /import\s*\{([^}]*)\}\s*from\s*'\.\/videomix'/.exec(synth)?.[1].split(',').map((x) => x.trim()).filter(Boolean).sort();
   const mix = strip(text('videomix.ts'));
@@ -586,9 +637,8 @@ async function main() {
   for (const f of closure) for (const m of strip(text(f)).matchAll(COMMAND)) commands[m[1]] = [...new Set([...(commands[m[1]] ?? []), f])];
   const PINNED = {
     export_write_video: ['motionexportops.ts'], open_exported: ['motionexportops.ts'], reveal_path: ['MotionExport.tsx'],
-    list_tree: ['environment.ts'], read_file: ['environment.ts'],
   };
-  ok('the Tauri commands anywhere in that closure are the pinned five: the export, Open, Show in Finder, and SignIn\'s environment block',
+  ok('the Tauri commands anywhere in that closure are the pinned three: the export, Open and Show in Finder (SignIn\'s list_tree and read_file are gone with it)',
     same(Object.keys(commands).sort(), Object.keys(PINNED).sort()) && Object.entries(PINNED).every(([c, fs]) => same(commands[c].sort(), fs)), commands);
   const tauri = [...pkgs.keys()].filter((p) => p.startsWith('@tauri-apps/')).sort();
   ok('and the only Tauri packages it imports are the core, the path helper and the save dialog — no shell, no http, no opener, no fs',

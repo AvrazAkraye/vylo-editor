@@ -1,4 +1,4 @@
-import { clamp, conform, finiteOr, frames, sampleRateOr } from './audiocore';
+import { clamp, conform, finiteOr, frames, listOf, own, rec, sampleRateOr } from './audiocore';
 import { MAX_POINTS, render } from './audioauto';
 import type { AutoPoint, Lane } from './audioauto';
 
@@ -78,19 +78,27 @@ export const DUCK_DEFAULTS: Readonly<DuckSettings> = {
   depth: 0.25, attack: 0.15, release: 0.4, hold: 0.3, lead: 0.15, threshold: -45, range: 30, minSpeech: 0.05,
 };
 
-/** The options, clamped; `lead` follows `attack` unless it is given. */
+/**
+ * The options, clamped (never -0); `lead` follows `attack` unless it is
+ * given. Read as motionread.ts reads (audiocore's `rec` and `own`): only the
+ * object's own fields, each once and inside a try, so anything that is not a
+ * plain object of options — a Proxy, a revoked one, a throwing getter, an
+ * inherited field — is the defaults, or the defaults for what could not be
+ * read. Never throws, and reading what it returns returns it again.
+ */
 export function readDuck(o: DuckOptions = {}): DuckSettings {
-  const r = typeof o === 'object' && o !== null ? o : {};
-  const attack = clamp(finiteOr(r.attack, DUCK_DEFAULTS.attack), 0.01, 5);
+  const r = rec(o);
+  const num = (key: keyof DuckOptions, def: number, lo: number, hi: number): number => clamp(finiteOr(own(r, key), def), lo, hi) || 0;
+  const attack = num('attack', DUCK_DEFAULTS.attack, 0.01, 5);
   return {
-    depth: clamp(finiteOr(r.depth, DUCK_DEFAULTS.depth), 0, 1),
+    depth: num('depth', DUCK_DEFAULTS.depth, 0, 1),
     attack,
-    release: clamp(finiteOr(r.release, DUCK_DEFAULTS.release), 0.01, 10),
-    hold: clamp(finiteOr(r.hold, DUCK_DEFAULTS.hold), 0, 5),
-    lead: clamp(finiteOr(r.lead, attack), 0, 5),
-    threshold: clamp(finiteOr(r.threshold, DUCK_DEFAULTS.threshold), -90, 0),
-    range: clamp(finiteOr(r.range, DUCK_DEFAULTS.range), 6, 80),
-    minSpeech: clamp(finiteOr(r.minSpeech, DUCK_DEFAULTS.minSpeech), 0, 1),
+    release: num('release', DUCK_DEFAULTS.release, 0.01, 10),
+    hold: num('hold', DUCK_DEFAULTS.hold, 0, 5),
+    lead: num('lead', attack, 0, 5),
+    threshold: num('threshold', DUCK_DEFAULTS.threshold, -90, 0),
+    range: num('range', DUCK_DEFAULTS.range, 6, 80),
+    minSpeech: num('minSpeech', DUCK_DEFAULTS.minSpeech, 0, 1),
   };
 }
 
@@ -104,6 +112,14 @@ const HOP = 0.005;
  * rather than being cut off by the reader and left ducked for the rest.
  */
 const MAX_DUCKS = Math.floor((MAX_POINTS - 1) / 4);
+
+/**
+ * Spans `duckLaneFor` looks at. `findSpeech` cannot find more than one per
+ * 10 ms (a hop over the floor and a hop under it, with `minSpeech` at 0), so
+ * 360,000 in an hour, the longest a lane runs; this is more than that, and a
+ * bound on what a list of four billion holes can cost.
+ */
+const MAX_SPANS = 1 << 19;
 
 /** Where `voice` (planar, at `rate`) is speaking, as sorted, non-overlapping spans in seconds. */
 export function findSpeech(voice: readonly Float32Array[], rate: number, o: DuckOptions = {}): SpeechSpan[] {
@@ -153,8 +169,12 @@ export function findSpeech(voice: readonly Float32Array[], rate: number, o: Duck
  */
 export function duckLaneFor(spans: readonly SpeechSpan[], o: DuckOptions = {}): Lane {
   const s = readDuck(o);
-  const list = (Array.isArray(spans) ? spans : [])
-    .map((p) => ({ start: clamp(finiteOr(p?.start, 0), 0, 3600), end: clamp(finiteOr(p?.end, 0), 0, 3600) }))
+  // Read like the settings (a caller's spans may come from a stored storyboard): by index, own fields, a bad entry skipped.
+  const list = (listOf(spans, MAX_SPANS) ?? [])
+    .map((x) => {
+      const p = rec(x);
+      return { start: clamp(finiteOr(own(p, 'start'), 0), 0, 3600) || 0, end: clamp(finiteOr(own(p, 'end'), 0), 0, 3600) || 0 };
+    })
     .filter((p) => p.end > p.start)
     .sort((a, b) => a.start - b.start);
   // Merge speech the music could not get back up between.

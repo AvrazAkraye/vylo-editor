@@ -10,6 +10,7 @@ import type { T } from './motionui';
 import { fontStack, scriptOf } from './motionfonts';
 import { ICON_PATHS } from './videoicons';
 import { PICTURE_ACCEPT, PICTURE_LONG_U, boxFor, readPicture, type PictureProblem } from './motionpicture';
+import { textOutlineMax } from './motionread';
 import {
   ColorBox, EaseField, Glyph, NumberBox, NumberField, PaintField, Row, SegField, SelectField, SliderField, Sub, SubToggle, TextArea,
   TextBox, TextField, ToggleField, type Choice, type GlyphName,
@@ -26,7 +27,9 @@ import {
  *
  * Every field is one the reader (motionread.ts) knows and clamps, so a value
  * typed out of range comes back in range; these controls only have to offer
- * sensible steps.
+ * sensible steps. Where the reader's ceiling depends on the layer (a word's
+ * outline on its type size, `textOutlineMax`), the field offers that ceiling,
+ * so a value is never typed, kept for a moment and then shown back smaller.
  */
 
 export interface KindProps<L extends Layer> {
@@ -320,7 +323,8 @@ export function TextContent(p: KindProps<TextLayer>) {
         <>
           <PaintField t={t} label={t('Colour')} value={layer.outline.color} palette={doc.palette}
                       onChange={(color) => update('outline', (l) => ({ outline: { width: l.outline?.width ?? 0.3, color: color ?? 'bg' } }))} />
-          <NumberField label={t('Width')} value={layer.outline.width} min={0} max={20} step={0.1} digits={2} unit="u" unitTitle={uTitle(t)}
+          {/* No wider than the reader keeps for this type size (half of it, 2u to 20u), so a width typed is the width shown. */}
+          <NumberField label={t('Width')} value={layer.outline.width} min={0} max={textOutlineMax(layer.size)} step={0.1} digits={2} unit="u" unitTitle={uTitle(t)}
                        onChange={(width) => update('outline', (l) => ({ outline: { color: l.outline?.color ?? 'bg', width } }))} />
         </>
       )}

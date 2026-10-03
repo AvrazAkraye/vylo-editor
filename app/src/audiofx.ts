@@ -1,5 +1,5 @@
 import {
-  biquadResponseDb, clamp, conform, convolve, dbToGain, finiteOr, frames, intervalPeaks, mulberry32,
+  biquadResponseDb, clamp, conform, convolve, dbToGain, finiteOr, frames, intervalPeaks, listOf, mulberry32, own, rec,
   runBiquads, sampleRateOr, seedFrom,
 } from './audiocore';
 import type { Biquad } from './audiocore';
@@ -160,16 +160,19 @@ export const MAX_CHAIN = 16;
 
 const ID = /^[A-Za-z0-9_-]{1,32}$/;
 
-function record(x: unknown): Record<string, unknown> | null {
-  return typeof x === 'object' && x !== null && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
-}
+/**
+ * Entries of a chain looked at: four times `MAX_CHAIN`, room for a chain with
+ * junk between its effects, and a bound on what a list of a million entries,
+ * or four billion holes, can cost (it was a walk of about a minute).
+ */
+const CHAIN_SCAN = MAX_CHAIN * 4;
 
-/** Each knob of `spec` from `raw`, clamped; missing, null, empty or non-numeric is the default (never 0 by accident). */
+/** Each knob of `spec` from `raw`'s own fields, clamped (never -0); missing, null, empty or non-numeric is the default (never 0 by accident). */
 function readNums<S extends Record<string, NumSpec>>(spec: S, raw: Record<string, unknown>): Nums<S> {
   const out: Record<string, number> = {};
   for (const key of Object.keys(spec)) {
     const s = spec[key];
-    out[key] = clamp(finiteOr(raw[key], s.def), s.min, s.max);
+    out[key] = clamp(finiteOr(own(raw, key), s.def), s.min, s.max) || 0;
   }
   return out as Nums<S>;
 }
@@ -177,43 +180,51 @@ function readNums<S extends Record<string, NumSpec>>(spec: S, raw: Record<string
 /**
  * One effect from anything (a stored chain, a model's answer, a slider), or
  * undefined when it names no effect. Every knob is clamped to its range; an
- * unknown word takes the default; nothing it does not know survives.
+ * unknown word takes the default; nothing it does not know survives. Read as
+ * motionread.ts reads (audiocore's `rec` and `own`): own fields only, each
+ * once and inside a try, so a Proxy, a revoked one or a throwing getter is an
+ * effect with nothing set, or none. Never throws.
  */
 export function readFx(x: unknown): Fx | undefined {
-  const r = record(x);
-  if (!r) return undefined;
-  const base: FxBase = {};
-  if (typeof r.id === 'string' && ID.test(r.id)) base.id = r.id;
-  if (r.on === false) base.on = false;
-  switch (r.type) {
-    case 'eq': return { type: 'eq', ...base, ...readNums(EQ_SPEC, r) };
-    case 'filter': return {
-      type: 'filter', ...base, ...readNums(FILTER_SPEC, r),
-      mode: r.mode === 'lowpass' ? 'lowpass' : 'highpass',
-      slope: finiteOr(r.slope, 12) === 24 ? 24 : 12,
-    };
-    case 'compressor': return { type: 'compressor', ...base, ...readNums(COMPRESSOR_SPEC, r) };
-    case 'limiter': return { type: 'limiter', ...base, ...readNums(LIMITER_SPEC, r), truePeak: r.truePeak !== false };
-    case 'delay': return { type: 'delay', ...base, ...readNums(DELAY_SPEC, r) };
-    case 'reverb': {
-      const fx: ReverbFx = { type: 'reverb', ...base, ...readNums(REVERB_SPEC, r) };
-      fx.seed = Math.round(fx.seed);
-      return fx;
+  try {
+    const r = rec(x);
+    if (!r) return undefined;
+    const base: FxBase = {};
+    const id = own(r, 'id');
+    if (typeof id === 'string' && ID.test(id)) base.id = id;
+    if (own(r, 'on') === false) base.on = false;
+    switch (own(r, 'type')) {
+      case 'eq': return { type: 'eq', ...base, ...readNums(EQ_SPEC, r) };
+      case 'filter': return {
+        type: 'filter', ...base, ...readNums(FILTER_SPEC, r),
+        mode: own(r, 'mode') === 'lowpass' ? 'lowpass' : 'highpass',
+        slope: finiteOr(own(r, 'slope'), 12) === 24 ? 24 : 12,
+      };
+      case 'compressor': return { type: 'compressor', ...base, ...readNums(COMPRESSOR_SPEC, r) };
+      case 'limiter': return { type: 'limiter', ...base, ...readNums(LIMITER_SPEC, r), truePeak: own(r, 'truePeak') !== false };
+      case 'delay': return { type: 'delay', ...base, ...readNums(DELAY_SPEC, r) };
+      case 'reverb': {
+        const fx: ReverbFx = { type: 'reverb', ...base, ...readNums(REVERB_SPEC, r) };
+        fx.seed = Math.round(fx.seed);
+        return fx;
+      }
+      default: return undefined;
     }
-    default: return undefined;
+  } catch {
+    return undefined;
   }
 }
 
 /**
- * A chain from anything: what reads is kept in order, at most 16; an id
- * already used earlier in the chain is dropped from the later effect, so a
- * lane addresses exactly one.
+ * A chain from anything: what reads is kept in order, at most 16 of the
+ * first 64 entries (an entry that does not read, or a hole, is skipped); an
+ * id already used earlier in the chain is dropped from the later effect, so a
+ * lane addresses exactly one. Never throws.
  */
 export function readChain(x: unknown): Fx[] {
-  const raw = Array.isArray(x) ? x : [];
   const out: Fx[] = [];
   const ids = new Set<string>();
-  for (const item of raw) {
+  for (const item of listOf(x, CHAIN_SCAN) ?? []) {
     if (out.length >= MAX_CHAIN) break;
     const fx = readFx(item);
     if (!fx) continue;
@@ -593,7 +604,8 @@ function process(ch: Float32Array[], sr: number, fx: Fx, onGain: (g: Float32Arra
 function run(channels: readonly Float32Array[], rate: number, chain: readonly unknown[]): { out: Float32Array[]; gains: (Float32Array | null)[] } {
   const sr = sampleRateOr(rate);
   let ch = conform(channels);
-  const list = Array.isArray(chain) ? chain.slice(0, MAX_CHAIN) : [];
+  // By index, as the readers read lists: a chain straight from outside may be a Proxy or full of holes.
+  const list = listOf(chain, MAX_CHAIN) ?? [];
   const gains: (Float32Array | null)[] = list.map(() => null);
   list.forEach((item, i) => {
     const fx = readFx(item);
@@ -952,7 +964,7 @@ export function buildChain(
   const output = ctx.createGain();
   const nodes: FxNode[] = [];
   let tail: AudioNode = input;
-  const list = Array.isArray(chain) ? chain.slice(0, MAX_CHAIN) : [];
+  const list = listOf(chain, MAX_CHAIN) ?? [];
   list.forEach((item, i) => {
     const fx = readFx(item);
     if (!fx || fx.on === false) return;

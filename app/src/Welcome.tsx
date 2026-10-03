@@ -1,6 +1,7 @@
 import { Icon } from './Icon';
 import { ago } from './store';
 import { SignIn } from './SignIn';
+import { IS_MAC } from './platform';
 
 /**
  * The first screen.
@@ -25,7 +26,7 @@ import { SignIn } from './SignIn';
  * Windows user to press a key their keyboard does not have. Import these
  * rather than typing the glyph.
  */
-export const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent);
+export { IS_MAC }; // platform.ts: a module of its own, so a screen that needs only this does not import the sign-in screen
 export const MOD = IS_MAC ? '⌘' : 'Ctrl';
 export const ALT = IS_MAC ? '⌃' : 'Ctrl';
 

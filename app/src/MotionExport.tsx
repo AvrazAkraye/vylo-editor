@@ -3,7 +3,7 @@ import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save as savePanel } from '@tauri-apps/plugin-dialog';
 import { Icon } from './Icon';
-import { IS_MAC } from './Welcome';
+import { IS_MAC } from './platform';
 import { fill } from './i18n';
 import { explain } from './errors';
 import { canEncode } from './motionencode';

@@ -6,7 +6,8 @@
  * same reason Motion draws with no library (docs/MOTION.md, docs/PRO.md).
  *
  * Pure on purpose: no DOM, no Web Audio, no clock, nothing kept between calls,
- * and nothing random that is not seeded. The offline renderer (`audiofx.ts`),
+ * and nothing random that is not seeded. It also holds the three reads the
+ * settings readers are built from (`rec`, `own`, `listOf`). The offline renderer (`audiofx.ts`),
  * the loudness meter (`loudness.ts`), automation (`audioauto.ts`) and ducking
  * (`audioduck.ts`) are built on these, and the export writes what they
  * return, so the same input is the same bytes on every run.
@@ -73,6 +74,60 @@ export function gainToDb(g: number): number {
   const a = Math.abs(g);
   if (!(a > 1e-10)) return DB_FLOOR;
   return 20 * Math.log10(a);
+}
+
+// ── reading settings ──────────────────────────────────────────────────────
+//
+// The three reads every settings reader here is made of (an effect, a lane, a
+// duck: audiofx.ts, audioauto.ts, audioduck.ts), the same three motionread.ts
+// reads a graphic with. A setting can come from a stored project, a model's
+// answer or a hand edit, and "never throws" has to hold for a Proxy whose
+// traps throw, a revoked one, a getter that throws, an inherited field and a
+// list of four billion holes, not only for what JSON can write
+// (docs/pro/review-safety.md, docs/pro/requests/R1.md item 1).
+
+/** `x` as an object to read fields from; null for anything else (a revoked Proxy included). */
+export function rec(x: unknown): Record<string, unknown> | null {
+  try {
+    return typeof x === 'object' && x !== null && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A field that is `o`'s own, read once; an inherited name, a throwing getter or a trap is no field. */
+export function own(o: Record<string, unknown> | null, key: string): unknown {
+  if (!o) return undefined;
+  try {
+    return Object.prototype.hasOwnProperty.call(o, key) ? o[key] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The first `cap` entries of an array, read one index at a time: a hole, or
+ * an index whose read throws, is `undefined`, which every reader skips, and a
+ * sparse list four billion long costs only the `cap` indices looked at. Null
+ * for anything that is not an array.
+ */
+export function listOf(x: unknown, cap: number): unknown[] | null {
+  let n = 0;
+  try {
+    if (!Array.isArray(x)) return null;
+    n = Math.min(x.length, Math.max(0, Math.floor(finiteOr(cap, 0))));
+  } catch {
+    return null;
+  }
+  const out: unknown[] = [];
+  for (let i = 0; i < n; i++) {
+    try {
+      out.push((x as unknown[])[i]);
+    } catch {
+      out.push(undefined);
+    }
+  }
+  return out;
 }
 
 // ── seeded randomness ─────────────────────────────────────────────────────

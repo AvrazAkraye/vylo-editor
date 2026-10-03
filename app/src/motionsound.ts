@@ -4,6 +4,7 @@ import { countAt, gapOf, inDone, outStart, unitsOf } from './motionanim';
 import { clamp, easeOf, finite, hash01 } from './motionmath';
 import { gainToTarget, measureLoudness } from './loudness';
 import { SFX_KINDS, synth, type Sfx, type SfxKind } from './motionsfx';
+import { sceneHold, sceneList } from './motionscene';
 import type { Mood, Score } from './videosynth';
 
 /**
@@ -45,11 +46,32 @@ import type { Mood, Score } from './videosynth';
  * no cue — a colour, the title, a word swapped for one as long — renders
  * nothing again.
  *
+ * ## Scenes
+ *
+ * When a scene arrives with a transition (anything but a cut), the scene
+ * before it holds still from its hold moment until the cut: the transition is
+ * its exit (motionscene.ts, docs/pro/scenes.md). The stretch from the hold to
+ * the cut is never drawn, so nothing in it is heard either. A cue that falls
+ * there is dropped — an exit the transition took over, an entrance of a layer
+ * that would have appeared during the exit, the last ticks of a count — and so
+ * is its accent in the music. The one exception is a layer that arrives in
+ * that stretch and stays on past the cut: the new scene's picture, which plays
+ * live from the cut, is the first to show it, so its entrance is heard at the
+ * cut. Everything from the cut on (the new scene's entrances, played as the
+ * transition brings them in) is heard where it always was, and a graphic
+ * without scenes, or whose scenes all meet by cuts, sounds exactly as before.
+ * The stretches come from `sceneList` and `sceneHold`, the lookups the
+ * painter's own hold is computed by, so the sound and the picture cannot
+ * disagree about where a scene stands still.
+ *
  * ## What this file may import
  *
  * `motionread.ts` imports this file (to read `sound`), so this file never
  * imports it or `motiondraw.ts` at run time: it reads its own field with its
- * own small reader. `videosynth.ts` is imported only when music is rendered
+ * own small reader. It does import `motionscene.ts`, which imports neither, for
+ * the two lookups the painter's scene hook is built on (`sceneList`,
+ * `sceneHold`): a cue is heard only where the picture moves (see "Scenes"
+ * above). `videosynth.ts` is imported only when music is rendered
  * (`import()`), so opening Motion does not load the Video studio's composer and
  * everything it brings.
  */
@@ -422,12 +444,62 @@ const LANDINGS: ReadonlySet<string> = new Set(['pop', 'zoom', 'drop', 'slide', '
 /** How the particles' styles ring: snow is faint and high, confetti a little lower. */
 const PARTICLE_PITCH: Readonly<Record<string, number>> = { confetti: 0.9, sparks: 1.1, bubbles: 0.8, stars: 1.2, snow: 1.3 };
 
+/** A stretch the picture holds still through: from a scene's hold moment to the cut where the next arrives by a transition. */
+interface Still {
+  from: number;
+  cut: number;
+}
+
 interface Frame {
   seconds: number;
   /** The frame's width in u. */
   width: number;
   rtl: boolean;
   seed: number;
+  /** Where the picture stands still before a transition, in time order; none without scenes. */
+  stills: readonly Still[];
+}
+
+/** A hair, in seconds: a cue this close to an edge is at the edge. */
+const HAIR = 1e-9;
+
+/**
+ * The stretches no frame shows: for each scene the next one arrives with a
+ * transition, `sceneHold` (the moment the painter freezes it at) up to the cut.
+ * A scene that arrives by a cut leaves the one before exactly as designed, so
+ * it makes no stretch; neither does a graphic without scenes.
+ */
+function stillsOf(doc: Motion): Still[] {
+  const out: Still[] = [];
+  try {
+    const list = sceneList(doc);
+    for (let i = 0; i + 1 < list.length; i++) {
+      if (!list[i + 1].transition) continue;
+      const from = sceneHold(doc, i);
+      if (from < list[i].end - HAIR) out.push({ from, cut: list[i].end });
+    }
+  } catch {
+    // A document the scene lookups cannot read has no scenes to the painter either.
+    return [];
+  }
+  return out;
+}
+
+/**
+ * When a cue of a layer on screen from `start` to `end` is heard, given the
+ * stretches the picture stands still through: at `t` where the picture moves;
+ * at the cut for a cue (not an exit) of a layer that arrives inside a stretch
+ * and is still there after the cut, since the new scene's picture is the first
+ * to show it, mid-arrival; never (`null`) for the rest of a stretch — exits the
+ * transition took over, arrivals nobody sees, motion that is frozen. Cues moved
+ * onto one cut are thinned like any others (`MIN_GAP`).
+ */
+function heardAt(stills: readonly Still[], t: number, rev: boolean, start: number, end: number): number | null {
+  for (const s of stills) {
+    if (t < s.from - HAIR || t >= s.cut - HAIR) continue;
+    return !rev && start >= s.from - HAIR && end > s.cut + HAIR ? s.cut : null;
+  }
+  return t;
 }
 
 /** `x` to `places` decimals, by dividing (multiplying by 0.001 would leave 0.7000000000000001 in a key). */
@@ -447,9 +519,12 @@ function layerCues(l: Layer, f: Frame, out: Cue[]): void {
   const g = gainOf(b);
   const pan = round(panOf(l, f.width, f.rtl), 3);
   let made = 0;
-  const push = (kind: SfxKind, t: number, o: { d?: number; gain: number; pitch?: number; rev?: boolean }, salt: number) => {
+  const push = (kind: SfxKind, when: number, o: { d?: number; gain: number; pitch?: number; rev?: boolean }, salt: number) => {
     // A sound is the layer's only while the layer is there, and nothing starts in the last instant of the graphic.
-    if (made >= PER_LAYER || !(t >= start - 1e-9) || !(t < end) || t >= f.seconds - 0.02) return;
+    if (made >= PER_LAYER || !(when >= start - 1e-9) || !(when < end) || when >= f.seconds - 0.02) return;
+    // ...and only where the picture moves: not while a scene stands still for the transition after it.
+    const t = f.stills.length ? heardAt(f.stills, when, o.rev === true, start, end) : when;
+    if (t === null) return;
     const seed = (fnv(`${id}|${kind}|${salt}`) ^ f.seed) >>> 0;
     const pitch = clamp((o.pitch ?? 1) * (1 + 0.06 * (hash01(seed) - 0.5)), 0.5, 2);
     out.push({
@@ -612,6 +687,7 @@ function frameOf(doc: Motion): Frame {
     width: (f.width / Math.min(f.width, f.height)) * 100,
     rtl: isRtlLang(doc?.lang),
     seed: seedOf(doc),
+    stills: stillsOf(doc),
   };
 }
 
@@ -626,8 +702,10 @@ function allCues(doc: Motion): Cue[] {
 /**
  * The sound effects a graphic's animation asks for, in time order: the cues
  * its entrances, exits, counters, charts, particles, shimmers and backdrops
- * make, thinned to its level. They are worked out whatever the mode, so the
- * timeline could show them; only Effects and Both play them.
+ * make, where the picture shows them (none while a scene holds still for a
+ * transition; see "Scenes" above), thinned to its level. They are worked out
+ * whatever the mode, so the timeline could show them; only Effects and Both
+ * play them.
  */
 export function soundCues(doc: Motion): Cue[] {
   const level = (readSound(doc?.sound) ?? defaultSound()).level;
