@@ -1,7 +1,7 @@
 import type {
   CounterLayer, Ctx, Env, IconLayer, ImageLayer, Layer, Motion, Paint, Pose, Shadow, ShapeLayer, Split, TextLayer,
 } from './motiontypes';
-import { paintScenes } from './motionscene';
+import { paintScenes, type SceneDraw } from './motionscene';
 import { LIMITS, PINS, SHAPES, SPLITS, isRtlLang, isTone, pinOf, pxPerU } from './motiontypes';
 import { countAt, inDone, poseAt } from './motionanim';
 import {
@@ -434,7 +434,7 @@ export function paint(ctx: Ctx, doc: Motion, t: number, o: PaintOptions = {}): v
   const samples = Math.min(MAX_SAMPLES, Math.round(finite(o.blur?.samples, 1)));
   if (samples > 1 && blurred(ctx, doc, t, o, width, height, samples)) return;
   // A document with scenes is painted by `motionscene.ts` (pro pass); one without them goes on exactly as before.
-  if (doc.scenes && doc.scenes.length > 0 && paintScenes(ctx, doc, t, width, height)) return;
+  if (doc.scenes && doc.scenes.length > 0 && paintScenes(ctx, doc, t, width, height, sceneDraw(doc, width, height, o), o.clear !== false)) return;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   fresh(ctx);
@@ -464,6 +464,18 @@ export function paint(ctx: Ctx, doc: Motion, t: number, o: PaintOptions = {}): v
       }
     }
   }
+}
+
+/**
+ * What `paintScenes` paints a scene's picture with (pro pass, 05): this
+ * frame's own drawing, at another moment, onto another canvas of the same
+ * size, from a copy of the graphic with its scenes taken off — so the hook
+ * above is not reached again — and with this frame's `strict` and `onError`.
+ * Made only for a graphic that has scenes.
+ */
+function sceneDraw(doc: Motion, width: number, height: number, o: PaintOptions): SceneDraw {
+  const plain: Motion = { ...doc, scenes: undefined };
+  return (target, at, clear) => paint(target, plain, at, { width, height, clear, strict: o.strict, onError: o.onError });
 }
 
 /** The state a frame starts from, whatever the canvas was last used for. */
