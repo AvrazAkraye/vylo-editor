@@ -19,6 +19,8 @@
  * - VideoPanel.tsx  — the sidebar module and its full window
  */
 
+import type { Motion } from './motiontypes';
+
 /** Frame shapes, by where the video will be watched. */
 export type Format = 'landscape' | 'portrait' | 'square';
 
@@ -162,6 +164,13 @@ interface SceneBase {
   look?: SceneLook;
   /** The scene's art direction: the model's creative choices, which the person can change. */
   art?: SceneArt;
+  /**
+   * A graphic from Motion drawn on top of this scene — a lower third over a
+   * clip — from `at` seconds into the scene, once. `motion` is a
+   * `VideoMotion.id` of `Video.motions`; the reader drops an overlay whose
+   * graphic the film no longer holds (videomotion.ts).
+   */
+  over?: { motion: string; at?: number };
 }
 
 /**
@@ -254,19 +263,26 @@ export interface DeviceScene extends SceneBase { kind: 'device'; device: 'phone'
 export interface ClipScene extends SceneBase { kind: 'clip'; clip: string; from?: number; caption?: string; sound?: boolean }
 /** One short phrase, huge, scrolling across the frame and repeating, with an optional line under it. */
 export interface MarqueeScene extends SceneBase { kind: 'marquee'; text: string; sub?: string }
+/**
+ * A graphic made in Motion, played across the whole frame from its own start
+ * (`Video.motions`, by `motion` = its `VideoMotion.id`). Past the graphic's end
+ * the scene holds its last frame, or plays it again when `loop`. Placed by the
+ * person from the storyboard, never planned by the model (videomotion.ts).
+ */
+export interface MotionScene extends SceneBase { kind: 'motion'; motion: string; loop?: boolean }
 
 export type Scene =
   | TitleScene | KineticScene | BulletsScene | StatScene | ChartScene
   | QuoteScene | ImageScene | SplitScene | StepsScene | OutroScene
   | GalleryScene | TimelineScene | CompareScene | PeopleScene | LogoScene | QrScene
-  | BigTypeScene | FeaturesScene | DeviceScene | MarqueeScene | ClipScene;
+  | BigTypeScene | FeaturesScene | DeviceScene | MarqueeScene | ClipScene | MotionScene;
 
 export type SceneKind = Scene['kind'];
 
 export const SCENE_KINDS: readonly SceneKind[] = [
   'title', 'kinetic', 'bullets', 'stat', 'chart', 'quote', 'image', 'split', 'steps', 'outro',
   'gallery', 'timeline', 'compare', 'people', 'logo', 'qr',
-  'bigtype', 'features', 'device', 'marquee', 'clip',
+  'bigtype', 'features', 'device', 'marquee', 'clip', 'motion',
 ];
 
 /**
@@ -289,6 +305,26 @@ export interface Clip {
   /** Where: YouTube, Instagram, a site's own name. */
   site: string;
   license?: string;
+}
+
+/**
+ * A graphic the film holds: copied from the Motion studio when the person
+ * placed it, so the film is self-contained like a clip it holds — editing or
+ * deleting the graphic in Motion later does not change a film already made.
+ * `from` and `stamp` say which saved graphic, as it was when, so the storyboard
+ * can offer "Update from Motion" when the saved one is newer. `doc` is read by
+ * `readMotion` (motionread.ts) every time the film is read (videomotion.ts
+ * `readVideoMotions`). The model is never shown `doc`.
+ */
+export interface VideoMotion {
+  /** The film's own id for it, which scenes and overlays name. */
+  id: string;
+  /** The Motion id it was copied from. */
+  from?: string;
+  /** That graphic's `updated` when it was copied. */
+  stamp?: number;
+  title: string;
+  doc: Motion;
 }
 
 /** What a link the person gave turned out to be, kept for the plan and the Facts tab. */
@@ -450,6 +486,8 @@ export interface Video {
   guide?: { name: string; text: string };
   /** Pieces of real video from the links the person gave. */
   clips?: Clip[];
+  /** Graphics from the Motion studio the film holds, for its "motion" scenes and graphics on top (`SceneBase.over`). */
+  motions?: VideoMotion[];
   /** The links the person gave, as they were read. */
   links?: LinkSource[];
   /** Look the subject up on the web before planning. On by default. */

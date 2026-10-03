@@ -829,9 +829,11 @@ function sceneLine(s: Scene, n: number): string {
   if (pictured(s)) note = s.picture ? ' — shows a picture' : s.imageQuery ? ' — its picture is still to be found' : '';
   else if (s.kind === 'gallery') note = ` — ${(s.pictures ?? []).filter((p) => p?.src).length} pictures in it`;
   else if (s.kind === 'people') note = ` — ${s.people.filter((p) => p.picture).length} of ${s.people.length} with a photo`;
+  else if (s.kind === 'motion') note = ' — a graphic the person made in Motion and placed here: only its seconds and transition are yours to change';
   const own = s.look ? normalSceneLook(s.look) : {};
   const look = Object.keys(own).length ? ` — its own look (set_scene_look): ${lookJson(own)}` : '';
-  return `${n}. ${sceneJson({ ...s, look: undefined } as Scene)}${note}${look}`;
+  const on = s.kind !== 'motion' && s.over ? ' — with a graphic from Motion on top that the person placed: keep its "over" as it is' : '';
+  return `${n}. ${sceneJson({ ...s, look: undefined } as Scene)}${note}${on}${look}`;
 }
 
 /** The video's look now, field by field, with each one's range — what a relative change starts from. */
@@ -1528,7 +1530,7 @@ function seedOf(s: string): number {
  * feature's icon.
  */
 const NOT_WORDS = new Set(['kind', 'type', 'seconds', 'duration', 'transition', 'imageQuery', 'image_query', 'imageQueries', 'value', 'prefix', 'suffix', 'url', 'unit', 'id', 'picture', 'pictures', 'look',
-  'art', 'effect', 'ground', 'camera', 'shape', 'emphasis', 'size', 'align', 'device', 'icon']);
+  'art', 'effect', 'ground', 'camera', 'shape', 'emphasis', 'size', 'align', 'device', 'icon', 'motion', 'over']);
 
 /** The words a scene puts on screen, joined — every string but the fields that are not words, and less the brand's name, which stays as it is in every language. */
 function screenWords(s: Scene, brandName: string | undefined): string {
@@ -2060,6 +2062,8 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
         s = keptPictures(old, s, 'imageQuery' in safe || 'image_query' in safe || 'imageQueries' in safe);
         // The scene's own look stays with it, whatever its words become.
         if (old.look && !s.look) s = { ...s, look: old.look };
+        // So does a graphic the person laid on top (videomotion.ts): a reply can neither move nor remove it.
+        if (old.over && s.kind !== 'motion') s = { ...s, over: old.over };
         if (!sameScene(old, s)) {
           scenes = scenes.map((x, i) => (i === at ? s! : x));
           touched.add(s.id);

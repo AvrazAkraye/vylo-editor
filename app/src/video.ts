@@ -48,6 +48,7 @@ import { qrText } from './videoqr';
 import { DESIGN_RULES, DESIGN_SHAPE, readDesign } from './videodesign';
 import { FONT_CHOICES, hexOf } from './videolook';
 import { phraseOf, phraseSpans } from './videoemphasis';
+import { heldDoc, heldIn, readOver, sceneSecondsFor } from './videomotion';
 
 export { qrModules, qrPath, qrText } from './videoqr';
 // The designed look's reading, where the rest of the video's engine is: the panel and the tests reach it here too.
@@ -1226,7 +1227,9 @@ export function mainTextOf(s: Scene): string {
     case 'marquee': parts = [x.text]; break;
     case 'clip': parts = [x.caption]; break;
     case 'stat':
-    case 'logo': parts = []; break;
+    case 'logo':
+    // A graphic from Motion draws its own words; the film's emphasis has nothing of it to light.
+    case 'motion': parts = []; break;
     default: parts = [x.heading];
   }
   return parts.map(str).filter(Boolean).join('\n');
@@ -1316,6 +1319,8 @@ function wordsOf(s: Scene): number {
     case 'marquee': text.push(s.text, s.sub ?? '', '1'); break;
     // Moving footage needs a few seconds to register, whatever its caption says.
     case 'clip': text.push(s.caption ?? '', '1 2 3 4 5'); break;
+    // So does a moving graphic; a scene placed from Motion starts as long as the graphic itself (videomotion.ts).
+    case 'motion': text.push('1 2 3 4 5'); break;
   }
   return text.join(' ').split(/\s+/).filter(Boolean).length;
 }
@@ -1583,6 +1588,13 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
       scene = { ...base, kind, clip: c.id, ...(from > 0 ? { from: tenths(from) } : {}), ...(caption ? { caption } : {}), ...(o.sound === true ? { sound: true } : {}) };
       break;
     }
+    case 'motion': {
+      // Only a graphic the film holds, named by its exact id: the person placed it from the storyboard,
+      // and a reply can keep it (an edit of its seconds) but never make one up (docs/VM.md, videomotion.ts).
+      const held = heldIn(v, o.motion);
+      scene = held ? { ...base, kind, motion: held.id, ...(o.loop === true ? { loop: true } : {}) } : null;
+      break;
+    }
     case 'marquee': {
       const text = t(o.text ?? o.phrase ?? o.title ?? o.headline, CAP.headline);
       const sub = opt(o.sub ?? o.subtitle ?? o.caption, CAP.sentence);
@@ -1611,6 +1623,8 @@ export function sanitizeScene(s: unknown, v: Video, newId: () => string): Scene 
     const room = clipRoom(scene, v);
     if (room !== null) scene.seconds = tenths(clampNum(scene.seconds, SCENE_SECONDS.min, Math.max(SCENE_SECONDS.min, room)));
   }
+  // No `over` is read here: a graphic on top is the person's to place, never a reply's. The places that write a
+  // person's scene again keep the one it had (parseScene below; videochatops.ts `edit_scene`).
   return scene;
 }
 
@@ -1822,9 +1836,13 @@ export function blankScene(kind: SceneKind, v: Video, newId: () => string): Scen
     case 'marquee': s = { ...base, kind, text: v.brand?.name?.trim() || w.marquee, sub: w.marqueeSub }; break;
     // The first clip the video has; the storyboard lets the person choose another.
     case 'clip': s = { ...base, kind, clip: v.clips?.[0]?.id ?? '' }; break;
+    // Likewise the first graphic the film holds; the storyboard's own way in is its list of saved graphics.
+    case 'motion': s = { ...base, kind, motion: v.motions?.[0]?.id ?? '' }; break;
     default: s = { ...base, kind: 'kinetic', text: w.kinetic };
   }
   s.seconds = tenths(Math.max(3, readingSeconds(s)));
+  // A graphic's scene is as long as the graphic, within a scene's limits.
+  if (s.kind === 'motion' && v.motions?.[0]) s.seconds = sceneSecondsFor(heldDoc(v.motions[0]));
   return s;
 }
 
@@ -2063,5 +2081,9 @@ export function parseScene(text: string, old: Scene, v: Video, newId: () => stri
         : p;
     });
   }
+  // The graphic the person laid on top is theirs, not the model's: a scene written again keeps it.
+  const over = out.kind === 'motion' ? undefined : readOver(old.over, new Set((v.motions ?? []).map((m) => m?.id)), out.seconds);
+  if (over) out.over = over;
+  else delete out.over;
   return out;
 }
