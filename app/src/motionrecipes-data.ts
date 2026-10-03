@@ -70,6 +70,12 @@ export interface Item extends Figure {
 const BIG = 1e12;
 /** How many characters of a label are kept: a chart's room for words is a few centimetres wide. */
 const LABEL_CHARS = 24;
+/**
+ * How many a label wrapped on two lines under a figure or a ring keeps: the
+ * reader's own limit for a chart's label (`LIMITS.label`). "Students who passed
+ * every exam" is 30, and was cut at 24 to "Students who passed ever".
+ */
+export const WRAPPED_LABEL = 40;
 /** Short marks around a number that are kept as its prefix or suffix. */
 const MARK_CHARS = 6;
 
@@ -204,10 +210,75 @@ export function numberOf(raw: string): Figure | null {
 const STRONG = /[:=\u060C\uFF1A]/g;
 const DASH = /[-\u2013\u2014]/g;
 
-/** A label as a chart shows it: one line, single spaces, no separator left dangling, at most `LABEL_CHARS` characters. */
-function labelOf(s: string): string {
+/** The mark a shortened label ends in. */
+const MORE = '\u2026';
+
+/** Punctuation that should not be left just before the ellipsis of a shortened label. */
+const DANGLING = /[\s,;:.\u060C\u061B\u2013\u2014-]+$/;
+
+/**
+ * Words held to `chars` characters. Words that are longer are cut after the
+ * last whole word that fits and end in an ellipsis, so a shortened label says
+ * so: "Villages visited by\u2026", never "Villages visited by the" with the last
+ * word gone without a trace, nor "Buildings and maintenanc". Only a first word
+ * longer than the whole room is cut inside itself, and it too ends in the
+ * ellipsis. The ellipsis counts as one of the `chars`.
+ */
+export function clipWords(s: string, chars: number): string {
+  const all = Array.from(String(s ?? ''));
+  const cap = Math.max(1, Math.floor(Number.isFinite(chars) ? chars : 1));
+  if (all.length <= cap) return all.join('');
+  if (cap === 1) return MORE;
+  const room = cap - 1;
+  // One character past the room shows whether the cut falls just before a space, so the last word is whole. An
+  // Arabic word is never cut inside itself while a whole one before it fits: a letter cut from its neighbours changes
+  // its shape, and "الطل" is no word at all.
+  const head = all.slice(0, room + 1).join('');
+  const at = head.lastIndexOf(' ');
+  const whole = at > 0 ? head.slice(0, at).replace(DANGLING, '') : '';
+  if (whole) return `${whole}${MORE}`;
+  return `${all.slice(0, room).join('').replace(DANGLING, '')}${MORE}`;
+}
+
+/**
+ * Words wrapped greedily into lines of at most `max` u at `size` (by the
+ * estimate `wordsEm`), held to `lines` lines: when they need more, the last
+ * line keeps the words that fit beside an ellipsis. For words a layer wraps
+ * under a figure or a ring, whose layout has room for that many lines and no
+ * more. The estimate errs wide, so the renderer's own wrap needs no more lines
+ * than this counted.
+ */
+export function clipToLines(text: string, size: number, max: number, lines: number): string {
+  const words = String(text ?? '').split(/\s+/).filter(Boolean);
+  const keep = Math.max(1, Math.floor(lines));
+  if (!words.length || !(size > 0) || !(max > 0)) return words.join(' ');
+  const fits = (s: string) => wordsEm(s) * size <= max;
+  const out: string[] = [];
+  let line = '';
+  for (let i = 0; i < words.length; i += 1) {
+    const next = line ? `${line} ${words[i]}` : words[i];
+    if (!line || fits(next)) {
+      line = next;
+      continue;
+    }
+    if (out.length + 1 >= keep) {
+      // The last line allowed is full and words remain: as many as fit beside the ellipsis.
+      const last = line.split(' ');
+      while (last.length > 1 && !fits(`${last.join(' ')}${MORE}`)) last.pop();
+      out.push(`${last.join(' ').replace(DANGLING, '')}${MORE}`);
+      return out.join(' ');
+    }
+    out.push(line);
+    line = words[i];
+  }
+  out.push(line);
+  return out.join(' ');
+}
+
+/** A label as a chart shows it: one line, single spaces, no separator left dangling, at most `chars` characters (`clipWords`). */
+function labelOf(s: string, chars = LABEL_CHARS): string {
   const one = s.replace(/\s+/g, ' ').replace(/[\s:=\u060C\uFF1A\u2013\u2014-]+$/, '').trim();
-  return Array.from(one).slice(0, LABEL_CHARS).join('').trim();
+  return clipWords(one, chars).trim();
 }
 
 /** Every index where `re` matches in `s`, first to last. */
@@ -226,31 +297,32 @@ function marks(s: string, re: RegExp): number[] {
  * the last word, when it is a number (`Q1 40`, `COVID-19 400`); at a dash
  * followed by a number and other words (`Q1 - 40 (est.)`); and last the line
  * as a bare number. A bullet in front of the line is not part of the label.
+ * The label is held to `chars` characters (`labelOf`).
  */
-export function itemOf(line: string): Item | null {
+export function itemOf(line: string, chars = LABEL_CHARS): Item | null {
   const s = line.replace(/^\s*(?:[\u2022\u00B7\u25AA\u25E6*]+|[-\u2013\u2014](?=\s))\s*/, '').trim();
   if (!s) return null;
   const split = (re: RegExp, strict: boolean): Item | null => {
     for (const i of marks(s, re)) {
       const f = figureOf(s.slice(i + 1), strict);
-      if (f) return { label: labelOf(s.slice(0, i)), ...f };
+      if (f) return { label: labelOf(s.slice(0, i), chars), ...f };
     }
     return null;
   };
   const words = s.split(/\s+/);
   const last = (): Item | null => {
     const f = words.length > 1 ? figureOf(words[words.length - 1], true) : null;
-    return f ? { label: labelOf(words.slice(0, -1).join(' ')), ...f } : null;
+    return f ? { label: labelOf(words.slice(0, -1).join(' '), chars), ...f } : null;
   };
   const bare = figureOf(s, true);
   return split(STRONG, false) ?? split(DASH, true) ?? last() ?? split(DASH, false) ?? (bare ? { label: '', ...bare } : null);
 }
 
-function linesOf(text: string, max: number): Item[] {
+function linesOf(text: string, max: number, chars: number): Item[] {
   const out: Item[] = [];
   for (const line of String(text ?? '').split(/\r\n?|\n/)) {
     if (out.length >= max) break;
-    const item = itemOf(line);
+    const item = itemOf(line, chars);
     if (item) out.push(item);
   }
   return out;
@@ -259,13 +331,16 @@ function linesOf(text: string, max: number): Item[] {
 /**
  * A `Label: value` list as items: at most `max`, lines with no number
  * skipped, and never none — when nothing reads, `fallback` (the sample's list
- * for the language) is read instead, and past that a single zero.
+ * for the language) is read instead, and past that a single zero. Labels are
+ * held to `chars` characters: a chart's 24 by default, the reader's 40
+ * (`WRAPPED_LABEL`) for a template that wraps a label on two lines under its
+ * figure.
  */
-export function itemsOf(text: string, max: number, fallback = ''): Item[] {
+export function itemsOf(text: string, max: number, fallback = '', chars = LABEL_CHARS): Item[] {
   const cap = Math.max(1, Math.floor(Number.isFinite(max) ? max : 1));
-  const mine = linesOf(text, cap);
+  const mine = linesOf(text, cap, chars);
   if (mine.length) return mine;
-  const theirs = linesOf(fallback, cap);
+  const theirs = linesOf(fallback, cap, chars);
   return theirs.length ? theirs : [{ label: '', ...ZERO }];
 }
 
@@ -287,13 +362,14 @@ const ICON_WORDS: readonly (readonly [IconId, readonly string[]])[] = [
     'داهات', 'قازانج', 'فرۆش', 'پارە', 'نرخ', 'تێچوو', 'بودجە', 'دارایی', 'دینار', 'فرۆتن']],
   ['graduation', ['student', 'graduate', 'pupil', 'alumni', 'طالب', 'طلاب', 'طلبة', 'خريج', 'قوتابی', 'خوێندکار', 'دەرچوو']],
   ['users', ['user', 'people', 'person', 'member', 'customer', 'client', 'follower', 'visitor', 'subscriber', 'employee', 'staff', 'team', 'volunteer', 'guest', 'attendee', 'participant', 'viewer', 'fan',
-    'مستخدم', 'عميل', 'عملاء', 'زبون', 'زبائن', 'شخص', 'أشخاص', 'اشخاص', 'الناس', 'عضو', 'أعضاء', 'اعضاء', 'متابع', 'زائر', 'زوار', 'مشترك', 'موظف', 'عامل', 'عمال', 'فريق', 'متطوع', 'ضيف', 'مشارك',
-    'بەکارهێنەر', 'بکارهێنەر', 'کڕیار', 'کریار', 'خەڵک', 'خەلک', 'کەس', 'ئەندام', 'فۆڵۆوەر', 'سەردانکەر', 'سەرەدانکەر', 'فەرمانبەر', 'کارمەند', 'تیم', 'میوان', 'بەشداربوو', 'بەشدار']],
+    'مستخدم', 'عميل', 'عملاء', 'زبون', 'زبائن', 'شخص', 'أشخاص', 'اشخاص', 'الناس', 'عضو', 'أعضاء', 'اعضاء', 'متابع', 'زائر', 'زوار', 'مشترك', 'موظف', 'عامل', 'عمال', 'فريق', 'متطوع', 'تطوع', 'ضيف', 'مشارك',
+    'بەکارهێنەر', 'بکارهێنەر', 'کڕیار', 'کریار', 'خەڵک', 'خەلک', 'کەس', 'ئەندام', 'فۆڵۆوەر', 'سەردانکەر', 'سەرەدانکەر', 'فەرمانبەر', 'کارمەند', 'تیم', 'خۆبەخش', 'میوان', 'بەشداربوو', 'بەشدار']],
   ['clock', ['hour', 'minute', 'second', 'time', 'uptime', 'ساعة', 'ساعات', 'دقيق', 'وقت', 'کاتژمێر', 'خولەک', 'دەمژمێر', 'کات']],
   ['calendar', ['day', 'week', 'month', 'year', 'event', 'date', 'يوم', 'أيام', 'ايام', 'أسبوع', 'اسبوع', 'شهر', 'سنة', 'سنوات', 'عام', 'أعوام', 'فعالي', 'ڕۆژ', 'رۆژ', 'هەفتە', 'حەفتی', 'مانگ', 'هەیڤ', 'ساڵ', 'سال', 'بۆنە']],
   ['trend', ['growth', 'increase', 'rise', 'rate', 'return', 'conversion', 'نمو', 'زيادة', 'ارتفاع', 'معدل', 'نسبة', 'گەشە', 'زیادبوون', 'زێدەبوون', 'ڕێژە', 'رێژە']],
   ['globe', ['countr', 'nation', 'world', 'language', 'دول', 'بلد', 'بلدان', 'لغة', 'لغات', 'وڵات', 'وەلات', 'جیهان', 'زمان']],
-  ['pin', ['city', 'cities', 'location', 'branch', 'office', 'store', 'shop', 'site', 'مدين', 'مدن', 'فرع', 'فروع', 'موقع', 'مكتب', 'متجر', 'شار', 'باژێر', 'لق', 'نووسینگە', 'فرۆشگا', 'دوکان']],
+  ['pin', ['city', 'cities', 'town', 'village', 'location', 'branch', 'office', 'store', 'shop', 'site', 'مدين', 'مدن', 'بلدة', 'قرية', 'قرى', 'فرع', 'فروع', 'موقع', 'مكتب', 'متجر',
+    'شار', 'باژێر', 'گوند', 'لق', 'نووسینگە', 'فرۆشگا', 'دوکان']],
   ['trophy', ['award', 'prize', 'win', 'trophy', 'champion', 'جائز', 'جوائز', 'فوز', 'بطول', 'خەڵات', 'خەلات', 'براوە']],
   ['medal', ['medal', 'ميدالي', 'مدالي', 'مەدالیا']],
   ['rocket', ['project', 'launch', 'startup', 'release', 'مشروع', 'مشاريع', 'إطلاق', 'اطلاق', 'پڕۆژە', 'پرۆژە']],
@@ -406,6 +482,8 @@ function wordsEm(s: string): number {
 // ── shared pieces ─────────────────────────────────────────────────────────
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
+/** A size to a hundredth of a u: what a layer stores. */
+const r2 = (x: number) => Math.round(x * 100) / 100;
 
 /** A colour with no colour: what a chart is given for a datum another chart layer draws. */
 const CLEAR = '#00000000';
@@ -755,7 +833,8 @@ const IN_TOTAL: Readonly<Record<Lang, string>> = { en: 'in total', ar: 'بالم
 function donut(c: Kit): Layer[] {
   const b = beatOf(c);
   const M = sideOf(c);
-  const items = itemsOf(c.fields.items ?? '', META.donut.fields[1].max, sampleOf(c, 'items'));
+  // The legend clips its names to their room itself (below), so a name is not first cut to a chart's 24 characters.
+  const items = itemsOf(c.fields.items ?? '', META.donut.fields[1].max, sampleOf(c, 'items'), WRAPPED_LABEL);
   const n = items.length;
   const tones = tonesOf(n);
   const head = headOf(c, b, 'start');
@@ -853,11 +932,19 @@ function donut(c: Kit): Layer[] {
   }));
   if (caption) {
     layers.push(c.text('total-label', {
-      name: 'Total label', text: caption, voice: 'sans', size: capSize, weight: 600, color: 'muted', align: 'center', lead: 1.2, max: hole * 0.74, fit: true,
+      name: 'Total label', text: clipToLines(caption, capSize, hole * 0.74, 1), voice: 'sans', size: capSize, weight: 600, color: 'muted', align: 'center', lead: 1.2, max: hole * 0.74, fit: true,
       pin: 'mc', x: ringX, y: ringY - lift + numSize * 0.6 + capSize * 0.75, start: t0 + b.s(0.3), end: c.seconds,
       in: c.enter('rise', { d: b.s(0.6), amount: 0.5 }), out: c.leave('fade', { d: b.exit }),
     }));
   }
+
+  // The legend's names share one size, so a long one does not set itself smaller than its neighbours (each fitted alone,
+  // a 25-letter name in a two-column legend came out at half the size of a short one beside it): the size at which the
+  // widest fits, but no less than 0.78 of the legend's, and a name still too long at that keeps its first words and an
+  // ellipsis.
+  const nameRoom = Math.max(font * 3, colW - sw - gapS - gapV - valueW);
+  const widestName = Math.max(0, ...items.map((it) => wordsEm(it.label)));
+  const nameSize = widestName > 0 ? Math.min(font, Math.max(font * 0.78, nameRoom / widestName)) : font;
 
   // The legend: a row per slice, arriving with its slice.
   items.forEach((it, i) => {
@@ -876,7 +963,7 @@ function donut(c: Kit): Layer[] {
         start: at, end: c.seconds, in: c.enter('pop', { d: b.s(T.quick), ease: E.pop }), out: c.leave('fade', { d: b.exit }),
       }),
       c.text(`name-${i + 1}`, {
-        text: it.label, voice: 'sans', size: font, weight: 600, color: 'fg', align: 'start', lead: 1.2, max: nameMax, fit: true,
+        text: clipToLines(it.label, nameSize, nameMax, 1), voice: 'sans', size: r2(nameSize), weight: 600, color: 'fg', align: 'start', lead: 1.2, max: nameMax, fit: true,
         pin: 'mc', x: nameX + nameMax / 2, y, start: at + b.s(0.04), end: c.seconds,
         in: c.enter('rise', { d: b.s(0.6), amount: 0.5 }), out: c.leave('fade', { d: b.exit }),
       }),
@@ -1062,7 +1149,7 @@ function lineChart(c: Kit): Layer[] {
 function stats(c: Kit): Layer[] {
   const b = beatOf(c);
   const M = sideOf(c);
-  const items = itemsOf(c.fields.items ?? '', META.stats.fields[1].max, sampleOf(c, 'items'));
+  const items = itemsOf(c.fields.items ?? '', META.stats.fields[1].max, sampleOf(c, 'items'), WRAPPED_LABEL);
   const n = items.length;
   const stacked = c.portrait;
   const head = headOf(c, b, 'center');
@@ -1095,8 +1182,9 @@ function stats(c: Kit): Layer[] {
       }),
     );
     if (it.label) {
+      // The layout has room for two lines of label (`heightOf`); a longer one keeps what fits and an ellipsis.
       layers.push(c.text(`label-${i + 1}`, {
-        text: it.label, voice: 'sans', size: o.labelSize, weight: 500, color: 'muted', align: 'center', lead: 1.25, max: o.labelMax,
+        text: clipToLines(it.label, o.labelSize, o.labelMax, 2), voice: 'sans', size: o.labelSize, weight: 500, color: 'muted', align: 'center', lead: 1.25, max: o.labelMax,
         pin: 'tc', x, y: c.u.h / 2 + numY + o.numSize * 0.6 + 2, start: at(i) + b.s(0.2), end: c.seconds,
         in: c.enter('rise', { d: b.s(T.enter), amount: 0.6 }), out: c.leave('rise', { d: b.exit, amount: 0.6 }),
       }));

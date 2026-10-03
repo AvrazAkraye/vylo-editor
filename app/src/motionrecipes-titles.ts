@@ -422,8 +422,11 @@ function bigTitle(c: Kit): Layer[] {
 
   const blocks: { key: string; h: number; gap: number }[] = [];
   if (kick.lines) blocks.push({ key: 'kicker', h: kick.lines * kick.size * kickLead, gap: 0.14 * head.size });
-  blocks.push({ key: 'title', h: head.lines * head.size * headLead, gap: 0.1 * head.size + 1.2 });
-  blocks.push({ key: 'rule', h: ruleH, gap: 3.2 });
+  // The rule belongs under the headline: with the headline cleared it would be a stroke of accent alone in the middle.
+  if (head.lines) {
+    blocks.push({ key: 'title', h: head.lines * head.size * headLead, gap: 0.1 * head.size + 1.2 });
+    blocks.push({ key: 'rule', h: ruleH, gap: 3.2 });
+  }
   if (sub.lines) blocks.push({ key: 'subtitle', h: sub.lines * sub.size * subLead, gap: 0 });
   const ys = stack(blocks.map((b) => b.h), blocks.map((b) => b.gap), -1.5);
   const y = (key: string) => ys[blocks.findIndex((b) => b.key === key)] ?? 0;
@@ -455,7 +458,7 @@ function bigTitle(c: Kit): Layer[] {
     }));
   }
   // Two halves that grow apart from the middle: `grow` extends from an edge, and a rule under a centred title opens from its centre.
-  for (const side of ['start', 'end'] as const) {
+  for (const side of head.lines ? (['start', 'end'] as const) : []) {
     const from = side === 'start' ? 'end' : 'start';
     layers.push(c.shape(`rule-${side}`, {
       name: side === 'start' ? 'Rule (start half)' : 'Rule (end half)', shape: 'rect', w: ruleW / 2, h: ruleH, radius: 0,
@@ -509,12 +512,24 @@ function kinetic(c: Kit): Layer[] {
   const arabic = ARABIC.test(title);
   const land = c.landscape;
   const room = land ? 132 : c.u.w - 16;
-  const lead = arabic ? 1.28 : 0.98;
   // The block leaves room above and below it for the shapes around it.
-  const set = setWords(title, {
+  const setAt = (lead: number) => setWords(title, {
     size: land ? 21 : 17, min: 6, room, lines: land ? 3 : c.portrait ? 6 : c.feed ? 5 : 4, face: arabic ? HEAVY : IMPACT,
     caps: true, keep: phrase, height: c.u.h - 32, lead,
   });
+  // Capitals set tight (0.98) touch the highlight box under them, which reaches a quarter of an em above its own
+  // capitals; a comma, a semicolon, a Q or a J on the line above hangs below that line's baseline and into the box ("SMALL,"
+  // over "BIG" in portrait). When the lit phrase has such a line above it, the lines open to 1.14, which clears it.
+  let lead = arabic ? 1.28 : 0.98;
+  let set = setAt(lead);
+  if (!arabic && phrase && set.lines > 1) {
+    const rows = set.text.split('\n');
+    const at = rows.findIndex((r) => r.toUpperCase().includes(phrase.toUpperCase().split(/\s+/)[0]));
+    if (at > 0 && /[,;QJ‚„]/.test(rows[at - 1].toUpperCase())) {
+      lead = 1.14;
+      set = setAt(lead);
+    }
+  }
   const glow = (fadeIn: number) => c.backdrop('glow', {
     name: 'Background', style: 'rays', colors: ['accent', 'accent2'], density: 0.35, speed: 1, opacity: 0.55,
     in: c.enter('fade', { d: fadeIn, ease: E.soft }), out: c.leave('fade', { d: 0.35 }),
@@ -601,7 +616,7 @@ function kinetic(c: Kit): Layer[] {
 
 /**
  * Split reveal. Two colour panels sweep in from opposite sides — the accent
- * across the top, a deeper tone of it across the bottom — and meet at a seam
+ * across the top, the second accent across the bottom — and meet at a seam
  * across the middle, the upper one casting a soft shadow on the lower. Then
  * the seam opens: a band of the ground parts the panels like doors, and the
  * title rises up inside it with the subtitle after, so the panels end as two
@@ -614,6 +629,11 @@ function kinetic(c: Kit): Layer[] {
  * panels have spent theirs sweeping in. On flat colour the two look the same.
  * The halves stay to the end: they are the ground's own colour, and a fade
  * would show the panels through them.
+ *
+ * The lower panel was the accent at 55% over the ground, meant as a deeper tone
+ * of it; over a dark ground that is the accent muddied — a brick brown under
+ * Sunset's orange, the one dull colour in the gallery. The palette's two
+ * accents are chosen to stand together, so the panels are a duotone instead.
  */
 function splitTitle(c: Kit): Layer[] {
   const f = c.fields;
@@ -623,12 +643,14 @@ function splitTitle(c: Kit): Layer[] {
   const H = c.u.h;
   const room = land ? 136 : W - 16;
   const headLead = leadOf(f.title ?? '', 1.04, 1.3);
+  // On the tall frame the title is set larger and the opening is wider, so the band of words, not the two panels, is
+  // what the eye takes in first (at 11.5u it was a quarter of the frame's height between two flat blocks of colour).
   const head = setWords(f.title ?? '', {
-    size: land ? 13 : 11.5, min: 6, room, lines: land ? 3 : tall ? 5 : 4, face: HEAVY, height: H * 0.55, lead: headLead,
+    size: land ? 13 : tall ? 13.5 : 11.5, min: 6, room, lines: land ? 3 : tall ? 5 : 4, face: HEAVY, height: H * 0.55, lead: headLead,
   });
   const subRoom = land ? 116 : room;
   const sub = setWords(f.subtitle ?? '', {
-    size: smallSize(f.subtitle ?? '', land ? 3.9 : 3.6), min: 2.6, room: subRoom, lines: land ? 2 : 3, face: SANS,
+    size: smallSize(f.subtitle ?? '', land ? 3.9 : tall ? 4.2 : 3.6), min: 2.6, room: subRoom, lines: land ? 2 : 3, face: SANS,
   });
   const subLead = leadOf(sub.text, 1.35, 1.55);
   const headH = head.lines * head.size * headLead;
@@ -637,7 +659,7 @@ function splitTitle(c: Kit): Layer[] {
   const seam = -1;
   const [headY, subY] = stack([headH, subH], [gap], seam);
   // Half the opening: the words and a margin of ground above and below them.
-  const half = r3((headH + gap + subH) / 2 + (land ? 7 : 6.5));
+  const half = r3((headH + gap + subH) / 2 + (land ? 7 : tall ? 11 : 6.5));
   const clock = clockOf(c, 1.95);
   const bleed = 3;
   const wide = r3(W + 2 * bleed);
@@ -645,7 +667,7 @@ function splitTitle(c: Kit): Layer[] {
   const layers: Layer[] = [
     c.shape('panel-bottom', {
       name: 'Lower panel', shape: 'rect', pin: 'bc', w: wide, h: r3(H / 2 - seam + bleed), y: bleed, radius: 0,
-      fill: 'accent', opacity: 0.55,
+      fill: 'accent2',
       in: c.enter('wipe', { dir: 'end', d: clock.d(0.8), delay: clock.at(0.08) }),
       out: c.leave('wipe', { dir: 'end', d: 0.45, ease: 'inout' }),
     }),

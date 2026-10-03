@@ -956,11 +956,21 @@ function countdown(c: Kit): Layer[] {
   const final = c.fields.final ?? '';
   const tEnd = from * step;
   const finalM: Measure = { voice: 'bold', weight: 900 };
-  // The last word stays inside the ring it bursts from: two even lines if it is long, fitted to the ring's
-  // width, and set smaller when it breaks so the pair is no taller than the ring holds.
+  // The last word stays inside the ring it bursts from: two even lines if it is long, set smaller when it breaks.
   const room = R * 1.2;
   const finalText = twoLines(final, numSize * 0.8, finalM, room);
-  const finalSize = numSize * (finalText.includes('\n') ? 0.6 : 0.8);
+  const lines = finalText ? finalText.split('\n') : [];
+  // And inside the circle, not only its width: a block whose corners are inside the ring (a 90% circle, clear of
+  // the stroke) has width² + height² under the ring's diameter², height being the block's ink — Latin capitals
+  // three quarters of an em, a descender a whole one, Arabic script with its dots a third more again. "GO" was
+  // inside at 0.8 of a number's size; "انطلق" and "دەست / پێبکە" at that size ran past the ring on both sides.
+  const arabicFinal = ARABIC_CHAR.test(final);
+  const finalLead = arabicFinal ? 1.08 : 1.02;
+  const ink = arabicFinal ? 1.3 : /[gjpqy,;]/.test(final) || /[a-z]/.test(final) ? 1 : 0.76;
+  const wideEm = lines.length ? widthOf(finalText, 1, finalM) : 0;
+  const tallEm = lines.length ? (lines.length - 1) * finalLead + ink : 0;
+  const inCircle = wideEm > 0 ? (R * 0.9) / Math.hypot(wideEm, tallEm) : Infinity;
+  const finalSize = Math.round(Math.min(numSize * (lines.length > 1 ? 0.6 : 0.8), inCircle) * 100) / 100;
   const layers: Layer[] = [
     c.backdrop('backdrop', { name: 'Rays', style: 'rays', colors: ['accent', 'fg'], speed: 1, density: 0.5, opacity: 0.4 }),
     c.shape('ticks', {
@@ -1018,7 +1028,7 @@ function countdown(c: Kit): Layer[] {
   }
   layers.push(c.text('final', {
     name: 'Last word', text: finalText, pin: 'mc', size: finalSize, weight: 900, voice: 'bold', color: 'accent', align: 'center',
-    lead: 1.02, max: room, fit: true, start: tEnd, end: S,
+    lead: finalLead, max: room, fit: true, start: tEnd, end: S,
     in: c.enter('pop', { ease: E.pop, amount: 1.2, d: beat * 0.45 }), out: c.leave('zoom', { amount: 1.2, d: beat * 0.28 }),
   }));
   return layers;
