@@ -16,6 +16,24 @@
 //   point of the reader, lays out the same in both directions (mirrored, box
 //   for box), keeps every word inside the frame, paints clean frames, reads
 //   its fields defensively, and has samples and metadata that are whole.
+//
+// ## The default run and the full sweep
+//
+// `npm test` runs a representative sweep of the templates: every template in
+// two shapes (wide and tall, the two that differ most) and two languages
+// (English and one right-to-left language, a different one per template so
+// Arabic, Sorani and Badini all run), at its own length and at the shortest
+// and longest a graphic may be (1 s and 30 s). The extremes run in full every
+// time: the longest text every field takes and every field empty, in every
+// shape, in English and Arabic; the mirror test in every shape; junk in every
+// field. The full sweep — every template in every language and every shape,
+// at its own length, 1, 2 and 30 s (448 builds) — runs with VYLO_FULL=1:
+//
+//   cd app && VYLO_FULL=1 node test/pro-templates-b.test.mjs   # this file, once npm test has built .test-build
+//   cd app && VYLO_FULL=1 npm test                             # the whole chain, with the full sweep
+//
+// (docs/pro/f3-perf.md says why, and what the default was shown to still catch.)
+import { createHash } from 'node:crypto';
 import { makeCanvas, drewSomething } from './motioncanvas.mjs';
 import { drawBackdrop } from '../.test-build/motionbackdrop.js';
 import { drawChart, raceSeries, raceData, raceValues, raceOrder, raceWindow, raceAt, RACE_STEPS } from '../.test-build/motioncharts.js';
@@ -36,6 +54,8 @@ const ok = (name, cond, detail = '') => {
   cond ? pass++ : fail++;
 };
 const J = (x) => JSON.stringify(x);
+/** The full sweep instead of the representative one (see the top of this file). */
+const FULL = process.env.VYLO_FULL === '1';
 const LANGS = ['en', 'ar', 'ckb', 'kmr'];
 const FORMATS = ['landscape', 'portrait', 'square', 'feed'];
 const SIZES = { landscape: [1920, 1080], portrait: [1080, 1920], square: [1080, 1080], feed: [1080, 1350] };
@@ -75,13 +95,31 @@ function bd(layer, t, o = {}) {
   ctx.restore();
   return { calls: mine, problems: check(), same: before === after };
 }
-const round = (x) => { const r = Math.round(x * 1000) / 1000; return Object.is(r, -0) ? 0 : r; };
-const sig = (calls) => J(calls.map((c) => [c.name, c.args, c.m, c.alpha]), (_, v) => {
-  if (v && typeof v === 'object' && typeof v.getContext === 'function') return '[canvas]';
-  if (typeof v === 'number') return round(v);
-  if (typeof v === 'string') return v.replace(/-?\d+\.\d+(e-?\d+)?/g, (x) => String(round(parseFloat(x))));
-  return v;
-});
+/**
+ * A canvas handed to a call (the grain's tile, to `createPattern`) as a digest
+ * of everything recorded on it, made once per canvas and again only when more
+ * has been recorded on it since.
+ */
+const digests = new WeakMap();
+function canvasDigest(cv) {
+  const at = `${cv.width}x${cv.height}/${cv.rec?.calls?.length ?? 0}/${cv.rec?.problems?.length ?? 0}`;
+  const kept = digests.get(cv);
+  if (kept && kept.at === at) return kept.digest;
+  const digest = `[canvas ${createHash('sha1').update(JSON.stringify(cv)).digest('hex')}]`;
+  digests.set(cv, { at, digest });
+  return digest;
+}
+/**
+ * A frame's calls as one string, exactly. (It always was exact: it used to
+ * pass a rounding replacer to `J`, which takes one argument, so the rounding
+ * never ran, and every check below was written against the exact calls.) A
+ * canvas in a call is written as `canvasDigest` of it rather than whole: whole,
+ * the grain's tile was three megabytes of noise in every frame's string, twelve
+ * of this file's sixteen seconds, and its digest tells the same canvases apart.
+ */
+const sig = (calls) => JSON.stringify(calls.map((c) => [c.name, c.args, c.m, c.alpha]), (_, v) => (
+  v && typeof v === 'object' && typeof v.getContext === 'function' ? canvasDigest(v) : v
+));
 const count = (calls, name) => calls.filter((c) => c.name === name).length;
 /**
  * Two frames' calls the same to a millionth (relative), numbers inside colour
@@ -499,9 +537,14 @@ function outside(doc) {
 {
   const bad = [];
   let builds = 0;
-  for (const id of IDS) for (const lang of LANGS) {
+  // The representative default: wide and tall, English and a right-to-left language that turns with the template,
+  // at the template's own length and at the shortest and the longest. VYLO_FULL=1: every language, shape and length.
+  const sweepLangs = (i) => (FULL ? LANGS : ['en', LANGS[1 + (i % 3)]]);
+  const sweepFormats = FULL ? FORMATS : ['landscape', 'portrait'];
+  const sweepSeconds = FULL ? [undefined, 1, 2, 30] : [undefined, LIMITS.minSeconds, LIMITS.seconds];
+  for (const [i, id] of IDS.entries()) for (const lang of sweepLangs(i)) {
     const idsBy = [];
-    for (const format of FORMATS) for (const seconds of [undefined, 1, 2, 30]) {
+    for (const format of sweepFormats) for (const seconds of sweepSeconds) {
       const doc = build(id, lang, format, { seconds });
       builds++;
       const key = `${id} ${lang} ${format} ${seconds ?? 'own'}`;
@@ -527,7 +570,7 @@ function outside(doc) {
     }
     if (new Set(idsBy).size !== 1) bad.push(`${id} ${lang}: layer ids differ between shapes`);
   }
-  ok(`${builds} builds (every template, language and shape, at its own length, 1, 2 and 30 s): fixed points, deterministic, ids stable across shapes, every layer inside the graphic and arriving before it leaves, clean frames, a still that is not empty`,
+  ok(`${builds} builds (${FULL ? 'every template, language and shape, at its own length, 1, 2 and 30 s' : 'every template, wide and tall, in English and a right-to-left language, at its own length, 1 and 30 s; VYLO_FULL=1 for all 448'}): fixed points, deterministic, ids stable across shapes, every layer inside the graphic and arriving before it leaves, clean frames, a still that is not empty`,
     bad.length === 0, bad.slice(0, 6));
 }
 {

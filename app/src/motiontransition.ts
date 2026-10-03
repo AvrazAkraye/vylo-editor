@@ -427,9 +427,21 @@ function pixelate(ctx: Ctx, pic: Picture, scratch: Picture, W: number, H: number
 const GLITCH_STEPS = 12;
 
 /**
- * The picture tinted one colour on the scratch canvas: multiplied by `tint`,
- * then cut back to the picture's own shape (`destination-in`), since multiply
- * over nothing paints the tint itself.
+ * The picture tinted one colour on the scratch canvas: the picture's own
+ * shape filled with `tint` (`source-atop` over a copy of it), then the
+ * picture multiplied into that, so each pixel keeps only the tint's channels
+ * of its colour and nothing is painted where the picture is empty.
+ *
+ * It never draws a picture with `destination-in` (nor `source-in`,
+ * `source-out` or `destination-atop`): WebKit draws an image under one of
+ * those through a temporary buffer the size of the whole canvas. Measured in
+ * the app's engine, the earlier tint — a multiplied fill cut back to the
+ * picture with a `destination-in` draw, twice a frame — took the web content
+ * process from about 110 to 250 MB while a glitch played at 1080p (2.5 GB
+ * when 150 frames were painted without a break) and cost 5 ms a frame more;
+ * this one costs what any other transition does (F3, `docs/pro/f3-perf.md`).
+ * A fill under those operations does not grow it: the fade and the shaped
+ * reveals use them only with fills.
  */
 function tinted(scratch: Picture, pic: Picture, W: number, H: number, tint: string): void {
   const s = scratch.ctx;
@@ -439,10 +451,10 @@ function tinted(scratch: Picture, pic: Picture, W: number, H: number, tint: stri
     calm(s);
     s.clearRect(0, 0, W, H);
     s.drawImage(pic.canvas, 0, 0);
-    s.globalCompositeOperation = 'multiply';
+    s.globalCompositeOperation = 'source-atop';
     s.fillStyle = tint;
     s.fillRect(0, 0, W, H);
-    s.globalCompositeOperation = 'destination-in';
+    s.globalCompositeOperation = 'multiply';
     s.drawImage(pic.canvas, 0, 0);
   } finally {
     s.restore();

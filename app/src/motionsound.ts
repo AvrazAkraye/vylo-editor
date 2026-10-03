@@ -2,7 +2,8 @@ import type { Layer, Motion } from './motiontypes';
 import { FORMATS, PINS, isRtlLang } from './motiontypes';
 import { countAt, gapOf, inDone, outStart, unitsOf } from './motionanim';
 import { clamp, easeOf, finite, hash01 } from './motionmath';
-import { gainToTarget, measureLoudness } from './loudness';
+import { gainToTarget, measureLoudness, type Loudness } from './loudness';
+import { intervalPeaks } from './audiocore';
 import { SFX_KINDS, synth, type Sfx, type SfxKind } from './motionsfx';
 import type { Mood, Score } from './videosynth';
 
@@ -740,21 +741,107 @@ function abortError(): Error {
 }
 
 const isAbort = (e: unknown) => e instanceof Error && e.name === 'AbortError';
-const breathe = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** The cues, made and placed: each effect synthesised once, panned by an equal-power law, added in. */
-async function mixCues(cues: readonly Cue[], ch: Float32Array[], rate: number, signal?: AbortSignal): Promise<void> {
+// ── sharing the thread ────────────────────────────────────────────────────
+//
+// The bed is rendered on the page's own thread, beside the stage: the preview
+// asks for one 250 ms after the sound settles, while the graphic may be
+// playing. In one piece, a ten-second bed held the thread for 0.1 to 0.35 s at
+// a time in WebKit (review R4), and the picture stopped for as long. So every
+// long pass here works a block at a time and gives the thread back whenever
+// it has held it for `SLICE_MS`: a frame, a key press and the clock run in
+// between, and a stopped render (a newer change, Cancel) stops at the next
+// break. Nothing about the arithmetic changes — the same operations on the
+// same samples in the same order — so the bed is the same, byte for byte.
+
+/** How long the render holds the thread before it gives it back: half a frame at 60 Hz. */
+const SLICE_MS = 8;
+/** Samples a per-sample pass works through between two looks at the clock (a third of a second at 48 kHz). */
+const BLOCK = 1 << 14;
+
+const clockNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
+
+/**
+ * A new task: what was waiting (a frame, a key, a timer) runs before the
+ * render goes on. In the page, a timer: a chain of them is held to 4 ms each
+ * by the browser, and that is time the thread is idle — WebKit runs a
+ * frame's work (animation callbacks, layout, the paint's commit) when its run
+ * loop is about to wait, which a message posted back to back would never let
+ * it do. In Node (the tests), `setImmediate`, which has no clamp and no frames.
+ */
+function nextTask(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const g = globalThis as { setImmediate?: (f: () => void) => unknown; document?: unknown };
+    if (typeof g.setImmediate === 'function' && typeof g.document === 'undefined') g.setImmediate(resolve);
+    else setTimeout(resolve, 0);
+  });
+}
+
+/** One render's share of the thread: when it last gave it back, and the signal that stops it. */
+class Pace {
+  private since = clockNow();
+  constructor(private readonly signal?: AbortSignal) {}
+
+  /** Whether the render has held the thread for a slice. */
+  due(): boolean {
+    return clockNow() - this.since >= SLICE_MS;
+  }
+
+  /** Give the thread back for a task; then stop here if the render was stopped meanwhile. */
+  async breathe(): Promise<void> {
+    await nextTask();
+    this.since = clockNow();
+    if (this.signal?.aborted) throw abortError();
+  }
+}
+
+/** `body(from, to)` over `0..n`, a block at a time, the thread given back between blocks whenever a slice has gone by. */
+async function inBlocks(n: number, pace: Pace, body: (from: number, to: number) => void): Promise<void> {
+  for (let from = 0; from < n; from += BLOCK) {
+    body(from, Math.min(n, from + BLOCK));
+    if (pace.due()) await pace.breathe();
+  }
+}
+
+/**
+ * Effects already made, by what they are and the rate, so a render that
+ * asks for the same cue again (the level moved, a colour changed the key but
+ * not the cues) adds it in rather than synthesising it again. `synth` is pure
+ * and a made effect is only ever read, so keeping one changes no sample.
+ * Bounded by size, the least recently used let go first.
+ */
+const effects = new Map<string, Float32Array>();
+const EFFECT_BYTES = 8 * 1024 * 1024;
+let effectBytes = 0;
+
+function effectOf(spec: Sfx, rate: number): Float32Array {
+  const key = `${spec.kind}/${spec.d}/${spec.pitch}/${spec.rev}/${spec.seed}@${rate}`;
+  const hit = effects.get(key);
+  if (hit) {
+    effects.delete(key);
+    effects.set(key, hit);
+    return hit;
+  }
+  const buf = synth(spec, rate);
+  effects.set(key, buf);
+  effectBytes += buf.byteLength;
+  for (const [k, v] of effects) {
+    if (effectBytes <= EFFECT_BYTES || effects.size <= 1) break;
+    effects.delete(k);
+    effectBytes -= v.byteLength;
+  }
+  return buf;
+}
+
+/**
+ * The cues, made and placed: each effect synthesised once (`effectOf`), panned by an equal-power law, added in;
+ * the thread given back between cues. One effect is made in one piece: the longest, a four-second riser, takes
+ * about 8 ms in WebKit.
+ */
+async function mixCues(cues: readonly Cue[], ch: Float32Array[], rate: number, pace: Pace): Promise<void> {
   const n = ch[0].length;
-  const made = new Map<string, Float32Array>();
-  let since = Date.now();
   for (const c of cues) {
-    const spec: Sfx = { kind: c.kind, d: c.d, pitch: c.pitch, rev: c.rev, seed: c.seed };
-    const key = `${c.kind}/${c.d}/${c.pitch}/${c.rev}/${c.seed}`;
-    let buf = made.get(key);
-    if (!buf) {
-      buf = synth(spec, rate);
-      made.set(key, buf);
-    }
+    const buf = effectOf({ kind: c.kind, d: c.d, pitch: c.pitch, rev: c.rev, seed: c.seed }, rate);
     const angle = ((clamp(c.pan, -1, 1) + 1) * Math.PI) / 4;
     const gl = Math.cos(angle) * c.gain;
     const gr = Math.sin(angle) * c.gain;
@@ -764,34 +851,57 @@ async function mixCues(cues: readonly Cue[], ch: Float32Array[], rate: number, s
       ch[0][at + i] += buf[i] * gl;
       ch[1][at + i] += buf[i] * gr;
     }
-    // Hand the thread back now and then: a long graphic's effects should not freeze the preview while they are made.
-    if (Date.now() - since > 25) {
-      await breathe();
-      since = Date.now();
-      if (signal?.aborted) throw abortError();
-    }
+    if (pace.due()) await pace.breathe();
   }
 }
 
+/**
+ * The music last played, as the composer gave it, before it is levelled and
+ * dipped: by everything the score is made from (mood, seed, length, accents)
+ * and the rate, and by who played it. Moving the level re-renders the bed but
+ * not the music, so the composer — which holds the thread for a good part of
+ * its own work — is not asked again for the same piece. One piece is kept (at
+ * most 11.5 MB, thirty seconds of stereo at 48 kHz); it is only ever read.
+ */
+let lastMusic: { key: string; by: MusicRenderer | null; channels: Float32Array[] } | null = null;
+
 /** The music bed for `doc`, at the mix's place: composed, played, levelled, faded and dipped under the big effects. */
-async function musicOf(doc: Motion, rate: number, n: number, cues: readonly Cue[], o: RenderSoundOptions): Promise<Float32Array[] | null> {
-  const synthMod = await import('./videosynth');
-  if (o.signal?.aborted) throw abortError();
+async function musicOf(doc: Motion, rate: number, n: number, cues: readonly Cue[], o: RenderSoundOptions, pace: Pace): Promise<Float32Array[] | null> {
   const seconds = secondsOf(doc);
-  const score = synthMod.arrange({ mood: moodOf(doc), seed: seedOf(doc) }, seconds, musicCuesOf(doc));
-  const play: MusicRenderer = o.music ?? ((s, r, x) => synthMod.render(s, r, x));
-  const got = await play(score, rate, { signal: o.signal });
-  if (o.signal?.aborted) throw abortError();
-  if (!Array.isArray(got) || !got.length) return null;
-  const out = [0, 1].map((c) => {
+  const mood = moodOf(doc);
+  const seed = seedOf(doc);
+  const accents = musicCuesOf(doc);
+  const key = `${mood}|${seed}|${seconds}|${accents.join(',')}@${rate}`;
+  const by = o.music ?? null;
+  let got: Float32Array[];
+  if (lastMusic && lastMusic.key === key && lastMusic.by === by) {
+    got = lastMusic.channels;
+  } else {
+    const synthMod = await import('./videosynth');
+    if (o.signal?.aborted) throw abortError();
+    const score = synthMod.arrange({ mood, seed }, seconds, accents);
+    const play: MusicRenderer = o.music ?? ((s, r, x) => synthMod.render(s, r, x));
+    got = await play(score, rate, { signal: o.signal });
+    if (o.signal?.aborted) throw abortError();
+    if (!Array.isArray(got) || !got.length) return null;
+    lastMusic = { key, by, channels: got };
+  }
+  await pace.breathe();
+  const out: Float32Array[] = [];
+  for (const c of [0, 1]) {
     const src = got[Math.min(c, got.length - 1)];
     const a = new Float32Array(n);
     if (src instanceof Float32Array) a.set(src.subarray(0, Math.min(n, src.length)));
-    for (let i = 0; i < n; i++) if (!Number.isFinite(a[i])) a[i] = 0;
-    return a;
-  });
-  const m = measureLoudness(out, rate);
+    await inBlocks(n, pace, (from, to) => {
+      for (let i = from; i < to; i++) if (!Number.isFinite(a[i])) a[i] = 0;
+    });
+    out.push(a);
+  }
+  // Only the loudness is wanted here: the true peak, which costs ten times the rest in WebKit, is not measured.
+  await pace.breathe();
+  const m = measureLoudness(out, rate, { truePeak: false });
   if (!Number.isFinite(m.lufs)) return null;
+  if (pace.due()) await pace.breathe();
   const level = clamp(Math.pow(10, (MUSIC_REF_LUFS - m.lufs) / 20), 0.001, 30);
   // One gain curve: the level, the two fades and the dips, applied in one pass.
   const g = new Float32Array(n).fill(level);
@@ -812,8 +922,13 @@ async function musicOf(doc: Motion, rate: number, n: number, cues: readonly Cue[
       const v = 1 - (1 - DUCK) * clamp(depth, 0, 1);
       if (v < dip[i]) dip[i] = v;
     }
+    if (pace.due()) await pace.breathe();
   }
-  for (const a of out) for (let i = 0; i < n; i++) a[i] *= g[i] * dip[i];
+  for (const a of out) {
+    await inBlocks(n, pace, (from, to) => {
+      for (let i = from; i < to; i++) a[i] *= g[i] * dip[i];
+    });
+  }
   return out;
 }
 
@@ -855,6 +970,16 @@ function peakNear(c: Float32Array, i: number): number {
 }
 
 /**
+ * The limiter's working arrays, one sample each: made once per bed and used by both of its passes, every
+ * element written before it is read, so a bed's passes do not each leave three more arrays to be collected.
+ */
+interface LimitWork {
+  need: Float32Array;
+  ahead: Float32Array;
+  q: Int32Array;
+}
+
+/**
  * Peaks held under `ceiling` (linear) without distorting them: the gain each
  * sample needs is known in advance — from the wave between the samples as
  * well as the samples (`peakNear`) — so the gain comes down smoothly over the
@@ -863,80 +988,160 @@ function peakNear(c: Float32Array, i: number): number {
  * the last 5 ms gives a ramp that is at the needed gain exactly when the peak
  * arrives and never above what any sample needs.
  */
-function limit(ch: Float32Array[], rate: number, ceiling: number): void {
+async function limit(ch: Float32Array[], rate: number, ceiling: number, pace: Pace, work: LimitWork): Promise<void> {
   const n = ch[0].length;
   const w = Math.max(1, Math.round(0.005 * rate));
-  const need = new Float32Array(n);
-  for (let i = 0; i < n; i++) {
-    let m = 0;
-    for (const c of ch) {
-      // Only a sample already near the ceiling can have a wave over it beside it: the rest skip the sums.
-      const a = Math.abs(c[i]);
-      m = Math.max(m, a > ceiling * 0.5 || Math.abs(c[i + 1] ?? 0) > ceiling * 0.5 ? peakNear(c, i) : a);
+  const { need, ahead, q } = work;
+  await inBlocks(n, pace, (from, to) => {
+    for (let i = from; i < to; i++) {
+      let m = 0;
+      for (const c of ch) {
+        // Only a sample already near the ceiling can have a wave over it beside it: the rest skip the sums.
+        const a = Math.abs(c[i]);
+        m = Math.max(m, a > ceiling * 0.5 || Math.abs(c[i + 1] ?? 0) > ceiling * 0.5 ? peakNear(c, i) : a);
+      }
+      need[i] = m > ceiling ? ceiling / m : 1;
     }
-    need[i] = m > ceiling ? ceiling / m : 1;
+  });
+  // The wave just before sample i belongs to sample i - 1's span: what that needs, i needs too. (From the end, a
+  // block at a time, as one loop from n - 1 down to 1 would.)
+  for (let to = n; to > 1; to -= BLOCK) {
+    for (let i = to - 1, end = Math.max(1, to - BLOCK); i >= end; i--) if (need[i - 1] < need[i]) need[i] = need[i - 1];
+    if (pace.due()) await pace.breathe();
   }
-  // The wave just before sample i belongs to sample i - 1's span: what that needs, i needs too.
-  for (let i = n - 1; i > 0; i--) if (need[i - 1] < need[i]) need[i] = need[i - 1];
   // The least gain needed anywhere in [i, i + w], by a monotonic queue from the end.
-  const ahead = new Float32Array(n);
-  const q = new Int32Array(n);
   let head = 0;
   let tail = 0;
-  for (let i = n - 1; i >= 0; i--) {
-    while (tail > head && need[q[tail - 1]] >= need[i]) tail--;
-    q[tail++] = i;
-    while (q[head] > i + w) head++;
-    ahead[i] = need[q[head]];
+  for (let to = n; to > 0; to -= BLOCK) {
+    for (let i = to - 1, end = Math.max(0, to - BLOCK); i >= end; i--) {
+      while (tail > head && need[q[tail - 1]] >= need[i]) tail--;
+      q[tail++] = i;
+      while (q[head] > i + w) head++;
+      ahead[i] = need[q[head]];
+    }
+    if (pace.due()) await pace.breathe();
   }
   const recover = 1 - Math.exp(-1 / (0.08 * rate));
   let sum = 0;
   let g = 1;
-  for (let i = 0; i < n; i++) {
-    sum += ahead[i];
-    if (i > w) sum -= ahead[i - w - 1];
-    const smooth = sum / Math.min(i + 1, w + 1);
-    g = Math.min(smooth, g + (1 - g) * recover);
-    for (const c of ch) {
-      const v = c[i] * g;
-      c[i] = v > ceiling ? ceiling : v < -ceiling ? -ceiling : v;
+  await inBlocks(n, pace, (from, to) => {
+    for (let i = from; i < to; i++) {
+      sum += ahead[i];
+      if (i > w) sum -= ahead[i - w - 1];
+      const smooth = sum / Math.min(i + 1, w + 1);
+      g = Math.min(smooth, g + (1 - g) * recover);
+      for (const c of ch) {
+        const v = c[i] * g;
+        c[i] = v > ceiling ? ceiling : v < -ceiling ? -ceiling : v;
+      }
     }
+  });
+}
+
+async function scale(ch: Float32Array[], g: number, pace: Pace): Promise<void> {
+  for (const c of ch) {
+    await inBlocks(c.length, pace, (from, to) => {
+      for (let i = from; i < to; i++) c[i] *= g;
+    });
   }
 }
 
-function scale(ch: Float32Array[], g: number): void {
-  for (const c of ch) for (let i = 0; i < c.length; i++) c[i] *= g;
+/**
+ * Samples read on either side of a block when its true peak is measured: more than the 4x interpolator's reach
+ * (`intervalPeaks` in audiocore.ts weighs samples i-7..i+8), so every point of the block is the point the whole
+ * channel gives. `test/pro-perf.test.mjs` holds the interpolator to it.
+ */
+const PEAK_HALO = 16;
+
+/**
+ * The true peak of `ch` (linear, 4x oversampled), a block at a time: the
+ * largest of `intervalPeaks` over each block, read with `PEAK_HALO` samples
+ * of its neighbours so the points near its edges are the whole channel's.
+ * The same points `truePeakOf` reads, each rounded to a 32-bit float (its
+ * output array's type), so the answer is within a part in 2^24 of
+ * `measureLoudness`'s; `finalGain` allows for that. (`truePeakOf` itself
+ * takes up to ten times as long in WebKit, 160 ms for ten loud seconds, in one piece.)
+ */
+async function truePeakInBlocks(ch: readonly Float32Array[], pace: Pace): Promise<number> {
+  let peak = 0;
+  for (const x of ch) {
+    const n = x.length;
+    for (let from = 0; from < n; from += BLOCK) {
+      const to = Math.min(n, from + BLOCK);
+      const a = Math.max(0, from - PEAK_HALO);
+      const p = intervalPeaks(x.subarray(a, Math.min(n, to + PEAK_HALO)));
+      for (let i = from - a, end = to - a; i < end; i++) if (p[i] > peak) peak = p[i];
+      if (pace.due()) await pace.breathe();
+    }
+  }
+  return peak;
+}
+
+/** How far, in dB, the peak `truePeakInBlocks` reads may be from `measureLoudness`'s: a 32-bit rounding is 5e-7 dB. */
+const PEAK_BRACKET_DB = 1e-5;
+
+/**
+ * `gainToTarget(measureLoudness(ch, rate), target, CEILING_DB)`, exactly,
+ * without the meter's true-peak pass in one piece. The loudness `m` is the
+ * meter's own (its true peak is not needed for it). The peak decides the gain
+ * only when the ceiling binds; the gain can only fall as the peak rises, so it
+ * is read at either end of the bracket around the peak measured a block at a
+ * time: when the two agree (or neither lowers the bed), that is the gain the
+ * meter's own peak gives. Only when the ceiling binds within a hair of this
+ * peak — the limiter holds the peak a decibel under it, so in practice never —
+ * is the meter run whole, as it always was.
+ */
+async function finalGain(ch: Float32Array[], rate: number, m: Loudness, target: number, pace: Pace): Promise<number> {
+  const tp = await truePeakInBlocks(ch, pace);
+  if (tp > 0) {
+    const db = 20 * Math.log10(tp);
+    const lo = gainToTarget({ lufs: m.lufs, peakDb: db - PEAK_BRACKET_DB }, target, CEILING_DB);
+    const hi = gainToTarget({ lufs: m.lufs, peakDb: db + PEAK_BRACKET_DB }, target, CEILING_DB);
+    if (lo === hi || (lo >= 1 && hi >= 1)) return lo;
+  }
+  return gainToTarget(measureLoudness(ch, rate), target, CEILING_DB);
 }
 
 /**
  * Brought to `target` LUFS with the peaks held: raised (by no more than
  * `boostDb`) to the target, limited, measured again and raised once more by
  * what the limiter took, limited again; then `gainToTarget`, the contract's own
- * rule, has the last word and may only lower it. Faded over the first 3 ms and
- * the last 20, so the film starts and ends on silence. False when there is
- * nothing to hear.
+ * rule, has the last word and may only lower it (`finalGain`). Faded over the
+ * first 3 ms and the last 20, so the film starts and ends on silence. False
+ * when there is nothing to hear. The measurements in between want only the
+ * loudness, so they skip the true peak.
  */
-function finish(ch: Float32Array[], rate: number, target: number, boostDb: number): boolean {
-  let m = measureLoudness(ch, rate);
+async function finish(ch: Float32Array[], rate: number, target: number, boostDb: number, pace: Pace): Promise<boolean> {
+  await pace.breathe();
+  let m: Loudness = measureLoudness(ch, rate, { truePeak: false });
   if (!Number.isFinite(m.lufs) || !Number.isFinite(target)) return false;
   const ceiling = Math.pow(10, PEAK_CEILING_DB / 20);
+  const n0 = ch[0].length;
+  const work: LimitWork = { need: new Float32Array(n0), ahead: new Float32Array(n0), q: new Int32Array(n0) };
   for (let pass = 0; pass < 2; pass++) {
+    if (pace.due()) await pace.breathe();
     const db = clamp(target - m.lufs, -80, pass === 0 ? boostDb : 3);
-    scale(ch, Math.pow(10, db / 20));
-    limit(ch, rate, ceiling);
-    m = measureLoudness(ch, rate);
+    await scale(ch, Math.pow(10, db / 20), pace);
+    await limit(ch, rate, ceiling, pace, work);
+    // The meter runs in one piece (about 5 ms for ten seconds in WebKit), so it starts a slice of its own, here
+    // and before each measurement.
+    await pace.breathe();
+    m = measureLoudness(ch, rate, { truePeak: false });
     if (!Number.isFinite(m.lufs)) return false;
     if (target - m.lufs < 0.2) break;
   }
-  const g = gainToTarget(m, target, CEILING_DB);
-  if (Number.isFinite(g) && g < 1) scale(ch, Math.max(0, g));
+  if (pace.due()) await pace.breathe();
+  const g = await finalGain(ch, rate, m, target, pace);
+  if (Number.isFinite(g) && g < 1) await scale(ch, Math.max(0, g), pace);
   const n = ch[0].length;
   const a = Math.min(n, Math.round(0.003 * rate));
   const b = Math.min(n, Math.round(0.02 * rate));
   for (const c of ch) {
     for (let i = 0; i < a; i++) c[i] *= i / a;
     for (let i = 0; i < b; i++) c[n - 1 - i] *= i / b;
-    for (let i = 0; i < n; i++) if (!Number.isFinite(c[i])) c[i] = 0;
+    await inBlocks(n, pace, (from, to) => {
+      for (let i = from; i < to; i++) if (!Number.isFinite(c[i])) c[i] = 0;
+    });
   }
   return true;
 }
@@ -969,6 +1174,11 @@ const copyOf = (b: SoundBed): SoundBed => ({ channels: b.channels.map((c) => c.s
  * Audio: where there is none, asking for it throws rather than quietly
  * leaving it out. A bed is kept by `soundKey` and rate, so asking again is
  * immediate; each caller gets its own copy.
+ *
+ * It shares the thread (see "sharing the thread" above): no pass holds it for
+ * much more than `SLICE_MS`, except what is done in one piece elsewhere — the
+ * composer's own work in videosynth.ts, the loudness meter's K-weighted pass
+ * (about 5 ms for ten seconds), and one effect's synthesis.
  */
 export async function renderSoundBed(doc: Motion, o: RenderSoundOptions = {}): Promise<SoundBed | null> {
   if (o.signal?.aborted) throw abortError();
@@ -982,21 +1192,28 @@ export async function renderSoundBed(doc: Motion, o: RenderSoundOptions = {}): P
     const hit = kept.get(key) ?? null;
     return hit ? copyOf(hit) : null;
   }
+  const pace = new Pace(o.signal);
   const cues = spec.mode === 'music' ? [] : soundCues(doc);
   const ch = [new Float32Array(n), new Float32Array(n)];
-  if (cues.length) await mixCues(cues, ch, rate, o.signal);
+  if (cues.length) await mixCues(cues, ch, rate, pace);
   if (o.signal?.aborted) throw abortError();
   let music = false;
   if (spec.mode === 'music' || spec.mode === 'both') {
     let bed: Float32Array[] | null = null;
     try {
-      bed = await musicOf(doc, rate, n, cues, o);
+      bed = await musicOf(doc, rate, n, cues, o, pace);
     } catch (e) {
       if (isAbort(e) || o.signal?.aborted) throw abortError();
       throw e;
     }
     if (bed) {
-      for (let c = 0; c < 2; c++) for (let i = 0; i < n; i++) ch[c][i] += bed[c][i];
+      for (let c = 0; c < 2; c++) {
+        const into = ch[c];
+        const from = bed[c];
+        await inBlocks(n, pace, (a, b) => {
+          for (let i = a; i < b; i++) into[i] += from[i];
+        });
+      }
       music = true;
     }
   }
@@ -1004,7 +1221,7 @@ export async function renderSoundBed(doc: Motion, o: RenderSoundOptions = {}): P
     if (key) keep(key, null);
     return null;
   }
-  if (!finish(ch, rate, loudnessFor(spec.level), music ? BOOST_MUSIC_DB : BOOST_FX_DB)) {
+  if (!(await finish(ch, rate, loudnessFor(spec.level), music ? BOOST_MUSIC_DB : BOOST_FX_DB, pace))) {
     if (key) keep(key, null);
     return null;
   }
