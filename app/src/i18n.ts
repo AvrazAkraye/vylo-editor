@@ -3311,6 +3311,14 @@ const ar: Dict = {
   'Halftone': 'شبكة نقطية',
   'Title glow': 'توهّج العنوان',
   'Scan lines': 'خطوط المسح',
+  // Motion pro: w2-2 export — sound in the film, and what the file carries (MotionExport.tsx).
+  'Saved without sound: this computer cannot make the audio track.': 'حُفظ بلا صوت: لا يستطيع هذا الحاسوب إنشاء المسار الصوتي.',
+  'Preparing the sound…': 'تجهيز الصوت…',
+  'Without sound: a GIF cannot carry it.': 'بلا صوت: صورة GIF لا يمكنها أن تحمله.',
+  'Without sound: a picture has none.': 'بلا صوت: الصورة لا صوت لها.',
+  'With sound: effects made from the animation.': 'مع الصوت: مؤثرات مصنوعة من الحركة.',
+  'With sound: music ({mood}).': 'مع الصوت: موسيقى ({mood}).',
+  'With sound: effects and music ({mood}).': 'مع الصوت: مؤثرات وموسيقى ({mood}).',
 };
 
 const ckb: Dict = {
@@ -6601,6 +6609,14 @@ const ckb: Dict = {
   'Halftone': 'تۆڕی خاڵدار',
   'Title glow': 'درەوشانەوەی ناونیشان',
   'Scan lines': 'هێڵەکانی سکان',
+  // Motion pro: w2-2 export — sound in the film, and what the file carries (MotionExport.tsx).
+  'Saved without sound: this computer cannot make the audio track.': 'بێ دەنگ پاشەکەوت کرا: ئەم کۆمپیوتەرە ناتوانێت تراکی دەنگ دروست بکات.',
+  'Preparing the sound…': 'ئامادەکردنی دەنگەکە…',
+  'Without sound: a GIF cannot carry it.': 'بێ دەنگ: GIF ناتوانێت دەنگ هەڵبگرێت.',
+  'Without sound: a picture has none.': 'بێ دەنگ: وێنە دەنگی نییە.',
+  'With sound: effects made from the animation.': 'لەگەڵ دەنگ: ئێفێکتی دروستکراو لە جووڵەکەوە.',
+  'With sound: music ({mood}).': 'لەگەڵ دەنگ: مۆسیقا ({mood}).',
+  'With sound: effects and music ({mood}).': 'لەگەڵ دەنگ: ئێفێکت و مۆسیقا ({mood}).',
 };
 
 const kmr: Dict = {
@@ -9889,6 +9905,14 @@ const kmr: Dict = {
   'Halftone': 'تۆڕا خالدار',
   'Title glow': 'درەوشینا سەرناڤی',
   'Scan lines': 'هێلێن سکانێ',
+  // Motion pro: w2-2 export — sound in the film, and what the file carries (MotionExport.tsx).
+  'Saved without sound: this computer cannot make the audio track.': 'بێ دەنگ هاتە پاشەکەفتکرن: ئەڤ کۆمپیوتەرە نەشێت تراکا دەنگی چێبکەت.',
+  'Preparing the sound…': 'ئامادەکرنا دەنگی…',
+  'Without sound: a GIF cannot carry it.': 'بێ دەنگ: GIF نەشێت دەنگی هەلگریت.',
+  'Without sound: a picture has none.': 'بێ دەنگ: وێنەی چ دەنگ نینە.',
+  'With sound: effects made from the animation.': 'دگەل دەنگی: ئێفێکتێن ژ لڤینێ هاتینە چێکرن.',
+  'With sound: music ({mood}).': 'دگەل دەنگی: مۆسیقا ({mood}).',
+  'With sound: effects and music ({mood}).': 'دگەل دەنگی: ئێفێکت و مۆسیقا ({mood}).',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

@@ -9,6 +9,10 @@ MPL-2.0 asks for one thing more — section 3.2 requires that a recipient of
 the binary be told how to obtain the source of the covered components — and
 *Source for MPL-2.0 components* below is that notice.
 
+A few of Vylo Editor's own source files contain code adapted from another
+project rather than a package; *Code adapted into this source* below names
+each one, what it took, and that project's copyright and licence.
+
 The list is deliberately over-inclusive. It is every package npm and cargo
 resolve as a non-development dependency of the app, which sweeps in a few
 that are only ever used while building — a proc-macro crate and its own
@@ -21,13 +25,13 @@ to rebuild it, or `scripts/notices.sh --check` to fail when it is out of date.
 The output is deterministic and carries no timestamp, so an unchanged
 dependency tree regenerates a byte-identical file.
 
-Generated for **Vylo Editor 0.23.0** (Rust crate `vylo-editor` 0.21.0).
+Generated for **Vylo Editor 0.132.0** (Rust crate `vylo-editor` 0.21.0).
 
 ## What is covered
 
 | Ecosystem | Source of truth | Scope | Packages |
 |---|---|---|---|
-| npm | `npm ls --all --long --json --omit=dev` | the production dependency closure of `app/package.json` | 40 |
+| npm | `npm ls --all --long --json --omit=dev` | the production dependency closure of `app/package.json` | 80 |
 | Rust | `cargo metadata --format-version 1 --filter-platform <target>` | normal (non-dev, non-build) dependencies reachable from `vylo-editor`, unioned over the shipped targets | 353 |
 
 Targets unioned on the Rust side: `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-pc-windows-msvc`.
@@ -43,9 +47,9 @@ Licence identifiers are as each package declares them. Where a package offers
 a choice (`MIT OR Apache-2.0`), the choice has not been exercised here — both
 texts are reproduced and either may be relied on.
 
-## npm packages (40)
+## npm packages (80)
 
-### MIT — 35 packages
+### MIT — 60 packages
 
 | Package | Version | Copyright |
 |---|---|---|
@@ -74,16 +78,41 @@ texts are reproduced and either may be relied on.
 | `@lezer/python` | 1.1.19 | Copyright (C) 2020 by Marijn Haverbeke &lt;marijn@haverbeke.berlin&gt; and others |
 | `@lezer/rust` | 1.0.2 | Copyright (C) 2018 by Marijn Haverbeke &lt;marijn@haverbeke.berlin&gt; and others |
 | `@marijn/find-cluster-break` | 1.0.4 | Copyright (C) 2024 by Marijn Haverbeke &lt;marijn@haverbeke.berlin&gt; |
+| `@remotion/fonts` | 4.0.528 | Authors: Lucas Benya &lt;bitup.games@gmail.com&gt; |
+| `@remotion/licensing` | 4.0.528 | Authors: Jonny Burger &lt;jonny@remotion.dev&gt; |
+| `@remotion/paths` | 4.0.528 | Copyright (c) 2023 JonnyBurger |
+| `@remotion/shapes` | 4.0.528 | Copyright (c) 2023 JonnyBurger |
+| `@types/dom-mediacapture-transform` | 0.1.12 | Copyright (c) Microsoft Corporation. |
+| `@types/dom-webcodecs` | 0.1.13 | Copyright (c) Microsoft Corporation. |
+| `@types/node` | 25.9.8 | Copyright (c) Microsoft Corporation. |
 | `@xterm/addon-fit` | 0.10.0 | Copyright (c) 2019, The xterm.js authors (https://github.com/xtermjs/xterm.js) |
 | `@xterm/xterm` | 5.5.0 | Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)<br>Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)<br>Copyright (c) 2012-2013, Christopher Jeffrey (https://github.com/chjj/) |
+| `core-util-is` | 1.0.3 | Authors: Isaac Z. Schlueter &lt;i@izs.me&gt; (http://blog.izs.me/) |
 | `crelt` | 1.0.7 | Copyright (C) 2020 by Marijn Haverbeke &lt;marijn@haverbeke.berlin&gt; |
+| `docx` | 9.7.2 | Copyright (c) 2016 Dolan |
+| `hash.js` | 1.1.7 | Authors: Fedor Indutny &lt;fedor@indutny.com&gt; |
+| `immediate` | 3.0.6 | Copyright (c) 2012 Barnesandnoble.com, llc, Donavon West, Domenic Denicola, Brian Cavalier |
+| `isarray` | 1.0.0 | Authors: Julian Gruber |
 | `js-tokens` | 4.0.0 | Copyright (c) 2014, 2015, 2016, 2017, 2018 Simon Lydell |
+| `lie` | 3.3.0 | Copyright (c) 2014-2018 Calvin Metcalf, Jordan Harband |
 | `loose-envify` | 1.4.0 | Copyright (c) 2015 Andres Suarez &lt;zertosh@gmail.com&gt; |
+| `nanoid` | 6.0.1 | Copyright 2017 Andrey Sitnik &lt;andrey@sitnik.es&gt; |
+| `process-nextick-args` | 2.0.1 | Copyright (c) 2015 Calvin Metcalf |
+| `qrcode-generator` | 2.0.4 | Authors: Kazuhiko Arase |
 | `react` | 18.3.1 | Copyright (c) Facebook, Inc. and its affiliates. |
 | `react-dom` | 18.3.1 | Copyright (c) Facebook, Inc. and its affiliates. |
+| `readable-stream` | 2.3.8 | _no copyright line in the package_ |
+| `safe-buffer` | 5.1.2 | Copyright (c) Feross Aboukhadijeh |
 | `scheduler` | 0.23.2 | Copyright (c) Facebook, Inc. and its affiliates. |
+| `setimmediate` | 1.0.5 | Copyright (c) 2012 Barnesandnoble.com, llc, Donavon West, and Domenic Denicola |
+| `string_decoder` | 1.1.1 | _no copyright line in the package_ |
 | `style-mod` | 4.1.3 | Copyright (C) 2018 by Marijn Haverbeke &lt;marijn@haverbeke.berlin&gt; and others |
+| `undici-types` | 7.24.6 | Copyright (c) Matteo Collina and Undici contributors |
+| `util-deprecate` | 1.0.2 | Copyright (c) 2014 Nathan Rajlich &lt;nathan@tootallnate.net&gt; |
 | `w3c-keyname` | 2.2.8 | Copyright (C) 2016 by Marijn Haverbeke &lt;marijn@haverbeke.berlin&gt; and others |
+| `xml` | 1.0.1 | Copyright (c) 2011-2016 Dylan Greene &lt;dylang@gmail.com&gt; |
+| `xml-js` | 1.6.11 | Copyright (c) 2016-2017 Yousuf Almarzooqi |
+| `zod` | 4.5.4 | Copyright (c) 2025 Colin McDonnell |
 
 ### Apache-2.0 OR MIT — 5 packages
 
@@ -94,6 +123,61 @@ texts are reproduced and either may be relied on.
 | `@tauri-apps/plugin-notification` | 2.3.3 | Copyright 2019-2022, The Tauri Programme in the Commons Conservancy |
 | `@tauri-apps/plugin-process` | 2.3.1 | Copyright 2019-2022, The Tauri Programme in the Commons Conservancy |
 | `@tauri-apps/plugin-updater` | 2.10.1 | Copyright 2019-2022, The Tauri Programme in the Commons Conservancy |
+
+### MPL-2.0 — 4 packages
+
+| Package | Version | Copyright |
+|---|---|---|
+| `@mediabunny/aac-encoder` | 1.56.1 | Authors: Vanilagy |
+| `@mediabunny/flac-encoder` | 1.56.1 | Authors: Vanilagy |
+| `@mediabunny/mp3-encoder` | 1.56.1 | Authors: Vanilagy |
+| `mediabunny` | 1.56.1 | Authors: Vanilagy |
+
+### SEE LICENSE IN LICENSE.md — 4 packages
+
+| Package | Version | Copyright |
+|---|---|---|
+| `@remotion/google-fonts` | 4.0.528 | Copyright © 2026 [Remotion](https://www.remotion.dev) |
+| `@remotion/player` | 4.0.528 | Copyright © 2026 [Remotion](https://www.remotion.dev) |
+| `@remotion/web-renderer` | 4.0.528 | Copyright © 2026 [Remotion](https://www.remotion.dev) |
+| `remotion` | 4.0.528 | Copyright © 2026 [Remotion](https://www.remotion.dev) |
+
+### ISC — 2 packages
+
+| Package | Version | Copyright |
+|---|---|---|
+| `inherits` | 2.0.4 | Copyright (c) Isaac Z. Schlueter |
+| `minimalistic-assert` | 1.0.1 | Copyright 2015 Calvin Metcalf |
+
+### (MIT AND Zlib) — 1 package
+
+| Package | Version | Copyright |
+|---|---|---|
+| `pako` | 1.0.11 | Copyright (C) 2014-2017 by Vitaly Puzrin and Andrei Tuputcyn |
+
+### (MIT OR GPL-3.0-or-later) — 1 package
+
+| Package | Version | Copyright |
+|---|---|---|
+| `jszip` | 3.10.2 | Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso<br>Copyright (C) 2007 Free Software Foundation, Inc. &lt;http://fsf.org/&gt; |
+
+### BlueOak-1.0.0 — 1 package
+
+| Package | Version | Copyright |
+|---|---|---|
+| `sax` | 1.6.1 | Authors: Isaac Z. Schlueter &lt;i@izs.me&gt; (http://blog.izs.me/) |
+
+### No licence declared — 1 package
+
+| Package | Version | Copyright |
+|---|---|---|
+| `@remotion/media` | 4.0.528 | Authors: Jonny Burger &lt;jonny@remotion.dev&gt;, Hunain Ahmed &lt;junaidhunain6@gmail.com&gt; |
+
+### UNLICENSED — 1 package
+
+| Package | Version | Copyright |
+|---|---|---|
+| `@remotion/transitions` | 4.0.528 | Authors: Jonny Burger |
 
 ## Rust crates (353)
 
@@ -1198,7 +1282,7 @@ express Statement of Purpose.
 
 ### ISC
 
-Reproduced from `hyper-rustls 0.27.9 (LICENSE-ISC)`. 5 licence files in this tree carry this licence, in 4 textual variants that differ only in wording or layout.
+Reproduced from `hyper-rustls 0.27.9 (LICENSE-ISC)`. 7 licence files in this tree carry this licence, in 6 textual variants that differ only in wording or layout.
 
 ```
 ISC License (ISC)
@@ -1218,9 +1302,65 @@ ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
+### LicenseRef-Remotion
+
+Reproduced from `@remotion/google-fonts 4.0.528 (LICENSE.md)`. 4 licence files in this tree carry this licence.
+
+```
+# Remotion License
+
+In Remotion 5.0, the license will slightly change. [View the changes here](https://github.com/remotion-dev/remotion/pull/3750).
+
+---
+
+Depending on the type of your legal entity, you are granted permission to use Remotion for your project. Individuals and small companies are allowed to use Remotion to create videos for free (even commercial), while a company license is required for for-profit organizations of a certain size. This two-tier system was designed to ensure funding for this project while still allowing the source code to be available and the program to be free for most. Read below for the exact terms of use.
+
+- [Free License](#free-license)
+- [Company License](#company-license)
+
+## Free License
+
+Copyright © 2026 [Remotion](https://www.remotion.dev)
+
+### Eligibility
+
+You are eligible to use Remotion for free if you are:
+
+- an individual
+- a for-profit organization with up to 3 employees
+- a non-profit or not-for-profit organization
+- evaluating whether Remotion is a good fit, and are not yet using it in a commercial way
+
+### Allowed use cases
+
+Permission is hereby granted, free of charge, to any person eligible for the "Free License", to use the software non-commercially or commercially for the purpose of creating videos and images and to modify the software to their own liking, for the purpose of fulfilling their custom use case or to contribute bug fixes or improvements back to Remotion.
+
+### Disallowed use cases
+
+It is not allowed to copy or modify Remotion code for the purpose of selling, renting, licensing, relicensing, or sublicensing your own derivate of Remotion.
+
+### Warranty notice
+
+The software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and non-infringement. In no event shall the author or copyright holders be liable for any claim, damages or other liability, whether in an action of contract, tort or otherwise, arising from, out of or in connection with the software or the use or other dealings in the software.
+
+### Support
+
+Support is provided on a best-we-can-do basis via GitHub Issues and Discord.
+
+## Company License
+
+You are required to obtain a Company License to use Remotion if you are not within the group of entities eligible for a Free License. This license will enable you to use Remotion for the allowed use cases specified in the Free License, and give you access to prioritized support (read the [Support Policy](https://www.remotion.dev/docs/support)).
+
+Visit [remotion.pro](https://www.remotion.pro/license) for pricing and to buy a license.
+
+### FAQs
+
+Are you not sure whether you need a Company License because of an edge case? Here are some [frequently asked questions](https://www.remotion.pro/faq).
+```
+
 ### MIT
 
-Reproduced from `adler2 2.0.1 (LICENSE-MIT)`. 330 licence files in this tree carry this licence, in 19 textual variants that differ only in wording or layout.
+Reproduced from `adler2 2.0.1 (LICENSE-MIT)`. 352 licence files in this tree carry this licence, in 27 textual variants that differ only in wording or layout.
 
 ```
 Permission is hereby granted, free of charge, to any
@@ -1250,7 +1390,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### MPL-2.0
 
-Reproduced from `cssparser 0.36.0 (LICENSE)`. 4 licence files in this tree carry this licence, in 3 textual variants that differ only in wording or layout.
+Reproduced from `@mediabunny/aac-encoder 1.56.1 (LICENSE)`. 8 licence files in this tree carry this licence, in 4 textual variants that differ only in wording or layout.
 
 ```
 Mozilla Public License Version 2.0
@@ -1290,7 +1430,7 @@ Mozilla Public License Version 2.0
     means any form of the work other than Source Code Form.
 
 1.7. "Larger Work"
-    means a work that combines Covered Software with other material, in 
+    means a work that combines Covered Software with other material, in
     a separate file or files, that is not Covered Software.
 
 1.8. "License"
@@ -1612,7 +1752,7 @@ Exhibit A - Source Code Form License Notice
 
   This Source Code Form is subject to the terms of the Mozilla Public
   License, v. 2.0. If a copy of the MPL was not distributed with this
-  file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
 If it is not possible or desirable to put the notice in a particular
 file, then You may include the notice in a location (such as a LICENSE
@@ -1737,13 +1877,18 @@ Permission is granted to anyone to use this software for any purpose, including 
 
 These identifiers appear in a package's declaration, but no package in the
 tree ships a copy of the text, so none is reproduced above. The canonical
-text for each is published by SPDX at `https://spdx.org/licenses/<id>.html`.
+text for each is published by SPDX at `https://spdx.org/licenses/<id>.html`,
+except for a `SEE LICENSE IN` pointer, which names the package's own file.
 
+- **BlueOak-1.0.0** — declared by `sax`
+- **GPL-3.0-or-later** — declared by `jszip`
 - **MIT-0** — declared by `dunce`
+- **SEE LICENSE IN LICENSE.md** — declared by `@remotion/google-fonts`, `@remotion/player`, `@remotion/web-renderer`, `remotion` — a pointer to the package's own licence file, reproduced above as **LicenseRef-Remotion**
+- **UNLICENSED** — declared by `@remotion/transitions`
 
 ## Source for MPL-2.0 components
 
-5 packages in this binary are covered by MPL-2.0, whose section 3.2
+9 packages in this binary are covered by MPL-2.0, whose section 3.2
 requires that whoever distributes the Executable Form inform each recipient
 how to obtain the Source Code Form. Reproducing the licence text, which this
 file also does, is not that. This section is the notice.
@@ -1755,9 +1900,13 @@ itself, available to anyone at no charge from:
 
 | Package | Version | Source Code Form |
 |---|---|---|
+| `@mediabunny/aac-encoder` | 1.56.1 | https://www.npmjs.com/package/@mediabunny/aac-encoder/v/1.56.1 |
+| `@mediabunny/flac-encoder` | 1.56.1 | https://www.npmjs.com/package/@mediabunny/flac-encoder/v/1.56.1 |
+| `@mediabunny/mp3-encoder` | 1.56.1 | https://www.npmjs.com/package/@mediabunny/mp3-encoder/v/1.56.1 |
 | `cssparser` | 0.36.0 | https://crates.io/crates/cssparser/0.36.0 |
 | `cssparser-macros` | 0.6.1 | https://crates.io/crates/cssparser-macros/0.6.1 |
 | `dtoa-short` | 0.3.5 | https://crates.io/crates/dtoa-short/0.3.5 |
+| `mediabunny` | 1.56.1 | https://www.npmjs.com/package/mediabunny/v/1.56.1 |
 | `option-ext` | 0.2.0 | https://crates.io/crates/option-ext/0.2.0 |
 | `selectors` | 0.36.1 | https://crates.io/crates/selectors/0.36.1 |
 
@@ -1765,17 +1914,68 @@ If a future release ever modifies one of them, MPL-2.0 requires the *modified*
 source to be made available under MPL-2.0 as well, and this is the section
 that would have to say where.
 
+## Code adapted into this source
+
+Not packages: these are files of Vylo Editor's own source that contain code
+adapted from another project. Each says so in its header, which is printed as
+it stands in the file, and the project's notice and licence follow.
+
+### HyperFrames — Apache-2.0
+
+`heygen-com/hyperframes`, https://github.com/heygen-com/hyperframes. Copyright 2026 HeyGen, Inc. Licensed under Apache-2.0; its full text is under *Licence texts* above. HyperFrames ships no NOTICE file.
+
+#### `app/src/audioauto.ts`
+
+```
+Portions derived from HyperFrames (heygen-com/hyperframes, Apache-2.0),
+packages/core/src/audioAutomation.ts and packages/core/src/audio/audioFxAutomation.ts.
+Changed: the segment shape is a word (linear, hold, exp, bezier) rather than
+a numeric exponent; `hold` and a geometric `exp` were added; the via-point
+arc (viaConic, shapeVia, conicParam) is kept as `bezier` and a bezier with
+no via point is a smoothstep; the reader clamps and never throws; the
+schedule is a pure plan (`planLane`) and an emitter that degrades a refused
+value curve to the same curve as ramps; `render` bakes a lane into samples;
+the preset, rate-integration and chain-binding machinery is not ported.
+Licensed under the Apache License, Version 2.0; a copy is at
+http://www.apache.org/licenses/LICENSE-2.0
+```
+
+#### `app/src/motionsearch.ts`
+
+```
+Portions derived from HyperFrames (heygen-com/hyperframes, Apache-2.0),
+packages/cli/src/registry/localSearch.ts: the scoring scheme (a name or tag
+word worth three of a description word, the smoothed rarity weight
+ln((N+1)/(df+1)) + 1, the score divided by the square root of the entry's
+word count) and the four plural-folding rules.
+Changed: rewritten for Motion's templates; Arabic-script folding (marks,
+tatweel, alef and yeh and kaf forms, the article, Eastern digits) so Arabic,
+Sorani and Badini are searched as well as English; the interface's own
+translations and words of each language in the index; prefix matches, so the
+results follow typing; ties kept in the gallery's order; a recent list.
+```
+
+Ideas and numbers taken from HyperFrames without its code need no notice. Each part
+of the work that read HyperFrames records what it took, if anything, and where it went:
+`docs/pro/credits/01.md`, `docs/pro/credits/02.md`, `docs/pro/credits/03.md`, `docs/pro/credits/04.md`, `docs/pro/credits/05.md`, `docs/pro/credits/06.md`, `docs/pro/credits/07.md`, `docs/pro/credits/08.md`, `docs/pro/credits/09.md`, `docs/pro/credits/10.md`.
+
 ## Gaps in this file
 
-24 of 393 packages declare a licence but ship no licence file in
+31 of 433 packages declare a licence but ship no licence file in
 the published archive, so no copyright line could be read from one. The
 licence identifier they declare still governs; the text is reproduced above
 from another package that ships it.
 
+- `@remotion/fonts` 4.0.528 (npm, MIT) — authors: Lucas Benya &lt;bitup.games@gmail.com&gt;
+- `@remotion/licensing` 4.0.528 (npm, MIT) — authors: Jonny Burger &lt;jonny@remotion.dev&gt;
+- `@remotion/media` 4.0.528 (npm, no licence declared) — authors: Jonny Burger &lt;jonny@remotion.dev&gt;, Hunain Ahmed &lt;junaidhunain6@gmail.com&gt;
+- `@remotion/transitions` 4.0.528 (npm, UNLICENSED) — authors: Jonny Burger
 - `alloc-stdlib` 0.2.4 (cargo, BSD-3-Clause) — authors: Daniel Reiter Horn &lt;danielrh@dropbox.com&gt;
 - `block2` 0.6.2 (cargo, MIT) — authors: Mads Marquart &lt;mads@marquart.dk&gt;
 - `defmt-parser` 1.0.0 (cargo, MIT OR Apache-2.0) — authors: The Knurling-rs developers
 - `dispatch2` 0.3.1 (cargo, Zlib OR Apache-2.0 OR MIT) — authors: Mads Marquart &lt;mads@marquart.dk&gt;, Mary &lt;mary@mary.zone&gt;
+- `hash.js` 1.1.7 (npm, MIT) — authors: Fedor Indutny &lt;fedor@indutny.com&gt;
+- `isarray` 1.0.0 (npm, MIT) — authors: Julian Gruber
 - `mac-notification-sys` 0.6.15 (cargo, MIT/Apache-2.0) — authors: Felix Döring &lt;development@felixdoering.com&gt;, Hendrik Sollich &lt;hendrik@hoodie.de&gt;
 - `objc2` 0.6.4 (cargo, MIT) — authors: Mads Marquart &lt;mads@marquart.dk&gt;
 - `objc2-app-kit` 0.3.2 (cargo, Zlib OR Apache-2.0 OR MIT)
@@ -1787,6 +1987,7 @@ from another package that ships it.
 - `objc2-io-surface` 0.3.2 (cargo, Zlib OR Apache-2.0 OR MIT)
 - `objc2-osa-kit` 0.3.2 (cargo, Zlib OR Apache-2.0 OR MIT)
 - `objc2-web-kit` 0.3.2 (cargo, Zlib OR Apache-2.0 OR MIT)
+- `qrcode-generator` 2.0.4 (npm, MIT) — authors: Kazuhiko Arase
 - `selectors` 0.36.1 (cargo, MPL-2.0) — authors: The Servo Project Developers
 - `unic-char-property` 0.9.0 (cargo, MIT/Apache-2.0) — authors: The UNIC Project Developers
 - `unic-char-range` 0.9.0 (cargo, MIT/Apache-2.0) — authors: The UNIC Project Developers
@@ -1825,6 +2026,7 @@ licence) rather than licence text:
 - ring@0.17.14 (LICENSE)
 - rustix@1.1.4 (COPYRIGHT)
 - same-file@1.0.6 (COPYING)
+- sax@1.6.1 (LICENSE.md)
 - serial2@0.2.38 (LICENSE-APACHE)
 - siphasher@1.0.3 (COPYING)
 - tao@0.35.3 (LICENSE.spdx)
@@ -1849,5 +2051,6 @@ them. Those files are not reproduced here; read them in the package:
 
 - `atomic-waker` 1.1.2 — `LICENSE-THIRD-PARTY`
 - `crossbeam-channel` 0.5.16 — `LICENSE-THIRD-PARTY`
+- `remotion` 4.0.528 — `THIRD_PARTY_LICENSES.md`
 - `ring` 0.17.14 — `third_party`
 - `security-framework` 3.7.0 — `THIRD_PARTY`

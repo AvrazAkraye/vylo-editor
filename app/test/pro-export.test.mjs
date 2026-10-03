@@ -26,7 +26,14 @@
 // structure — six cards, one chosen, one button, More options closed — in
 // every shape and in Arabic. How it looks in the app's own WebKit is not
 // something a test in Node can say.
-import { readFileSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
+//
+// Wave 2 (W2-2) wired the sound in: the tab's own `makeFile`, the step
+// between the button and the write, is run from the built tab with the fakes
+// `renderMp4` is tested with, so what is checked is the call the button
+// makes — a graphic with sound hands its bed to the encoder, one without
+// renders exactly as before, a sound the window cannot encode leaves a quiet
+// sentence and a good film — and the line saying what the file will carry.
+import { readFileSync, readdirSync, writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
@@ -43,7 +50,8 @@ import {
 } from '../.test-build/motionshare.js';
 import { buildMotion } from '../.test-build/motiontemplates.js';
 import { stillTime } from '../.test-build/motionanim.js';
-import { estimateBytes, fileNameFor, pixelsFor } from '../.test-build/motionexportops.js';
+import { estimateBytes, fileNameFor, filmSound, pixelsFor, seeThrough as opsSeeThrough } from '../.test-build/motionexportops.js';
+import { withReport } from '../.test-build/motionencode.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -916,6 +924,56 @@ const custom = (m) => ({ ...graphic(m) });
   ok('the only command the tab calls itself is Video\'s reveal_path', commands.every((c) => ['export_write_video', 'open_exported', 'reveal_path'].includes(c)), commands);
   ok('a GIF is written by the same command as an MP4 (motionexportops.ts\' writeMotionFile)', /writeMotionFile\(/.test(src['MotionExport.tsx']) && !/export_write_gif/.test(all));
 }
+{
+  // docs/MOTION.md: "Motion makes no network request of its own", and it says how — no Motion source file asks for the
+  // network. Every file of the studio, its sound and its audio library is read; the one request Motion can cause, the
+  // model's, is made by generate.ts, which is not one of them.
+  const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const dir = new URL('../src/', import.meta.url);
+  const motion = readdirSync(dir).filter((f) => /^(motion.*\.ts|Motion.*\.tsx|audio.*\.ts|loudness\.ts)$/.test(f)).sort();
+  const asks = motion.filter((f) => /\bfetch\s*\(|XMLHttpRequest|WebSocket|EventSource|sendBeacon|navigator\.connection|import\(\s*['"`]https?:/.test(strip(readFileSync(new URL(f, dir), 'utf8'))));
+  ok(`none of Motion's ${motion.length} source files asks for the network`, motion.length >= 60 && asks.length === 0, asks);
+  ok('and none of them is generate.ts, the one file that does', !motion.includes('generate.ts'));
+}
+
+// ── wave 2: names, the transparency rule, and whether a film has sound ────
+{
+  const titles = ['Launch day', 'يوم الإطلاق', 'ڕێکلامی کلینیک', 'ڤیدیۆیا نوو', '', '***', 'CON', 'nul', 'word '.repeat(40), 'a/b\\c:d*e?f"g<h>i|j', '\u200Cمی\u200Cخواهم'];
+  const tags = ['', '16x9', '9x16', '4x5'];
+  ok('fileNameFor takes gif, and names a GIF exactly as motionshare.ts does', titles.every((title) => tags.every((tag) => fileNameFor({ title }, 'gif', tag) === fileNameOf({ title }, 'gif', tag))),
+    titles.flatMap((title) => tags.map((tag) => [fileNameFor({ title }, 'gif', tag), fileNameOf({ title }, 'gif', tag)])).find(([a, b]) => a !== b));
+  ok('a GIF is a PNG\'s name with its own extension: cut at the same word, the same device rule', titles.every((title) => fileNameFor({ title }, 'gif', '1x1') === fileNameFor({ title }, 'png', '1x1').replace(/\.png$/, '.gif'))
+    && fileNameFor({ title: 'CON' }, 'gif') === 'CON_.gif' && fileNameFor({ title: '' }, 'gif', '16x9') === 'motion 16x9.gif');
+  ok('eighty characters at most, ending .gif', titles.every((title) => Array.from(fileNameFor({ title }, 'gif', '9x16')).length <= 80 && fileNameFor({ title }, 'gif', '9x16').endsWith(' 9x16.gif')));
+
+  const backdrops = [null, undefined, 'bg', 'accent', 'none', '#000000', '#00000000', '#112233ff', '#112233FF', '#11223380', '#1122', '#11223344aa',
+    { kind: 'linear' }, { kind: 'aurora' }, 7, '', 'transparent'];
+  ok('the film\'s see-through rule, now exported, is the GIF\'s rule', backdrops.every((b) => opsSeeThrough(b) === seeThrough(b)),
+    backdrops.filter((b) => opsSeeThrough(b) !== seeThrough(b)));
+  ok('and it is the rule it was: none, or a colour not opaque', opsSeeThrough(null) && opsSeeThrough('#00000000') && opsSeeThrough('#11223380')
+    && !opsSeeThrough('#112233ff') && !opsSeeThrough('bg') && !opsSeeThrough({ kind: 'linear' }));
+
+  const yes = [{ mode: 'fx' }, { mode: 'music' }, { mode: 'both' }, { mode: 'both', level: 0.2, mood: 'calm' }, 'music', 'effects', { mode: 'sfx', level: 60 }];
+  const no = [undefined, null, 0, '', 'off', 'mute', 'nonsense', {}, { mode: 'off' }, { mode: 'off', level: 0.3, mood: 'epic' }, { mode: 'loud' }, [], [{ mode: 'fx' }], 7];
+  ok('a film has sound when its graphic has sound that is not off', yes.every((sound) => filmSound({ sound }) === true), yes.filter((sound) => !filmSound({ sound })));
+  ok('and none for a graphic that never chose any, turned it off, or holds something unreadable', no.every((sound) => filmSound({ sound }) === false) && filmSound(null) === false
+    && filmSound(undefined) === false && filmSound({}) === false, no.filter((sound) => filmSound({ sound })));
+  const revoked = Proxy.revocable({}, {});
+  revoked.revoke();
+  const hostile = [revoked.proxy, { get mode() { throw new Error('boom'); } }, new Proxy({}, { get: () => { throw new Error('trap'); } }), Object.create(null)];
+  ok('a document that throws when read has no sound, and nothing throws', hostile.every((sound) => throws(() => filmSound({ sound })) === null && filmSound({ sound }) === false));
+  let odd = 0;
+  for (let i = 0; i < 600; i++) {
+    const pick = (list) => list[Math.floor(rand() * list.length)];
+    const sound = pick([undefined, null, 'fx', 'music', 'both', 'off', 3, {
+      mode: pick(['off', 'fx', 'music', 'both', 'FX', ' music ', '', null, 4, 'all', 'silent']), level: pick([0, 0.6, 1, 60, -1, NaN, '0.5', undefined]),
+      mood: pick(['calm', 'epic', 'lo-fi', 'nope', 7, undefined]), seed: pick([1, -5, 1.5, 'x', undefined]),
+    }]);
+    const got = (() => { try { return filmSound({ sound }); } catch { return 'threw'; } })();
+    if (typeof got !== 'boolean') odd++;
+  }
+  ok('600 random sound fields: always a yes or a no, never a throw', odd === 0, odd);
+}
 
 // ── the Export tab's first screen ─────────────────────────────────────────
 {
@@ -982,6 +1040,153 @@ const custom = (m) => ({ ...graphic(m) });
       const english = ['Where is it going?', 'Story or Reel', 'Web loop', 'Custom', 'More options', 'Download MP4', 'Tall', 'video for a feed', 'Every setting'];
       ok('in Arabic, the first screen has none of its English words left', english.every((w) => !ar.includes(w)), english.filter((w) => ar.includes(w)));
       ok('and the ratio stays a left-to-right 9:16 inside the Arabic', /<bdi dir="ltr">9:16<\/bdi>/.test(ar));
+    }
+
+    // ── wave 2: the line saying what the file carries ──
+    const { soundLineOf, makeFile } = await import(`${out}MotionExport.js`);
+    {
+      const line = (html) => /class="mo-share-sound">([^<]*)</.exec(html)?.[1] ?? null;
+      const music = render(custom({ id: 'g-music', sound: { mode: 'music', mood: 'calm' } }));
+      ok('a film of a graphic with music says so, with its mood, in the sound slot', line(music) === 'With sound: music (Calm).', line(music));
+      ok('effects alone', line(render(custom({ id: 'g-fx', sound: { mode: 'fx' } }))) === 'With sound: effects made from the animation.');
+      const countdown = { ...buildMotion({ id: 'cd', recipe: 'countdown', lang: 'en', format: 'landscape', now: 1 }), sound: { mode: 'both' } };
+      ok('both, in the template\'s own mood when none was chosen', line(render(custom({ id: 'g-both', sound: 'both' }))) === 'With sound: effects and music (Uplifting).'
+        && soundLineOf(countdown, 'mp4', (s) => s) === 'With sound: effects and music (Epic).');
+      ok('a graphic whose sound is off, or never chosen, has no line: its first screen is the one it had', line(render(custom({ id: 'g-off', sound: { mode: 'off', level: 0.3 } }))) === null
+        && line(render(custom({ id: 'g-none' }))) === null);
+      const s0 = firstScreen(music);
+      const decisions = count(music, /role="radiogroup"/g) + s0.groups + s0.checkboxes + (s0.saveAs ? 1 : 0) + count(music, /class="mo-share-more"/g);
+      ok('the line is words, not a control: still 2 decisions and the same buttons on the first screen', decisions === 2 && count(music, /<button/g) === 6 + 1 + 1, [decisions, count(music, /<button/g)]);
+      ok('a sound line the panel passes still takes the MP4 line\'s place', /class="mo-share-sound"><span class="probe-sound">x<\/span>/.test(
+        render(custom({ id: 'g-note', sound: 'music' }), (s) => s, { soundNote: React.createElement('span', { className: 'probe-sound' }, 'x') })));
+      const ar = render(custom({ id: 'g-ar-music', sound: { mode: 'music', mood: 'calm' } }), translator('ar'));
+      ok('in Arabic, the line and its mood are Arabic', line(ar) === 'مع الصوت: موسيقى (هادئة).', line(ar));
+      const t = (s) => s;
+      const doc = custom({ sound: { mode: 'both' } });
+      ok('a GIF carries none, and says so', soundLineOf(doc, 'gif', t) === 'Without sound: a GIF cannot carry it.');
+      ok('nor does a picture', soundLineOf(doc, 'png', t) === 'Without sound: a picture has none.');
+      ok('a graphic without sound has no line for any kind of file', ['mp4', 'gif', 'png'].every((k) => soundLineOf(custom(), k, t) === null && soundLineOf(custom({ sound: 'off' }), k, t) === null));
+      const sorani = translator('ckb');
+      const kurmanji = translator('kmr');
+      ok('every line is translated in all three languages', ['mp4', 'gif', 'png'].every((k) => [translator('ar'), sorani, kurmanji].every((tr) => {
+        const l = soundLineOf({ ...doc, sound: { mode: k === 'mp4' ? 'fx' : 'both' } }, k, tr);
+        return typeof l === 'string' && !/[A-Za-z]{4}/.test(l.replace(/GIF/g, ''));
+      })));
+      let bad = 0;
+      for (let i = 0; i < 300; i++) {
+        const pick = (list) => list[Math.floor(rand() * list.length)];
+        const sound = pick([undefined, 'music', { mode: pick(['fx', 'music', 'both', 'off', 9]), mood: pick(['calm', 'nope', 3]), level: pick([0.5, NaN, '7']) }]);
+        for (const k of ['mp4', 'gif', 'png']) {
+          try {
+            const l = soundLineOf({ ...doc, sound }, k, t);
+            if (!(l === null || (typeof l === 'string' && l.length > 0 && !l.includes('{mood}')))) bad++;
+          } catch { bad++; }
+        }
+      }
+      ok('900 random sound fields and kinds: a line or none, never a throw, never an unfilled {mood}', bad === 0, bad);
+    }
+
+    // ── wave 2: what Download makes, with the fakes renderMp4 is tested with ──
+    {
+      const MP4 = Uint8Array.from([0, 0, 0, 8, 0x66, 0x74, 0x79, 0x70]);
+      const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
+      const bed = () => ({ channels: [new Float32Array(4800), new Float32Array(4800)], sampleRate: 48000 });
+      // A context that takes any call, for the fitted painter's frame.
+      const anyCtx = (canvas) => new Proxy({}, { get: (_, k) => (k === 'canvas' ? canvas : () => {}), set: () => true });
+      const mp4Fakes = (o = {}) => {
+        const log = { order: [], beds: [], encode: null, paints: [] };
+        const deps = {
+          preload: async () => { log.order.push('preload'); },
+          paint: (ctx, d, time, opts) => { log.paints.push({ doc: d, t: time, opts }); },
+          canvas: (w, h) => {
+            const c = { width: w, height: h, toBlob: (cb) => cb(new Blob([PNG])) };
+            c.getContext = () => anyCtx(c);
+            return c;
+          },
+          soundBed: async (d, opts) => {
+            log.order.push('sound');
+            log.beds.push({ doc: d, opts });
+            if (o.bedError) throw o.bedError;
+            return bed();
+          },
+          // What encodeMp4 reports: the sound kept when it has an AAC encoder, dropped when it has none.
+          encodeMp4: async (e) => {
+            log.order.push('encode');
+            log.encode = e;
+            for (let i = 0; i < e.frames; i++) if (i === 0 || !e.unchanged?.(i)) await e.draw(i);
+            const audio = e.audio ? (o.noAac ? 'dropped' : 'kept') : 'none';
+            return withReport(MP4.slice(), { audio, painted: e.frames, frames: e.frames });
+          },
+        };
+        return { log, deps };
+      };
+      const t = (s) => s;
+      const press = async (doc, dest, fakesOf = mp4Fakes(), tr = t) => {
+        const s = settingsFor(dest, doc);
+        const made = outputOf(doc, s);
+        const sounds = [];
+        const r = await makeFile(doc, s, made, tr, { onSound: () => sounds.push(1), onProgress: () => {} }, fakesOf.deps);
+        return { ...r, s, made, sounds, log: fakesOf.log };
+      };
+
+      const withMusic = custom({ id: 'mk-1', seconds: 1, sound: { mode: 'both', mood: 'calm' } });
+      const a = await press(withMusic, 'youtube');
+      ok('Download of a graphic with sound: its bed rendered once, after the fonts, before the frames, at 48 kHz',
+        same(a.log.order, ['preload', 'sound', 'encode']) && a.log.beds.length === 1 && a.log.beds[0].doc === withMusic && a.log.beds[0].opts.sampleRate === 48000, a.log.order);
+      ok('and handed to the encoder as the film\'s audio', a.log.encode.audio?.sampleRate === 48000 && a.log.encode.audio.channels.length === 2 && typeof a.log.encode.onSound === 'function');
+      ok('the bar is told the sound is being made', a.sounds.length >= 1);
+      ok('a film whose sound was kept has nothing more to say', a.note === '' && a.bytes.audio === 'kept' && same([...a.bytes], [...MP4]));
+
+      const plain = custom({ id: 'mk-2', seconds: 1 });
+      const b = await press(plain, 'youtube');
+      ok('Download of a graphic without sound: no bed, no audio, no sound stage — the film it always was',
+        same(b.log.order, ['preload', 'encode']) && b.log.encode.audio === undefined && b.sounds.length === 0 && b.bytes.audio === 'none' && b.note === '');
+      ok('the same frames, painted the same way, as with sound', b.log.encode.frames === a.log.encode.frames && b.log.paints.length === a.log.paints.length
+        && b.log.paints.every((p, i) => p.t === a.log.paints[i].t));
+      const off = await press(custom({ id: 'mk-3', seconds: 1, sound: { mode: 'off', level: 0.2, mood: 'epic' } }), 'youtube');
+      ok('a sound turned off is no sound', !off.log.order.includes('sound') && off.log.encode.audio === undefined && off.note === '');
+
+      const noAac = await press(withMusic, 'youtube', mp4Fakes({ noAac: true }));
+      ok('a window that cannot encode the sound still saves the film, and says so quietly', noAac.bytes.audio === 'dropped' && same([...noAac.bytes], [...MP4])
+        && noAac.note === 'Saved without sound: this computer cannot make the audio track.');
+      const arNote = await press(withMusic, 'youtube', mp4Fakes({ noAac: true }), translator('ar'));
+      ok('in Arabic too', arNote.note === 'حُفظ بلا صوت: لا يستطيع هذا الحاسوب إنشاء المسار الصوتي.', arNote.note);
+      const broken = await press(withMusic, 'youtube', mp4Fakes({ bedError: new Error('This window cannot make sound.') }));
+      ok('a sound that will not render: the film is made, silent, with the same sentence — never an error', broken.bytes.audio === 'dropped'
+        && broken.log.order.includes('encode') && broken.log.encode.audio === undefined && /^Saved without sound/.test(broken.note));
+      const ctl = new AbortController();
+      const cancel = mp4Fakes({ bedError: Object.assign(new Error('Aborted'), { name: 'AbortError' }) });
+      const stopped = await rejection(makeFile(withMusic, settingsFor('youtube', withMusic), withMusic, t, { signal: ctl.signal }, cancel.deps));
+      ok('Cancel while the sound is made is Cancel: an AbortError, nothing encoded', stopped?.name === 'AbortError' && !cancel.log.order.includes('encode'));
+
+      // Another shape: the copy the file is made from keeps the sound, and the sound is that copy's.
+      const tpl = { ...buildMotion({ id: 'mk-tpl', recipe: 'lower-third', lang: 'en', format: 'landscape', now: 5 }), sound: { mode: 'fx' } };
+      const story = await press(tpl, 'story');
+      ok('a template sent to a story is built again and still carries its sound', story.s.reshape === 'rebuild' && story.made.format === 'portrait'
+        && story.log.beds.length === 1 && story.log.beds[0].doc === story.made && same(story.made.sound, tpl.sound) && story.log.encode.audio !== undefined);
+      const hand = { ...tpl, id: 'mk-hand' };
+      delete hand.recipe;
+      const made = [];
+      globalThis.document = { createElement: () => { const c = { width: 0, height: 0 }; c.getContext = () => { made.push(c); return anyCtx(c); }; return c; } };
+      let fitted;
+      try {
+        fitted = await press(hand, 'story');
+      } finally {
+        delete globalThis.document;
+      }
+      ok('a graphic fitted inside a story keeps its sound too, and is painted in its own shape by the painter it was given',
+        fitted.s.reshape === 'fit' && fitted.log.beds.length === 1 && fitted.log.encode.audio !== undefined && made.length === 1
+        && fitted.log.paints.length > 0 && fitted.log.paints.every((p) => p.doc.format === 'landscape'));
+
+      const pic = await press(withMusic, 'picture');
+      ok('a picture of a graphic with sound renders no sound', pic.s.kind === 'png' && !pic.log.order.includes('sound') && same([...pic.bytes], [...PNG]) && pic.note === '');
+    }
+    {
+      const strip = (x) => x.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+      const tab = strip(readFileSync(new URL('../src/MotionExport.tsx', import.meta.url), 'utf8'));
+      ok('the tab\'s one renderMp4 call asks for sound exactly when the graphic has it', (tab.match(/renderMp4\(/g) ?? []).length === 1 && /sound:\s*filmSound\(out\)/.test(tab));
+      ok('and Download goes through makeFile', /await makeFile\(doc, s, out, t,/.test(tab));
+      ok('the bar names the sound stage', /run\.sound \? t\('Preparing the sound…'\)/.test(tab));
     }
     rmSync(out, { recursive: true, force: true });
   }

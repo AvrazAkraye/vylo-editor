@@ -11,10 +11,11 @@ import { read as readPlay, usePlay } from './motionplay';
 import { MotionThumb } from './MotionThumb';
 import type { Format, Motion } from './motiontypes';
 import {
-  FORMAT_TAG, QUALITIES, SIZES, downloadsPath, frameAt, openExported, pixelsFor, renderMp4, renderPng, sizeName,
-  writeMotionFile, type Quality, type Size,
+  FORMAT_TAG, QUALITIES, SIZES, downloadsPath, filmSound, frameAt, openExported, pixelsFor, renderMp4, renderPng, sizeName,
+  writeMotionFile, type Quality, type RenderDeps, type Size,
 } from './motionexportops';
-import { GIF, GIF_RATES, GIF_SIDES, gifSizeFor, renderGif, type GifMade } from './motiongifops';
+import { SOUND_MOODS, moodOf, readSound } from './motionsound';
+import { GIF, GIF_RATES, GIF_SIDES, gifSizeFor, renderGif, type GifDeps, type GifMade } from './motiongifops';
 import {
   DESTINATIONS, FIRST_PREFS, bestDestination, destinationLine, destinationName, destinationStep, fileNameOf, fitBox,
   fittedPaint, outputOf, ratioOf, readPrefs, settingsFor, shapeFor, surroundOf, type Destination, type ShareChoices,
@@ -58,9 +59,20 @@ import {
  * The notices (an MP4 has no transparency; this window cannot make an MP4, so
  * the picture is chosen and the films cannot be), the size that falls back to
  * one the encoder can make, the progress, Cancel, where the file went, Open
- * and Show in Finder — all as they were. The slot for a **sound** line
- * (`soundNote`, filled by the sound packages) sits under the line that says
- * what will be made, and only for an MP4: a GIF and a PNG have no sound.
+ * and Show in Finder — all as they were.
+ *
+ * ## Sound
+ *
+ * A graphic that has sound (the Sound row in Design, anything but Off) gets
+ * one more line, under the cards, saying what the file will carry
+ * (`soundLineOf`): an MP4 its effects, its music and the music's mood; a GIF
+ * or a picture none, said rather than left to be discovered. A graphic without
+ * sound gets no line, and its film is made exactly as it was before there was
+ * sound: `renderMp4` is asked for sound only when `filmSound` says so. The
+ * sound is made before the first frame ("Preparing the sound…" on the bar),
+ * and a window that cannot encode it still saves the film, silent, and says
+ * so quietly under the saved file — never as an error, because the film is
+ * good. `soundNote`, when the panel passes one, takes the MP4's line's place.
  *
  * ## The rules it keeps
  *
@@ -133,6 +145,8 @@ interface Run {
   kind: ShareKind;
   /** Drawing and encoding (fonts and pictures load first), then writing the file. */
   phase: 'render' | 'write';
+  /** A film's sound being made and encoded, before its first frame: true until a frame arrives. */
+  sound: boolean;
   /** Frames painted, of `total`. A still is one frame; a GIF counts the frames its colours are chosen from too. */
   done: number;
   total: number;
@@ -233,6 +247,44 @@ function scratchCanvas(width: number, height: number): HTMLCanvasElement {
   return c;
 }
 
+/** What the renderers draw with: the real ones, unless a test hands in the fakes they are tested with. */
+export type FileDeps = Partial<RenderDeps & GifDeps>;
+
+/**
+ * The file a press asks for, as bytes, and the sentence to say under it once
+ * it is saved (empty when there is nothing to say). `s` is the file's
+ * settings and `out` the graphic it is made from (`outputOf`): the graphic on
+ * screen when the button was pressed, or its copy in the file's shape. A
+ * graphic fitted inside another shape is painted by its own painter, over
+ * `deps`' (`fittedPaint`).
+ *
+ * A film carries the graphic's sound exactly when it has some that is not off
+ * (`filmSound`); one without is rendered as it was before there was sound.
+ * When the sound had to be left out — this window has no AAC encoder, or the
+ * sound would not render — the film is still the film, and the sentence says
+ * it was saved without sound.
+ */
+export async function makeFile(
+  doc: Motion, s: ShareSettings, out: Motion, t: T,
+  o: { signal?: AbortSignal; onProgress?: (done: number, total: number, attempt?: number) => void; onSound?: () => void },
+  deps: FileDeps = {},
+): Promise<{ bytes: Uint8Array; note: string }> {
+  const d: FileDeps = s.reshape === 'fit' ? { ...deps, paint: fittedPaint(doc, fitBox(s.from, s.width, s.height), scratchCanvas, deps.paint) } : deps;
+  if (s.kind === 'mp4') {
+    const film = await renderMp4(out, {
+      size: s.size ?? '1080p', quality: s.quality ?? 'high', blur: s.blur, sound: filmSound(out), signal: o.signal, onProgress: o.onProgress,
+      onSound: o.onSound,
+    }, d);
+    // The film is good; only its sound was left out.
+    return { bytes: film, note: film.audio === 'dropped' ? t('Saved without sound: this computer cannot make the audio track.') : '' };
+  }
+  if (s.kind === 'gif') {
+    const made = await renderGif(out, { side: s.side ?? GIF.side, fps: s.fps, transparent: s.transparent, signal: o.signal, onProgress: o.onProgress }, d);
+    return { bytes: made.bytes, note: gifNote(made, t) };
+  }
+  return { bytes: await renderPng(out, { size: s.size ?? '1080p', at: s.at ?? 0, transparent: s.transparent }, d), note: '' };
+}
+
 /**
  * Make one file and keep what came of it. The graphic is `job.out` — the one
  * on screen when the button was pressed (or its copy in the file's shape), not
@@ -243,8 +295,8 @@ function start(doc: Motion, job: Job, t: T, onError: (m: string) => void) {
   const { s, out } = job;
   const ctl = new AbortController();
   const run: Run = {
-    ctl, kind: s.kind, phase: 'render', done: 0, total: s.kind === 'png' ? 1 : s.frames, attempt: 1, started: Date.now(),
-    since: Date.now(), spec: specOf(s),
+    ctl, kind: s.kind, phase: 'render', sound: false, done: 0, total: s.kind === 'png' ? 1 : s.frames, attempt: 1,
+    started: Date.now(), since: Date.now(), spec: specOf(s),
   };
   runs.set(doc.id, run);
   failures.delete(doc.id);
@@ -258,23 +310,22 @@ function start(doc: Motion, job: Job, t: T, onError: (m: string) => void) {
       run.attempt = attempt;
       run.since = Date.now();
     }
+    // The sound is made: the time left is reckoned from the first frame, not from before the sound.
+    if (run.sound && done > 0) {
+      run.sound = false;
+      run.since = Date.now();
+    }
+    notifySoon();
+  };
+  // The sound stage is said, not measured: rendering the music has no steps to count, and the whole of it takes a second or two.
+  const sounding = () => {
+    if (run.done > 0 || run.sound) return;
+    run.sound = true;
     notifySoon();
   };
 
-  // A graphic fitted inside another shape is painted by its own painter; anything else by the renderer's.
-  const deps = s.reshape === 'fit' ? { paint: fittedPaint(doc, fitBox(s.from, s.width, s.height), scratchCanvas) } : {};
   const going = (async (): Promise<{ path: string; note: string }> => {
-    let note = '';
-    let bytes: Uint8Array;
-    if (s.kind === 'mp4') {
-      bytes = await renderMp4(out, { size: s.size ?? '1080p', quality: s.quality ?? 'high', blur: s.blur, signal: ctl.signal, onProgress: moved }, deps);
-    } else if (s.kind === 'gif') {
-      const made = await renderGif(out, { side: s.side ?? GIF.side, fps: s.fps, transparent: s.transparent, signal: ctl.signal, onProgress: moved }, deps);
-      bytes = made.bytes;
-      note = gifNote(made, t);
-    } else {
-      bytes = await renderPng(out, { size: s.size ?? '1080p', at: s.at ?? 0, transparent: s.transparent }, deps);
-    }
+    const { bytes, note } = await makeFile(doc, s, out, t, { signal: ctl.signal, onProgress: moved, onSound: sounding });
     if (ctl.signal.aborted) throw abortError();
     run.phase = 'write';
     notify();
@@ -417,6 +468,7 @@ function runState(run: Run, t: T): { what: string; pct: number | null } {
   const what = run.phase === 'write' ? t('Saving the file…')
     : run.kind === 'png' ? t('Rendering the picture…')
     : run.kind === 'gif' ? (run.attempt > 1 ? t('Making the GIF smaller to fit…') : t('Rendering the GIF…'))
+    : run.sound ? t('Preparing the sound…')
     : t('Rendering the video…');
   return { what, pct: f === null || run.phase === 'write' ? null : Math.round(f * 100) };
 }
@@ -472,6 +524,24 @@ function Playhead({ t, doc }: { t: T; doc: Motion }) {
 /** The long side of the little file drawn beside "built again at 9:16". */
 const THUMB = 64;
 
+/**
+ * What sound the file will carry, as one line, or null when the graphic has
+ * none to speak of (no line, so a graphic without sound shows what it always
+ * did). An MP4 carries the sound chosen: its effects, its music and the
+ * music's mood (the one chosen, else the template's: `moodOf`). A GIF and a
+ * picture carry none, and say so, so nobody is surprised by a silent file.
+ */
+export function soundLineOf(doc: Motion, kind: ShareKind, t: T): string | null {
+  const spec = readSound(doc?.sound);
+  if (!spec || spec.mode === 'off') return null;
+  if (kind === 'gif') return t('Without sound: a GIF cannot carry it.');
+  if (kind === 'png') return t('Without sound: a picture has none.');
+  if (spec.mode === 'fx') return t('With sound: effects made from the animation.');
+  const id = moodOf(doc);
+  const mood = t(SOUND_MOODS.find((m) => m.id === id)?.label ?? 'Uplifting');
+  return fill(spec.mode === 'music' ? t('With sound: music ({mood}).') : t('With sound: effects and music ({mood}).'), { mood });
+}
+
 // ── the tab ───────────────────────────────────────────────────────────────
 
 export function MotionExport({ t, doc, onError, soundNote }: {
@@ -479,9 +549,9 @@ export function MotionExport({ t, doc, onError, soundNote }: {
   doc: Motion;
   onError: (m: string) => void;
   /**
-   * The sound line, for an MP4 (packages 03 and 04 fill it: what sound the
-   * film carries, and how loud). Shown under the line that says what will be
-   * made; left out for a GIF or a PNG, which have no sound.
+   * The sound line for an MP4, when the panel wants to say it itself. Without
+   * one the tab says what the file will carry (`soundLineOf`); a GIF's and a
+   * picture's line is always the tab's own.
    */
   soundNote?: ReactNode;
 }) {
@@ -622,6 +692,7 @@ export function MotionExport({ t, doc, onError, soundNote }: {
   const thumbW = s.width >= s.height ? THUMB : Math.max(1, Math.round((THUMB * s.width) / s.height));
   const thumbH = s.width >= s.height ? Math.max(1, Math.round((THUMB * s.height) / s.width)) : THUMB;
   const fitted = fitBox(s.from, thumbW, thumbH);
+  const soundLine = s.kind === 'mp4' && soundNote ? soundNote : soundLineOf(out, s.kind, t);
 
   return (
     <section className="mo-ex mo-share">
@@ -671,7 +742,7 @@ export function MotionExport({ t, doc, onError, soundNote }: {
       {s.trimmed && (
         <p className="mo-ex-note">{fill(t('A GIF runs {n} seconds at most: the first {n} are saved.'), { n: GIF.seconds })}</p>
       )}
-      {s.kind === 'mp4' && soundNote ? <div className="mo-share-sound">{soundNote}</div> : null}
+      {soundLine ? <div className="mo-share-sound">{soundLine}</div> : null}
 
       {run ? <Progress t={t} run={run} /> : (
         <>
@@ -932,7 +1003,7 @@ function Progress({ t, run }: { t: T; run: Run }) {
         <i style={{ inlineSize: `${writing ? 100 : pct ?? 0}%` }} />
       </div>
       <p className="vid-clock">
-        {run.kind === 'mp4' && <span>{fill(t('Frame {n} of {of}'), { n: run.done, of: run.total })}</span>}
+        {run.kind === 'mp4' && !run.sound && <span>{fill(t('Frame {n} of {of}'), { n: run.done, of: run.total })}</span>}
         <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>
         {!writing && left > 1000 && <span>{fill(t('about {time} left'), { time: clock(left) })}</span>}
         <span className="vid-dl-spec-tag" dir="ltr">{run.spec}</span>

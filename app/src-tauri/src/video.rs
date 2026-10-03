@@ -3,7 +3,7 @@
 //!
 //! ## What is written
 //!
-//! Five kinds of file, each told by its extension and each checked against
+//! Six kinds of file, each told by its extension and each checked against
 //! what that kind of file is before a byte lands:
 //!
 //! | extension | what the Video panel saves           | the bytes must be                      | at most  |
@@ -11,8 +11,12 @@
 //! | `.mp4`    | the film, H.264                      | an MP4: `ftyp` at offset 4             | 1 GiB    |
 //! | `.webm`   | the film, VP8 or VP9                 | a WebM: the EBML magic `1A 45 DF A3`   | 1 GiB    |
 //! | `.png`    | a poster — one frame, for thumbnails | a PNG: its eight-byte signature        | 64 MiB   |
+//! | `.gif`    | a looping animation                  | a GIF: `GIF89a`, or the older `GIF87a` | 64 MiB   |
 //! | `.srt`    | subtitles, from the scenes' words    | UTF-8 text with no control characters  | 5 MiB    |
 //! | `.json`   | the storyboard, as a backup          | UTF-8 text that parses as JSON         | 5 MiB    |
+//!
+//! The Motion panel saves through the same command, and only three of these:
+//! an MP4, a GIF and a PNG.
 //!
 //! Every other name is refused, so a bug upstream cannot put a film where a
 //! `.zshrc`, a `.docx` or an `.app` was.
@@ -73,6 +77,7 @@ pub enum Kind {
     Mp4,
     Webm,
     Png,
+    Gif,
     Srt,
     Json,
 }
@@ -88,6 +93,7 @@ impl Kind {
             "mp4" => Kind::Mp4,
             "webm" => Kind::Webm,
             "png" => Kind::Png,
+            "gif" => Kind::Gif,
             "srt" => Kind::Srt,
             "json" => Kind::Json,
             _ => return None,
@@ -98,7 +104,10 @@ impl Kind {
     pub fn cap(self) -> usize {
         match self {
             Kind::Mp4 | Kind::Webm => MAX_VIDEO_BYTES,
-            Kind::Png => MAX_IMAGE_BYTES,
+            // Motion keeps a GIF under 25 MB, and saves one still over only at
+            // the bottom of its ladder (240 px, 6 frames a second, 64 colours,
+            // at most 15 s): far below a poster's ceiling, which it shares.
+            Kind::Png | Kind::Gif => MAX_IMAGE_BYTES,
             Kind::Srt | Kind::Json => MAX_TEXT_BYTES,
         }
     }
@@ -110,6 +119,9 @@ impl Kind {
             Kind::Mp4 => (bytes.get(4..8) == Some(b"ftyp".as_slice())).then_some(()).ok_or("is not an MP4 video"),
             Kind::Webm => bytes.starts_with(&[0x1A, 0x45, 0xDF, 0xA3]).then_some(()).ok_or("is not a WebM video"),
             Kind::Png => bytes.starts_with(b"\x89PNG\r\n\x1a\n").then_some(()).ok_or("is not a PNG image"),
+            // Motion's writer (`motiongif.ts`) writes only 89a; 87a, the
+            // version before it, is the same kind of file and as harmless.
+            Kind::Gif => (bytes.starts_with(b"GIF89a") || bytes.starts_with(b"GIF87a")).then_some(()).ok_or("is not a GIF image"),
             Kind::Srt => {
                 let text = std::str::from_utf8(bytes).map_err(|_| "is not UTF-8 text")?;
                 // A byte-order mark is what some players want at the start; a
@@ -128,7 +140,7 @@ impl Kind {
         }
     }
 
-    /// Whether the person can be offered **Open** for this kind: the four a
+    /// Whether the person can be offered **Open** for this kind: the five a
     /// player or a viewer shows. The storyboard is a backup, not a document.
     fn openable(self) -> bool {
         !matches!(self, Kind::Json)
@@ -209,7 +221,7 @@ fn was_written(p: &Path) -> bool {
 ///   anything but `1`;
 /// - a path that is not absolute, or holds a control character: neither the
 ///   save panel nor the Downloads folder is either;
-/// - a name that is not one of the five kinds in the table at the top of this
+/// - a name that is not one of the six kinds in the table at the top of this
 ///   file;
 /// - a directory, for `export_write`'s reason (when replacing; a unique write
 ///   steps past one to the next free name);
@@ -219,8 +231,9 @@ fn was_written(p: &Path) -> bool {
 ///   this command is for;
 /// - more bytes than the kind's ceiling;
 /// - bytes that are not what the name says: an MP4 without `ftyp`, a WebM
-///   without its EBML magic, a PNG without its signature, subtitles that are
-///   not plain UTF-8 text, a storyboard that is not JSON.
+///   without its EBML magic, a PNG without its signature, a GIF that does not
+///   begin `GIF89a` or `GIF87a`, subtitles that are not plain UTF-8 text, a
+///   storyboard that is not JSON.
 ///
 /// Async so a large write happens off the main thread and the window keeps
 /// drawing while it lands.
@@ -351,7 +364,7 @@ fn decode_path(header: Option<&[u8]>) -> Result<String, String> {
     Ok(path)
 }
 
-/// A path to save at, checked: absolute, named as one of the five kinds, in a
+/// A path to save at, checked: absolute, named as one of the six kinds, in a
 /// folder that exists, and — when it may replace what is there — not a folder.
 /// `pdf::check_pdf_path` for the Video panel's files.
 fn check_path(path: &str, replacing: bool) -> Result<(PathBuf, Kind), String> {
@@ -359,7 +372,7 @@ fn check_path(path: &str, replacing: bool) -> Result<(PathBuf, Kind), String> {
     if path.chars().any(|c| c.is_control()) || !p.is_absolute() {
         return Err(format!("{path}: is not a place to save to"));
     }
-    let kind = Kind::of(&p).ok_or_else(|| format!("{path}: is not a file the Video panel saves (.mp4, .webm, .png, .srt or .json)"))?;
+    let kind = Kind::of(&p).ok_or_else(|| format!("{path}: is not a file the Video panel saves (.mp4, .webm, .png, .gif, .srt or .json)"))?;
     if replacing && p.is_dir() {
         return Err(format!("{path}: is a directory"));
     }
@@ -370,8 +383,8 @@ fn check_path(path: &str, replacing: bool) -> Result<(PathBuf, Kind), String> {
 }
 
 /// Open a file the Video panel just saved in the app the system opens it with
-/// — the film in the video player, the poster in the image viewer, the
-/// subtitles in a text editor — for the **Open** button beside "Saved to …".
+/// — the film in the video player, the poster or the GIF in the image viewer,
+/// the subtitles in a text editor — for the **Open** button beside "Saved to …".
 ///
 /// Absent from the tool schema (`test/modes.test.mjs` names it), and narrower
 /// than that alone would make it, because unlike `reveal_path` it hands a file
@@ -380,11 +393,12 @@ fn check_path(path: &str, replacing: bool) -> Result<(PathBuf, Kind), String> {
 /// - only a path `export_write_video` wrote in this run of the app, exactly as
 ///   it returned it. Nothing else on the disk can be opened through here,
 ///   whoever asks;
-/// - only `.mp4`, `.webm`, `.png` and `.srt` — what a player or a viewer shows.
+/// - only `.mp4`, `.webm`, `.png`, `.gif` and `.srt` — what a player or a
+///   viewer shows.
 ///   Never the storyboard, and never anything that runs;
 /// - only a plain file that is still there: not a folder, not a symlink;
 /// - only while it still is what was written: its first bytes are checked
-///   again — `ftyp`, the EBML magic, the PNG signature, UTF-8 text — so a file
+///   again — `ftyp`, the EBML magic, the PNG or GIF signature, UTF-8 text — so a file
 ///   swapped at that path since is refused rather than opened.
 ///
 /// The path goes to `open` (macOS), `explorer` (Windows) or `xdg-open` as one
@@ -409,7 +423,7 @@ pub fn check_openable(path: &str) -> Result<PathBuf, String> {
     if !meta.file_type().is_file() {
         return Err(format!("{path}: is not a file"));
     }
-    // The head is enough for the three binary kinds; subtitles are read whole,
+    // The head is enough for the four binary kinds; subtitles are read whole,
     // up to their ceiling, because a text file is text all the way through.
     let want = if kind == Kind::Srt { kind.cap() + 1 } else { 16 };
     let mut head = Vec::new();
@@ -488,10 +502,25 @@ mod tests {
         f.extend((0u8..=255).cycle().take(2048));
         f
     }
+    /// What Motion's GIF writer starts with: the signature, a 2 × 2 logical
+    /// screen, then bytes that are not text.
+    fn gif() -> Vec<u8> {
+        let mut f = b"GIF89a\x02\x00\x02\x00\xf7\x00\x00".to_vec();
+        f.extend((0u8..=255).cycle().take(2048));
+        f.push(0x3B);
+        f
+    }
+    /// The older version of the format, which the writer never makes but
+    /// which is the same kind of file.
+    fn gif87() -> Vec<u8> {
+        let mut f = gif();
+        f[3..6].copy_from_slice(b"87a");
+        f
+    }
     const SRT: &str = "1\r\n00:00:00,000 --> 00:00:02,500\r\nعيادة الأسنان\r\nڕێکلامی کلینیک ڤیدیۆ\r\n\r\n";
     const JSON: &str = "{\"vylo\":\"video\",\"video\":{\"title\":\"ڤیدیۆیا نوو\",\"scenes\":[]}}";
 
-    /// Each of the five kinds is written byte for byte, whatever script its
+    /// Each of the six kinds is written byte for byte, whatever script its
     /// name is in, and a second save to the same place replaces the first.
     #[test]
     fn export_write_video_writes_each_kind_it_saves() {
@@ -505,6 +534,9 @@ mod tests {
             ("promo.webm", webm()),
             ("Poster.PNG", png()),
             ("promo.png", png()),
+            ("loop.gif", gif()),
+            ("Loop.GIF", gif87()),
+            ("عيادة الأسنان 9x16.gif", gif()),
             ("promo.srt", SRT.as_bytes().to_vec()),
             ("promo.json", JSON.as_bytes().to_vec()),
             ("عيادة الأسنان.mp4", film()),
@@ -547,6 +579,9 @@ mod tests {
 
         // The numbering is per name, and per extension.
         assert_eq!(unique(&at("ڕێکلام.png"), &png()).unwrap(), at("ڕێکلام.png"));
+        assert_eq!(unique(&at("ڕێکلام.gif"), &gif()).unwrap(), at("ڕێکلام.gif"));
+        assert_eq!(unique(&at("ڕێکلام.gif"), &gif87()).unwrap(), at("ڕێکلام (2).gif"));
+        assert_eq!(fs::read(dir.join("ڕێکلام.gif")).unwrap(), gif(), "the first GIF was not replaced");
         assert_eq!(unique(&at("ڕێکلام.srt"), SRT.as_bytes()).unwrap(), at("ڕێکلام.srt"));
 
         // A folder with the name is stepped past rather than refused.
@@ -572,6 +607,7 @@ mod tests {
         let before = listing(&dir);
         assert!(unique(&at("ڕێکلام.mp4"), b"not a film").unwrap_err().contains("is not an MP4 video"));
         assert!(unique(&at("ڕێکلام.exe"), &first).unwrap_err().contains("is not a file the Video panel saves"));
+        assert!(unique(&at("ڕێکلام.gif"), &png()).unwrap_err().contains("is not a GIF image"));
         assert_eq!(listing(&dir), before, "a refusal wrote nothing");
 
         // The header means one thing.
@@ -626,6 +662,7 @@ mod tests {
         for name in [
             ".zshrc", "profile.zsh", "notes.txt", "promo", "promo.mp4.txt", "promo.mov", "promo.m4v", "thesis.docx",
             "mp4", ".mp4", ".png", "run.sh", "Setup.exe", "a.app", "page.html", "img.svg", "sub.vtt", "x.webp", "x.jpg",
+            ".gif", "gif", "loop.gifv", "loop.gif.exe", "x.apng", "x.jpeg",
         ] {
             refused(Some(&encode(&at(name))), &raw, "is not a file the Video panel saves");
         }
@@ -669,6 +706,22 @@ mod tests {
         ] {
             not(name, bytes, "is not a PNG image");
         }
+        for (name, bytes) in [
+            ("empty.gif", b"".as_slice()),
+            ("gif.gif", &png()[..]),
+            ("mp4.gif", &film()[..]),
+            ("short.gif", b"GIF89".as_slice()),
+            ("lower.gif", b"gif89a\x01\x00\x01\x00".as_slice()),
+            ("future.gif", b"GIF90a\x01\x00\x01\x00".as_slice()),
+            ("shifted.gif", b"\x00GIF89a\x01\x00".as_slice()),
+            ("svg.gif", b"<svg xmlns='http://www.w3.org/2000/svg'/>".as_slice()),
+            ("text.gif", b"#!/bin/sh\nGIF89a\n".as_slice()),
+        ] {
+            not(name, bytes, "is not a GIF image");
+        }
+        // And a GIF is not anything else.
+        not("gif.png", &gif(), "is not a PNG image");
+        not("gif.mp4", &gif(), "is not an MP4 video");
         not("latin1.srt", b"1\n00:00:00,000 --> 00:00:01,000\ncaf\xe9\n", "is not UTF-8 text");
         not("binary.srt", &film()[..], "is not UTF-8 text");
         not("nul.srt", b"1\n00:00:00,000 --> 00:00:01,000\nhi\x00\n", "is not plain text");
@@ -692,6 +745,7 @@ mod tests {
         assert_eq!(Kind::Mp4.cap(), 1024 * 1024 * 1024);
         assert_eq!(Kind::Webm.cap(), 1024 * 1024 * 1024);
         assert_eq!(Kind::Png.cap(), 64 * 1024 * 1024);
+        assert_eq!(Kind::Gif.cap(), 64 * 1024 * 1024);
         assert_eq!(Kind::Srt.cap(), 5 * 1024 * 1024);
         assert_eq!(Kind::Json.cap(), 5 * 1024 * 1024);
 
@@ -704,6 +758,16 @@ mod tests {
         assert!(err.contains("larger than"), "{err}");
         let err = write_media(Some(&encode(&at("bigjunk.mp4"))), None, &InvokeBody::Raw(vec![0; 64]), Some(10)).expect_err("too big and not an MP4");
         assert!(err.contains("larger than"), "the size is checked first: {err}");
+        let small = gif();
+        write_media(Some(&encode(&at("cap.gif"))), None, &InvokeBody::Raw(small.clone()), Some(small.len())).expect("a GIF exactly at the ceiling");
+        let err = write_media(Some(&encode(&at("big.gif"))), None, &InvokeBody::Raw(small.clone()), Some(small.len() - 1)).expect_err("a GIF one byte over");
+        assert!(err.contains("larger than"), "{err}");
+        // The real ceiling, with real bytes: one byte over 64 MiB is refused,
+        // and said in the units a person reads.
+        let mut huge = gif();
+        huge.resize(MAX_IMAGE_BYTES + 1, 0);
+        let err = write_media(Some(&encode(&at("huge.gif"))), None, &InvokeBody::Raw(huge), None).unwrap_err();
+        assert!(err.contains("larger than 64 MB"), "{err}");
 
         // The real text ceiling, with real bytes: five mebibytes of subtitles
         // pass, one more byte does not.
@@ -717,7 +781,7 @@ mod tests {
         assert!(err.contains("larger than 5 MB"), "{err}");
 
         let names: BTreeSet<_> = listing(&dir);
-        assert_eq!(names, ["cap.mp4", "long.srt"].iter().map(std::ffi::OsString::from).collect(), "only what passed was written");
+        assert_eq!(names, ["cap.gif", "cap.mp4", "long.srt"].iter().map(std::ffi::OsString::from).collect(), "only what passed was written");
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -730,7 +794,14 @@ mod tests {
         let write = |name: &str, bytes: &[u8]| write_media(Some(&encode(&at(name))), Some(b"1"), &InvokeBody::Raw(bytes.to_vec()), None).unwrap();
 
         // What was written opens, by the path the write returned.
-        for (name, bytes) in [("film.mp4", film()), ("film.webm", webm()), ("poster.png", png()), ("ڤیدیۆ.srt", SRT.as_bytes().to_vec())] {
+        for (name, bytes) in [
+            ("film.mp4", film()),
+            ("film.webm", webm()),
+            ("poster.png", png()),
+            ("loop.gif", gif()),
+            ("old.gif", gif87()),
+            ("ڤیدیۆ.srt", SRT.as_bytes().to_vec()),
+        ] {
             let got = write(name, &bytes);
             assert_eq!(check_openable(&got).unwrap(), dir.join(name), "{name}");
         }
@@ -780,6 +851,9 @@ mod tests {
         refused(&changed, "has changed since it was saved");
         let changed = write("changed.png", &png());
         fs::write(&changed, b"").unwrap();
+        refused(&changed, "has changed since it was saved");
+        let changed = write("changed.gif", &gif());
+        fs::write(&changed, png()).unwrap();
         refused(&changed, "has changed since it was saved");
 
         // A refused write is not remembered.
@@ -832,6 +906,10 @@ mod tests {
         assert_eq!(Kind::of(Path::new("/a/b.MP4")), Some(Kind::Mp4));
         assert_eq!(Kind::of(Path::new("/a/b.WebM")), Some(Kind::Webm));
         assert_eq!(Kind::of(Path::new("/a/b.png")), Some(Kind::Png));
+        assert_eq!(Kind::of(Path::new("/a/b.gif")), Some(Kind::Gif));
+        assert_eq!(Kind::of(Path::new("/a/b.GIF")), Some(Kind::Gif));
+        assert_eq!(Kind::of(Path::new("/a/b.gifv")), None);
+        assert_eq!(Kind::of(Path::new("/a/.gif")), None);
         assert_eq!(Kind::of(Path::new("/a/b.srt")), Some(Kind::Srt));
         assert_eq!(Kind::of(Path::new("/a/b.json")), Some(Kind::Json));
         assert_eq!(Kind::of(Path::new("/a/b.mp4.exe")), None);
