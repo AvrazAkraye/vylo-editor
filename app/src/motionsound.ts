@@ -855,9 +855,18 @@ const clockNow = () => (typeof performance !== 'undefined' && typeof performance
  */
 function nextTask(): Promise<void> {
   return new Promise<void>((resolve) => {
-    const g = globalThis as { setImmediate?: (f: () => void) => unknown; document?: unknown };
+    const g = globalThis as { setImmediate?: (f: () => void) => unknown; document?: { hidden?: boolean } };
     if (typeof g.setImmediate === 'function' && typeof g.document === 'undefined') g.setImmediate(resolve);
-    else setTimeout(resolve, 0);
+    else if (g.document?.hidden === true && typeof MessageChannel !== 'undefined') {
+      // A hidden page draws no frames, so there is nothing to make room for, and WebKit makes a timer there wait about a second:
+      // a message is a task with no such wait.
+      const ch = new MessageChannel();
+      ch.port1.onmessage = () => {
+        ch.port1.close();
+        resolve();
+      };
+      ch.port2.postMessage(0);
+    } else setTimeout(resolve, 0);
   });
 }
 
