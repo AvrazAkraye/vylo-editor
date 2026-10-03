@@ -978,6 +978,8 @@ const custom = (m) => ({ ...graphic(m) });
 // ── the Export tab's first screen ─────────────────────────────────────────
 {
   const out = fileURLToPath(new URL('../.test-build/pro-export-ui/', import.meta.url));
+  // import() takes a file:// URL: a bare 'D:\\...' path is read as the protocol 'd:' on Windows
+  const outUrl = new URL('../.test-build/pro-export-ui/', import.meta.url).href;
   let esbuild = null;
   try { esbuild = await import('esbuild'); } catch { esbuild = null; }
   ok('esbuild is there to build the tab', !!esbuild);
@@ -992,8 +994,8 @@ const custom = (m) => ({ ...graphic(m) });
     globalThis.window ??= globalThis;
     const React = await import('react');
     const { renderToStaticMarkup } = await import('react-dom/server');
-    const { MotionExport } = await import(`${out}MotionExport.js`);
-    const { translator } = await import(`${out}i18n.js`);
+    const { MotionExport } = await import(`${outUrl}MotionExport.js`);
+    const { translator } = await import(`${outUrl}i18n.js`);
     const render = (doc, t = (s) => s, extra = {}) => renderToStaticMarkup(React.createElement(MotionExport, { t, doc, onError: () => {}, ...extra }));
     const count = (html, re) => (html.match(re) ?? []).length;
     const firstScreen = (html) => ({
@@ -1043,7 +1045,7 @@ const custom = (m) => ({ ...graphic(m) });
     }
 
     // ── wave 2: the line saying what the file carries ──
-    const { soundLineOf, makeFile } = await import(`${out}MotionExport.js`);
+    const { soundLineOf, makeFile } = await import(`${outUrl}MotionExport.js`);
     {
       const line = (html) => /class="mo-share-sound">([^<]*)</.exec(html)?.[1] ?? null;
       const music = render(custom({ id: 'g-music', sound: { mode: 'music', mood: 'calm' } }));

@@ -30,6 +30,8 @@ const rust = readFileSync(new URL('../src-tauri/src/video.rs', import.meta.url),
 
 // ── the tab, built ────────────────────────────────────────────────────────
 const out = fileURLToPath(new URL('../.test-build/pro-robust/', import.meta.url));
+// import() takes a file:// URL: a bare 'D:\\...' path is read as the protocol 'd:' on Windows
+const outUrl = new URL('../.test-build/pro-robust/', import.meta.url).href;
 const esbuild = await import('esbuild');
 rmSync(out, { recursive: true, force: true });
 await esbuild.build({
@@ -39,8 +41,8 @@ await esbuild.build({
 const store = new Map();
 globalThis.localStorage ??= { getItem: (k) => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: (k) => store.delete(k) };
 globalThis.window ??= globalThis;
-const { sentence, diskTrouble } = await import(`${out}MotionExport.js`);
-const { translator } = await import(`${out}i18n.js`);
+const { sentence, diskTrouble } = await import(`${outUrl}MotionExport.js`);
+const { translator } = await import(`${outUrl}i18n.js`);
 const en = (s) => s;
 
 const FULL = 'The disk is full. Free some space, or save somewhere else.';
