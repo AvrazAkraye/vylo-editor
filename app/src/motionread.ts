@@ -9,7 +9,10 @@ import {
 import { readSound } from './motionsound';
 import { readScenes } from './motionscene';
 import type { Lang } from './i18n';
-import { parsePath } from './motionmath';
+import {
+  arcPath, arrowPath, blobPath, burstPath, ellipsePath, fitPath, parsePath, pathLength, polygonPath, rectPath, starPath, wavePath,
+  type Seg,
+} from './motionmath';
 
 /**
  * Reading a motion graphic. Whatever arrives — the model's answer, a record
@@ -666,9 +669,26 @@ function textLayer(o: Rec, base: LayerBase): TextLayer {
     if (hiStyle) layer.hiStyle = hiStyle;
   }
   const outline = rec(own(o, 'outline'));
-  if (outline) layer.outline = { color: readPaint(own(outline, 'color'), 'bg'), width: num(own(outline, 'width'), 0, 20, 0.3) };
+  if (outline) layer.outline = { color: readPaint(own(outline, 'color'), 'bg'), width: num(own(outline, 'width'), 0, textOutlineMax(layer.size), 0.3) };
+  if (layer.shadow) layer.shadow = { ...layer.shadow, blur: Math.min(layer.shadow.blur, textShadowMax(layer.size)) };
   return layer;
 }
+
+/**
+ * The widest outline and the softest shadow words may have, in u, for their
+ * type size. Every letter of a text is stroked and blurred on its own, so their
+ * cost is per letter and grows with the width and the blur; past these an
+ * outline has eaten the letters it surrounds and a shadow is a haze nobody can
+ * place, and neither is a design. In the app's WebKit, sixty layers of 500
+ * letters at 3u with a 20u outline and a 100u shadow took 2.2 s a frame at
+ * 1080p and 7.2 s at 4K; held here, 0.33 s and 0.57 s (docs/pro/review-safety.md,
+ * R1-6). Every template, in every shape and language, stays far inside: its
+ * words' shadows use under a fifth of this and their outlines a seventh, and
+ * not one of them builds differently for it. A small floor keeps a label's own.
+ * Exported so the layer panel's fields can offer no more than the reader keeps.
+ */
+export const textOutlineMax = (size: number): number => Math.min(20, Math.max(2, size / 2));
+export const textShadowMax = (size: number): number => Math.min(100, Math.max(4, size * 2));
 
 const PATH = /^[MmLlHhVvCcSsQqTtAaZz0-9eE+\-.,\s]*$/;
 
@@ -703,6 +723,76 @@ function strokeOf(x: unknown): Stroke | undefined {
   return stroke;
 }
 
+/**
+ * The most dashes one stroke may be cut into. A canvas draws every dash of a
+ * pattern, and it costs per dash: in the app's WebKit, a path of four hundred
+ * long segments dashed every 0.05u took 290 ms a frame on its own, and sixty
+ * such layers fifteen seconds to paint their first frame
+ * (docs/pro/review-safety.md, R1-4) — while a pattern only has to be a hair longer than half a pixel for
+ * the drawing code to draw it. A few thousand is far past any dotted or dashed
+ * line a design uses (the template's dotted rule has a few dozen; a 600u
+ * circle dashed every 0.5u, under four thousand), and costs a few hundred
+ * microseconds.
+ */
+export const MAX_DASHES = 4000;
+/** The share of `MAX_DASHES` a pattern that is too fine is widened to: under the ceiling by a margin, so reading it again finds it under and leaves it. */
+const DASH_FIT = 0.98;
+
+/**
+ * About how long a shape's stroke is, in u, at its own size: its outline as
+ * motiondraw.ts's `buildOutline` makes it, from the same motionmath.ts
+ * generators, measured. An upper bound is all that is needed — an arc's radius
+ * is held to 1u where the drawing holds it to a pixel — and `grow` may stretch
+ * it a quarter further, which `MAX_DASHES` leaves room for.
+ */
+function strokeSpan(l: ShapeLayer): number {
+  const W = l.w;
+  const H = l.h;
+  const S = Math.min(W, H);
+  const lineW = l.stroke?.width ?? 0;
+  if (!(W > 0) || (!(H > 0) && l.shape !== 'line')) return 0;
+  let segs: Seg[] | null = null;
+  switch (l.shape) {
+    case 'rect': segs = rectPath(W, H, Math.min(l.radius, S / 2)); break;
+    case 'ellipse': segs = ellipsePath(W, H); break;
+    case 'arc': {
+      const r = Math.max(1, S - lineW);
+      segs = arcPath(r, r, l.from, l.sweep);
+      break;
+    }
+    case 'polygon': segs = polygonPath(l.sides, S, S); break;
+    case 'star': segs = starPath(l.sides, W, H, l.inner); break;
+    case 'line': return W;
+    case 'arrow': segs = arrowPath(W, H); break;
+    case 'burst': segs = burstPath(l.sides, W, H, l.inner); break;
+    case 'wave': segs = wavePath(Math.max(1, W - lineW), Math.max(1, H - lineW), l.sides, l.seed * 0.6180339887); break;
+    case 'blob': segs = blobPath(W, H, l.seed); break;
+    case 'path': {
+      const p = l.d ? parsePath(l.d, LIMITS.path) : null;
+      segs = p && p.length ? fitPath(p, W, H) : null;
+      break;
+    }
+  }
+  const n = segs ? pathLength(segs) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+/**
+ * A stroke's dash held to `MAX_DASHES` along the shape it outlines: a pattern
+ * finer than that is widened, its dash and its gap in proportion, so it reads
+ * as the same rhythm, only coarser — never dropped, so a dotted outline stays
+ * dotted. One that would have to be wider than a dash may be is no dash.
+ */
+function dashFitted(l: ShapeLayer, dash: [number, number]): [number, number] | undefined {
+  const period = dash[0] + dash[1];
+  const span = strokeSpan(l);
+  if (!(period > 0) || span / period <= MAX_DASHES) return dash;
+  const f = span / (period * MAX_DASHES * DASH_FIT);
+  const on = dash[0] * f;
+  const off = dash[1] * f;
+  return Number.isFinite(on) && Number.isFinite(off) && on <= LIMITS.size && off <= LIMITS.size ? [on, off] : undefined;
+}
+
 /** A shape. `fill: null` is kept — an outline with nothing inside is a design — while a fill that is not a paint becomes the accent. */
 function shapeLayer(o: Rec, base: LayerBase): ShapeLayer {
   const fill = own(o, 'fill');
@@ -724,6 +814,11 @@ function shapeLayer(o: Rec, base: LayerBase): ShapeLayer {
   if (stroke) layer.stroke = stroke;
   const d = pathOf(own(o, 'd'));
   if (d) layer.d = d;
+  if (stroke?.dash) {
+    const fitted = dashFitted(layer, stroke.dash);
+    if (fitted) stroke.dash = fitted;
+    else delete stroke.dash;
+  }
   return layer;
 }
 

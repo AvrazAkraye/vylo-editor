@@ -181,17 +181,29 @@ export const FIRST_PREFS: Readonly<SharePrefs> = { kind: 'mp4', size: '1080p', q
 
 /** Remembered choices from storage, whatever was stored: every field checked, anything unknown the default. */
 export function readPrefs(raw: unknown): SharePrefs {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...FIRST_PREFS };
-  const g = raw as Record<string, unknown>;
-  const kind = g.kind ?? g.format;
+  // Only the object's own fields, each read on its own: a field it inherits is not a choice anybody made, and a
+  // getter or a Proxy that throws is a field that is not there — never a tab that cannot open.
+  const field = (k: string): unknown => {
+    try {
+      return Object.prototype.hasOwnProperty.call(raw, k) ? (raw as Record<string, unknown>)[k] : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  try {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...FIRST_PREFS };
+  } catch {
+    return { ...FIRST_PREFS };
+  }
   const pick = <X>(list: readonly X[], v: unknown, d: X): X => (list.includes(v as X) ? (v as X) : d);
+  const blur = field('blur');
   return {
-    kind: pick(SHARE_KINDS, kind, FIRST_PREFS.kind),
-    size: pick(SIZES, g.size, FIRST_PREFS.size),
-    quality: pick(QUALITIES, g.quality, FIRST_PREFS.quality),
-    blur: typeof g.blur === 'boolean' ? g.blur : FIRST_PREFS.blur,
-    gifSide: pick(GIF_SIDES, g.gifSide, FIRST_PREFS.gifSide),
-    gifFps: pick(GIF_RATES, g.gifFps, FIRST_PREFS.gifFps),
+    kind: pick(SHARE_KINDS, field('kind') ?? field('format'), FIRST_PREFS.kind),
+    size: pick(SIZES, field('size'), FIRST_PREFS.size),
+    quality: pick(QUALITIES, field('quality'), FIRST_PREFS.quality),
+    blur: typeof blur === 'boolean' ? blur : FIRST_PREFS.blur,
+    gifSide: pick(GIF_SIDES, field('gifSide'), FIRST_PREFS.gifSide),
+    gifFps: pick(GIF_RATES, field('gifFps'), FIRST_PREFS.gifFps),
   };
 }
 
@@ -267,11 +279,21 @@ const finite = (x: unknown, d: number) => (typeof x === 'number' && Number.isFin
  * destination leaves room for them (`c`, all optional: anything missing is
  * the first choice). Pure; the graphic is only read.
  */
-export function settingsFor(dest: Destination, doc: Motion, c: Partial<ShareChoices> = {}): ShareSettings {
+export function settingsFor(dest: Destination, doc: Motion, given: Partial<ShareChoices> = {}): ShareSettings {
   const d: Destination = isDestination(dest) ? dest : 'custom';
-  const p = readPrefs(c);
+  const p = readPrefs(given);
+  // The choices that last only while the graphic is open, read as the remembered ones are: own fields, or none.
+  const c: Partial<ShareChoices> = {};
+  for (const k of ['transparent', 'frame', 'playhead'] as const) {
+    try {
+      if (given && typeof given === 'object' && Object.prototype.hasOwnProperty.call(given, k)) (c as Record<string, unknown>)[k] = given[k];
+    } catch {
+      /* a choice that cannot be read is no choice */
+    }
+  }
   const kind = kindOf(d, p.kind);
-  const from: Format = doc.format in FORMATS ? doc.format : 'landscape';
+  // `in` would take '__proto__' or 'toString' for a shape, and every size after it would be NaN.
+  const from: Format = Object.prototype.hasOwnProperty.call(FORMATS, doc.format) ? doc.format : 'landscape';
   const format = shapeFor(d, from);
   const reshape = reshapeOf(doc, format);
   const clear = seeThrough(doc.backdrop);
