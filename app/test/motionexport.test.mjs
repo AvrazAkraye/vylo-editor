@@ -16,6 +16,9 @@
 //     painted at exactly i / fps, a transparent graphic drawn over its `bg`
 //     tone without the graphic being changed, motion blur passed through,
 //     progress and Cancel carried both ways, the encoder's error given back;
+//     the encoder told which frames cannot have changed (`changingFrames`);
+//     sound off unless asked for, and when asked, rendered at 48 kHz and
+//     handed to the encoder (the rest of sound is pro-mux-audio.test.mjs's);
 //   - the still: the frame snapped and kept inside the graphic, the alpha
 //     kept only when asked for and there is any, bytes that are not a PNG
 //     refused;
@@ -24,9 +27,10 @@
 //   - and that neither file can make a request or a media element.
 import { readFileSync } from 'node:fs';
 import {
-  FORMAT_TAG, QUALITIES, SIZES, downloadsPath, estimateBytes, fileNameFor, frameAt, openExported, pixelsFor,
+  FORMAT_TAG, QUALITIES, SIZES, changingFrames, downloadsPath, estimateBytes, fileNameFor, frameAt, openExported, pixelsFor,
   renderMp4, renderPng, sizeName, writeMotionFile,
 } from '../.test-build/motionexportops.js';
+import { buildMotion } from '../.test-build/motiontemplates.js';
 import { fileNameFor as videoFileNameFor } from '../.test-build/videoexport.js';
 
 let pass = 0, fail = 0;
@@ -224,6 +228,32 @@ for (const code of ['motion:no-encoder', 'motion:encode-failed: the GPU went awa
   deps.canvas = () => ({ width: 1, height: 1, getContext: () => null, toBlob: () => undefined });
   const e = await rejection(renderMp4(graphic(), { size: '4k', quality: 'high', blur: false }, deps));
   ok('a canvas too large for the window is said so, not a crash', e?.message === 'motion:no-canvas', e?.message);
+}
+
+{
+  // A lower third holds still for most of its length: those frames are not painted again.
+  const { log, deps } = fakes();
+  deps.encodeMp4 = async (e) => {
+    log.encode = e;
+    for (let i = 0; i < e.frames; i++) if (i === 0 || !e.unchanged(i)) await e.draw(i);
+    return MP4.slice();
+  };
+  const m = buildMotion({ id: 'x', recipe: 'lower-third', lang: 'en', format: 'landscape', now: 0 });
+  const bytes = await renderMp4(m, { size: '720p', quality: 'high', blur: false }, deps);
+  const plan = changingFrames(m, { fps: 30, frames: 150 });
+  ok('the encoder is told which frames are the one before them again, and only the others are painted',
+    log.paints.length === plan.filter((x) => x === 1).length && log.paints.length < 110 && log.paints.every((p) => plan[Math.round(p.t * 30)] === 1));
+  ok('an encoder that reports nothing: the film is its bytes, every frame counted as painted', same([...bytes], [...MP4]) && bytes.frames === 150 && bytes.painted === 150);
+  ok('without sound asked for, no sound is rendered or given, and the film says none', log.encode.audio === undefined && bytes.audio === 'none' && !log.order.includes('sound'));
+}
+{
+  const { log, deps } = fakes();
+  const beds = [];
+  deps.soundBed = async (doc, o) => { beds.push({ doc, o }); return { channels: [new Float32Array(48000)], sampleRate: 48000 }; };
+  const m = graphic();
+  await renderMp4(m, { size: '720p', quality: 'high', blur: false, sound: true }, deps);
+  ok('with sound: the graphic\'s sound rendered once, at 48 kHz, and handed to the encoder as its audio',
+    beds.length === 1 && beds[0].doc === m && beds[0].o.sampleRate === 48000 && log.encode.audio?.sampleRate === 48000 && log.order[0] === 'preload');
 }
 
 // ── rendering a still ─────────────────────────────────────────────────────

@@ -1,9 +1,10 @@
 /**
  * The MP4 file a Motion export is saved as, written here byte by byte: one
  * H.264 video track in an ISO base media file (ISO/IEC 14496-12, with the AVC
- * sample entry of 14496-15). No muxing library: the Motion studio's promise is
- * that every step from the document to the file is this repository's own code
- * (docs/MOTION.md).
+ * sample entry of 14496-15), and, when the graphic has sound, one AAC track
+ * beside it (the `mp4a` sample entry of 14496-14). No muxing library: the
+ * Motion studio's promise is that every step from the document to the file is
+ * this repository's own code (docs/MOTION.md).
  *
  * ## The file
  *
@@ -13,6 +14,27 @@
  * that nothing is written until `finish`, when every sample's size is known;
  * the samples wait in memory until then, which for a graphic of at most thirty
  * seconds is tens of megabytes.
+ *
+ * ## Sound
+ *
+ * The sound track is a second `trak` (`addAudioTrack`, then `addAudioSample`
+ * for each AAC access unit in order). Its samples go into `mdat` interleaved
+ * with the pictures in chunks of about a second each — a second of pictures,
+ * then the second of sound that plays with it — so a player reading the file
+ * front to back has both for the same moment in hand at once.
+ *
+ * An AAC encoder starts its output with *priming*: a stretch of decoded sound
+ * that is the encoder's warm-up, not the input (2112 samples from Apple's
+ * encoder, which is what both WebKit and Chrome use on a Mac, measured; 1024
+ * from others), and pads the end to a whole frame. The track's edit list
+ * (`elst`) starts the sound after the priming and plays exactly the input's
+ * length, so the first sample of the sound is heard with the first picture
+ * and the padding is never heard at all; without it every sound would come
+ * 44 ms late (2112 samples at 48 kHz). AVFoundation — QuickTime, Safari,
+ * Photos — reads the list as the priming only when a "roll" sample group
+ * says every frame needs the one before it decoded first, as ffmpeg and
+ * Apple's own writer both say; without the group it trimmed its own 2112
+ * samples on top, and the sound came 44 ms early instead (measured).
  *
  * ## Time
  *
@@ -64,6 +86,31 @@ export interface Mp4Sample {
   key: boolean;
 }
 
+/**
+ * What the sound track needs before its first sample: the
+ * AudioSpecificConfig (ISO/IEC 14496-3, 1.6.2.1) the encoder describes its
+ * stream with — two bytes for AAC-LC, and what a decoder must be given before
+ * it can make a sound — and where the real sound lies in what decodes:
+ * `delaySamples` of priming first, then `totalSamples` of the input. Both are
+ * counted at `sampleRate`, the track's own clock.
+ */
+export interface Mp4AudioConfig {
+  asc: Uint8Array;
+  sampleRate: number;
+  channels: number;
+  delaySamples: number;
+  totalSamples: number;
+}
+
+/**
+ * One AAC access unit as WebCodecs emits it: raw (not ADTS), one frame of
+ * 1024 samples (960 when the config says so). Its time is its place in the
+ * stream; a `timestamp` or `duration` beside it is not read.
+ */
+export interface Mp4AudioSample {
+  data: Uint8Array;
+}
+
 /** Ticks per second on the track's clock: every frame rate Motion offers lands on whole ticks. */
 const TIMESCALE = 90000;
 /** The movie header's clock, in milliseconds: what players show a length in. */
@@ -71,6 +118,7 @@ const MOVIE_TIMESCALE = 1000;
 /** 32-bit box sizes and chunk offsets (`stco`) cannot reach past this. */
 const MAX_BYTES = 0xffffffff;
 const TRACK_ID = 1;
+const AUDIO_TRACK_ID = 2;
 /** `und`, packed as three 5-bit letters: the language of a track with no words. */
 const LANGUAGE_UND = 0x55c4;
 const IDENTITY = [0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000];
@@ -92,13 +140,17 @@ const IDENTITY = [0x00010000, 0, 0, 0, 0x00010000, 0, 0, 0, 0x40000000];
  * but does not play is refused rather than written: an avcC without an SPS
  * and a PPS, a first sample that is not a key frame, a sample that is not
  * length-prefixed NAL units, two samples at the same time, and a time or
- * size that does not fit its 32-bit field.
+ * size that does not fit its 32-bit field. For sound: a config that is not an
+ * AAC AudioSpecificConfig this writer can describe, a second sound track, an
+ * empty sample, and a sound track that ends up with no samples.
  */
 export class Mp4Writer {
   private readonly cfg: Mp4Config;
   /** Bytes in each NAL unit's length prefix, as the avcC says: what every sample must be made of. */
   private readonly nalLength: number;
   private samples: Mp4Sample[] = [];
+  private audio: AudioTrack | null = null;
+  private sounds: Uint8Array[] = [];
   private size = 0;
   private finished = false;
 
@@ -130,7 +182,42 @@ export class Mp4Writer {
     this.size += s.data.byteLength;
   }
 
-  /** The bytes of pictures added so far: the file's size, less a few kilobytes of index. */
+  /**
+   * Gives the file a sound track, once, before `finish`. Throws a TypeError
+   * for an `asc` that is not an AAC AudioSpecificConfig with its channels in
+   * it (AAC Main, LC, SSR or LTP; a channel layout of 1 to 8), and a
+   * RangeError for a rate the sample entry cannot hold (8 to 65.535 kHz), a
+   * channel count that is not the config's, or sample counts that are not
+   * whole and at least 0; nothing is changed when it throws.
+   */
+  addAudioTrack(cfg: Mp4AudioConfig): void {
+    if (this.finished) throw new Error('Mp4Writer: already finished');
+    if (this.audio) throw new Error('Mp4Writer: the file already has a sound track');
+    const asc = cfg?.asc instanceof Uint8Array ? readAsc(cfg.asc) : null;
+    if (!asc) throw new TypeError('Mp4Writer: asc is not an AAC AudioSpecificConfig');
+    const { sampleRate, channels, delaySamples, totalSamples } = cfg;
+    if (!Number.isInteger(sampleRate) || sampleRate < 8000 || sampleRate > 0xffff) throw new RangeError(`Mp4Writer: bad sample rate ${sampleRate}`);
+    // The config is what a decoder obeys; a sample entry that says otherwise
+    // is one some players believe and others do not.
+    if (sampleRate !== asc.sampleRate) throw new RangeError(`Mp4Writer: the sample rate ${sampleRate} is not the config's ${asc.sampleRate}`);
+    if (channels !== asc.channels) throw new RangeError(`Mp4Writer: ${channels} channels is not the config's ${asc.channels}`);
+    if (!Number.isInteger(delaySamples) || delaySamples < 0 || !Number.isInteger(totalSamples) || totalSamples < 0) {
+      throw new RangeError(`Mp4Writer: bad priming or length ${delaySamples}, ${totalSamples}`);
+    }
+    this.audio = { asc: cfg.asc.slice(), sampleRate, channels, delaySamples, totalSamples, frameLength: asc.frameLength };
+  }
+
+  /** Adds the sound track's next AAC access unit. Kept without copying, like a picture. */
+  addAudioSample(s: Mp4AudioSample): void {
+    if (this.finished) throw new Error('Mp4Writer: already finished');
+    if (!this.audio) throw new Error('Mp4Writer: no sound track');
+    if (!(s?.data instanceof Uint8Array) || s.data.byteLength === 0) throw new TypeError('Mp4Writer: a sound sample needs bytes');
+    if (this.size + s.data.byteLength + 8 > MAX_BYTES) throw new Error('motion:too-large');
+    this.sounds.push(s.data);
+    this.size += s.data.byteLength;
+  }
+
+  /** The bytes of pictures and sound added so far: the file's size, less a few kilobytes of index. */
   get bytes(): number {
     return this.size;
   }
@@ -140,25 +227,47 @@ export class Mp4Writer {
     if (this.finished) throw new Error('Mp4Writer: already finished');
     const samples = this.samples;
     if (!samples.length) throw new Error('Mp4Writer: no samples');
+    if (this.audio && !this.sounds.length) throw new Error('Mp4Writer: a sound track with no samples');
     const t = timing(samples, this.cfg.fps);
 
     // About a second of samples per chunk: few enough offsets to keep the
     // index small, and a player reading ahead reads in useful pieces.
     const per = Math.max(1, Math.round(this.cfg.fps));
     const chunks: number[] = [];
-    const within: number[] = [];
-    let at = 0;
+    const sizes: number[] = [];
     for (let i = 0; i < samples.length; i += per) {
       const count = Math.min(per, samples.length - i);
       chunks.push(count);
-      within.push(at);
-      for (let j = i; j < i + count; j++) at += samples[j].data.byteLength;
+      let size = 0;
+      for (let j = i; j < i + count; j++) size += samples[j].data.byteLength;
+      sizes.push(size);
     }
+    const sound = this.audio ? soundChunks(this.audio, this.sounds, per / this.cfg.fps) : null;
+
+    // Where each chunk lies in `mdat`: the pictures' chunk k, then the
+    // sound's chunk for the same second. Without sound, the pictures alone,
+    // in order, exactly as before there was sound.
+    const order: { video: boolean; k: number; at: number }[] = [];
+    let at = 0;
+    let s = 0;
+    for (let k = 0; k < chunks.length || (sound && s < sound.chunks.length); k++) {
+      if (k < chunks.length) {
+        order.push({ video: true, k, at });
+        at += sizes[k];
+      }
+      while (sound && s < sound.chunks.length && sound.slots[s] <= k) {
+        order.push({ video: false, k: s, at });
+        at += sound.sizes[s];
+        s++;
+      }
+    }
+    const within = (video: boolean) => order.filter((c) => c.video === video).map((c) => c.at);
 
     const head = ftyp();
     // The index's size does not depend on the offsets in it (each is 32
     // bits), so it is built once to measure where the pictures will start.
-    const index = (start: number) => moov(this.cfg, t, samples, chunks, within.map((w) => start + w));
+    const index = (start: number) => moov(this.cfg, t, samples, chunks, within(true).map((w) => start + w),
+      this.audio && sound ? { track: this.audio, sizes: this.sounds.map((d) => d.byteLength), chunks: sound.chunks, offsets: within(false).map((w) => start + w) } : null);
     const start = head.byteLength + index(0).byteLength + 8;
     const total = start + this.size;
     if (total > MAX_BYTES) throw new Error('motion:too-large');
@@ -168,15 +277,60 @@ export class Mp4Writer {
     out.set(head, 0);
     out.set(m, head.byteLength);
     out.set(new Fields().u32(this.size + 8).text('mdat').done(), head.byteLength + m.byteLength);
-    let p = start;
-    for (const s of samples) {
-      out.set(s.data, p);
-      p += s.data.byteLength;
+    for (const c of order) {
+      let p = start + c.at;
+      if (c.video) {
+        for (let j = c.k * per; j < c.k * per + chunks[c.k]; j++) {
+          out.set(samples[j].data, p);
+          p += samples[j].data.byteLength;
+        }
+      } else if (sound) {
+        for (let j = sound.first[c.k]; j < sound.first[c.k] + sound.chunks[c.k]; j++) {
+          out.set(this.sounds[j], p);
+          p += this.sounds[j].byteLength;
+        }
+      }
     }
     this.samples = [];
+    this.sounds = [];
     this.finished = true;
     return out;
   }
+}
+
+/** The sound track as the writer keeps it: the config, checked, and how many samples each AAC frame holds. */
+interface AudioTrack extends Mp4AudioConfig {
+  frameLength: number;
+}
+
+/**
+ * The sound's chunks: consecutive AAC frames grouped by the second of film
+ * they play in, so each sits in `mdat` beside that second's pictures.
+ * `slots[c]` is the picture chunk that sound chunk `c` follows; `first[c]`
+ * its first frame; `chunks[c]` how many frames it holds and `sizes[c]` their
+ * bytes.
+ * A frame's moment is where its first sample is heard: its place in the
+ * stream, less the priming the edit list skips (priming is heard at 0).
+ */
+function soundChunks(track: AudioTrack, sounds: readonly Uint8Array[], second: number): { chunks: number[]; sizes: number[]; slots: number[]; first: number[] } {
+  const chunks: number[] = [];
+  const sizes: number[] = [];
+  const slots: number[] = [];
+  const first: number[] = [];
+  sounds.forEach((d, j) => {
+    const seconds = (j * track.frameLength - track.delaySamples) / track.sampleRate;
+    // A hair over, so a frame that starts exactly on a second's boundary is that second's.
+    const slot = Math.max(0, Math.floor(seconds / second + 1e-9));
+    if (!slots.length || slots[slots.length - 1] !== slot) {
+      slots.push(slot);
+      chunks.push(0);
+      sizes.push(0);
+      first.push(j);
+    }
+    chunks[chunks.length - 1]++;
+    sizes[sizes.length - 1] += d.byteLength;
+  });
+  return { chunks, sizes, slots, first };
 }
 
 function isDimension(n: number): boolean {
@@ -351,16 +505,36 @@ function ftyp(): Uint8Array {
   return box('ftyp', new Fields().text('mp42').u32(0).text('isom').text('mp42').text('avc1').done());
 }
 
+/** The sound track's part of the index: its config, every sample's size, its chunks and where they are. */
+interface SoundIndex {
+  track: AudioTrack;
+  sizes: readonly number[];
+  chunks: readonly number[];
+  offsets: readonly number[];
+}
+
+/** Milliseconds of sound the edit list plays: the input's length, rounded up like the film's. */
+function soundMovie(a: AudioTrack, frames: number): number {
+  return Math.ceil((playedSamples(a, frames) * MOVIE_TIMESCALE) / a.sampleRate);
+}
+
+/** Samples of real sound in the track: the input's length, or what the frames hold after the priming if they hold less. */
+function playedSamples(a: AudioTrack, frames: number): number {
+  return Math.max(0, Math.min(a.totalSamples, frames * a.frameLength - a.delaySamples));
+}
+
 function moov(
   cfg: Mp4Config, t: Timing, samples: readonly Mp4Sample[], chunks: readonly number[], offsets: readonly number[],
+  sound: SoundIndex | null = null,
 ): Uint8Array {
   const { width, height } = cfg;
+  const movie = sound ? Math.max(t.movie, soundMovie(sound.track, sound.sizes.length)) : t.movie;
   // Creation and modification times are 0 (1904): the same frames always
   // make the same file, and nothing about when it was made leaks into it.
   const mvhd = fullBox('mvhd', 0, 0, new Fields()
-    .u32(0).u32(0).u32(MOVIE_TIMESCALE).u32(t.movie)
+    .u32(0).u32(0).u32(MOVIE_TIMESCALE).u32(movie)
     .u32(0x00010000).u16(0x0100).zeros(10)
-    .u32s(IDENTITY).zeros(24).u32(TRACK_ID + 1).done());
+    .u32s(IDENTITY).zeros(24).u32((sound ? AUDIO_TRACK_ID : TRACK_ID) + 1).done());
   // Flags 3: the track is enabled and part of the presentation.
   const tkhd = fullBox('tkhd', 0, 3, new Fields()
     .u32(0).u32(0).u32(TRACK_ID).u32(0).u32(t.movie)
@@ -430,7 +604,195 @@ function moov(
   const stco = fullBox('stco', 0, 0, new Fields().u32(offsets.length).u32s(offsets).done());
   const stbl = box('stbl', stsd, stts, stss, ctts, stsc, stsz, stco);
 
-  return box('moov', mvhd, box('trak', tkhd, edts, box('mdia', mdhd, hdlr, box('minf', vmhd, dinf, stbl))));
+  return box('moov', mvhd, box('trak', tkhd, edts, box('mdia', mdhd, hdlr, box('minf', vmhd, dinf, stbl))),
+    sound ? soundTrak(sound) : null);
+}
+
+/**
+ * The sound track's `trak`: track 2, on the sound's own clock (one tick a
+ * sample, so the priming and the length are exact), an `mp4a` sample entry
+ * whose `esds` holds the AudioSpecificConfig, every frame one sample of 1024
+ * ticks, and the edit list that skips the priming and stops before the
+ * padding. Shaped as ffmpeg writes an AAC track, which every player reads.
+ */
+function soundTrak(sound: SoundIndex): Uint8Array {
+  const a = sound.track;
+  const n = sound.sizes.length;
+  const movie = soundMovie(a, n);
+  // Flags 3, enabled and in the movie; alternate group 1, as ffmpeg numbers
+  // a sound track; volume 1.0; no size.
+  const tkhd = fullBox('tkhd', 0, 3, new Fields()
+    .u32(0).u32(0).u32(AUDIO_TRACK_ID).u32(0).u32(movie)
+    .zeros(8).u16(0).u16(1).u16(0x0100).u16(0)
+    .u32s(IDENTITY).u32(0).u32(0).done());
+  // One edit, at rate 1: `movie` ms of the film, from the first sample after the priming.
+  const edts = box('edts', fullBox('elst', 0, 0, new Fields().u32(1).u32(movie).u32(a.delaySamples).u16(1).u16(0).done()));
+  const mdhd = fullBox('mdhd', 0, 0, new Fields()
+    .u32(0).u32(0).u32(a.sampleRate).u32(n * a.frameLength).u16(LANGUAGE_UND).u16(0).done());
+  const hdlr = fullBox('hdlr', 0, 0, new Fields().u32(0).text('soun').zeros(12).text('SoundHandler').u8(0).done());
+  const smhd = fullBox('smhd', 0, 0, new Fields().u16(0).u16(0).done());
+  const dinf = box('dinf', fullBox('dref', 0, 0, new Fields().u32(1).done(), fullBox('url ', 0, 1)));
+
+  const mp4a = box('mp4a',
+    new Fields()
+      .zeros(6).u16(1) // reserved; data_reference_index
+      .zeros(8) // version, revision, vendor: the ISO form, not QuickTime's
+      .u16(a.channels).u16(16) // channel count; sample size
+      .u16(0).u16(0) // pre_defined; reserved
+      .u32(a.sampleRate * 65536) // the rate, 16.16
+      .done(),
+    esds(a, sound.sizes));
+  const stsd = fullBox('stsd', 0, 0, new Fields().u32(1).done(), mp4a);
+  // Every AAC frame decodes to the same number of samples, and every one is a sync sample (no stss).
+  const stts = fullBox('stts', 0, 0, new Fields().u32(1).u32(n).u32(a.frameLength).done());
+  const rows: number[] = [];
+  sound.chunks.forEach((count, i) => {
+    if (i === 0 || count !== sound.chunks[i - 1]) rows.push(i + 1, count, 1);
+  });
+  const stsc = fullBox('stsc', 0, 0, new Fields().u32(rows.length / 3).u32s(rows).done());
+  const stsz = fullBox('stsz', 0, 0, new Fields().u32(0).u32(n).u32s(sound.sizes).done());
+  const stco = fullBox('stco', 0, 0, new Fields().u32(sound.offsets.length).u32s(sound.offsets).done());
+  // Every AAC frame needs the one before it decoded first (its transform
+  // overlaps it): a "roll" group of distance -1 that all the samples belong
+  // to (14496-12, 10.1). AVFoundation will not take the edit list as the
+  // priming without it: it trimmed its own 2112 samples as well, and every
+  // sound came 44 ms early (measured with AVAssetReader on macOS 26.2).
+  // ffmpeg and Apple's own encoder both write it.
+  const sgpd = fullBox('sgpd', 1, 0, new Fields().text('roll').u32(2).u32(1).u16(0xffff).done());
+  const sbgp = fullBox('sbgp', 0, 0, new Fields().text('roll').u32(1).u32(n).u32(1).done());
+  const stbl = box('stbl', stsd, stts, stsc, stsz, stco, sgpd, sbgp);
+  return box('trak', tkhd, edts, box('mdia', mdhd, hdlr, box('minf', smhd, dinf, stbl)));
+}
+
+/**
+ * An MPEG-4 descriptor (14496-1, 8.3.3): its tag, then its length in the
+ * four-byte form (three continuation bytes) that ffmpeg and Apple write.
+ */
+function descriptor(tag: number, ...parts: Uint8Array[]): Uint8Array {
+  let size = 0;
+  for (const p of parts) size += p.byteLength;
+  const f = new Fields().u8(tag).u8(0x80 | ((size >> 21) & 0x7f)).u8(0x80 | ((size >> 14) & 0x7f)).u8(0x80 | ((size >> 7) & 0x7f)).u8(size & 0x7f);
+  for (const p of parts) f.bytes(p);
+  return f.done();
+}
+
+/**
+ * The `esds` box: an ES_Descriptor holding the DecoderConfigDescriptor —
+ * object type 0x40 (MPEG-4 audio), stream type 5 (audio), the largest
+ * sample as the decoder's buffer, the busiest second's bitrate and the
+ * average — whose DecoderSpecificInfo is the AudioSpecificConfig itself, and
+ * the predefined SL config (2) every MP4 file uses.
+ */
+function esds(a: AudioTrack, sizes: readonly number[]): Uint8Array {
+  let largest = 0;
+  let bytes = 0;
+  for (const s of sizes) {
+    largest = Math.max(largest, s);
+    bytes += s;
+  }
+  // The most bits any second of frames holds: a sliding window of a second's frames.
+  const per = Math.max(1, Math.ceil(a.sampleRate / a.frameLength));
+  let busiest = 0;
+  let inWindow = 0;
+  sizes.forEach((s, i) => {
+    inWindow += s;
+    if (i >= per) inWindow -= sizes[i - per];
+    busiest = Math.max(busiest, inWindow);
+  });
+  const seconds = (sizes.length * a.frameLength) / a.sampleRate;
+  const average = Math.min(0xffffffff, Math.round((bytes * 8) / seconds));
+  const config = descriptor(0x04,
+    new Fields().u8(0x40).u8((5 << 2) | 1)
+      .u8((largest >> 16) & 0xff).u16(largest & 0xffff)
+      .u32(Math.min(0xffffffff, busiest * 8)).u32(average).done(),
+    descriptor(0x05, a.asc));
+  const es = descriptor(0x03, new Fields().u16(AUDIO_TRACK_ID).u8(0).done(), config, descriptor(0x06, Uint8Array.of(2)));
+  return fullBox('esds', 0, 0, es);
+}
+
+// ── AAC configs ───────────────────────────────────────────────────────────
+
+/** The sampling rates an AudioSpecificConfig names by index (14496-3, Table 1.18); others are written out in 24 bits. */
+const AAC_RATES = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+/** Channels per channel configuration 1 to 7 (14496-3, Table 1.19); 0 means "in a program config element", which is not read here. */
+const AAC_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 8];
+
+/** What an AudioSpecificConfig says about its stream. */
+export interface AacConfig {
+  /** 1 Main, 2 LC, 3 SSR, 4 LTP: the AAC object types whose frames this file's tables describe. */
+  objectType: number;
+  sampleRate: number;
+  channels: number;
+  /** Samples each frame decodes to: 1024, or 960 with the frame-length flag. */
+  frameLength: number;
+}
+
+/**
+ * An AudioSpecificConfig read (14496-3, 1.6.2.1 and 4.4.1): its object type,
+ * rate and channels, and the frame length its GASpecificConfig gives. Null
+ * for anything else — a config cut short, an object type that is not plain
+ * AAC (HE-AAC's SBR and PS change the frame timing), a reserved rate index,
+ * or channels given only by a program config element.
+ */
+export function readAsc(asc: Uint8Array): AacConfig | null {
+  if (!(asc instanceof Uint8Array) || asc.length < 2) return null;
+  const r = bits(asc);
+  const need = (n: number) => r.left() >= n;
+  if (!need(5)) return null;
+  let objectType = r.u(5);
+  if (objectType === 31) {
+    if (!need(6)) return null;
+    objectType = 32 + r.u(6);
+  }
+  if (objectType < 1 || objectType > 4 || !need(4)) return null;
+  const index = r.u(4);
+  let sampleRate: number;
+  if (index === 15) {
+    if (!need(24)) return null;
+    sampleRate = r.u(24);
+  } else sampleRate = AAC_RATES[index] ?? 0;
+  if (!(sampleRate > 0) || !need(4 + 1)) return null;
+  const channelConfig = r.u(4);
+  const channels = AAC_CHANNELS[channelConfig] ?? 0;
+  if (!channels) return null;
+  const frameLength = r.u(1) ? 960 : 1024;
+  return { objectType, sampleRate, channels, frameLength };
+}
+
+/**
+ * The AudioSpecificConfig of an AAC-LC stream at a rate and channel count:
+ * two bytes when the rate has an index, five when it must be written out.
+ * Null for a channel count no configuration names (7, or more than 8).
+ */
+export function ascFor(sampleRate: number, channels: number): Uint8Array | null {
+  const config = AAC_CHANNELS.indexOf(channels);
+  if (config < 1 || !Number.isInteger(sampleRate) || sampleRate <= 0 || sampleRate >= 1 << 24) return null;
+  const index = AAC_RATES.indexOf(sampleRate);
+  const w = writeBits();
+  w.put(2, 5); // AAC LC
+  if (index >= 0) w.put(index, 4);
+  else w.put(15, 4).put(sampleRate, 24);
+  w.put(config, 4);
+  w.put(0, 3); // GASpecificConfig: 1024-sample frames, no core coder, no extension
+  return w.done();
+}
+
+/** An MSB-first bit writer, padded with zeros to a whole byte. */
+function writeBits(): { put(v: number, n: number): ReturnType<typeof writeBits>; done(): Uint8Array } {
+  const out: number[] = [];
+  let pos = 0;
+  const self = {
+    put(v: number, n: number) {
+      for (let i = n - 1; i >= 0; i--) {
+        if (pos % 8 === 0) out.push(0);
+        if (Math.floor(v / 2 ** i) % 2) out[out.length - 1] |= 0x80 >> (pos % 8);
+        pos++;
+      }
+      return self;
+    },
+    done: () => Uint8Array.from(out),
+  };
+  return self;
 }
 
 // ── Annex B ───────────────────────────────────────────────────────────────
@@ -600,7 +962,7 @@ function unescape(b: Uint8Array): Uint8Array {
 }
 
 /** An MSB-first bit reader that reads zeros past the end rather than throwing: a short SPS gives defaults, not a crash. */
-function bits(b: Uint8Array): { u(n: number): number; ue(): number } {
+function bits(b: Uint8Array): { u(n: number): number; ue(): number; left(): number } {
   let pos = 0;
   const bit = () => {
     const byte = pos >> 3;
@@ -615,6 +977,7 @@ function bits(b: Uint8Array): { u(n: number): number; ue(): number } {
   };
   return {
     u,
+    left: () => b.length * 8 - pos,
     ue: () => {
       let zeros = 0;
       while (bit() === 0) if (++zeros > 31) return 0;

@@ -9,7 +9,10 @@
 // breathe every few frames; samples with an avcC, samples in Annex B and
 // samples out of order (B-frames) all become a correct file; and on every way
 // out — the encoder failing, Cancel, `draw` throwing — the promise rejects
-// with the right thing and the encoder and every frame are closed.
+// with the right thing and the encoder and every frame are closed. A frame
+// the caller says is unchanged is encoded without being drawn; sound that
+// cannot be encoded leaves the film silent, never failed, and says so (the
+// sound itself is tested in pro-mux-audio.test.mjs).
 import {
   avcCodecFor, bitrateFor, canEncode, encodeMp4, evenSize,
 } from '../.test-build/motionencode.js';
@@ -247,6 +250,33 @@ const encoderClosed = (w) => w.encoders.length === 1 && w.encoders[0].state === 
   ok('drawing waits while the encoder holds more than 6 frames', e.maxQueue <= 7 && e.maxQueue >= 6, e.maxQueue);
   ok('progress after every frame, ending at 90 of 90', progress.length === 90 && same(progress[89], [90, 90]) && progress.every(([d], i) => d === i + 1));
   ok('the encoder and every frame are closed', encoderClosed(w) && e.closeCalls === 1 && allClosed(w));
+  ok('the bytes report no sound and every frame painted, without the report being in the bytes',
+    file.audio === 'none' && file.painted === 90 && file.frames === 90 && Object.keys(file).length === file.length);
+}
+{
+  // Frames the caller says are the frame before them again: not drawn, still encoded, each at its own time.
+  const w = install({ delay: 1 });
+  const drawn = [];
+  const asked = [];
+  const c = canvas();
+  const file = await encodeMp4({
+    canvas: c, width: 1280, height: 720, fps: 30, frames: 90, draw: (i) => { drawn.push(i); },
+    unchanged: (i) => { asked.push(i); return i % 30 > 9; },
+  });
+  const f = mp4(file);
+  ok('an unchanged frame is not drawn: 10 of every 30 are', drawn.length === 30 && drawn.every((i) => i % 30 <= 9) && file.painted === 30);
+  ok('but every frame is made from the canvas and encoded at its own time: 90 samples, steady',
+    w.frames.length === 90 && w.frames.every((fr, i) => fr.source === c && fr.timestamp === Math.round((i * 1e6) / 30)) && f.samples === 90 && same(f.stts, [[90, 3000]]));
+  ok('key frames stay every two seconds', same(f.stss, [1, 61]));
+  ok('the first frame is never asked about; every other once, in order', same(asked, Array.from({ length: 89 }, (_, i) => i + 1)));
+  ok('closed as ever', encoderClosed(w) && allClosed(w));
+}
+{
+  // This fake world has no AudioEncoder: a film with sound is still a film.
+  const w = install();
+  const bed = { channels: [new Float32Array(48000), new Float32Array(48000)], sampleRate: 48000 };
+  const file = await encodeMp4({ canvas: canvas(), width: 1280, height: 720, fps: 30, frames: 30, draw: () => {}, audio: bed });
+  ok('sound that this window cannot encode: the film is made without it, and says dropped', file.audio === 'dropped' && mp4(file).samples === 30 && encoderClosed(w));
 }
 {
   // The window must get a turn at least every eight frames, even when the
@@ -418,7 +448,8 @@ uninstall();
   const code = readFileSync(new URL('../src/motionencode.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('motionencode.ts makes no media element and touches no DOM beyond its canvas',
     !/createElement|HTMLMediaElement|HTMLVideoElement|HTMLAudioElement|\bAudio\(|document\.|window\./.test(code));
-  ok('and imports only the MP4 writer', same([...code.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]), ['./motionmp4', './motionmp4']));
+  ok('and imports only this repository\'s own: the MP4 writer, the AAC encoder, the sound bed\'s type',
+    same([...code.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]), ['./motionmp4', './motionmp4', './motionaudioenc', './motionaudioenc', './motionsound']));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
