@@ -11,7 +11,7 @@
  * Licensed under the Apache License, Version 2.0; a copy is at
  * http://www.apache.org/licenses/LICENSE-2.0
  */
-import { clamp, finiteOr, sampleRateOr } from './audiocore';
+import { clamp, finiteOr, listOf, own, rec, sampleRateOr } from './audiocore';
 
 /**
  * Automation: a value that moves over time (a track's volume, the music
@@ -166,11 +166,15 @@ export function rangeOf(target: string, resolve?: RangeResolver): AutoRange | un
 }
 
 // ── reading ───────────────────────────────────────────────────────────────
-
-/** A plain object, or null. */
-function record(x: unknown): Record<string, unknown> | null {
-  return typeof x === 'object' && x !== null && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
-}
+//
+// The readers take what a stored project, a model or a hand edit hands them,
+// so they read the way motionread.ts does (docs/pro/review-safety.md), with
+// audiocore's `rec`, `own` and `listOf`: only an object's own fields, each
+// read once inside a try, so an inherited name, a throwing getter, a Proxy
+// whose traps throw or a revoked one is a field that is not there, never an
+// exception; lists one index at a time up to a ceiling, so a sparse list four
+// billion long costs what is looked at; and every number through `|| 0` after
+// its clamp, so -0 is never kept.
 
 /** A number that is really there: a missing, null or empty value is not 0. */
 function numberOrNull(x: unknown): number | null {
@@ -178,39 +182,35 @@ function numberOrNull(x: unknown): number | null {
   return n === n ? n : null;
 }
 
+/** `x` held to `lo`..`hi`, and never -0. */
+const held = (x: number, lo: number, hi: number): number => clamp(x, lo, hi) || 0;
+
 /** One point, cleaned, or null when its time or value is not a number. */
 function readPoint(x: unknown, range: AutoRange): AutoPoint | null {
-  const r = record(x);
+  const r = rec(x);
   if (!r) return null;
-  const t = numberOrNull(r.t);
-  const v = numberOrNull(r.v);
+  const t = numberOrNull(own(r, 't'));
+  const v = numberOrNull(own(r, 'v'));
   if (t === null || v === null) return null;
-  const p: AutoPoint = { t: clamp(t, 0, MAX_SECONDS), v: clamp(v, range.min, range.max) };
-  const curve = (CURVES as readonly unknown[]).includes(r.curve) ? (r.curve as Curve) : 'linear';
+  const p: AutoPoint = { t: held(t, 0, MAX_SECONDS), v: held(v, range.min, range.max) };
+  const word = own(r, 'curve');
+  const curve = (CURVES as readonly unknown[]).includes(word) ? (word as Curve) : 'linear';
   if (curve !== 'linear') p.curve = curve;
   if (curve === 'bezier') {
-    const vx = numberOrNull(r.viaX);
-    const vy = numberOrNull(r.viaY);
+    const vx = numberOrNull(own(r, 'viaX'));
+    const vy = numberOrNull(own(r, 'viaY'));
     // Kept or dropped together: half a via point says nothing.
     if (vx !== null && vy !== null) {
-      p.viaX = clamp(vx, 0.001, 0.999);
-      p.viaY = clamp(vy, 0.001, 0.999);
+      p.viaX = held(vx, 0.001, 0.999);
+      p.viaY = held(vy, 0.001, 0.999);
     }
   }
   return p;
 }
 
-/**
- * One lane, as clean as `readAutomation` makes them, or undefined when the
- * target is not one. `range` overrides the target's own (see `rangeOf`).
- */
-export function readLane(x: unknown, range?: AutoRange): Lane | undefined {
-  const r = record(x);
-  if (!r || typeof r.target !== 'string') return undefined;
-  const span = range ?? rangeOf(r.target);
-  if (!span || !parseTarget(r.target)) return undefined;
-  const raw = Array.isArray(r.points) ? r.points.slice(0, MAX_POINTS * 4) : [];
-  const clean = raw
+/** A lane's points as `readLane` keeps them: sorted, one per time (the later wins), at most `MAX_POINTS`. */
+function readPoints(x: unknown, span: AutoRange): AutoPoint[] {
+  const clean = (listOf(x, MAX_POINTS * 4) ?? [])
     .map((p) => readPoint(p, span))
     .filter((p): p is AutoPoint => p !== null)
     .map((p, i) => ({ p, i }))
@@ -222,30 +222,52 @@ export function readLane(x: unknown, range?: AutoRange): Lane | undefined {
     if (points.length && points[points.length - 1].t === p.t) points[points.length - 1] = p;
     else points.push(p);
   }
-  return { target: r.target, points: points.slice(0, MAX_POINTS) };
+  return points.slice(0, MAX_POINTS);
+}
+
+/**
+ * One lane, as clean as `readAutomation` makes them, or undefined when the
+ * target is not one. `range` overrides the target's own (see `rangeOf`).
+ * Never throws.
+ */
+export function readLane(x: unknown, range?: AutoRange): Lane | undefined {
+  try {
+    const r = rec(x);
+    const target = own(r, 'target');
+    if (!r || typeof target !== 'string') return undefined;
+    const span = range ?? rangeOf(target);
+    if (!span || !parseTarget(target)) return undefined;
+    return { target, points: readPoints(own(r, 'points'), span) };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
  * A whole automation set from anything. Never throws: what cannot be read is
  * left out. Lanes with no points are dropped; two lanes on one target keep
- * the later; at most 32. With `resolve` (audiofx's `fxRangeResolver(chain)`),
- * an effect lane is clamped to its knob's range and a lane on an effect or
- * knob the chain does not have is dropped, so it cannot quietly reattach to
- * an effect that later takes the same id.
+ * the later; at most 32 (of the first 128 entries looked at). With `resolve`
+ * (audiofx's `fxRangeResolver(chain)`), an effect lane is clamped to its
+ * knob's range and a lane on an effect or knob the chain does not have is
+ * dropped, so it cannot quietly reattach to an effect that later takes the
+ * same id.
  */
 export function readAutomation(x: unknown, resolve?: RangeResolver): Automation {
-  const r = record(x);
-  const raw = r && Array.isArray(r.lanes) ? r.lanes.slice(0, MAX_LANES * 4) : [];
   const byTarget = new Map<string, Lane>();
-  for (const item of raw) {
-    const target = record(item)?.target;
-    if (typeof target !== 'string') continue;
-    const range = rangeOf(target, resolve);
-    if (!range) continue;
-    const lane = readLane(item, range);
-    if (!lane || !lane.points.length) continue;
-    byTarget.delete(lane.target);
-    byTarget.set(lane.target, lane);
+  try {
+    for (const item of listOf(own(rec(x), 'lanes'), MAX_LANES * 4) ?? []) {
+      const r = rec(item);
+      const target = own(r, 'target');
+      if (!r || typeof target !== 'string') continue;
+      const range = rangeOf(target, resolve);
+      if (!range) continue;
+      const lane = readLane(r, range);
+      if (!lane || !lane.points.length) continue;
+      byTarget.delete(lane.target);
+      byTarget.set(lane.target, lane);
+    }
+  } catch {
+    // Only `resolve` is left to throw, and it is the caller's: what was read before it stands.
   }
   return { version: AUTOMATION_VERSION, lanes: [...byTarget.values()].slice(-MAX_LANES) };
 }

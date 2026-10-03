@@ -25,7 +25,9 @@ JavaScript, the music by `videosynth.ts`, which plays its score in an
 `OfflineAudioContext`), the gallery's search runs over the templates in memory,
 the brand kit's logo is kept as data, and the check is arithmetic on the
 document. No Motion source file calls `fetch`, `XMLHttpRequest`, a socket or a
-beacon, and `test/pro-export.test.mjs` reads every one of them to keep it so.
+beacon, and `test/pro-export.test.mjs` reads every one of them to keep it so,
+and `test/pro-review-safety.test.mjs` reads everything they import, and runs the
+studio with the network trapped.
 
 ## The one rule
 
@@ -70,8 +72,12 @@ in a text layer; type (a chart's labels too) up to 200u, two frame-heights, and 
 shape, picture or icon up to 600u; scale up to 4; an offset up to 400u from its pin; 300 particles a layer
 and 1,200 a document (earlier layers keep theirs, later ones are cut to what is
 left), none wider than 50u; 30 seconds; 12 scenes, none shorter than 0.5
-seconds, and a transition between them of 0.15 to 1.5 seconds. So the cost of a
-frame has a ceiling whoever wrote the document.
+seconds, and a transition between them of 0.15 to 1.5 seconds. A dashed outline
+is cut into at most 4,000 dashes (`MAX_DASHES`): a finer pattern is widened, dash
+and gap in proportion. Words' outlines are at most half their type size and
+their shadows' blur twice it (2u and 4u at the least, 20u and 100u at the most;
+`textOutlineMax`, `textShadowMax`). So the cost of a frame has a ceiling whoever
+wrote the document.
 
 **No figure the model made up.** A number the graphic draws as a figure — a big
 number, the values of a chart or a counter, three stats, and any digits in the
@@ -214,7 +220,9 @@ transition is its exit.
 Music or Both. Effects are made from the animation itself — a whoosh for a slide,
 a pop for a pop, ticks while a counter rolls, an impact when a big title lands —
 thinned to a level, panned to where the layer is, mirrored in a right-to-left
-language. Music is composed for the graphic in a mood (the template's, unless
+language. Nothing is heard while a scene holds still for the transition after it:
+the exits the transition takes over are silent too, from the same lookups the
+picture's hold is made from (`sceneList`, `sceneHold`). Music is composed for the graphic in a mood (the template's, unless
 another is chosen), its accents on the scene changes and the big landings, and
 ducked under the loudest effects. The mix is brought to a loudness (-16 LUFS at
 the default level) under a true-peak ceiling. The preview plays it with the

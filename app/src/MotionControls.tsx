@@ -124,6 +124,25 @@ export function parseNum(s: string): number | null {
 const snap = (v: number, q: number) => (q > 0 ? Math.round(v / q) * q : v);
 const within = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+/**
+ * The value a number box sends for the shown value `v`: held in `min`..`max`
+ * (shown units), divided by `scale`, and rounded to the places it is kept at
+ * (`digits`, two more for a scaled value). When that rounding steps past an
+ * edge — a ceiling that is not a round number, such as an outline's
+ * `textOutlineMax` of 2.6665u for 5.333u words, is 2.67u at two places — it is
+ * the nearest value at those places inside the edge instead, so what is sent
+ * is never more than the field offers, and the reader has nothing to take back.
+ */
+export function storedOf(v: number, min: number, max: number, scale: number, digits: number): number {
+  const places = digits + (scale === 1 ? 0 : 2);
+  const f = 10 ** places;
+  const stored = Number((within(v, min, max) / scale).toFixed(places));
+  // A hair of slack, so an edge that is a whole number of places (7 shown as 0.07 x 100) stays itself through the float.
+  if (stored * scale > max) return Math.floor((max / scale) * f + 1e-9) / f;
+  if (stored * scale < min) return Math.ceil((min / scale) * f - 1e-9) / f;
+  return stored;
+}
+
 export interface NumberProps {
   /** What the value is: the row's label, or a bare box's accessible name. */
   label: string;
@@ -166,9 +185,10 @@ function useNumber(p: NumberProps) {
   /** Send a shown value, held in range; returns what was sent, as shown. */
   const commit = (v: number): number => {
     const held = within(v, min, max);
-    const stored = Number((held / scale).toFixed(digits + (scale === 1 ? 0 : 2)));
+    const stored = storedOf(held, min, max, scale, digits);
     if (stored !== p.value) p.onChange(stored);
-    return held;
+    // Rounding stepped back inside an edge (see storedOf): show what was sent, not what was typed.
+    return pretty(stored * scale) === pretty(held) ? held : stored * scale;
   };
 
   const drag = useRef<{ id: number; x: number; v: number; moved: boolean } | null>(null);
