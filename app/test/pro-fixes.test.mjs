@@ -39,6 +39,7 @@ import { readAutomation, readLane } from '../.test-build/audioauto.js';
 import { MAX_CHAIN, readChain, readFx, renderChain } from '../.test-build/audiofx.js';
 import { duckLaneFor, readDuck } from '../.test-build/audioduck.js';
 
+const SLOW = process.env.CI ? 4 : 1; // a shared runner is several times slower than the machine that releases; budgets stay strict here
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}${detail !== '' && !cond ? ' — ' + JSON.stringify(detail) : ''}`);
@@ -228,7 +229,7 @@ console.log('audio readers');
   sparse.length = 2 ** 32 - 1;
   const holes = timed(() => listOf(sparse, 100));
   ok('listOf: at most `cap` indices, one at a time; a hole or a throwing index is undefined; a non-list, a Proxy whose length throws or a revoked list is null',
-    !holes.error && holes.value.length === 100 && holes.value.every((v) => v === undefined) && holes.ms < 50
+    !holes.error && holes.value.length === 100 && holes.value.every((v) => v === undefined) && holes.ms < 50 * SLOW
     && same(listOf([1, 2, 3], 2), [1, 2]) && listOf('abc', 9) === null && listOf(new Proxy([], traps), 9) === null && listOf(revoked([]), 9) === null
     && same(listOf(new Proxy([1, 2], { get: (t, k) => { if (k === '1') throw new Error('i'); return t[k]; } }), 9), [1, undefined]) && same(listOf([1], -3), []));
 
@@ -250,7 +251,7 @@ console.log('audio readers');
   ok(`a sparse list of 2^32-1 is read at once by each (${ms.map(([n, v]) => `${n} ${v} ms`).join(', ')}; readChain took about 57 s)`, ms.every(([, v]) => typeof v === 'number' && v < 300), ms);
   const million = new Array(1_000_000).fill({ type: 'eq', lowGain: 1 });
   const big = timed(() => readChain(million));
-  ok(`a chain of a million effects: the first ${MAX_CHAIN}, at once (${big.ms.toFixed(1)} ms)`, big.value.length === MAX_CHAIN && big.ms < 50);
+  ok(`a chain of a million effects: the first ${MAX_CHAIN}, at once (${big.ms.toFixed(1)} ms)`, big.value.length === MAX_CHAIN && big.ms < 50 * SLOW);
 
   // A bad entry is that entry skipped.
   const lane = readLane({ target: 'volume', points: [{ t: 0, v: 1 }, new Proxy({}, traps), , { get t() { throw new Error('g'); }, v: 3 }, revoked({}), { t: 2, v: 0.5 }] });

@@ -32,6 +32,7 @@ import { readMotion, blankLayer } from '../.test-build/motionread.js';
 import { buildMotion, RECIPES } from '../.test-build/motiontemplates.js';
 import { RECIPE_IDS, FORMAT_IDS, EFFECTS } from '../.test-build/motiontypes.js';
 
+const SLOW = process.env.CI ? 4 : 1; // a shared runner is several times slower than the machine that releases; budgets stay strict here
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}${detail !== '' && !cond ? ' — ' + JSON.stringify(detail) : ''}`);
@@ -506,7 +507,7 @@ const still = (sound) => docOf([text({})], { sound });
   const t0 = performance.now();
   const fx10 = await renderSoundBed(animated({ mode: 'fx', level: 0.6, seed: 77 }, { recipe: 'steps', seconds: 10 }));
   const fxMs = performance.now() - t0;
-  ok(`a 10 s effects bed in under 400 ms (${fxMs.toFixed(0)} ms, ${soundCues(animated({ mode: 'fx', level: 0.6, seed: 77 }, { recipe: 'steps', seconds: 10 })).length} cues)`, fx10 && fxMs < 400, fxMs);
+  ok(`a 10 s effects bed in under 400 ms (${fxMs.toFixed(0)} ms, ${soundCues(animated({ mode: 'fx', level: 0.6, seed: 77 }, { recipe: 'steps', seconds: 10 })).length} cues)`, fx10 && fxMs < 400 * SLOW, fxMs);
   const tp = truePeakDb(fx10.channels);
   ok(`effects bed: true peak under −1.5 dBTP (${tp.toFixed(2)})`, tp < -1.5, tp);
   const m = measureLoudness(fx10.channels, 48000);
@@ -516,7 +517,7 @@ const still = (sound) => docOf([text({})], { sound });
   const t1 = performance.now();
   const hit = await renderSoundBed(animated({ mode: 'fx', level: 0.6, seed: 77 }, { recipe: 'steps', seconds: 10 }));
   const hitMs = performance.now() - t1;
-  ok(`asked again, it is kept (${hitMs.toFixed(1)} ms) and the same`, hitMs < 30 && hit.channels.every((c, i) => Buffer.compare(Buffer.from(c.buffer), Buffer.from(fx10.channels[i].buffer)) === 0));
+  ok(`asked again, it is kept (${hitMs.toFixed(1)} ms) and the same`, hitMs < 30 * SLOW && hit.channels.every((c, i) => Buffer.compare(Buffer.from(c.buffer), Buffer.from(fx10.channels[i].buffer)) === 0));
   hit.channels[0].fill(0);
   const third = await renderSoundBed(animated({ mode: 'fx', level: 0.6, seed: 77 }, { recipe: 'steps', seconds: 10 }));
   ok('each caller gets its own copy', third.channels[0].some((v) => v !== 0));

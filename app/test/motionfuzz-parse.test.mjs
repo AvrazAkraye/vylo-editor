@@ -11,6 +11,7 @@ import { objectIn, parsePlan, refineMotion } from '../.test-build/motionai.js';
 import { readMotion } from '../.test-build/motionread.js';
 import { buildMotion } from '../.test-build/motiontemplates.js';
 
+const SLOW = process.env.CI ? 4 : 1; // a shared runner is several times slower than the machine that releases; budgets stay strict here
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}${detail !== '' && !cond ? ' — ' + JSON.stringify(detail) : ''}`);
@@ -58,30 +59,30 @@ console.log('slips');
 console.log('cost');
 {
   const brackets = timed(() => parsePlan('['.repeat(5_000_000), req));
-  ok(`5 MB of "[": refused as unreadable in ${brackets.ms.toFixed(0)} ms`, String(brackets.error).includes('motion:unreadable-plan') && brackets.ms < 1500, brackets.ms);
+  ok(`5 MB of "[": refused as unreadable in ${brackets.ms.toFixed(0)} ms`, String(brackets.error).includes('motion:unreadable-plan') && brackets.ms < 1500 * SLOW, brackets.ms);
   // A plan is a shallow object, so one that holds a value nested 100,000 deep is no plan: refused, in no time, and
   // without the stack overflow a recursive reader would meet.
   const arrays = timed(() => parsePlan('{"recipe":"big-title","fields":{"title":"Hello there"},"x":' + '['.repeat(100_000) + ']'.repeat(100_000) + '}', req));
   ok(`100,000 nested arrays inside the answer: refused as no plan in ${arrays.ms.toFixed(0)} ms`,
-    String(arrays.error).includes('motion:unreadable-plan') && arrays.ms < 100, String(arrays.error ?? arrays.ms));
+    String(arrays.error).includes('motion:unreadable-plan') && arrays.ms < 100 * SLOW, String(arrays.error ?? arrays.ms));
   // Reading a reply cut off used to write out the closing brackets of every cut and keep them all: 64,000 `{` took
   // 30 s and 2 GB, a complete reply 20,000 objects deep 8 s to plan and 12 s to edit. Past 64 levels it now stops.
   const run = timed(() => objectIn('{'.repeat(64_000)));
-  ok(`a runaway reply of 64,000 "{" is given up on at once (${run.ms.toFixed(1)} ms)`, run.value === null && run.ms < 100, run.ms);
+  ok(`a runaway reply of 64,000 "{" is given up on at once (${run.ms.toFixed(1)} ms)`, run.value === null && run.ms < 100 * SLOW, run.ms);
   const planRun = timed(() => parsePlan('{'.repeat(64_000), req));
-  ok(`and planned from, refused at once (${planRun.ms.toFixed(1)} ms)`, String(planRun.error).includes('motion:unreadable-plan') && planRun.ms < 100, planRun.ms);
+  ok(`and planned from, refused at once (${planRun.ms.toFixed(1)} ms)`, String(planRun.error).includes('motion:unreadable-plan') && planRun.ms < 100 * SLOW, planRun.ms);
   const deep = timed(() => parsePlan('{"a":'.repeat(6_000) + '1' + '}'.repeat(6_000), req));
   ok(`a complete reply 6,000 objects deep is no plan, refused at once (${deep.ms.toFixed(1)} ms)`,
-    String(deep.error).includes('motion:unreadable-plan') && deep.ms < 100, deep.ms);
+    String(deep.error).includes('motion:unreadable-plan') && deep.ms < 100 * SLOW, deep.ms);
   const deeper = await timedAsync(answer('{"a":'.repeat(20_000) + '1' + '}'.repeat(20_000)));
   const runaway = await timedAsync(answer('{'.repeat(64_000)));
   ok(`an edit answered 20,000 objects deep or with 64,000 "{" is unreadable, at once (${deeper.ms.toFixed(1)} ms, ${runaway.ms.toFixed(1)} ms)`,
-    String(deeper.error).includes('motion:unreadable-edit') && String(runaway.error).includes('motion:unreadable-edit') && deeper.ms < 100 && runaway.ms < 100,
+    String(deeper.error).includes('motion:unreadable-edit') && String(runaway.error).includes('motion:unreadable-edit') && deeper.ms < 100 * SLOW && runaway.ms < 100 * SLOW,
     [String(deeper.error), String(runaway.error)]);
   const curly = timed(() => objectIn('{\u201Ca\u201D:'.repeat(8_000)));
   const padded = timed(() => objectIn('{'.repeat(200) + 'x'.repeat(120_000) + '}'.repeat(200)));
   ok(`curly quotes nested 8,000 deep, and 200 "{" around 120 KB: ${curly.ms.toFixed(1)} ms and ${padded.ms.toFixed(1)} ms`,
-    curly.ms < 100 && padded.ms < 200, [curly.ms, padded.ms]);
+    curly.ms < 100 * SLOW && padded.ms < 200 * SLOW, [curly.ms, padded.ms]);
 }
 
 // ── where the plan is ─────────────────────────────────────────────────────

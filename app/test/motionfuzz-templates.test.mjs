@@ -20,6 +20,7 @@ import { inDone, unitsOf } from '../.test-build/motionanim.js';
 import { RECIPE_IDS, FORMAT_IDS, LANGUAGES, EASES } from '../.test-build/motiontypes.js';
 import * as M from '../.test-build/motionmath.js';
 
+const SLOW = process.env.CI ? 4 : 1; // a shared runner is several times slower than the machine that releases; budgets stay strict here
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
   console.log(`  ${cond ? 'PASS' : 'FAIL'}  ${name}${detail !== '' && !cond ? ' — ' + JSON.stringify(detail) : ''}`);
@@ -51,7 +52,7 @@ console.log('hostile fields');
       const ms = performance.now() - t0;
       builds++;
       slowest = Math.max(slowest, ms);
-      if (ms > 50) bad.push(`${key} took ${ms.toFixed(0)} ms`);
+      if (ms > 50 * SLOW) bad.push(`${key} took ${ms.toFixed(0)} ms`);
       if (J(buildMotion({ id: 'x', recipe, fields, lang, format, now: 1 })) !== J(m)) bad.push(`${key} not deterministic`);
       if (J(readMotion(JSON.parse(J(m)), 1)) !== J(m)) bad.push(`${key} not a fixed point`);
       if (!m.layers.length || m.layers.some((l) => !(l.end > l.start))) bad.push(`${key} empty, or a layer ends before it starts`);

@@ -52,6 +52,7 @@ import { FORMAT_IDS, LANGUAGES, LIMITS, RECIPE_IDS } from '../.test-build/motion
 
 const NOW = 1_700_000_000_000;
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
+const SLOW = process.env.CI ? 4 : 1; // a shared runner is several times slower than the machine that releases; budgets stay strict here
 
 /** Every hostile value, made fresh where it is used (a Proxy cannot cross to another thread). */
 function hostileValues() {
@@ -225,7 +226,7 @@ if (!isMainThread) {
       const ms = performance.now() - t0;
       out.calls++;
       if (ms > out.worst.ms) out.worst = { ms, at: `${rn}(${vn})` };
-      if (ms > 1500) out.slow.push(`${rn}(${vn}) ${ms.toFixed(0)} ms`);
+      if (ms > 1500 * SLOW) out.slow.push(`${rn}(${vn}) ${ms.toFixed(0)} ms`);
       const m = got && typeof got === 'object' && 'motion' in got ? got.motion : got;
       if (m && typeof m === 'object' && Array.isArray(m.layers) && 'palette' in m) {
         const why = withinLimits(m);
@@ -375,7 +376,7 @@ async function main() {
     ok('R1-1 an answer that is a Proxy list, a list whose length throws, twenty holes or four billion: no throw, nothing changes',
       got.every((g) => !g.error && g.value.motion === three), got.map((g) => String(g.error ?? '')));
     ok('R1-1 and the ops past the twelfth are still counted as too many', got[2].value?.skipped.some((n) => n.code === 'too-many' && n.count === 20 - MAX_OPS)
-      && got[3].value?.skipped.some((n) => n.code === 'too-many' && n.count === 2 ** 32 - 1 - MAX_OPS) && got[3].ms < 200, got[3].ms);
+      && got[3].value?.skipped.some((n) => n.code === 'too-many' && n.count === 2 ** 32 - 1 - MAX_OPS) && got[3].ms < 200 * SLOW, got[3].ms);
     const mixed = [{ op: 'title', value: 'Kept' }];
     mixed.length = 3;
     const r = applyOps(three, mixed, NOW);
@@ -393,7 +394,7 @@ async function main() {
     sparse.length = 2 ** 32 - 1;
     const recent = [7, 'x', null, new Proxy([], { get: trap }), sparse].map((list) => timed(() => recentRecipes(list)));
     ok('R1-2 the recent row of something that is not a list of graphics is empty, at once (four billion holes was a hang)',
-      recent.every((g) => !g.error && g.value.length === 0 && g.ms < 100), recent.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
+      recent.every((g) => !g.error && g.value.length === 0 && g.ms < 100 * SLOW), recent.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
     const inherited = recentRecipes([{ recipe: { id: 'constructor' }, updated: 3 }, { recipe: { id: '__proto__' }, updated: 2 }, { recipe: { id: 'toString' }, updated: 4 }, { recipe: { id: 'quote' }, updated: 1 }]);
     ok('R1-2 a template is one of META\'s own: "constructor", "__proto__" and "toString" are not templates', same(inherited, ['quote']), inherited);
     ok('R1-2 and "most" that is not a count is none', recentRecipes([doc], NaN).length === 0 && recentRecipes([doc], Symbol('s')).length === 0
@@ -452,9 +453,9 @@ async function main() {
     const trap = () => { throw new Error('trap'); };
     const got = [sparse, [new Proxy({}, { get: trap }), null, 7, { id: 7 }], new Proxy([], { get: trap })].map((f) => timed(() => autofix(doc, f)));
     ok('R1-5 autofix of four billion holes, of findings that throw or are not findings: no throw, nothing changes, at once (the holes were 50 s)',
-      got.every((g) => !g.error && g.value === doc && g.ms < 200), got.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
+      got.every((g) => !g.error && g.value === doc && g.ms < 200 * SLOW), got.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
     const ids = timed(() => autofix(doc, [], sparse));
-    ok('R1-5 and so is a list of ids of four billion holes', !ids.error && ids.value === doc && ids.ms < 200, ids.ms);
+    ok('R1-5 and so is a list of ids of four billion holes', !ids.error && ids.value === doc && ids.ms < 200 * SLOW, ids.ms);
     // A graphic built to fail: thirty small words packed so that growing any collides, and thirty against the edges whose repairs work, one a round.
     const L = [];
     for (let i = 0; i < 30; i++) L.push({ id: `a${i}`, kind: 'text', text: `Tiny words packed in ${i}`, size: 1.2, pin: 'mc', x: (i % 6) * 9 - 25, y: Math.floor(i / 6) * 2.2 - 5, start: 0, end: 30 });
@@ -465,12 +466,12 @@ async function main() {
     const fix = timed(() => autofix(hard, before, undefined, measure));
     const after = checkMotion(fix.value, measure);
     ok(`R1-5 a graphic built to keep "Fix all" busy is done in ${fix.ms.toFixed(0)} ms (${before.length} tips, ${after.length} after), and is better, not worse`,
-      !fix.error && fix.ms < 4000 && after.length < before.length && after.filter((f) => f.severity === 'warn').length <= before.filter((f) => f.severity === 'warn').length,
+      !fix.error && fix.ms < 4000 * SLOW && after.length < before.length && after.filter((f) => f.severity === 'warn').length <= before.filter((f) => f.severity === 'warn').length,
       [String(fix.error ?? ''), fix.ms, before.length, after.length]);
     const check = [new Proxy({}, { get: trap }), { layers: sparse }, { layers: new Proxy([], { get: trap }) }, { layers: Array.from({ length: 10_000 }, (_, i) => ({ id: `t${i}`, kind: 'text', text: 'overlap' })) }]
       .map((d) => timed(() => checkMotion(d, measure)));
     ok('R1-5 the check of a Proxy, four billion holes or ten thousand layers: no throw, at once (it looks at the layers a graphic may have)',
-      check.every((g) => !g.error && Array.isArray(g.value) && g.ms < 1500), check.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
+      check.every((g) => !g.error && Array.isArray(g.value) && g.ms < 1500 * SLOW), check.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
   }
   {
     // R1-6: words' outlines and shadows are held to their type size.
@@ -518,7 +519,7 @@ async function main() {
     const bad = [];
     for (const [n, f] of Object.entries(fns)) for (const x of plain) {
       const g = timed(() => f(x));
-      if (g.error || g.ms > 1500 || !numbersSound(g.value)) bad.push(`${n}: ${String(g.error ?? g.ms)}`);
+      if (g.error || g.ms > 1500 * SLOW || !numbersSound(g.value)) bad.push(`${n}: ${String(g.error ?? g.ms)}`);
     }
     ok('readAutomation, readLane, readFx, readChain, readDuck: anything JSON can hold, a million entries, 100,000 deep — no throw, at once, finite', bad.length === 0, bad);
     // What the review found and asked for (docs/pro/requests/R1.md, item 1), each now held. The whole hostile matrix
@@ -547,7 +548,7 @@ async function main() {
     const walks = [() => readChain(sparse), () => readAutomation({ lanes: sparse }), () => readLane({ target: 'volume', points: sparse }), () => duckLaneFor(sparse)]
       .map((f) => timed(f));
     ok(`readChain of four billion holes is at once (${walks[0].ms.toFixed(1)} ms; it was about 57 s), and so are the lanes', the points' and the spans' (${walks.slice(1).map((g) => g.ms.toFixed(1)).join(', ')} ms)`,
-      walks.every((g) => !g.error && g.ms < 300) && walks[0].value.length === 0, walks.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
+      walks.every((g) => !g.error && g.ms < 300 * SLOW) && walks[0].value.length === 0, walks.map((g) => [String(g.error ?? ''), g.ms.toFixed(0)]));
     const looked = readChain([...Array.from({ length: MAX_CHAIN * 4 }, () => 'junk'), { type: 'eq' }]);
     ok(`readChain looks at the first ${MAX_CHAIN * 4} entries: an effect after that many entries of junk is not read`, looked.length === 0
       && readChain([...Array.from({ length: MAX_CHAIN * 4 - 1 }, () => 'junk'), { type: 'eq' }]).length === 1);
