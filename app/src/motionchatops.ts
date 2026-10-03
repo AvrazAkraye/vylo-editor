@@ -30,6 +30,9 @@
  * and the model is told to reach for them only for what fields cannot say. An
  * answer's ops on the template are applied before its hand edits, whatever
  * order it wrote them in (`inOrder`), so "faster, and a new title" gets both.
+ * A template that owns a span (scenes added after it, `RecipeRef.until`) is
+ * the exception the buttons make too: an edit to a layer of the person's in
+ * those scenes leaves the template's part alone and keeps it (`byHand`).
  *
  * ## No figure the person did not give
  *
@@ -91,7 +94,7 @@ import { META, PALETTES, type Field, type PaletteId, type PaletteInfo, type Reci
 import { blankLayer, readLayer, readMotion, readPalette } from './motionread';
 import { buildMotion, lookOf, sampleFields } from './motiontemplates';
 import { itemOf, numberOf, type Item } from './motionrecipes-data';
-import { addLayer, detach, removeLayer, setFields, setFormat, setLang, setPalette, setSeconds, setTitle } from './motionedit';
+import { addLayer, byHand, detach, onTemplatePart, removeLayer, setFields, setFormat, setLang, setPalette, setSeconds, setTitle } from './motionedit';
 import { raceSeries } from './motioncharts';
 import {
   NEW_SCENE, addScene, canAddScene, canSplitAt, moveScene, readScenes, removeScene, renameScene, sceneList, sceneName, setTransition, splitSceneAt,
@@ -1336,7 +1339,10 @@ function wordsReady(m: Motion, read: readonly ReadOp[], lang: Lang): boolean {
     const f = meta?.fields.find((x) => x.key === k);
     return !f || (f.kind !== 'number' && f.kind !== 'choice');
   });
-  return readsAs(lang, wordy.map(([, v]) => v).join('\n'));
+  // A template that owns a span shows the person's own text layers after it too (motionedit.ts "A template owns a span").
+  const until = m.recipe.until;
+  const own = until === undefined ? [] : m.layers.filter((l) => l.kind === 'text' && l.start >= until - 1e-6).map((l) => texts.get(l.id) ?? '');
+  return readsAs(lang, [...wordy.map(([, v]) => v), ...own].join('\n'));
 }
 
 /**
@@ -1346,8 +1352,21 @@ function wordsReady(m: Motion, read: readonly ReadOp[], lang: Lang): boolean {
  * its scenes too, since the layout is the same; another template is another
  * layout, whose time the old cuts would split at random, so it starts as one
  * scene.
+ *
+ * The same template, when it owns a span (`RecipeRef.until`: scenes were
+ * added after it), is built again for its own part only and the scenes after
+ * it are kept as they are, layers and all, as the person's new words are
+ * (motionedit.ts `onTemplatePart`). Another template starts again over the
+ * whole graphic, as it always did.
  */
 function rebuilt(d: Motion, recipe: RecipeId, fields: Record<string, string>, now: number): Motion {
+  return d.recipe?.id === recipe && d.recipe.until !== undefined
+    ? onTemplatePart(d, (part) => rebuiltWhole(part, recipe, fields, now))
+    : rebuiltWhole(d, recipe, fields, now);
+}
+
+/** `rebuilt` over the whole graphic: what it always was. */
+function rebuiltWhole(d: Motion, recipe: RecipeId, fields: Record<string, string>, now: number): Motion {
   const same = d.recipe?.id === recipe;
   const fresh = buildMotion({
     id: d.id, recipe, fields, lang: d.lang, format: d.format, palette: d.palette, seconds: d.seconds, now: d.created, request: d.request, ai: true,
@@ -1513,10 +1532,11 @@ const STEPS: Readonly<Record<OpName, Step>> = {
     next = s.layer === next ? next : readLayer(s.layer, { seconds: d.seconds }) ?? next;
     if (same(next, target)) return d;
     run.note({ code: 'layer', id: target.id, name: next.name || target.name });
-    // setLayer's rule — read again, the template link dropped, stamped — with
+    // setLayer's rule — read again, the template link dropped unless the layer
+    // is the person's own after a template's span (`byHand`), stamped — with
     // the layer already read: handing it to setLayer would merge it over the
     // old one, and an entrance the op removed ("in": null) would come back.
-    return { ...detach(withLayer(d, next)), updated: run.now };
+    return { ...byHand(d, withLayer(d, next)), updated: run.now };
   },
 
   add(d, o, run) {
@@ -1794,13 +1814,15 @@ const STEPS: Readonly<Record<OpName, Step>> = {
     return next;
   },
 
-  // The kit is the caller's, never the op's: whatever else the op holds is not read.
+  // The kit is the caller's, never the op's: whatever else the op holds is not read. A template that owns a span is
+  // re-skinned in its own part, and the scenes after it keep their layers (motionedit.ts `onTemplatePart`).
   'brand.apply'(d, _o, run) {
     if (!run.brand) {
       run.skip({ code: 'no-brand' });
       return d;
     }
-    const next = applyBrand(d, run.brand, run.now);
+    const kit = run.brand;
+    const next = d.recipe ? onTemplatePart(d, (part) => applyBrand(part, kit, run.now)) : applyBrand(d, kit, run.now);
     if (next === d) return d;
     run.note({ code: 'brand', name: run.brand.name });
     return next;

@@ -1106,10 +1106,29 @@ export function readFields(x: unknown): Record<string, string> {
   return out;
 }
 
-function recipeOf(x: unknown): RecipeRef | undefined {
+/**
+ * Where a template's part of a graphic `seconds` long ends (`RecipeRef.until`),
+ * or undefined for the whole graphic. A number (or a plain decimal string),
+ * kept to the millisecond as scene cuts are, at least `LIMITS.minSeconds` (no
+ * template is built shorter); one that reaches the graphic's end, or is not a
+ * number at all, is the whole graphic — which is what every graphic stored
+ * before there was a span means, so they read exactly as they did.
+ */
+function untilOf(x: unknown, seconds: number): number | undefined {
+  const n = maybe(x);
+  if (n === null) return undefined;
+  const at = Math.max(LIMITS.minSeconds, Math.round(n * 1000) / 1000) || 0;
+  return at < seconds - 1e-6 ? at : undefined;
+}
+
+function recipeOf(x: unknown, seconds: number): RecipeRef | undefined {
   const o = rec(x);
   const id = o ? pick(own(o, 'id'), RECIPE_IDS) : undefined;
-  return o && id ? { id, fields: readFields(own(o, 'fields')) } : undefined;
+  if (!o || !id) return undefined;
+  const ref: RecipeRef = { id, fields: readFields(own(o, 'fields')) };
+  const until = untilOf(own(o, 'until'), seconds);
+  if (until !== undefined) ref.until = until;
+  return ref;
 }
 
 /**
@@ -1192,7 +1211,7 @@ export function readMotion(x: unknown, now: number = Date.now()): Motion | null 
       created,
       updated: timeOf(own(o, 'updated'), created),
     };
-    const recipe = recipeOf(own(o, 'recipe'));
+    const recipe = recipeOf(own(o, 'recipe'), seconds);
     if (recipe) m.recipe = recipe;
     if (own(o, 'ai') === true) m.ai = true;
     const sound = readSound(own(o, 'sound'));

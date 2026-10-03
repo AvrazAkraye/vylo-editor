@@ -1,5 +1,5 @@
 import type { Lang } from './i18n';
-import type { Fps, Format, Layer, LayerKind, Motion, Paint, Palette } from './motiontypes';
+import type { Fps, Format, Layer, LayerKind, Motion, Paint, Palette, RecipeRef } from './motiontypes';
 import { FPS_CHOICES, LIMITS } from './motiontypes';
 import { blankLayer, fitParticles, newLayerId, readLayer, readPalette, readTitle } from './motionread';
 import { buildMotion, lookOf } from './motiontemplates';
@@ -67,10 +67,46 @@ import { readScenes, sceneList, sceneSpan } from './motionscene';
  * added while looking at the third scene belongs to the third scene. `addLayer`
  * takes the playhead as `at`; `placeAdded` does the same for a change that
  * added a layer without knowing where the playhead was.
+ *
+ * ## A template owns a span (pro pass, F1)
+ *
+ * "+ Scene" at the end of a template graphic used to end the template: the
+ * scene moves time, and a rebuild laid the template over the whole graphic,
+ * so the next word typed would have spread the title across the new scene.
+ * Now the template owns the time it was made for and the scenes added after
+ * it are the person's: `RecipeRef.until` says where its part ends (absent is
+ * the whole graphic, every graphic stored before this, read exactly as
+ * before). motionscene.ts `addScene` sets it when a scene is added at or
+ * after the template's end; one added inside the template's time still ends
+ * the template.
+ *
+ * - **A rebuild** (new words, shape or language; the chat's; a brand applied
+ *   through `onTemplatePart`) builds the template for `until` seconds and puts
+ *   it back in place of the template's part: the layers that start before
+ *   `until`. The person's layers — those starting at `until` or later — stay
+ *   exactly where they are in time, and in the stack just above the template
+ *   layer they were above. A template layer that ran on past `until` (the
+ *   background "+ Scene" carried through the new scene) runs on as far again.
+ *   The graphic keeps its length, scenes, sound and brand look.
+ * - **The length** (`setSeconds`): longer, or shorter but still past `until`,
+ *   is the person's part growing or shrinking as a graphic edited by hand
+ *   does, and the template's part is not touched. A length that cuts into the
+ *   template's time ends the span: with nothing of the person's after it the
+ *   template is built again for the new length as a whole; with layers of the
+ *   person's there, there is no honest rebuild, and the link is dropped.
+ * - **A change by hand** (`setLayer`, `addLayer`, `removeLayer`,
+ *   `duplicateLayer`, `moveLayer`; `byHand`) keeps the link when it leaves
+ *   the template's part exactly as it was — a text added to the new scene, a
+ *   layer of the person's moved, retimed within their scenes or removed — and
+ *   drops it, as always, when it touches a template layer or brings a layer
+ *   into the template's time.
  */
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 const stamp = (m: Motion, now: number): Motion => ({ ...m, updated: now });
+/** A hair: two times this close are the same moment (motionscene.ts uses the same). */
+const EPS = 1e-6;
+const J = (x: unknown): string => JSON.stringify(x);
 
 /**
  * The scenes `m` keeps once it is `seconds` long and its layers are `layers`:
@@ -103,21 +139,132 @@ export function detach(m: Motion): Motion {
   return next;
 }
 
+/** A layer of the person's in a graphic whose template's part ends at `until`: one that starts there or later. */
+const ownLayer = (l: Layer, until: number): boolean => l.start >= until - EPS;
+
+/** The link without its span: the template as a whole graphic's. Keys in the reader's order. */
+const wholeRef = (r: RecipeRef): RecipeRef => ({ id: r.id, fields: r.fields });
+
+/**
+ * The template's part of a graphic whose template owns a span, as a graphic
+ * of its own: `until` seconds long, the layers that start before `until` (one
+ * that ran on past it cut back to it, as the template built it), the link
+ * without the span, and no scenes or sound. What `onTemplatePart` hands an
+ * edit that builds the template again.
+ */
+function partOf(m: Motion, r: RecipeRef, until: number): Motion {
+  const layers = m.layers
+    .filter((l) => !ownLayer(l, until))
+    .map((l) => (l.end > until + EPS ? readLayer({ ...l, end: until }, { seconds: until }) ?? l : l));
+  const part: Motion = { ...m, seconds: until, layers, recipe: wholeRef(r) };
+  delete part.scenes;
+  delete part.sound;
+  return part;
+}
+
+/**
+ * `done` — the template's part after an edit built it again — put back into
+ * `m` in place of the part it was made from (the header's "A template owns a
+ * span"): the template's new layers, each that ran on past `until` before
+ * running on as far again; the person's layers where they were in time, and
+ * in the stack just above the template layer that was below them (at the
+ * bottom when none was), or the very object `m` when that would pass
+ * `LIMITS.layers`. The length, the span, the scenes and the sound are `m`'s;
+ * everything else the template decides (words, shape, language, palette) is
+ * `done`'s. The particles' budget is spent in order, as the reader spends it.
+ */
+function rejoin(m: Motion, until: number, done: Motion): Motion {
+  const r = done.recipe;
+  if (!r) return m;
+  const made = new Set(done.layers.map((l) => l.id));
+  const before = new Map(m.layers.map((l) => [l.id, l]));
+  const bottom: Layer[] = [];
+  const above = new Map<string, Layer[]>();
+  let under: string | null = null;
+  for (const l of m.layers) {
+    // A layer with an id the template makes is the template's, wherever it is: it is never kept twice.
+    if (made.has(l.id)) under = l.id;
+    else if (ownLayer(l, until)) {
+      if (under === null) bottom.push(l);
+      else above.set(under, [...(above.get(under) ?? []), l]);
+    }
+  }
+  const layers: Layer[] = [];
+  const put = (l: Layer) => layers.push(fitParticles(l, layers));
+  bottom.forEach(put);
+  for (const f of done.layers) {
+    const was = before.get(f.id);
+    const runsOn = was && was.end > until + EPS && f.end >= until - EPS;
+    put(runsOn ? readLayer({ ...f, end: was.end }, { seconds: m.seconds }) ?? f : f);
+    (above.get(f.id) ?? []).forEach(put);
+  }
+  if (layers.length > LIMITS.layers) return m;
+  const next: Motion = { ...done, seconds: m.seconds, layers, recipe: { ...r, until } };
+  if (m.sound) next.sound = m.sound;
+  else delete next.sound;
+  return withScenes(next, scenesFor(m, layers, m.seconds));
+}
+
+/**
+ * Apply `edit` — a change that builds the template again: new words, a new
+ * shape or language, a brand kit (motionbrand.ts `applyBrand`) — to the
+ * template's part of a graphic, and put the result back. A graphic whose
+ * template owns the whole of it (no `until`) is simply handed to `edit`, so
+ * it changes exactly as it always did. Otherwise `edit` sees the template's
+ * part as a graphic of its own (`partOf`) and what it returns is put back
+ * (`rejoin`): the person's scenes and layers, the length, the scenes and the
+ * sound stay. `m` itself when the edit changed nothing, or did not give back
+ * the same template for the same time.
+ */
+export function onTemplatePart(m: Motion, edit: (part: Motion) => Motion): Motion {
+  const r = m.recipe;
+  const until = r?.until;
+  if (!r || until === undefined) return edit(m);
+  const part = partOf(m, r, until);
+  const done = edit(part);
+  if (done === part || done.recipe?.id !== r.id || Math.abs(done.seconds - until) > EPS) return m;
+  return rejoin(m, until, done);
+}
+
+/**
+ * The template link after a change made by hand from `before` to `after`
+ * (the header's "A template owns a span"): dropped, as it always was, unless
+ * the template owns a span and the change left its part exactly as it was —
+ * the same layers starting before `until`, unchanged and in the same order,
+ * and the same length. Then the change was to the person's scenes, which a
+ * rebuild keeps.
+ */
+export function byHand(before: Motion, after: Motion): Motion {
+  const until = before.recipe?.until;
+  if (until === undefined || !after.recipe || after.recipe !== before.recipe || after.seconds !== before.seconds) return detach(after);
+  const was = before.layers.filter((l) => !ownLayer(l, until));
+  const now = after.layers.filter((l) => !ownLayer(l, until));
+  const kept = was.length === now.length && was.every((l, i) => l === now[i] || J(l) === J(now[i]));
+  return kept ? after : detach(after);
+}
+
 /**
  * Build a template graphic again with some of its settings changed, keeping
  * what the person chose: the title, rate, frame and dates as before, and its
- * sound, scenes and brand look (the header's "What a rebuild keeps").
+ * sound, scenes and brand look (the header's "What a rebuild keeps"). A
+ * template that owns a span is built again for that span only
+ * (`onTemplatePart`); the length is never changed that way (`setSeconds`).
  */
 function rebuild(m: Motion, patch: { fields?: Record<string, string>; lang?: Lang; format?: Format; seconds?: number }, now: number): Motion {
-  const r = m.recipe;
-  if (!r) return m;
-  const fresh = buildMotion({
-    id: m.id, recipe: r.id, fields: patch.fields ?? r.fields, lang: patch.lang ?? m.lang, format: patch.format ?? m.format,
-    palette: m.palette, seconds: patch.seconds ?? m.seconds, now: m.created, request: m.request, ai: m.ai, look: lookOf(m),
+  if (!m.recipe) return m;
+  return onTemplatePart(m, (part) => {
+    const r = part.recipe;
+    if (!r) return part;
+    const fresh = buildMotion({
+      id: part.id, recipe: r.id, fields: patch.fields ?? r.fields, lang: patch.lang ?? part.lang, format: patch.format ?? part.format,
+      palette: part.palette, seconds: patch.seconds ?? part.seconds, now: part.created, request: part.request, ai: part.ai, look: lookOf(part),
+    });
+    const next: Motion = {
+      ...fresh, title: part.title, fps: part.fps, backdrop: part.backdrop, stage: part.stage, error: part.error, created: part.created, updated: now,
+    };
+    if (part.sound) next.sound = part.sound;
+    return withScenes(next, scenesFor(part, fresh.layers, fresh.seconds));
   });
-  const next: Motion = { ...fresh, title: m.title, fps: m.fps, backdrop: m.backdrop, stage: m.stage, error: m.error, created: m.created, updated: now };
-  if (m.sound) next.sound = m.sound;
-  return withScenes(next, scenesFor(m, fresh.layers, fresh.seconds));
 }
 
 export function setTitle(m: Motion, title: string, now = Date.now()): Motion {
@@ -160,18 +307,32 @@ export function setFps(m: Motion, fps: Fps, now = Date.now()): Motion {
  * are only brought inside it. Either way its scenes follow the rule in the
  * header: the last one stretches or shrinks, the others keep their place, and
  * one with no room left goes.
+ *
+ * A template that owns a span (`RecipeRef.until`) keeps it while the new
+ * length is past it: the person's scenes change as a graphic edited by hand
+ * does, and the template's part is left as it is. A length that cuts into the
+ * template's time builds the template again for it as a whole, when nothing
+ * after the span is the person's; when something is, there is no honest
+ * rebuild, and the link is dropped.
  */
 export function setSeconds(m: Motion, seconds: number, now = Date.now()): Motion {
   const s = clamp(Math.round((Number.isFinite(seconds) ? seconds : m.seconds) * 10) / 10, LIMITS.minSeconds, LIMITS.seconds);
   if (s === m.seconds) return m;
-  if (m.recipe) return rebuild(m, { seconds: s }, now);
-  const layers = m.layers.map((l): Layer => {
+  const r = m.recipe;
+  const until = r?.until;
+  let doc = m;
+  if (r && until === undefined) return rebuild(m, { seconds: s }, now);
+  if (r && until !== undefined && s <= until + EPS) {
+    if (!m.layers.some((l) => ownLayer(l, until))) return rebuild({ ...m, recipe: wholeRef(r) }, { seconds: s }, now);
+    doc = detach(m);
+  }
+  const layers = doc.layers.map((l): Layer => {
     const toEnd = l.end >= m.seconds - 1e-6;
     const end = toEnd ? s : Math.min(l.end, s);
     const start = Math.min(l.start, Math.max(0, end - 0.05));
     return readLayer({ ...l, start, end }, { seconds: s }) ?? l;
   });
-  return withScenes(stamp({ ...m, seconds: s, layers }, now), scenesFor(m, layers, s));
+  return withScenes(stamp({ ...doc, seconds: s, layers }, now), scenesFor(doc, layers, s));
 }
 
 export function setPalette(m: Motion, colors: Palette, now = Date.now()): Motion {
@@ -182,7 +343,12 @@ export function setBackdrop(m: Motion, paint: Paint | null, now = Date.now()): M
   return stamp({ ...m, backdrop: paint }, now);
 }
 
-/** Change fields of one layer. Read again, so nothing out of range survives; the graphic stops being a template's. */
+/**
+ * Change fields of one layer. Read again, so nothing out of range survives;
+ * the graphic stops being a template's, unless the layer is the person's own
+ * in a template that owns a span and stays out of the template's time
+ * (`byHand`).
+ */
 export function setLayer(m: Motion, id: string, patch: Partial<Layer>, now = Date.now()): Motion {
   const at = m.layers.findIndex((l) => l.id === id);
   if (at < 0) return m;
@@ -197,7 +363,7 @@ export function setLayer(m: Motion, id: string, patch: Partial<Layer>, now = Dat
   if (JSON.stringify(next) === JSON.stringify(m.layers[at])) return m;
   const layers = m.layers.slice();
   layers[at] = next;
-  return stamp(detach({ ...m, layers }), now);
+  return stamp(byHand(m, { ...m, layers }), now);
 }
 
 /**
@@ -247,7 +413,7 @@ export function addLayer(m: Motion, kind: LayerKind, patch: Partial<Layer> = {},
   const read = readLayer({ ...blankLayer(kind, wanted), ...wanted, kind, id }, { seconds: m.seconds }) ?? blankLayer(kind, { id });
   const made = fitParticles(read, m.layers);
   const layers = kind === 'backdrop' ? [made, ...m.layers] : [...m.layers, made];
-  return { motion: stamp(detach({ ...m, layers }), now), id };
+  return { motion: stamp(byHand(m, { ...m, layers }), now), id };
 }
 
 /** A layer as `duplicateLayer` copies it, with what a copy changes left out: so a copy and its original compare equal. */
@@ -266,6 +432,12 @@ function asCopy(l: Layer): string {
  * id and a small offset), which keeps its original's time; a layer given a
  * time of its own; and every graphic without scenes, which is returned as it
  * is — the very object.
+ *
+ * A template that owns a span: the layer `addLayer` made ran the whole
+ * graphic, through the template's time, and so cost the graphic its template.
+ * When the change did nothing else, and the layer now runs through one of the
+ * person's scenes, the link comes back (`byHand` on the change as placed): the
+ * layer never was in the template's time.
  */
 export function placeAdded(before: Motion, after: Motion, at: number): Motion {
   if (after === before || !Number.isFinite(at) || !sceneList(after).length) return after;
@@ -283,12 +455,16 @@ export function placeAdded(before: Motion, after: Motion, at: number): Motion {
     moved = true;
     return read;
   });
-  return moved ? { ...after, layers } : after;
+  if (!moved) return after;
+  const placed = { ...after, layers };
+  if (before.recipe?.until === undefined || after.recipe || J({ ...after, layers: [], updated: 0 }) !== J({ ...detach(before), layers: [], updated: 0 })) return placed;
+  const relinked = byHand(before, { ...before, layers, updated: after.updated });
+  return relinked.recipe ? relinked : placed;
 }
 
 export function removeLayer(m: Motion, id: string, now = Date.now()): Motion {
   if (!m.layers.some((l) => l.id === id)) return m;
-  return stamp(detach({ ...m, layers: m.layers.filter((l) => l.id !== id) }), now);
+  return stamp(byHand(m, { ...m, layers: m.layers.filter((l) => l.id !== id) }), now);
 }
 
 /** A copy of a layer, a little to one side so it is seen to be a copy, directly above the original. */
@@ -302,7 +478,7 @@ export function duplicateLayer(m: Motion, id: string, now = Date.now(), wanted?:
   const copy = fitParticles(read, m.layers);
   const layers = m.layers.slice();
   layers.splice(at + 1, 0, copy);
-  return { motion: stamp(detach({ ...m, layers }), now), id: copyId };
+  return { motion: stamp(byHand(m, { ...m, layers }), now), id: copyId };
 }
 
 /** Move a layer to a place in the stack (0 is the back). */
@@ -314,5 +490,5 @@ export function moveLayer(m: Motion, id: string, to: number, now = Date.now()): 
   const layers = m.layers.slice();
   const [moved] = layers.splice(from, 1);
   layers.splice(target, 0, moved);
-  return stamp(detach({ ...m, layers }), now);
+  return stamp(byHand(m, { ...m, layers }), now);
 }

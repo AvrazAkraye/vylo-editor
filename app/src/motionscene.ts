@@ -488,9 +488,14 @@ export function primaryTransition(m: Motion): Transition {
 //
 // Pure, like motionedit.ts's: each returns a new graphic (the same one when
 // nothing changed, so a no-op costs no undo step) stamped `updated: now`, which
-// `readMotion` reads back unchanged. Edits that move layers in time drop the
-// template link (`recipe`), as editing a layer by hand does; edits that only
-// mark cuts, name scenes or choose transitions keep it.
+// `readMotion` reads back unchanged. Edits that only mark cuts, name scenes or
+// choose transitions keep the template link (`recipe`). Edits that move layers
+// in time keep it only when they leave the template's own time alone — "+
+// Scene" at or after the end of the template's part, which then owns that
+// span (`RecipeRef.until`, motionedit.ts "A template owns a span"); a scene
+// moved among the scenes after it — and drop it otherwise, as editing a
+// template's layer by hand does: a rebuild would lay the template over the
+// time the edit moved.
 
 const stamp = (m: Motion, now: number): Motion => ({ ...m, updated: now });
 
@@ -508,6 +513,17 @@ function detach(m: Motion): Motion {
   const next = { ...m };
   delete next.recipe;
   return next;
+}
+
+/** Where the template's part of a template graphic ends — `recipe.until`, else its end — or undefined without a template. */
+function templateEnd(m: Motion): number | undefined {
+  if (!m.recipe) return undefined;
+  return m.recipe.until ?? secondsOf(m.seconds);
+}
+
+/** The template link owning the time up to `until` (to the millisecond, as the reader keeps it); the rest is the person's. */
+function spanned(m: Motion, until: number): Motion {
+  return m.recipe ? { ...m, recipe: { ...m.recipe, until: ms(until) } } : m;
 }
 
 const draftOf = (s: SceneSpec): Draft => ({ id: s.id, name: s.name, start: s.start, transition: s.transition });
@@ -561,6 +577,11 @@ function retime(l: Layer, start: number, end: number, seconds: number): Layer {
  *
  * It arrives with `primaryTransition`. Unchanged when there are already
  * `LIMITS.scenes` scenes or less than `LIMITS.sceneMin` of room.
+ *
+ * A template graphic stays one when the cut is at or after the end of the
+ * template's part (the whole graphic, or `recipe.until`): nothing of the
+ * template moves, the template now owns the time up to that end, and the new
+ * scene is the person's. A cut inside the template's time ends the template.
  */
 export function addScene(m: Motion, at: number, now = Date.now()): Motion {
   if (!canAddScene(m)) return m;
@@ -583,7 +604,9 @@ export function addScene(m: Motion, at: number, now = Date.now()): Motion {
   });
   const scenes = tidy(drafts, seconds);
   if (!scenes || scenes.length !== list.length + 1) return m;
-  return stamp(detach(withScenes({ ...m, seconds, layers }, scenes)), now);
+  const end = templateEnd(m);
+  const next = withScenes({ ...m, seconds, layers }, scenes);
+  return stamp(end !== undefined && cut >= end - EPS ? spanned(next, end) : detach(next), now);
 }
 
 /**
@@ -629,6 +652,10 @@ export function removeScene(m: Motion, id: string, now = Date.now()): Motion {
  * the film's, not a scene's, and stays where it is in time. The scene that
  * ends up first arrives from nothing, so it loses its transition; the one that
  * was first arrives by a cut until one is chosen.
+ *
+ * The template link is kept only when the template owns a span
+ * (`recipe.until`) and every scene that starts inside it stays where it was:
+ * the move was among the person's scenes, and no layer of the template moved.
  */
 export function moveScene(m: Motion, id: string, to: number, now = Date.now()): Motion {
   const list = scenesIn(m);
@@ -653,7 +680,10 @@ export function moveScene(m: Motion, id: string, to: number, now = Date.now()): 
     const by = home ? shift.get(home.id) ?? 0 : 0;
     return by ? retime(l, l.start + by, l.end + by, secs) : l;
   });
-  return stamp(detach(withScenes({ ...m, layers }, tidy(drafts, secs))), now);
+  const until = m.recipe?.until;
+  const kept = until !== undefined && list.every((s) => s.start >= until - EPS || shift.get(s.id) === 0);
+  const next = withScenes({ ...m, layers }, tidy(drafts, secs));
+  return stamp(kept ? next : detach(next), now);
 }
 
 /** Part of a transition to change: any of its fields, and `kind` may be `cut`. */
