@@ -35,6 +35,14 @@ import { PRO_B_META } from './motionrecipes-pro-b-meta';
  */
 export type FieldKind = 'line' | 'text' | 'number' | 'list' | 'choice';
 
+/**
+ * What of a brand (`motionbrand.ts`) a field takes: the organisation's name,
+ * its account name, its web address, or the initials of its name (a badge's
+ * letters). A field says so only when it means the brand and nothing else — a
+ * lower third's `name` is a person's, and is never filled with a company's.
+ */
+export type BrandSlot = 'name' | 'handle' | 'url' | 'initials';
+
 export interface Field {
   key: string;
   kind: FieldKind;
@@ -45,6 +53,20 @@ export interface Field {
   /** For the model: what belongs here. Not shown to the person. */
   hint: string;
   options?: readonly string[];
+  /** Filled from the brand kit when a graphic starts with one set and this field is not given. */
+  brand?: BrandSlot;
+}
+
+/**
+ * Where a brand's logo goes in a template that has a place for one: the layer
+ * (by the name the recipe gave it, without the recipe's prefix) whose box,
+ * timing, motion and shadow the picture takes, at that layer's place in the
+ * stack; and the layers that only made sense without a picture — the letters
+ * drawn where the logo now is, a sheen laid over the box — which are left out.
+ */
+export interface LogoSlot {
+  layer: string;
+  drop?: readonly string[];
 }
 
 export interface RecipeMeta {
@@ -70,6 +92,8 @@ export interface RecipeMeta {
   avoidWhen?: string;
   /** Templates that go well together or after it. */
   pairsWith?: readonly RecipeId[];
+  /** Where a brand's logo takes the place of what the template draws without one. Absent: the template has no place for a logo. */
+  logo?: LogoSlot;
 }
 
 export const PALETTE_IDS = ['midnight', 'paper', 'sunset', 'mint', 'royal', 'mono', 'neon', 'ocean', 'daylight'] as const;
@@ -109,9 +133,25 @@ const line = (key: string, label: string, max: number, hint: string): Field => (
 const text = (key: string, label: string, max: number, hint: string): Field => ({ key, kind: 'text', label, max, hint });
 const number = (key: string, label: string, max: number, hint: string): Field => ({ key, kind: 'number', label, max, hint });
 const list = (key: string, label: string, max: number, hint: string): Field => ({ key, kind: 'list', label, max, hint });
+/** A field that takes something of the brand when a graphic starts with one (see `BrandSlot`). */
+const branded = (f: Field, brand: BrandSlot): Field => ({ ...f, brand });
 
 /**
  * Every template. The order is the gallery's order within a group.
+ *
+ * ## What finds a template
+ *
+ * `tags`, `useWhen`, `avoidWhen` and `pairsWith` are read by two readers. The
+ * gallery's search (`motionsearch.ts`) matches what a person types against the
+ * tags as strongly as against the name, so the tags are the words a person
+ * actually types for the thing — "name tag", "subscribe", "sale", "countdown"
+ * — not a description of it. And the model's prompt lists them beside each
+ * template (`motionai.ts`), so `useWhen` and `avoidWhen` are one plain
+ * sentence each, written to be decided on: what the content must be for this
+ * template to be the right one, and what points to another instead (named, so
+ * the model knows where to go). None of them is shown on screen, so none is an
+ * `i18n.ts` key; the gallery's other languages are searched by the names and
+ * descriptions the interface already shows, and the words in `motionsearch.ts`.
  */
 const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
   'big-title': {
@@ -122,6 +162,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       text('title', 'Title', 90, 'the headline, 3 to 8 words'),
       line('subtitle', 'Subtitle', 100, 'one supporting line under it'),
     ],
+    tags: ['title', 'headline', 'heading', 'title card', 'opener', 'chapter', 'announcement', 'cover'],
+    useWhen: 'A video or a section needs a strong opening headline, with an optional small label above it and one supporting line.',
+    avoidWhen: 'The words must sit over footage, or the message is one punchy phrase that should land word by word (kinetic type does that).',
+    pairsWith: ['lower-third', 'steps', 'intro'],
   },
   kinetic: {
     id: 'kinetic', group: 'titles', name: 'Kinetic type', hue: 330, seconds: 5, overlay: false, palette: 'neon',
@@ -130,6 +174,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('title', 'Title', 60, 'a punchy phrase of 2 to 6 words'),
       line('highlight', 'Highlighted word', 24, 'one word from the title to light up'),
     ],
+    tags: ['kinetic', 'typography', 'punchy', 'slogan', 'promo', 'sale', 'hype', 'social', 'energetic', 'motto'],
+    useWhen: 'A short, energetic phrase of two to six words should slam in word by word with one word lit up, as in a promo, a sale or a social clip.',
+    avoidWhen: 'There is more than one sentence to read, or the tone is calm and formal.',
+    pairsWith: ['intro', 'big-number', 'subscribe'],
   },
   'split-title': {
     id: 'split-title', group: 'titles', name: 'Split reveal', hue: 12, seconds: 5, overlay: false, palette: 'sunset',
@@ -138,6 +186,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('title', 'Title', 50, 'the title, 2 to 5 words'),
       line('subtitle', 'Subtitle', 80, 'one supporting line'),
     ],
+    tags: ['split', 'reveal', 'panels', 'wipe', 'chapter', 'section', 'transition', 'title'],
+    useWhen: 'A bold title of two to five words and a subtitle should be revealed between two sweeping colour panels, as a chapter or section card.',
+    avoidWhen: 'The headline is longer than five words or needs a small label above it.',
+    pairsWith: ['big-title', 'steps', 'quote'],
   },
   quote: {
     id: 'quote', group: 'titles', name: 'Quote card', hue: 292, seconds: 7, overlay: false, palette: 'royal',
@@ -147,6 +199,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('author', 'Author', 40, 'who said it'),
       line('role', 'Role', 50, 'their role or where it is from; may be empty'),
     ],
+    tags: ['quote', 'quotation', 'testimonial', 'review', 'saying', 'citation', 'author', 'feedback'],
+    useWhen: 'A quotation or a customer\'s testimonial should be read in full, with who said it and their role.',
+    avoidWhen: 'The words are a headline or a slogan rather than something a person said.',
+    pairsWith: ['lower-third', 'logo-reveal', 'big-title'],
   },
   'lower-third': {
     id: 'lower-third', group: 'overlays', name: 'Lower third', hue: 205, seconds: 5, overlay: true, palette: 'midnight',
@@ -155,6 +211,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('name', 'Name', 36, 'a person or place name'),
       line('role', 'Role', 50, 'their role, or one line about them'),
     ],
+    tags: ['lower third', 'name', 'name tag', 'nameplate', 'caption', 'speaker', 'interview', 'presenter', 'role', 'overlay'],
+    useWhen: 'A person or a place on screen needs naming, with a role or one line about them, at the bottom of the frame over the footage.',
+    avoidWhen: 'There is no video underneath, or the graphic must stand alone as a title.',
+    pairsWith: ['handle', 'quote', 'callout'],
   },
   subscribe: {
     id: 'subscribe', group: 'overlays', name: 'Subscribe', hue: 0, seconds: 5, overlay: true, palette: 'paper',
@@ -163,6 +223,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('label', 'Button', 20, 'the button text, for example Subscribe'),
       line('done', 'After the click', 20, 'the text once it is clicked, for example Subscribed'),
     ],
+    tags: ['subscribe', 'button', 'bell', 'youtube', 'follow', 'call to action', 'cta', 'channel', 'notification', 'like'],
+    useWhen: 'A video should ask viewers to subscribe or follow, with a button that gets clicked and a ringing bell, over the footage.',
+    avoidWhen: 'The call to action is not a click, such as visiting a website or a shop.',
+    pairsWith: ['handle', 'intro', 'kinetic'],
   },
   callout: {
     id: 'callout', group: 'overlays', name: 'Callout', hue: 48, seconds: 4, overlay: true, palette: 'sunset',
@@ -171,14 +235,22 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('label', 'Label', 40, 'what is being pointed at'),
       line('number', 'Number', 3, 'a step number or short mark, for example 1'),
     ],
+    tags: ['callout', 'pointer', 'marker', 'annotation', 'label', 'arrow', 'highlight', 'point', 'tutorial', 'pin'],
+    useWhen: 'Something on screen needs pointing out with a pulsing marker, a line and a short label, as in a tutorial or a product tour.',
+    avoidWhen: 'There is nothing in the frame to point at, or the label is more than a few words.',
+    pairsWith: ['lower-third', 'steps', 'subscribe'],
   },
   handle: {
     id: 'handle', group: 'overlays', name: 'Social handle', hue: 175, seconds: 4, overlay: true, palette: 'ocean',
     about: 'Your @name in a pill that slides in and shines.',
     fields: [
-      line('handle', 'Handle', 30, 'the account name, without the @'),
+      branded(line('handle', 'Handle', 30, 'the account name, without the @'), 'handle'),
       line('caption', 'Caption', 40, 'a few words before it, for example Follow us'),
     ],
+    tags: ['handle', 'username', 'social', 'social media', 'instagram', 'tiktok', 'follow', 'account', 'profile', 'at'],
+    useWhen: 'A social media account name should slide in over a video in a pill, with a few words before it such as Follow us.',
+    avoidWhen: 'The account needs a button that gets clicked (subscribe), or a person\'s full name and role (lower third).',
+    pairsWith: ['subscribe', 'lower-third', 'logo-reveal'],
   },
   'big-number': {
     id: 'big-number', group: 'data', name: 'Big number', hue: 38, seconds: 5, overlay: false, palette: 'midnight',
@@ -189,6 +261,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('suffix', 'After the number', 4, 'a symbol after it, for example % or +; may be empty'),
       line('label', 'Label', 60, 'what the number measures'),
     ],
+    tags: ['number', 'counter', 'count up', 'statistic', 'stat', 'kpi', 'percent', 'milestone', 'figure', 'growth'],
+    useWhen: 'One figure the person gave should count up to its value inside a ring, with a label that says what it measures.',
+    avoidWhen: 'There are several figures to compare (a chart or three numbers), or no real number was given.',
+    pairsWith: ['stats', 'bar-chart', 'kinetic'],
   },
   'bar-chart': {
     id: 'bar-chart', group: 'data', name: 'Bar chart', hue: 142, seconds: 6, overlay: false, palette: 'mint',
@@ -198,6 +274,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       list('items', 'Bars', 8, 'one bar per line written Label: value, for example Q1: 40'),
       line('unit', 'Unit', 6, 'written after each value, for example % or k; may be empty'),
     ],
+    tags: ['bar chart', 'bars', 'chart', 'graph', 'compare', 'comparison', 'ranking', 'columns', 'data', 'results'],
+    useWhen: 'Up to eight labelled values the person gave should be compared as bars that grow one after another.',
+    avoidWhen: 'The values are a trend over time (a line chart) or parts of one whole (a donut chart).',
+    pairsWith: ['big-number', 'line-chart', 'stats'],
   },
   donut: {
     id: 'donut', group: 'data', name: 'Donut chart', hue: 320, seconds: 6, overlay: false, palette: 'royal',
@@ -206,6 +286,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('title', 'Title', 60, 'what the chart shows'),
       list('items', 'Slices', 6, 'one slice per line written Label: value'),
     ],
+    tags: ['donut', 'doughnut', 'pie', 'pie chart', 'share', 'percentage', 'breakdown', 'proportion', 'chart', 'market share'],
+    useWhen: 'Up to six parts of one whole the person gave should be shown as shares of a ring that sweeps around.',
+    avoidWhen: 'The values do not add up to a meaningful whole, or must be compared precisely (bars do that better).',
+    pairsWith: ['bar-chart', 'big-number', 'stats'],
   },
   'line-chart': {
     id: 'line-chart', group: 'data', name: 'Line chart', hue: 195, seconds: 6, overlay: false, palette: 'ocean',
@@ -215,6 +299,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       list('items', 'Points', 12, 'one point per line written Label: value, in order'),
       line('unit', 'Unit', 6, 'written after the last value; may be empty'),
     ],
+    tags: ['line chart', 'line', 'trend', 'growth', 'over time', 'graph', 'chart', 'progress', 'history', 'monthly'],
+    useWhen: 'Up to twelve values in order, such as months or years, should show a trend as a line that draws itself.',
+    avoidWhen: 'The values are separate categories with no order between them (use bars).',
+    pairsWith: ['big-number', 'bar-chart', 'stats'],
   },
   stats: {
     id: 'stats', group: 'data', name: 'Three numbers', hue: 24, seconds: 6, overlay: false, palette: 'midnight',
@@ -223,15 +311,25 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('title', 'Title', 60, 'a heading over the three figures'),
       list('items', 'Figures', 3, 'exactly three lines written Label: value, for example Students: 1200'),
     ],
+    tags: ['stats', 'statistics', 'three numbers', 'figures', 'kpi', 'facts', 'achievements', 'results', 'counters', 'icons'],
+    useWhen: 'Exactly three figures the person gave should count up side by side with icons, under one heading.',
+    avoidWhen: 'There is only one figure (big number) or more than three.',
+    pairsWith: ['big-number', 'bar-chart', 'logo-reveal'],
   },
   'logo-reveal': {
     id: 'logo-reveal', group: 'brand', name: 'Logo reveal', hue: 252, seconds: 5, overlay: false, palette: 'royal',
     about: 'A badge that bursts open and shines, with your name.',
     fields: [
-      line('name', 'Name', 30, 'the brand or organisation name'),
+      branded(line('name', 'Name', 30, 'the brand or organisation name'), 'name'),
       line('tagline', 'Tagline', 60, 'a short line under it; may be empty'),
-      line('mark', 'Badge letters', 2, 'one or two letters for the badge, usually the initials'),
+      branded(line('mark', 'Badge letters', 2, 'one or two letters for the badge, usually the initials'), 'initials'),
     ],
+    // The badge, its letters and the sheen across it become the logo, which pops in where the badge did.
+    logo: { layer: 'badge', drop: ['badge-light', 'mark', 'shine', 'shine-2', 'shine-3', 'shine-4'] },
+    tags: ['logo', 'brand', 'reveal', 'badge', 'company', 'sting', 'ident', 'outro', 'end card', 'tagline'],
+    useWhen: 'A brand or an organisation\'s name should be revealed with a badge, or its logo, that bursts open, as an opener or an end card.',
+    avoidWhen: 'The graphic is about a person rather than an organisation, or has to sit over footage.',
+    pairsWith: ['intro', 'countdown', 'subscribe'],
   },
   countdown: {
     id: 'countdown', group: 'brand', name: 'Countdown', hue: 8, seconds: 4, overlay: false, palette: 'neon',
@@ -240,6 +338,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       number('from', 'Start from', 2, 'the number to start from, 3 to 10'),
       line('final', 'Last word', 12, 'the word after zero, for example GO'),
     ],
+    tags: ['countdown', 'count down', 'timer', 'launch', 'start', 'ready', 'go', 'new year', 'event', 'seconds'],
+    useWhen: 'A short countdown from three to ten should end on one word, for a launch, an event or the start of a video.',
+    avoidWhen: 'A number should count up to a figure (big number), or the count is longer than ten.',
+    pairsWith: ['intro', 'logo-reveal', 'kinetic'],
   },
   intro: {
     id: 'intro', group: 'brand', name: 'Intro sting', hue: 280, seconds: 4, overlay: false, palette: 'sunset',
@@ -248,6 +350,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('title', 'Title', 40, 'the title, 1 to 4 words'),
       line('subtitle', 'Subtitle', 60, 'a short line under it; may be empty'),
     ],
+    tags: ['intro', 'opener', 'opening', 'sting', 'channel intro', 'bumper', 'title', 'start', 'swoosh', 'quick'],
+    useWhen: 'A video needs a quick, energetic opening of a few seconds that lands a short title of one to four words.',
+    avoidWhen: 'The title is long, or the graphic has to hold still long enough to be read.',
+    pairsWith: ['logo-reveal', 'countdown', 'big-title'],
   },
   steps: {
     id: 'steps', group: 'titles', name: 'Steps', hue: 165, seconds: 7, overlay: false, palette: 'mint',
@@ -256,6 +362,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       line('title', 'Title', 60, 'a heading over the steps'),
       list('items', 'Steps', 5, 'one step per line, a few words each'),
     ],
+    tags: ['steps', 'list', 'how to', 'tutorial', 'process', 'checklist', 'agenda', 'instructions', 'numbered', 'guide'],
+    useWhen: 'Up to five short steps or points should build one at a time as a numbered list under a heading.',
+    avoidWhen: 'The items are figures to compare (a chart), or long sentences.',
+    pairsWith: ['big-title', 'callout', 'split-title'],
   },
   'loop-bg': {
     id: 'loop-bg', group: 'backgrounds', name: 'Loop background', hue: 228, seconds: 8, overlay: false, palette: 'midnight',
@@ -264,6 +374,10 @@ const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
       { key: 'style', kind: 'choice', label: 'Style', max: 12, hint: 'the look of the background',
         options: ['aurora', 'grid', 'dots', 'rays', 'waves', 'bokeh', 'stripes'] },
     ],
+    tags: ['background', 'loop', 'looping', 'backdrop', 'ambient', 'texture', 'pattern', 'gradient', 'aurora', 'wallpaper'],
+    useWhen: 'A moving background should repeat without a seam behind other content, a live stream or a presentation.',
+    avoidWhen: 'The graphic has to carry words of its own.',
+    pairsWith: ['big-title', 'quote', 'steps'],
   },
 };
 
