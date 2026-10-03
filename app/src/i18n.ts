@@ -3311,6 +3311,25 @@ const ar: Dict = {
   'Halftone': 'شبكة نقطية',
   'Title glow': 'توهّج العنوان',
   'Scan lines': 'خطوط المسح',
+  // Motion pro: w2-3 chat — what the scene, sound, brand and check ops did (motionchatops.ts `chatNoteText`).
+  'Added a scene: {name}': 'أُضيف مشهد: {name}',
+  'Cut the scene in two at {s} s': 'قُسم المشهد إلى اثنين عند {s} ث',
+  'Joined {name} with the scene beside it': 'دُمج {name} مع المشهد المجاور له',
+  'Moved {name} to place {n}': 'نُقل {name} إلى الموضع {n}',
+  '{name} now arrives with: {kind}': 'يدخل {name} الآن بانتقال: {kind}',
+  'Scene {n} is now called {name}': 'صار اسم المشهد {n}: {name}',
+  'Scene {n} has no name of its own now': 'لم يعد للمشهد {n} اسم خاص به',
+  'Sound off': 'أُوقف الصوت',
+  'Sound: {how}': 'الصوت: {how}',
+  'Applied the brand kit: {name}': 'طُبّقت الهوية التجارية: {name}',
+  'Applied the brand kit': 'طُبّقت الهوية التجارية',
+  'Tidied: {fixes}. {n} tips are left for a change by hand': 'أُصلح: {fixes}. وبقيت نصائح تحتاج إلى تعديل يدوي: {n}',
+  'Tidied: {fixes}': 'أُصلح: {fixes}',
+  'Skipped: there is no scene “{scene}”': 'تم التخطي: لا يوجد مشهد «{scene}»',
+  'Skipped: the first scene starts the graphic, so it arrives from nothing': 'تم التخطي: المشهد الأول يبدأ به التصميم المتحرك، فلا شيء قبله ينتقل منه',
+  'No brand kit is saved yet: set one up with the Brand kit button': 'لا توجد هوية تجارية محفوظة بعد: أنشئها من زر «الهوية التجارية»',
+  'The quality check found nothing to fix': 'لم يجد فحص الجودة شيئاً يحتاج إلى إصلاح',
+  'The quality check found {n} tips, and none it can fix by itself': 'وجد فحص الجودة نصائح ({n})، ولا يستطيع إصلاح أيٍّ منها بنفسه',
 };
 
 const ckb: Dict = {
@@ -6601,6 +6620,25 @@ const ckb: Dict = {
   'Halftone': 'تۆڕی خاڵدار',
   'Title glow': 'درەوشانەوەی ناونیشان',
   'Scan lines': 'هێڵەکانی سکان',
+  // Motion pro: w2-3 chat — what the scene, sound, brand and check ops did (motionchatops.ts `chatNoteText`).
+  'Added a scene: {name}': 'دیمەنێک زیادکرا: {name}',
+  'Cut the scene in two at {s} s': 'دیمەنەکە لە {s} چ کرا بە دوو بەش',
+  'Joined {name} with the scene beside it': '{name} لەگەڵ دیمەنی تەنیشتی یەکخرا',
+  'Moved {name} to place {n}': '{name} گوازرایەوە بۆ شوێنی {n}',
+  '{name} now arrives with: {kind}': '{name} ئێستا بەم گواستنەوەیە دێت: {kind}',
+  'Scene {n} is now called {name}': 'دیمەنی {n} ناوی نوێی هەیە: {name}',
+  'Scene {n} has no name of its own now': 'دیمەنی {n} ئیتر ناوی تایبەتی نییە',
+  'Sound off': 'دەنگ کوژێنرایەوە',
+  'Sound: {how}': 'دەنگ: {how}',
+  'Applied the brand kit: {name}': 'ناسنامەی براند جێبەجێ کرا: {name}',
+  'Applied the brand kit': 'ناسنامەی براند جێبەجێ کرا',
+  'Tidied: {fixes}. {n} tips are left for a change by hand': 'چاککرا: {fixes}. ئامۆژگارییەکانی ماوە بۆ گۆڕانکاریی دەستی: {n}',
+  'Tidied: {fixes}': 'چاککرا: {fixes}',
+  'Skipped: there is no scene “{scene}”': 'پەڕێنرا: دیمەنی «{scene}» نییە',
+  'Skipped: the first scene starts the graphic, so it arrives from nothing': 'پەڕێنرا: یەکەم دیمەن سەرەتای گرافیکەکەیە، بۆیە هیچ شتێک پێش ئەو نییە بۆ گواستنەوە',
+  'No brand kit is saved yet: set one up with the Brand kit button': 'هێشتا هیچ ناسنامەی براندێک پاشەکەوت نەکراوە: بە دوگمەی «ناسنامەی براند» دروستی بکە',
+  'The quality check found nothing to fix': 'پشکنینی کوالیتی هیچ شتێکی بۆ چاککردن نەدۆزییەوە',
+  'The quality check found {n} tips, and none it can fix by itself': 'پشکنینی کوالیتی {n} ئامۆژگاری دۆزییەوە، بەڵام ناتوانێت هیچیان خۆی چاک بکات',
 };
 
 const kmr: Dict = {
@@ -9889,6 +9927,25 @@ const kmr: Dict = {
   'Halftone': 'تۆڕا خالدار',
   'Title glow': 'درەوشینا سەرناڤی',
   'Scan lines': 'هێلێن سکانێ',
+  // Motion pro: w2-3 chat — what the scene, sound, brand and check ops did (motionchatops.ts `chatNoteText`).
+  'Added a scene: {name}': 'دیمەنەک هاتە زێدەکرن: {name}',
+  'Cut the scene in two at {s} s': 'دیمەن ل {s} چ هاتە کرن دوو پارچە',
+  'Joined {name} with the scene beside it': '{name} دگەل دیمەنێ تەنشتێ هاتە ئێککرن',
+  'Moved {name} to place {n}': '{name} هاتە ڤەگوهاستن بۆ جهێ {n}',
+  '{name} now arrives with: {kind}': '{name} نوکە ب ڤێ ڤەگوهاستنێ دهێت: {kind}',
+  'Scene {n} is now called {name}': 'دیمەنێ {n} ناڤەکێ نوی هەیە: {name}',
+  'Scene {n} has no name of its own now': 'دیمەنێ {n} چیدی ناڤەکێ تایبەت نینە',
+  'Sound off': 'دەنگ هاتە ڤەمراندن',
+  'Sound: {how}': 'دەنگ: {how}',
+  'Applied the brand kit: {name}': 'ناسناما براندی هاتە بکارئینان: {name}',
+  'Applied the brand kit': 'ناسناما براندی هاتە بکارئینان',
+  'Tidied: {fixes}. {n} tips are left for a change by hand': 'هاتە چاککرن: {fixes}. شیرەتێن مایین بۆ گوهۆڕینا دەستی: {n}',
+  'Tidied: {fixes}': 'هاتە چاککرن: {fixes}',
+  'Skipped: there is no scene “{scene}”': 'هاتە بازدان: دیمەنێ «{scene}» نینە',
+  'Skipped: the first scene starts the graphic, so it arrives from nothing': 'هاتە بازدان: دیمەنێ ئێکێ دەستپێکا گرافیکی یە، لەوما چو تشت بەری وی نینە بۆ ڤەگوهاستنێ',
+  'No brand kit is saved yet: set one up with the Brand kit button': 'هێشتا چو ناسناما براندی نەهاتییە پاشەکەفتکرن: ب دوگمەیا «ناسناما براندی» چێبکە',
+  'The quality check found nothing to fix': 'پشکنینا کوالیتیێ چو تشت بۆ چاککرنێ نەدیت',
+  'The quality check found {n} tips, and none it can fix by itself': 'پشکنینا کوالیتیێ {n} شیرەت دیتن، بەلێ نەشێت چو ژ وان ب خۆ چاک بکەت',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

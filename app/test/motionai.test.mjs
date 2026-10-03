@@ -80,12 +80,25 @@ const lower = (c) => Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.
   ok('the prompt\'s own example is in the vocabulary the reader keeps: every layer of it reads', example.layers.length === 4 && !planned(example), example.layers.length);
   const edit = refineSystem().split('\n').pop();
   ok('and so is the editor\'s', JSON.parse(edit).ops.every((o) => OPS.includes(o.op)));
-  // 9,500 characters for the original eighteen templates, and each template added since brings its own line (what it is,
-  // when it fits and does not, its fields): about 600 characters at most. The budget follows the template count so a new
-  // template never breaks this, while the rest of the prompt (the rules, the vocabulary, the guards) cannot quietly grow.
-  const ORIGINAL = 18;
-  const BUDGET = 9500 + 600 * Math.max(0, Object.keys(META).length - ORIGINAL);
-  ok(`the plan prompt stays within its budget (${s.length} of ${BUDGET} characters, ${Object.keys(META).length} templates)`, s.length <= BUDGET, s.length);
+  // The budget is a base and a line per template. The base is everything but the template list: the rules, the
+  // vocabulary, the guards. It was 6,131 characters for the plan prompt and 7,303 for the edit prompt when wave 2's chat
+  // operations began, and may grow by 1,300 at most (their brief): the editor is taught the scene, sound, brand and check
+  // ops, and both prompts the race's label and the finishes. Each template brings its own line — what it is, when it
+  // fits and does not, its fields — of at most 600 characters, so a new template never breaks this, while the base
+  // cannot quietly grow. (Before, it was 9,500 for the original eighteen and 600 for each template after them.)
+  const BASE = { plan: 6131 + 1300, edit: 7303 + 1300 };
+  const PER_TEMPLATE = 600;
+  const ids = Object.keys(META);
+  const isLine = (l) => ids.some((id) => l.startsWith(`- ${id}:`) || l.startsWith(`- ${id} (overlay):`));
+  for (const [name, prompt] of [['plan', s], ['edit', refineSystem()]]) {
+    const all = prompt.split('\n');
+    const base = all.filter((l) => !isLine(l)).join('\n').length;
+    const longest = Math.max(...all.filter(isLine).map((l) => l.length));
+    const budget = BASE[name] + PER_TEMPLATE * ids.length;
+    ok(`the ${name} prompt without its template list stays within its base (${base} of ${BASE[name]} characters)`, base <= BASE[name], base);
+    ok(`each template's line in the ${name} prompt is within ${PER_TEMPLATE} characters (the longest ${longest})`, longest <= PER_TEMPLATE, longest);
+    ok(`the ${name} prompt stays within its budget (${prompt.length} of ${budget} characters, ${ids.length} templates)`, prompt.length <= budget, prompt.length);
+  }
 }
 {
   // Drift: whatever is in the tables when the prompt is written is in the prompt.
