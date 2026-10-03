@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <strong>0.132.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
+  <strong>0.133.0</strong> · macOS and Windows · 8 MB installed · Tauri v2 · Rust + React
 </p>
 
 ---
@@ -135,15 +135,19 @@ writes the storyboard.
 
 **Motion, drawn with no library at all.** Turn on the Motion module and describe a
 motion graphic — *a lower third for Dr. Layla, cardiologist, in Arabic* — or
-start from one of eighteen templates: big titles, kinetic type, a split reveal, a
+start from one of thirty-three templates: big titles, kinetic type, a split reveal, a
 quote, steps, a subscribe button, a callout, a social handle, a number that counts
-up, bar, line and donut charts, three figures with icons, a logo reveal, a
-countdown, an intro sting and moving backgrounds. Every one animates in your
+up, bar, line and donut charts, a bar-chart race, three figures with icons, lower thirds, a chat
+card, a price card, a logo reveal, a countdown, an intro sting and moving backgrounds. Every one animates in your
 language — right to left where it should — and in landscape, vertical, square or
 4:5. Change the words and the palette, edit every layer's timing on a timeline,
 drag things on the canvas, ask the model for changes ("faster", "a bigger
-title"), undo any of it, and save an **MP4** or a **PNG** — with transparency for
-the overlays that sit on video. Unlike Video, Motion uses no animation, rendering
+title"), undo any of it, and save an **MP4**, a looping **GIF** or a **PNG** — with
+transparency for the overlays that sit on video — by saying where it is going (a story,
+a post, YouTube, the web). A quiet quality check says when a word is off the edge, too
+small or on too little contrast, and fixes it with one button; scenes join with thirteen
+transitions; one row adds sound made on your device from the animation itself, with
+no download; and a brand kit keeps your name, colours and logo. Unlike Video, Motion uses no animation, rendering
 or encoding library: the easing, the canvas renderer and the MP4 writer are this
 repository's own code, it fetches nothing, and it sends no telemetry. The model
 writes a description in a fixed vocabulary, and the app checks it; it never
