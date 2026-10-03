@@ -119,6 +119,11 @@ const film = (o = {}) => frozen({
   ok('…the limit is 1.5 million characters of JSON', MAX_GRAPHIC_CHARS === 1_500_000 && graphicChars(readMotion(big)) > MAX_GRAPHIC_CHARS && graphicChars(LOWER) < MAX_GRAPHIC_CHARS);
   const cyc = {}; cyc.self = cyc;
   ok('a graphic that cannot be written as JSON is of no size a film takes', graphicChars(cyc) === Infinity);
+  // A film the store has not read again may hold anything in its list: placing a graphic still works.
+  const junky = film({ motions: [null, 'x', 7, [], { id: 'ok1', title: 'T', doc: LOWER, from: LOWER.id, stamp: LOWER.updated }] });
+  const r0 = addMotionScene(junky, LOWER, newId);
+  ok('a film holding junk in its list still takes a graphic, and finds the copy it already holds', !('refused' in r0) && r0.patch.motions.length === 1 && r0.patch.motions[0].id === 'ok1');
+  ok('…Graphic on top and Change do not throw on it either', !('refused' in setOver(junky, 's2', TITLE, 0, newId)) && !('refused' in changeSceneMotion(junky, 's2', TITLE, newId)));
 
   // Twelve in use: the thirteenth is refused.
   let f = film();

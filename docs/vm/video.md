@@ -31,7 +31,7 @@ Branch `vm-video` (worktree `vylo-editor-vm-video`), from `fd3adc1`. Contract: `
 | `app/src/videoexport.ts` | `wordsOf` `case 'motion'` (subtitles: none of its own) |
 | `app/src/VideoArt.tsx` | **deviation**, three entries — see below |
 | `app/src/i18n.ts`, `app/src/styles.css` | 22 strings × ar/ckb/kmr under `// vm video`; CSS between `/* vm:video start */ … end */` |
-| `app/test/vm-video.test.mjs` | 127 checks (replaces the placeholder) |
+| `app/test/vm-video.test.mjs` | 129 checks (replaces the placeholder) |
 
 ## The API (videomotion.ts)
 
@@ -58,7 +58,8 @@ Decisions, each tested:
 - **Caps.** 12 held graphics; a graphic over 1.5 M characters of JSON is refused ("too large… usually from a big picture").
   When a film holds 12 and some are no longer used (their scenes removed this session), room is made from those only.
 - **The reader** indexes the stored list (≤ 10,000 entries) by id, reads only the graphics scenes use, in order, at most 12 kept
-  and 36 tried, through `readMotion`; drops a motion scene whose graphic is gone, takes off an overlay whose graphic is gone (and
+  and 36 tried, through `readMotion` (every function here also skips entries of a stored list that are not objects, so a film
+  the store has not read yet refuses rather than throws); drops a motion scene whose graphic is gone, takes off an overlay whose graphic is gone (and
   any `over` on a motion scene); keeps `loop` only as `true`; caps titles through Motion's `readTitle`. 5,000 held graphics read
   in ~2 ms. Fuzzed (1,500 junk films). The views also read every held graphic through `heldDoc` (once per held object), so
   nothing unread reaches `paint` even before the store reader is mounted.
@@ -77,14 +78,22 @@ Decisions, each tested:
 
 Harness (git-ignored): `app/.test-build/vm-harness/` — `host.swift` (the QA host from `vylo-editor-motion`, plus a content blocker
 that lets nothing load but `127.0.0.1`, `data:`, `blob:`), `run.mjs`, `stub.ts` (Tauri fake; the Google font files answered with
-this Mac's Arial, Remotion's licence telemetry answered locally and recorded — **no request left the machine**), `fixture.ts`,
-`sample.ts`, `proof.tsx`, `ui.tsx`, `analyze.mjs`.
+this Mac's Arial, the app's own Arabic face served where `styles.css` looks for it, Remotion's licence telemetry answered locally
+and recorded — **no request left the machine**), `fixture.ts`, `sample.ts`, `proof.tsx`, `ui.tsx`, `analyze.mjs`, `analyze-hold.mjs`.
+Run from `app/`: `node .test-build/vm-harness/run.mjs .test-build/vm-harness/proof.tsx "window.__run('export', '<abs>/proof.mp4')" out.json --timeout 600`,
+then `node .test-build/vm-harness/analyze.mjs <abs>/proof.mp4` (modes: `export`, `export720`, `export4k`, `hold`, `sample`, `preview`, `perf`).
 
 - **Export** — the app's own `renderVideo` (→ `renderMediaOnWeb`, same options) in WKWebView (macOS 26.2). Proof film: title →
   kinetic scene with a green graphic on top from 1.5 s → a portrait magenta-circle graphic scene (4 s, graphic 3 s, cyan bar at
   1–2 s) → close; hard cuts. Decoded with ffmpeg: **38/38 pixel checks pass at 1080p, 720p and 2160p**: each colour in exactly its
   frames over all 420 (green 135–194, magenta 210–329 incl. the held last second, cyan 240–269), the circle round and 40u, the bar
-  and the tag at their pins. Render times: 2.3 s (1080p), 2.5 s (720p), 7.4 s (4K) for 420 frames.
+  and the tag at their pins. Render times: 2.3 s (1080p), 2.5 s (720p), 7.4 s (4K) for 420 frames. In the 4K export the graphic
+  canvases in the renderer's page were **3840 px wide** (a MutationObserver on its scaffold): painted at 4K, not scaled up.
+- **The first frame waits** (`useDelayRender` around `preload`): a film that *opens* with a graphic holding a 2000 × 2000 picture,
+  and a later graphic with a picture and Arabic words in the app's own Arabic face. Decoded: **14/14** — the picture is whole on the
+  film's frame 0 and on the later scene's first frame, and the Arabic is set in the same box and ink on its first frame as half a
+  second later. The control in the same page: Motion's `paint` drawn before the picture decodes draws none of it (0 px), after
+  `preload` all of it — so the hold is what makes those first frames whole.
 - **Preview** — `@remotion/player` with the sample film (templates that move every frame): after 11 seeks and 3 play-then-pause
   runs, the graphic's canvas equals, byte for byte, Motion's `paint` of the same graphic at the moment that frame should show
   (diff 0), and differs from the moments one frame before and after wherever the graphic moves. The player kept **29.7 fps** over 3
@@ -105,7 +114,9 @@ a portrait big number and a big title as scenes, transitions, the style's look) 
 
 ## Gates
 
-`npm test` (whole chain, incl. orphans and i18n parity), `npx tsc --noEmit`, `npm run build`: green. `vm-video.test.mjs`: 127 passed.
+`npm test` (whole chain, incl. orphans and i18n parity), `npx tsc --noEmit`, `npm run build`: green. `vm-video.test.mjs`: 129 passed.
+One run of the chain failed a timing check in `pro-perf.test.mjs` ("stopped 40 ms into a 30 s bed… 40.8 ms after the stop",
+the sound bed, not this package); it passed alone three times (22–25 ms) and the chain passed again after.
 
 ## What the integrator must mount (also in `docs/vm/requests/video.md`)
 
@@ -132,8 +143,12 @@ a portrait big number and a big title as scenes, transitions, the style's look) 
 
 - Fonts in the harness were this Mac's Arial instead of the styles' Google fonts (no network); the film's own text faces were
   not the subject. Motion's own faces (system + bundled Arabic) were used by the graphics.
-- 4K sharpness of the canvas was not measured separately (the 4K export's pixel checks pass; the backing store is set from
-  `usePixelDensity`, which is the renderer's `scale`).
+- **Undo at the cap.** The one place the edit path lets go of a graphic: a film already holding 12, some no longer used (their
+  scenes removed this session), lets go of those to take a new one. Undoing one of those earlier removals then brings back a scene
+  whose graphic is gone: it shows the film's background, and the next read of the film drops it. Request #3 (`'motions'` in
+  `TRACKED`) removes the case.
+- **The sound sentence** is shown only when the graphic has a sound of its own; VM.md says "do not hide it". If the review wants
+  it always, it is one line in `VideoMotionPicker.tsx` (`SoundNote`).
 - An overlay's graphic is not shown in the timeline (`VideoTimeline.tsx`, not in this package).
 - Found, not mine: the clip row's "Its own sound" uses `vid-f vid-check`, and `.vid-f input` gives the checkbox the full width, so
   its label is pushed to the far edge. The graphic's Repeat row uses `vid-check` alone.

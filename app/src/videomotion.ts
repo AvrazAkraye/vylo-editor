@@ -83,10 +83,14 @@ function idOk(x: unknown): x is string {
   return typeof x === 'string' && x.length > 0 && x.length <= 64 && /^[A-Za-z0-9_-]+$/.test(x);
 }
 
-/** The held graphics of a film, as a list whatever was stored. */
+/**
+ * The held graphics of a film, as a list of objects whatever was stored: a film that has not been through
+ * `readVideoMotions` yet (one the store has not read again) may hold anything there, and every function
+ * here must refuse rather than throw on it.
+ */
 function heldList(v: Pick<Video, 'motions'> | null | undefined): VideoMotion[] {
   const m = v?.motions;
-  return Array.isArray(m) ? m : [];
+  return Array.isArray(m) ? m.filter(isObj) as unknown as VideoMotion[] : [];
 }
 
 /** The graphic a film holds under `id`. */
