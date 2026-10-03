@@ -131,6 +131,8 @@ export function MotionBrandKit({ t, doc, onChange, onApplied }: BrandKitProps) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<PictureProblem | null>(null);
   const [unkept, setUnkept] = useState(false);
+  /** Said once the brand is applied: the sheet closes and the graphic changes, which a screen reader does not see. */
+  const [said, setSaid] = useState('');
   /** Where the sheet hangs: from the button's start edge when its end would run out of the window, and above it when below has no room. */
   const [place, setPlace] = useState({ start: false, up: false });
   const btn = useRef<HTMLButtonElement>(null);
@@ -154,6 +156,7 @@ export function MotionBrandKit({ t, doc, onChange, onApplied }: BrandKitProps) {
     setD(draftOf(kit, doc));
     setProblem(null);
     setUnkept(false);
+    setSaid('');
     setOpen(true);
   };
   const close = (refocus: boolean) => {
@@ -213,6 +216,7 @@ export function MotionBrandKit({ t, doc, onChange, onApplied }: BrandKitProps) {
     if (doc && onChange && next) {
       const branded = applyBrand(doc, next);
       if (branded !== doc) onChange(branded);
+      setSaid(next.name ? fill(t('Applied the brand kit: {name}'), { name: next.name }) : t('Applied the brand kit'));
       onApplied?.();
     }
     close(true);
@@ -241,6 +245,7 @@ export function MotionBrandKit({ t, doc, onChange, onApplied }: BrandKitProps) {
         <Dots kit={kit} />
         <span className="mb-btn-name" dir="auto">{kit?.name || t('Brand kit')}</span>
       </button>
+      <span className="vid-tl-sr" role="status">{said}</span>
       {open && (
         <div ref={box} className={`mb-sheet${place.start ? ' is-start' : ''}${place.up ? ' is-up' : ''}`} role="dialog" aria-labelledby={`${id}-h`}
              onKeyDown={(e) => {
@@ -261,7 +266,8 @@ export function MotionBrandKit({ t, doc, onChange, onApplied }: BrandKitProps) {
           </label>
           <label className="mb-row">
             <span>{t('Handle')}</span>
-            <span className="mb-at">
+            {/* Left to right like the handle itself, so in Arabic and Kurdish the @ still stands just before it. */}
+            <span className="mb-at" dir="ltr">
               <i aria-hidden="true">@</i>
               <input className="mo-text" value={d.handle} dir="ltr" maxLength={BRAND_LIMITS.handle + 1} spellCheck={false} autoComplete="off"
                      onChange={(e) => put({ handle: e.target.value.replace(/^[@\uff20]+/, '') })} />

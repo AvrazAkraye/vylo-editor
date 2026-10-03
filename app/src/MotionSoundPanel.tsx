@@ -42,10 +42,12 @@ export function MotionSoundPanel({ t, doc, onChange }: { t: T; doc: Motion; onCh
       <Row label={t('Sound')} id={id}>
         <Seg labelledBy={id} value={spec.mode} choices={modes} onChange={(mode) => set({ mode })} />
       </Row>
+      {/* The Design tab's own chips (its length presets), not Video's: Video's are a fill the colour of this column,
+          so in the sidebar they read as loose words (review R3). */}
       {music && (
-        <div className="vid-chips mo-sound-moods" role="group" aria-label={t('Mood')}>
+        <div className="mo-de-chips mo-sound-moods" role="group" aria-label={t('Mood')}>
           {SOUND_MOODS.map((m) => (
-            <button key={m.id} type="button" className={`vid-chip vid-sound-mood${m.id === mood ? ' on' : ''}`} aria-pressed={m.id === mood}
+            <button key={m.id} type="button" className={`gal-chip${m.id === mood ? ' on' : ''}`} aria-pressed={m.id === mood}
                     onClick={() => set({ mood: m.id })}>
               {t(m.label)}
             </button>
