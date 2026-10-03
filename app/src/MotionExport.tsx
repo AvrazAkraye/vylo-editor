@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { save as savePanel } from '@tauri-apps/plugin-dialog';
 import { Icon } from './Icon';
@@ -8,106 +8,144 @@ import { fill } from './i18n';
 import { explain } from './errors';
 import { canEncode } from './motionencode';
 import { read as readPlay, usePlay } from './motionplay';
-import { frameCount } from './motiontypes';
+import { MotionThumb } from './MotionThumb';
 import type { Format, Motion } from './motiontypes';
 import {
-  FORMAT_TAG, QUALITIES, SIZES, downloadsPath, estimateBytes, fileNameFor, frameAt, openExported, pixelsFor,
-  renderMp4, renderPng, sizeName, writeMotionFile, type Quality, type Size,
+  FORMAT_TAG, QUALITIES, SIZES, downloadsPath, frameAt, openExported, pixelsFor, renderMp4, renderPng, sizeName,
+  writeMotionFile, type Quality, type Size,
 } from './motionexportops';
+import { GIF, GIF_RATES, GIF_SIDES, gifSizeFor, renderGif, type GifMade } from './motiongifops';
+import {
+  DESTINATIONS, FIRST_PREFS, bestDestination, destinationLine, destinationName, destinationStep, fileNameOf, fitBox,
+  fittedPaint, outputOf, ratioOf, readPrefs, settingsFor, shapeFor, surroundOf, type Destination, type ShareChoices,
+  type ShareKind, type SharePrefs, type ShareSettings,
+} from './motionshare';
 
 /**
- * The Motion studio's Export tab: the graphic as an MP4 film or a PNG still,
- * saved on this computer.
+ * The Motion studio's Export tab: where the graphic is going, and the file
+ * for it, saved on this computer.
  *
- * The choices come first — what kind of file, how large, how good, motion
- * blur for a film, transparency for a still — then **Download**, which renders
- * the graphic here and saves it in the Downloads folder, and **Save as…**,
- * which asks the OS save panel where. While it runs, the progress (frame by
- * frame) and Cancel take the buttons' place; when it is done, where the file
- * went, with Open.
+ * ## The first screen
+ *
+ * One question — **Where is it going?** — as six cards: Story or Reel, Post,
+ * YouTube (MP4s in 9:16, 4:5 or 1:1, and 16:9), Web loop (a GIF), Picture (a
+ * PNG of the graphic's best moment) and Custom. The card for the graphic's own
+ * shape is already chosen (`bestDestination`), so the shortest path is the
+ * one it always was: open the tab, press **Download**. Under the cards, one
+ * line says what will be made — the size, the kind, about how large and how
+ * long — and the destination's settings come from `motionshare.ts`, which
+ * also decides everything below that is not a click.
+ *
+ * Today's dialog asked for the kind, the size, the quality and motion blur
+ * before Download, with Save as… beside it; this one asks one question. Every
+ * one of those choices is still here, under **More options**, closed until it
+ * is opened (and open at once for Custom, whose point is to choose): the size,
+ * the MP4's quality and motion blur, the GIF's size and frames a second, the
+ * picture's moment, transparency, the kind of file for Custom, and **Save
+ * as…**. What is chosen there is remembered for next time, as before.
+ *
+ * ## Another shape is a copy
+ *
+ * A destination of another shape — a wide title sent to a story — makes the
+ * file from a copy of the graphic in that shape (`outputOf`): the template
+ * built again for it, or, for a graphic edited by hand, the graphic fitted
+ * whole inside the frame on its own background (`fittedPaint`). The graphic is
+ * not changed. The tab says so, with the file drawn small beside the
+ * sentence, so nobody is surprised by it.
+ *
+ * ## What it keeps from before
+ *
+ * The notices (an MP4 has no transparency; this window cannot make an MP4, so
+ * the picture is chosen and the films cannot be), the size that falls back to
+ * one the encoder can make, the progress, Cancel, where the file went, Open
+ * and Show in Finder — all as they were. The slot for a **sound** line
+ * (`soundNote`, filled by the sound packages) sits under the line that says
+ * what will be made, and only for an MP4: a GIF and a PNG have no sound.
+ *
+ * ## The rules it keeps
  *
  * Nothing here writes unless the person pressed the button for that exact
  * file, and what is written is the graphic as it was when they pressed it
  * (SAFETY.md's rule, the same as Video's downloads). Download never replaces a
  * file: Rust saves at the first free name and says which. No request leaves
- * the machine: rendering and encoding are this window's own canvas and
- * WebCodecs (motionexportops.ts). And no `<video>` element, ever — this webview
- * once deadlocked in one — so a finished film is opened in the system's
- * player (`openExported`), never played in the page.
+ * the machine: rendering and encoding are this window's own canvas, WebCodecs
+ * and `motiongif.ts`. And no `<video>` element, ever — this webview once
+ * deadlocked in one — so a finished film is opened in the system's player
+ * (`openExported`), never played in the page.
  *
  * Exports live outside React, keyed by the graphic's id, like VideoDownloads'
  * runs: switching tabs, closing the sidebar or opening another graphic does not
  * stop one, and coming back shows it where it had got to. One at a time per
- * graphic. The last choices are remembered for next time.
+ * graphic. The destination chosen for a graphic is kept while the app is open.
  */
 
 type T = (s: string) => string;
 
-/** The two kinds of file. */
-type Kind = 'mp4' | 'png';
-const KINDS: readonly Kind[] = ['mp4', 'png'];
-
 // ── choices, remembered ───────────────────────────────────────────────────
 
-interface Prefs { format: Kind; size: Size; quality: Quality; blur: boolean }
-
+/**
+ * The key SAFETY.md names. Version 1 kept `{ format, size, quality, blur }`;
+ * the same key now keeps those and the GIF's two, written with the kind as
+ * `format` still, so what an older version wrote is read, and what this one
+ * writes is still a version-1 record to an older one.
+ */
 const PREFS_KEY = 'vylo.motion.export.v1';
-const FIRST: Prefs = { format: 'mp4', size: '1080p', quality: 'high', blur: false };
 
 /**
  * What was chosen last time. Storage may be missing, blocked (a private
  * window throws on access) or hold something another version wrote, so every
- * field is checked and every failure means the defaults.
+ * field is checked (`readPrefs`) and every failure means the defaults.
  */
-function loadPrefs(): Prefs {
+function loadPrefs(): SharePrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    const got = raw ? (JSON.parse(raw) as Partial<Prefs> | null) : null;
-    if (!got || typeof got !== 'object') return { ...FIRST };
-    return {
-      format: KINDS.includes(got.format as Kind) ? (got.format as Kind) : FIRST.format,
-      size: SIZES.includes(got.size as Size) ? (got.size as Size) : FIRST.size,
-      quality: QUALITIES.includes(got.quality as Quality) ? (got.quality as Quality) : FIRST.quality,
-      blur: typeof got.blur === 'boolean' ? got.blur : FIRST.blur,
-    };
+    return readPrefs(raw ? JSON.parse(raw) : null);
   } catch {
-    return { ...FIRST };
+    return { ...FIRST_PREFS };
   }
 }
 
-let prefs: Prefs | null = null;
+let prefs: SharePrefs | null = null;
 
-function getPrefs(): Prefs {
+function getPrefs(): SharePrefs {
   prefs ??= loadPrefs();
   return prefs;
 }
 
-function setPrefs(next: Partial<Prefs>) {
+function setPrefs(next: Partial<SharePrefs>) {
   prefs = { ...getPrefs(), ...next };
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    const { kind, ...rest } = prefs;
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ format: kind, ...rest }));
   } catch {
     // Remembered for this session only.
   }
   notify();
 }
 
+/** The destination each graphic has, once the person has chosen one. */
+const chosen = new Map<string, Destination>();
+
 // ── exports, outside React ────────────────────────────────────────────────
 
 interface Run {
   ctl: AbortController;
-  kind: Kind;
+  kind: ShareKind;
   /** Drawing and encoding (fonts and pictures load first), then writing the file. */
   phase: 'render' | 'write';
-  /** Frames handed to the encoder, of `total`. A still is one frame. */
+  /** Frames painted, of `total`. A still is one frame; a GIF counts the frames its colours are chosen from too. */
   done: number;
   total: number;
+  /** A GIF being made again, smaller, is on its second attempt or later. */
+  attempt: number;
   started: number;
+  /** When this attempt began: what the time left is reckoned from. */
+  since: number;
   /** What is being made: `1080p · MP4`. */
   spec: string;
 }
 
-interface Outcome { kind: Kind; path: string }
+interface Outcome { kind: ShareKind; path: string; note: string }
 
 const runs = new Map<string, Run>();
 const outcomes = new Map<string, Outcome>();
@@ -154,6 +192,7 @@ function sentence(e: unknown, t: T): string {
   if (msg === 'motion:too-large') return t('The video is too large to save. Choose a smaller size, or make it shorter.');
   if (msg === 'motion:no-canvas') return t('This window cannot draw a frame this large. Choose a smaller size.');
   if (msg === 'motion:png-failed') return t('The picture could not be made in this window.');
+  if (msg === 'motion:gif-failed') return t('The GIF could not be made in this window.');
   if (msg.startsWith('motion:encode-failed')) {
     const why = msg.slice('motion:encode-failed'.length).replace(/^:\s*/, '').trim();
     return fill(t('The video could not be encoded: {why}'), { why: why || msg });
@@ -161,46 +200,92 @@ function sentence(e: unknown, t: T): string {
   return explain(e, t('save the file'));
 }
 
-interface Job { size: Size; quality: Quality; blur: boolean; transparent: boolean; at: number; path?: string }
+/** Megabytes as the estimate shows them: `0.4`, `6.2`, `48`. */
+function megabytes(bytes: number): string {
+  const mb = bytes / 1_000_000;
+  return mb >= 10 ? String(Math.round(mb)) : Math.max(0.1, mb).toFixed(1);
+}
+
+/** The file in a few technical words, the same in every language: `1080p · 1080 × 1920 · MP4`. */
+function specOf(s: ShareSettings): string {
+  const kind = s.kind.toUpperCase();
+  return s.size ? `${sizeName(s.size)} · ${s.width} × ${s.height} · ${kind}` : `${s.width} × ${s.height} · ${kind}`;
+}
+
+/** What a GIF gave up to fit, or that it is still over, as one sentence; empty when it gave up nothing. */
+function gifNote(made: GifMade, t: T): string {
+  const cap = Math.round(GIF.maxBytes / 1_000_000);
+  if (made.over) return fill(t('It is still larger than {n} MB: make the graphic shorter, or choose a smaller size under More options.'), { n: cap });
+  if (!made.reduced.length) return '';
+  const what = made.reduced.map((c) => (c.what === 'colors' ? fill(t('{n} colours'), { n: c.to })
+    : c.what === 'size' ? fill(t('{w} × {h} pixels'), { w: made.width, h: made.height })
+    : fill(t('{n} frames a second'), { n: c.to }))).join(' · ');
+  return fill(t('Made smaller to stay under {n} MB: {what}.'), { n: cap, what });
+}
+
+interface Job { s: ShareSettings; out: Motion; path?: string }
+
+/** A canvas for the graphic a file is fitted around (`fittedPaint` asks for one). */
+function scratchCanvas(width: number, height: number): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = width;
+  c.height = height;
+  return c;
+}
 
 /**
- * Make one file and keep what came of it. The graphic is `doc` — the one on
- * screen when the button was pressed, not whatever it becomes while this runs.
+ * Make one file and keep what came of it. The graphic is `job.out` — the one
+ * on screen when the button was pressed (or its copy in the file's shape), not
+ * whatever it becomes while this runs.
  */
-function start(doc: Motion, kind: Kind, job: Job, t: T, onError: (m: string) => void) {
+function start(doc: Motion, job: Job, t: T, onError: (m: string) => void) {
   if (runs.has(doc.id)) return;
+  const { s, out } = job;
   const ctl = new AbortController();
   const run: Run = {
-    ctl, kind, phase: 'render', done: 0, total: kind === 'mp4' ? frameCount(doc) : 1, started: Date.now(),
-    spec: `${sizeName(job.size)} · ${kind.toUpperCase()}`,
+    ctl, kind: s.kind, phase: 'render', done: 0, total: s.kind === 'png' ? 1 : s.frames, attempt: 1, started: Date.now(),
+    since: Date.now(), spec: specOf(s),
   };
   runs.set(doc.id, run);
   failures.delete(doc.id);
   outcomes.delete(doc.id);
   notify();
 
-  const going = (async (): Promise<string> => {
-    const bytes = kind === 'mp4'
-      ? await renderMp4(doc, {
-        size: job.size, quality: job.quality, blur: job.blur, signal: ctl.signal,
-        onProgress: (done, total) => {
-          run.done = done;
-          run.total = total;
-          notifySoon();
-        },
-      })
-      : await renderPng(doc, { size: job.size, at: job.at, transparent: job.transparent });
+  const moved = (done: number, total: number, attempt = 1) => {
+    run.done = done;
+    run.total = total;
+    if (attempt !== run.attempt) {
+      run.attempt = attempt;
+      run.since = Date.now();
+    }
+    notifySoon();
+  };
+
+  // A graphic fitted inside another shape is painted by its own painter; anything else by the renderer's.
+  const deps = s.reshape === 'fit' ? { paint: fittedPaint(doc, fitBox(s.from, s.width, s.height), scratchCanvas) } : {};
+  const going = (async (): Promise<{ path: string; note: string }> => {
+    let note = '';
+    let bytes: Uint8Array;
+    if (s.kind === 'mp4') {
+      bytes = await renderMp4(out, { size: s.size ?? '1080p', quality: s.quality ?? 'high', blur: s.blur, signal: ctl.signal, onProgress: moved }, deps);
+    } else if (s.kind === 'gif') {
+      const made = await renderGif(out, { side: s.side ?? GIF.side, fps: s.fps, transparent: s.transparent, signal: ctl.signal, onProgress: moved }, deps);
+      bytes = made.bytes;
+      note = gifNote(made, t);
+    } else {
+      bytes = await renderPng(out, { size: s.size ?? '1080p', at: s.at ?? 0, transparent: s.transparent }, deps);
+    }
     if (ctl.signal.aborted) throw abortError();
     run.phase = 'write';
     notify();
-    const path = job.path ?? await downloadsPath(fileNameFor(doc, kind, FORMAT_TAG[doc.format]));
-    return writeMotionFile(path, bytes, { unique: !job.path });
+    const path = job.path ?? await downloadsPath(fileNameOf(doc, s.kind, FORMAT_TAG[s.format]));
+    return { path: await writeMotionFile(path, bytes, { unique: !job.path }), note };
   })();
 
   const mine = () => runs.get(doc.id) === run;
   going
-    .then((path) => {
-      if (mine()) outcomes.set(doc.id, { kind, path });
+    .then(({ path, note }) => {
+      if (mine()) outcomes.set(doc.id, { kind: s.kind, path, note });
     })
     .catch((e: unknown) => {
       if (!mine() || ctl.signal.aborted || (e as { name?: string })?.name === 'AbortError') return;
@@ -223,6 +308,7 @@ export function dropExports(id: string) {
   runs.get(id)?.ctl.abort();
   outcomes.delete(id);
   failures.delete(id);
+  chosen.delete(id);
   notify();
 }
 
@@ -257,6 +343,18 @@ function abilities(format: Format, fps: number): Promise<Abilities> {
     probes.set(key, p);
   }
   return p;
+}
+
+/** What the encoder said about one shape, asked when the shape is shown. Null until it has answered. */
+function useAbilities(format: Format, fps: number): Abilities | null {
+  const [can, setCan] = useState<{ key: string; a: Abilities } | null>(null);
+  const key = `${format}@${fps}`;
+  useEffect(() => {
+    let live = true;
+    void abilities(format, fps).then((a) => { if (live) setCan({ key, a }); });
+    return () => { live = false; };
+  }, [format, fps, key]);
+  return can && can.key === key ? can.a : null;
 }
 
 /** `want` when it fits, else the nearest choice that does — a smaller one before a larger. */
@@ -296,24 +394,30 @@ function moment(seconds: number): string {
   return `${Math.floor(cs / 6000)}:${String(Math.floor((cs % 6000) / 100)).padStart(2, '0')}.${String(cs % 100).padStart(2, '0')}`;
 }
 
-/** Megabytes as the estimate shows them: `0.4`, `6.2`, `48`. */
-function megabytes(bytes: number): string {
-  const mb = bytes / 1_000_000;
-  return mb >= 10 ? String(Math.round(mb)) : Math.max(0.1, mb).toFixed(1);
-}
-
-/** A sentence with one part put in as an element — a path or a time kept left to right inside Arabic or Kurdish. */
-function Slot({ template, name, children }: { template: string; name: string; children: ReactNode }) {
-  const key = `{${name}}`;
-  const at = template.indexOf(key);
-  if (at < 0) return <>{template}</>;
-  return <>{template.slice(0, at)}{children}{template.slice(at + key.length)}</>;
+/**
+ * A sentence with parts put in as elements — a path, a time or a ratio kept
+ * left to right inside Arabic or Kurdish. A `{name}` the parts do not have is
+ * left as it is written.
+ */
+function Fill({ template, parts }: { template: string; parts: Record<string, ReactNode> }) {
+  const out: ReactNode[] = [];
+  let last = 0;
+  for (const m of template.matchAll(/\{(\w+)\}/g)) {
+    if (!(m[1] in parts) || m.index === undefined) continue;
+    out.push(template.slice(last, m.index), <Fragment key={m.index}>{parts[m[1]]}</Fragment>);
+    last = m.index + m[0].length;
+  }
+  out.push(template.slice(last));
+  return <>{out}</>;
 }
 
 /** What a run is doing, and how far it has got in whole percent (null before the first frame, and for a still). */
 function runState(run: Run, t: T): { what: string; pct: number | null } {
-  const f = run.kind === 'mp4' && run.done > 0 ? Math.min(1, run.done / Math.max(1, run.total)) : null;
-  const what = run.phase === 'write' ? t('Saving the file…') : run.kind === 'png' ? t('Rendering the picture…') : t('Rendering the video…');
+  const f = run.kind !== 'png' && run.done > 0 ? Math.min(1, run.done / Math.max(1, run.total)) : null;
+  const what = run.phase === 'write' ? t('Saving the file…')
+    : run.kind === 'png' ? t('Rendering the picture…')
+    : run.kind === 'gif' ? (run.attempt > 1 ? t('Making the GIF smaller to fit…') : t('Rendering the GIF…'))
+    : t('Rendering the video…');
   return { what, pct: f === null || run.phase === 'write' ? null : Math.round(f * 100) };
 }
 
@@ -328,52 +432,95 @@ function DownloadGlyph({ size = 14 }: { size?: number }) {
 }
 
 /**
- * Which frame a still is: the playhead's. Its own component, so the playhead
- * moving sixty times a second while the graphic plays re-renders this line
- * and not the tab.
+ * A destination's picture, on the same grid: the shape of the file — a tall
+ * phone, a 4:5 post, a wide screen with a play mark (a generic one, no
+ * platform's own) — a loop, a picture, and the settings sliders for Custom.
+ */
+const GLYPHS: Readonly<Record<Destination, string>> = {
+  story: 'M8.5 3.5h7a1.5 1.5 0 0 1 1.5 1.5v14a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 7 19V5a1.5 1.5 0 0 1 1.5-1.5zM11 17.5h2',
+  post: 'M7 4.5h10a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-13a1 1 0 0 1 1-1zM8.5 15.5l2.6-2.6 1.9 1.9 1.4-1.4 1.6 1.6',
+  youtube: 'M5 5.5h14A1.5 1.5 0 0 1 20.5 7v10a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 17V7A1.5 1.5 0 0 1 5 5.5zM10.5 9.4v5.2l4.2-2.6z',
+  loop: 'M7.6 9a3 3 0 1 0 0 6c2 0 3-1.5 4.4-3s2.4-3 4.4-3a3 3 0 1 1 0 6c-2 0-3-1.5-4.4-3S9.6 9 7.6 9z',
+  picture: 'M4 6.5A2.5 2.5 0 0 1 6.5 4h11A2.5 2.5 0 0 1 20 6.5v11a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5zM4.6 17.8l4.6-4.6a1.5 1.5 0 0 1 2.1 0l3.5 3.5M13.4 15.1l1.8-1.8a1.5 1.5 0 0 1 2.1 0l2.1 2.1M9.2 9.4v.01',
+  custom: 'M4 7.5h6.5M15 7.5h5M4 16.5h4.5M13 16.5h7M12.75 5.2v4.6M10.75 14.2v4.6',
+};
+
+function DestGlyph({ d, size = 20 }: { d: Destination; size?: number }) {
+  return (
+    <svg className="ic" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}
+         strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+      <path d={GLYPHS[d]} />
+    </svg>
+  );
+}
+
+/**
+ * Which frame a still is, when it is the playhead's. Its own component, so
+ * the playhead moving sixty times a second while the graphic plays re-renders
+ * this line and not the tab.
  */
 function Playhead({ t, doc }: { t: T; doc: Motion }) {
   const play = usePlay();
   return (
     <p className="mo-ex-frame">
-      <Slot template={t('The frame at the playhead: {time}. Move the playhead to choose another.')} name="time">
-        <bdi dir="ltr">{moment(frameAt(doc, play.t) / doc.fps)}</bdi>
-      </Slot>
+      <Fill template={t('The frame at the playhead: {time}. Move the playhead to choose another.')}
+            parts={{ time: <bdi dir="ltr">{moment(frameAt(doc, play.t) / doc.fps)}</bdi> }} />
     </p>
   );
 }
 
+/** The long side of the little file drawn beside "built again at 9:16". */
+const THUMB = 64;
+
 // ── the tab ───────────────────────────────────────────────────────────────
 
-export function MotionExport({ t, doc, onError }: { t: (s: string) => string; doc: Motion; onError: (m: string) => void }) {
+export function MotionExport({ t, doc, onError, soundNote }: {
+  t: (s: string) => string;
+  doc: Motion;
+  onError: (m: string) => void;
+  /**
+   * The sound line, for an MP4 (packages 03 and 04 fill it: what sound the
+   * film carries, and how loud). Shown under the line that says what will be
+   * made; left out for a GIF or a PNG, which have no sound.
+   */
+  soundNote?: ReactNode;
+}) {
   useExports();
   const run = runs.get(doc.id);
   useTick(!!run);
   const [keep, setKeep] = useState(true);
-  const [can, setCan] = useState<Abilities | null>(null);
+  const [frame, setFrame] = useState<'best' | 'playhead'>('best');
+  const [more, setMore] = useState(false);
 
-  // A transparent graphic keeps its transparency in a still unless told otherwise, each time one is opened.
-  useEffect(() => { setKeep(true); }, [doc.id]);
-
+  // A transparent graphic keeps its transparency, a picture is its best moment, and the options are closed, each time one is opened.
   useEffect(() => {
-    let live = true;
-    setCan(null);
-    void abilities(doc.format, doc.fps).then((a) => { if (live) setCan(a); });
-    return () => { live = false; };
-  }, [doc.format, doc.fps]);
+    setKeep(true);
+    setFrame('best');
+    setMore(chosen.get(doc.id) === 'custom');
+  }, [doc.id]);
 
   const p = getPrefs();
+  const can = useAbilities(doc.format, doc.fps);
   // Until the encoder has answered, everything is offered; a film it then
   // refuses fails with a sentence, not halfway through.
-  const works = (s: Size, q: Quality) => !can || can[s][q];
-  const sizeWorks = (s: Size) => QUALITIES.some((q) => works(s, q));
-  const anyMp4 = SIZES.some(sizeWorks);
-  const kind: Kind = p.format === 'mp4' && !anyMp4 ? 'png' : p.format;
+  const anyMp4 = !can || SIZES.some((s) => QUALITIES.some((q) => can[s][q]));
+  const picked = chosen.get(doc.id) ?? bestDestination(doc, anyMp4);
+  const filmCard = (d: Destination) => d === 'story' || d === 'post' || d === 'youtube';
+  const dest: Destination = !anyMp4 && filmCard(picked) ? 'picture' : picked;
+  const choices: Partial<ShareChoices> = { ...p, kind: p.kind === 'mp4' && !anyMp4 ? 'png' : p.kind, transparent: keep, frame };
+  const draft = settingsFor(dest, doc, choices);
+
   // A size this window cannot encode (4K, on some machines) falls back to the nearest it can, rather than disabling Download.
-  const size: Size = kind === 'mp4' ? nearest(SIZES, p.size, sizeWorks) : p.size;
-  const quality: Quality = kind === 'mp4' ? nearest(QUALITIES, p.quality, (q) => works(size, q)) : p.quality;
-  const px = pixelsFor(doc.format, size);
-  const clear = doc.backdrop === null;
+  const canOut = useAbilities(draft.format, doc.fps);
+  const works = (s: Size, q: Quality) => !canOut || canOut[s][q];
+  const sizeWorks = (s: Size) => QUALITIES.some((q) => works(s, q));
+  const size: Size = draft.kind === 'mp4' ? nearest(SIZES, p.size, sizeWorks) : p.size;
+  const quality: Quality = draft.kind === 'mp4' ? nearest(QUALITIES, p.quality, (q) => works(size, q)) : p.quality;
+  const settle = (playhead: number) => settingsFor(dest, doc, { ...choices, size, quality, playhead });
+  const s = size === p.size && quality === p.quality ? draft : settle(0);
+  const out = useMemo(() => outputOf(doc, s), [doc, s.format, s.reshape]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const clear = s.transparent || s.alphaLost;
   const busy = !!run || doc.stage === 'planning';
   const outcome = outcomes.get(doc.id);
   // The file just saved is shown where the buttons were: in the sidebar that is at the column's foot, and the card
@@ -401,35 +548,63 @@ export function MotionExport({ t, doc, onError }: { t: (s: string) => string; do
   const heard = state ? (state.pct === null ? state.what : `${state.what} ${Math.floor(state.pct / 10) * 10}%`)
     : outcome ? fill(t('Saved to {path}'), { path: outcome.path }) : '';
 
-  const choose = (next: Partial<Prefs>) => {
+  const choose = (next: Partial<SharePrefs>) => {
     // A failure was about the choices it was made with.
     failures.delete(doc.id);
     setPrefs(next);
   };
 
-  const job = (at: number, path?: string): Job => ({ size, quality, blur: p.blur, transparent: clear && keep, at, path });
+  const pick = (d: Destination) => {
+    if (busy) return;
+    failures.delete(doc.id);
+    chosen.set(doc.id, d);
+    // Custom is a choice of settings: they are shown at once.
+    if (d === 'custom') setMore(true);
+    notify();
+  };
+
+  const enabled = DESTINATIONS.map((d) => !busy && (anyMp4 || !filmCard(d)));
+  const onCardKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    const rtl = getComputedStyle(e.currentTarget).direction === 'rtl';
+    const to = destinationStep(DESTINATIONS.indexOf(dest), e.key, rtl, enabled);
+    if (to === null) return;
+    e.preventDefault();
+    pick(DESTINATIONS[to]);
+    document.getElementById(`mo-share-${doc.id}-${DESTINATIONS[to]}`)?.focus();
+  };
+
+  const job = (path?: string): Job => {
+    const now = settle(readPlay().t);
+    return { s: now, out: outputOf(doc, now), path };
+  };
 
   const download = () => {
     if (busy) return;
-    start(doc, kind, job(readPlay().t), t, onError);
+    setMore(false);
+    start(doc, job(), t, onError);
   };
 
   const saveAs = async () => {
     if (busy) return;
-    const at = readPlay().t;
+    // The moment the button was pressed, not the moment the panel closed.
+    const { s: now, out: copy } = job();
     let path: string | null;
     try {
       path = await savePanel({
-        title: kind === 'mp4' ? t('Export MP4') : t('Export PNG'),
-        defaultPath: fileNameFor(doc, kind, FORMAT_TAG[doc.format]),
-        filters: [{ name: kind.toUpperCase(), extensions: [kind] }],
+        title: now.kind === 'mp4' ? t('Export MP4') : now.kind === 'gif' ? t('Export GIF') : t('Export PNG'),
+        defaultPath: fileNameOf(doc, now.kind, FORMAT_TAG[now.format]),
+        filters: [{ name: now.kind.toUpperCase(), extensions: [now.kind] }],
       });
     } catch (e) {
       onError(explain(e, t('save the file')));
       return;
     }
     // Closing the panel is choosing not to save: nothing happens.
-    if (path) start(doc, kind, job(at, path), t, onError);
+    if (path) {
+      setMore(false);
+      start(doc, { s: now, out: copy, path }, t, onError);
+    }
   };
 
   const open = (path: string) => openExported(path).catch((e: unknown) => onError(explain(e, t('open the file'))));
@@ -439,119 +614,242 @@ export function MotionExport({ t, doc, onError }: { t: (s: string) => string; do
     notify();
   };
 
-  return (
-    <section className="mo-ex">
-      <div className="vid-dl-set">
-        <span className="vid-group-label">{t('Format')}</span>
-        <div className="vid-seg mo-ex-kinds" role="group" aria-label={t('Format')}>
-          <button type="button" className={kind === 'mp4' ? 'on' : ''} aria-pressed={kind === 'mp4'} disabled={busy || !anyMp4}
-                  onClick={() => choose({ format: 'mp4' })}>
-            <Icon name="film" size={14} />
-            <span>{t('Video')}</span>
-            <bdi dir="ltr" className="vid-dl-ext">MP4</bdi>
-          </button>
-          <button type="button" className={kind === 'png' ? 'on' : ''} aria-pressed={kind === 'png'} disabled={busy}
-                  onClick={() => choose({ format: 'png' })}>
-            <Icon name="image" size={14} />
-            <span>{t('Picture')}</span>
-            <bdi dir="ltr" className="vid-dl-ext">PNG</bdi>
-          </button>
-        </div>
-        {!anyMp4 && <p className="mo-ex-note">{t('This window cannot make an MP4 here. Save a PNG instead.')}</p>}
-      </div>
+  const qId = `mo-share-q-${doc.id}`;
+  const moreId = `mo-share-more-${doc.id}`;
+  const cap = Math.round(GIF.maxBytes / 1_000_000);
+  const goLabel = s.kind === 'mp4' ? t('Download MP4') : s.kind === 'gif' ? t('Download GIF') : t('Download PNG');
+  // The file drawn small: the rebuilt copy itself, or the graphic in its box with the colour around it.
+  const thumbW = s.width >= s.height ? THUMB : Math.max(1, Math.round((THUMB * s.width) / s.height));
+  const thumbH = s.width >= s.height ? Math.max(1, Math.round((THUMB * s.height) / s.width)) : THUMB;
+  const fitted = fitBox(s.from, thumbW, thumbH);
 
+  return (
+    <section className="mo-ex mo-share">
       <div className="vid-dl-set">
-        <span className="vid-group-label">{t('Size')}</span>
-        <div className="vid-seg vid-dl-seg mo-ex-sizes" role="group" aria-label={t('Size')}>
-          {SIZES.map((s) => {
-            const able = kind === 'png' || sizeWorks(s);
-            const dims = pixelsFor(doc.format, s);
+        <span className="vid-group-label" id={qId}>{t('Where is it going?')}</span>
+        <div className="mo-share-dests" role="radiogroup" aria-labelledby={qId} onKeyDown={onCardKey}>
+          {DESTINATIONS.map((d, i) => {
+            const on = d === dest;
             return (
-              <button type="button" key={s} className={s === size ? 'on' : ''} aria-pressed={s === size} disabled={busy || !able}
-                      title={able ? undefined : tooLarge} onClick={() => choose({ size: s })}>
-                <span>{sizeName(s)}</span>
-                <bdi dir="ltr" className="mo-ex-px">{dims.width} × {dims.height}</bdi>
+              <button key={d} type="button" role="radio" id={`mo-share-${doc.id}-${d}`} aria-checked={on} tabIndex={on ? 0 : -1}
+                      className={on ? 'mo-share-dest on' : 'mo-share-dest'} disabled={!enabled[i]}
+                      title={!anyMp4 && filmCard(d) ? t('This window cannot make an MP4 here. Save a PNG instead.') : undefined}
+                      onClick={() => pick(d)}>
+                <DestGlyph d={d} />
+                <b>{destinationName(d, t)}</b>
+                <small><Fill template={destinationLine(d, t)} parts={{ ratio: <bdi dir="ltr">{ratioOf(shapeFor(d, doc.format))}</bdi> }} /></small>
               </button>
             );
           })}
         </div>
-        <small>
-          {kind === 'mp4' && size !== p.size && `${tooLarge} `}
-          {size === '720p' ? t('What YouTube asks for in a thumbnail, and plenty for a phone.')
-            : size === '4k' ? t('Four times the pixels of Full HD: sharpest on a large screen, and a longer wait.')
-            : t('Full HD: what most platforms show.')}
-        </small>
+        {!anyMp4 && <p className="mo-ex-note">{t('This window cannot make an MP4 here. Save a PNG instead.')}</p>}
       </div>
 
-      {kind === 'mp4' ? (
+      {s.reshape !== 'none' && (
+        <div className="mo-share-shape">
+          <span className="mo-share-thumb" aria-hidden="true">
+            {s.reshape === 'rebuild' ? <MotionThumb doc={out} width={thumbW} /> : (
+              <span className="mo-share-fit" style={{ inlineSize: thumbW, blockSize: thumbH, background: s.transparent ? undefined : surroundOf(doc) }}>
+                <MotionThumb doc={doc} width={fitted.w} />
+              </span>
+            )}
+          </span>
+          <p>
+            <Fill template={s.reshape === 'rebuild'
+              ? t('Built again from its template at {to} for this file. Your graphic stays {from}.')
+              : t('Fitted whole inside a {to} frame for this file, on its own background. Your graphic stays {from}.')}
+                  parts={{ to: <bdi dir="ltr">{ratioOf(s.format)}</bdi>, from: <bdi dir="ltr">{ratioOf(s.from)}</bdi> }} />
+          </p>
+        </div>
+      )}
+      {s.kind === 'mp4' && s.alphaLost && (
+        <p className="mo-ex-note">
+          <i className="mo-ex-alpha" aria-hidden="true" />
+          <span>{t('An MP4 cannot keep transparency; the background colour is used. Save a PNG to keep it.')}</span>
+        </p>
+      )}
+      {s.trimmed && (
+        <p className="mo-ex-note">{fill(t('A GIF runs {n} seconds at most: the first {n} are saved.'), { n: GIF.seconds })}</p>
+      )}
+      {s.kind === 'mp4' && soundNote ? <div className="mo-share-sound">{soundNote}</div> : null}
+
+      {run ? <Progress t={t} run={run} /> : (
         <>
-          <div className="vid-dl-set">
-            <span className="vid-group-label">{t('Quality')}</span>
-            <div className="vid-seg vid-dl-seg" role="group" aria-label={t('Quality')}>
-              {QUALITIES.map((q) => (
-                <button type="button" key={q} className={q === quality ? 'on' : ''} aria-pressed={q === quality}
-                        disabled={busy || !works(size, q)} onClick={() => choose({ quality: q })}>
-                  {q === 'medium' ? t('Smaller file') : q === 'high' ? t('Balanced') : t('Best quality')}
-                </button>
-              ))}
-            </div>
-            <small>{t('A higher bitrate keeps words crisp when a platform compresses the video again; the file is larger.')}</small>
+          <div className="mo-ex-acts">
+            <button ref={goBtn} type="button" className="sb-cta-go mo-ex-go" onClick={download} disabled={busy}>
+              <DownloadGlyph size={15} />{goLabel}
+            </button>
           </div>
-          <label className="vid-check mo-ex-check">
-            <input type="checkbox" checked={p.blur} disabled={busy} onChange={(e) => choose({ blur: e.target.checked })} />
+          <p className="vid-dl-spec">
             <span>
-              <b>{t('Motion blur')}</b>
-              <small>{t('Smoother movement, as a camera would see it; saving takes several times as long.')}</small>
+              <bdi dir="ltr">{specOf(s)}</bdi>
+              {s.kind === 'gif' ? ` · ${fill(t('{n} frames a second'), { n: s.fps })}` : ''}
+              {/* "Up to" for a film: the encoder spends less on flat colour than it is allowed (a 3-second 720p
+                  title measured 0.5 to 0.9 MB against 2.1), and the question this answers is whether the file will
+                  fit where it is going. A GIF's and a picture's are guesses, so "about". */}
+              {` · ${fill(s.upTo ? t('up to about {n} MB') : t('about {n} MB'), { n: megabytes(s.bytes) })}`}
+              {s.ms >= 5000 ? ` · ${fill(t('about {time} to make'), { time: clock(s.ms) })}` : ''}
             </span>
-          </label>
-          {clear && (
-            <p className="mo-ex-note">
-              <i className="mo-ex-alpha" aria-hidden="true" />
-              <span>{t('An MP4 cannot keep transparency; the background colour is used. Save a PNG to keep it.')}</span>
-            </p>
-          )}
+            <span>{t('Into your Downloads folder, never over a file that is there.')}</span>
+          </p>
+          {s.capped && <p className="mo-share-hint">{fill(t('It may be made smaller to stay under {n} MB.'), { n: cap })}</p>}
         </>
-      ) : (
-        <>
-          <div className="vid-dl-set">
-            <span className="vid-group-label">{t('Frame')}</span>
-            <Playhead t={t} doc={doc} />
-          </div>
-          {clear && (
+      )}
+
+      <button type="button" className="mo-share-more" aria-expanded={more && !run} aria-controls={moreId} disabled={!!run}
+              onClick={() => setMore(!more)}>
+        <Icon name="chevron" size={12} />
+        <span>{t('More options')}</span>
+      </button>
+      {more && !run && (
+        <div className="vid-dl-more" id={moreId}>
+          {dest === 'custom' && (
+            <div className="vid-dl-set">
+              <span className="vid-group-label">{t('Format')}</span>
+              <div className="vid-seg mo-ex-kinds" role="group" aria-label={t('Format')}>
+                <button type="button" className={s.kind === 'mp4' ? 'on' : ''} aria-pressed={s.kind === 'mp4'} disabled={busy || !anyMp4}
+                        onClick={() => choose({ kind: 'mp4' })}>
+                  <Icon name="film" size={14} />
+                  <span>{t('Video')}</span>
+                  <bdi dir="ltr" className="vid-dl-ext">MP4</bdi>
+                </button>
+                <button type="button" className={s.kind === 'gif' ? 'on' : ''} aria-pressed={s.kind === 'gif'} disabled={busy}
+                        onClick={() => choose({ kind: 'gif' })}>
+                  <DestGlyph d="loop" size={14} />
+                  <span>{t('Web loop')}</span>
+                  <bdi dir="ltr" className="vid-dl-ext">GIF</bdi>
+                </button>
+                <button type="button" className={s.kind === 'png' ? 'on' : ''} aria-pressed={s.kind === 'png'} disabled={busy}
+                        onClick={() => choose({ kind: 'png' })}>
+                  <Icon name="image" size={14} />
+                  <span>{t('Picture')}</span>
+                  <bdi dir="ltr" className="vid-dl-ext">PNG</bdi>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {s.kind === 'gif' ? (
+            <div className="vid-dl-set">
+              <span className="vid-group-label">{t('Size')}</span>
+              <div className="vid-seg vid-dl-seg mo-ex-sizes" role="group" aria-label={t('Size')}>
+                {GIF_SIDES.map((side) => {
+                  const dims = gifSizeFor(s.format, side);
+                  return (
+                    <button type="button" key={side} className={side === s.side ? 'on' : ''} aria-pressed={side === s.side} disabled={busy}
+                            onClick={() => choose({ gifSide: side })}>
+                      <bdi dir="ltr">{side}</bdi>
+                      <bdi dir="ltr" className="mo-ex-px">{dims.width} × {dims.height}</bdi>
+                    </button>
+                  );
+                })}
+              </div>
+              <small>{t('The longest side, in pixels. A smaller GIF opens sooner in a chat.')}</small>
+            </div>
+          ) : (
+            <div className="vid-dl-set">
+              <span className="vid-group-label">{t('Size')}</span>
+              <div className="vid-seg vid-dl-seg mo-ex-sizes" role="group" aria-label={t('Size')}>
+                {SIZES.map((z) => {
+                  const able = s.kind === 'png' || sizeWorks(z);
+                  const dims = pixelsFor(s.format, z);
+                  return (
+                    <button type="button" key={z} className={z === s.size ? 'on' : ''} aria-pressed={z === s.size} disabled={busy || !able}
+                            title={able ? undefined : tooLarge} onClick={() => choose({ size: z })}>
+                      <span>{sizeName(z)}</span>
+                      <bdi dir="ltr" className="mo-ex-px">{dims.width} × {dims.height}</bdi>
+                    </button>
+                  );
+                })}
+              </div>
+              <small>
+                {s.kind === 'mp4' && size !== p.size && `${tooLarge} `}
+                {s.size === '720p' ? t('What YouTube asks for in a thumbnail, and plenty for a phone.')
+                  : s.size === '4k' ? t('Four times the pixels of Full HD: sharpest on a large screen, and a longer wait.')
+                  : t('Full HD: what most platforms show.')}
+              </small>
+            </div>
+          )}
+
+          {s.kind === 'mp4' && (
+            <>
+              <div className="vid-dl-set">
+                <span className="vid-group-label">{t('Quality')}</span>
+                <div className="vid-seg vid-dl-seg" role="group" aria-label={t('Quality')}>
+                  {QUALITIES.map((q) => (
+                    <button type="button" key={q} className={q === s.quality ? 'on' : ''} aria-pressed={q === s.quality}
+                            disabled={busy || !works(size, q)} onClick={() => choose({ quality: q })}>
+                      {q === 'medium' ? t('Smaller file') : q === 'high' ? t('Balanced') : t('Best quality')}
+                    </button>
+                  ))}
+                </div>
+                <small>{t('A higher bitrate keeps words crisp when a platform compresses the video again; the file is larger.')}</small>
+              </div>
+              <label className="vid-check mo-ex-check">
+                <input type="checkbox" checked={s.blur} disabled={busy} onChange={(e) => choose({ blur: e.target.checked })} />
+                <span>
+                  <b>{t('Motion blur')}</b>
+                  <small>{t('Smoother movement, as a camera would see it; saving takes several times as long.')}</small>
+                </span>
+              </label>
+            </>
+          )}
+
+          {s.kind === 'gif' && (
+            <div className="vid-dl-set">
+              <span className="vid-group-label">{t('Frame rate')}</span>
+              <div className="vid-seg vid-dl-seg" role="group" aria-label={t('Frame rate')}>
+                {GIF_RATES.map((r) => (
+                  <button type="button" key={r} className={r === s.fps ? 'on' : ''} aria-pressed={r === s.fps} disabled={busy}
+                          onClick={() => choose({ gifFps: r })}>
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <small>{t('Fewer frames a second make a smaller file; 15 is smooth for most loops.')}</small>
+            </div>
+          )}
+
+          {s.kind === 'png' && (
+            <div className="vid-dl-set">
+              <span className="vid-group-label">{t('Frame')}</span>
+              <div className="vid-seg vid-dl-seg mo-share-two" role="group" aria-label={t('Frame')}>
+                <button type="button" className={s.frame === 'best' ? 'on' : ''} aria-pressed={s.frame === 'best'} disabled={busy}
+                        onClick={() => setFrame('best')}>
+                  {t('Its best moment')}
+                </button>
+                <button type="button" className={s.frame === 'playhead' ? 'on' : ''} aria-pressed={s.frame === 'playhead'} disabled={busy}
+                        onClick={() => setFrame('playhead')}>
+                  {t('At the playhead')}
+                </button>
+              </div>
+              {s.frame === 'playhead' ? <Playhead t={t} doc={out} /> : (
+                <p className="mo-ex-frame">
+                  <Fill template={t('The moment it reads best: {time}.')}
+                        parts={{ time: <bdi dir="ltr">{moment(frameAt(out, s.at ?? 0) / out.fps)}</bdi> }} />
+                </p>
+              )}
+            </div>
+          )}
+
+          {s.kind !== 'mp4' && clear && (
             <label className="vid-check mo-ex-check">
               <input type="checkbox" checked={keep} disabled={busy} onChange={(e) => setKeep(e.target.checked)} />
               <span>
                 <b>{t('Keep transparency')}</b>
                 <i className="mo-ex-alpha" aria-hidden="true" />
+                {s.kind === 'gif' && <small>{t('A GIF has no soft edges: each pixel is either shown or not.')}</small>}
               </span>
             </label>
           )}
-        </>
-      )}
 
-      {run ? <Progress t={t} run={run} /> : (
-        <>
           <div className="mo-ex-acts">
-            <button ref={goBtn} type="button" className="sb-cta-go mo-ex-go" onClick={download} disabled={busy || (kind === 'mp4' && !anyMp4)}>
-              <DownloadGlyph size={15} />{kind === 'mp4' ? t('Download MP4') : t('Download PNG')}
-            </button>
-            <button type="button" className="mo-ex-saveas" onClick={() => void saveAs()} disabled={busy || (kind === 'mp4' && !anyMp4)}
+            <button type="button" className="mo-ex-saveas" onClick={() => void saveAs()} disabled={busy}
                     title={t('Choose the folder and the name')}>
               {t('Save as…')}
             </button>
           </div>
-          <p className="vid-dl-spec">
-            <span>
-              <bdi dir="ltr">{sizeName(size)} · {px.width} × {px.height} · {kind.toUpperCase()}</bdi>
-              {/* "Up to": the encoder spends less on flat colour than it is
-                  allowed (a 3-second 720p title measured 0.5 to 0.9 MB against
-                  2.1), and the question this answers is whether the file will
-                  fit where it is going. */}
-              {kind === 'mp4' ? ` · ${fill(t('up to about {n} MB'), { n: megabytes(estimateBytes(doc, size, quality)) })}` : ''}
-            </span>
-            <span>{t('Into your Downloads folder, never over a file that is there.')}</span>
-          </p>
-        </>
+        </div>
       )}
 
       {outcome && !run && (
@@ -564,10 +862,9 @@ export function MotionExport({ t, doc, onError }: { t: (s: string) => string; do
             </button>
           </p>
           <p className="mo-ex-where">
-            <Slot template={t('Saved to {path}')} name="path">
-              <bdi dir="ltr" className="vid-dl-path">{folderOf(outcome.path)}</bdi>
-            </Slot>
+            <Fill template={t('Saved to {path}')} parts={{ path: <bdi dir="ltr" className="vid-dl-path">{folderOf(outcome.path)}</bdi> }} />
           </p>
+          {outcome.note && <p className="mo-ex-where mo-share-note" dir="auto">{outcome.note}</p>}
           <div className="vid-dl-acts">
             <button type="button" className="ghost" onClick={() => void open(outcome.path)}>
               <Icon name={outcome.kind === 'mp4' ? 'play' : 'image'} size={12} />{t('Open')}
@@ -619,8 +916,8 @@ function Progress({ t, run }: { t: T; run: Run }) {
     if (!document.activeElement || document.activeElement === document.body) cancel.current?.focus();
   }, []);
   const elapsed = Date.now() - run.started;
-  const f = run.kind === 'mp4' && run.done > 0 ? Math.min(1, run.done / Math.max(1, run.total)) : null;
-  const left = f !== null && f > 0.03 ? (elapsed / f) * (1 - f) : 0;
+  const f = run.kind !== 'png' && run.done > 0 ? Math.min(1, run.done / Math.max(1, run.total)) : null;
+  const left = f !== null && f > 0.03 ? ((Date.now() - run.since) / f) * (1 - f) : 0;
   const writing = run.phase === 'write';
   const { what, pct } = runState(run, t);
   return (

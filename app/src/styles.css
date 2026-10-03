@@ -8743,3 +8743,77 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 
 /* ── Motion studio: end ───────────────────────────────────────────────────── */
+
+/* pro:09 start */
+/* ── Motion: Export by destination (MotionExport.tsx) ──────────────────────
+   "Where is it going?" as six cards in two columns, each an icon, two words
+   and one line; the chosen one carries the accent, as a chosen chip does. A
+   radio group: arrows move the choice (motionshare.ts' destinationStep), and
+   the ring is drawn outside the card's own border. Under them, a calm note
+   with the copy drawn small when the file has another shape, then Download,
+   then "More options", a quiet disclosure whose panel is Video's
+   (.vid-dl-more). Tokens only, so light and dark follow the theme; logical
+   properties throughout, so the tab mirrors in Arabic and Kurdish. */
+
+.mo-share-dests{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--sp-3); }
+.mo-share-dest{
+  display:grid; grid-template-columns:auto minmax(0, 1fr); align-items:center; column-gap:var(--sp-4); row-gap:1px;
+  min-inline-size:0; padding:var(--sp-4) var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-3);
+  background:var(--panel); color:var(--ink-2); font:inherit; text-align:start; cursor:pointer;
+  transition:border-color .12s ease, background .12s ease;
+}
+.mo-share-dest > .ic{ grid-row:1 / span 2; color:var(--mute); }
+.mo-share-dest b{ font-size:var(--fs-4); font-weight:600; color:var(--ink); line-height:1.3; overflow-wrap:anywhere; }
+.mo-share-dest small{ font-size:var(--fs-1); color:var(--mute); line-height:1.35; overflow-wrap:anywhere; }
+.mo-share-dest:hover:not(:disabled){ border-color:var(--rule-2); background:var(--panel-3); }
+.mo-share-dest.on{ border-color:var(--brand); background:var(--brand-wash); box-shadow:inset 0 0 0 1px var(--brand); }
+.mo-share-dest.on > .ic{ color:var(--brand); }
+.mo-share-dest:disabled{ opacity:var(--dim); cursor:default; }
+.mo-share-dest:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; }
+
+/* Another shape: the copy at its own proportions in a small square, and the sentence that says the graphic is not changed. */
+.mo-share-shape{
+  display:flex; align-items:center; gap:var(--sp-5); padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel);
+}
+.mo-share-thumb{
+  flex:none; display:grid; place-items:center; inline-size:64px; block-size:64px; overflow:hidden;
+  border-radius:var(--r-1); background:var(--panel-2);
+}
+.mo-share-shape p{ flex:1; min-inline-size:0; margin:0; font-size:var(--fs-2); color:var(--ink-2); line-height:1.5; }
+/* A graphic fitted inside the file's frame: the frame, in the colour around the graphic (or the checkerboard when it stays transparent), with the graphic centred in it. */
+.mo-share-fit{
+  display:grid; place-items:center; overflow:hidden;
+  background:repeating-conic-gradient(var(--rule-2) 0% 25%, var(--panel) 0% 50%) 0 0 / 8px 8px;
+}
+
+/* What the sound packages put here (an MP4's sound line), and the GIF's "may be made smaller". */
+.mo-share-sound{ font-size:var(--fs-2); color:var(--ink-2); line-height:1.5; }
+.mo-share-hint{ margin:0; margin-block-start:calc(-1 * var(--sp-4)); font-size:var(--fs-1); color:var(--mute); line-height:1.45; }
+
+/* "More options": a line of text with a chevron that turns down when open (and points left, closed, in Arabic and Kurdish). */
+.mo-share-more{
+  align-self:flex-start; display:inline-flex; align-items:center; gap:var(--sp-2); margin-block:calc(-1 * var(--sp-2));
+  padding:var(--sp-2) var(--sp-1); border:0; border-radius:var(--r-1); background:none;
+  color:var(--mute); font:inherit; font-size:var(--fs-3); cursor:pointer;
+}
+.mo-share-more:hover:not(:disabled){ color:var(--ink); }
+.mo-share-more:disabled{ opacity:var(--dim); cursor:default; }
+.mo-share-more .ic{ transition:transform .15s ease; }
+.mo-share-more[aria-expanded="true"] .ic{ transform:rotate(90deg); }
+:root[dir="rtl"] .mo-share-more[aria-expanded="false"] .ic{ transform:scaleX(-1); }
+.mo-share-more:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
+
+/* Custom's three kinds of file, each with its tag under its name; a picture's two moments, side by side. */
+.mo-share .mo-ex-kinds{ grid-template-columns:repeat(3, minmax(0, 1fr)); }
+.mo-share .mo-ex-kinds button{ flex-direction:column; gap:1px; }
+.mo-share-two{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+.mo-share-two button{ white-space:normal; }
+
+/* What a GIF gave up to fit, under where it was saved. */
+.mo-share-note{ margin-block-start:0; color:var(--ink-2); }
+
+@media (prefers-reduced-motion: reduce){
+  .mo-share-dest, .mo-share-more .ic{ transition:none; }
+}
+/* pro:09 end */
