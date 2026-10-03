@@ -24,11 +24,30 @@ import { renderSoundBed, soundKey, type SoundBed } from './motionsound';
  * asked to agree by force on every frame — restarting a buffer is audible.
  * `follow` is told where the playhead is each time it moves; it starts the
  * sound when play starts, stops it on pause, and starts it again at the
- * playhead only when they have drifted apart by more than `DRIFT` — which is
- * also how a seek, a loop back to the start and a window that was hidden
- * (the playhead waits, the speaker does not) are noticed. A change of speed
- * restarts it at that speed: the sound goes up or down in pitch with it, which
- * is what keeps it in step.
+ * playhead only when they have drifted apart — which is also how a seek and a
+ * loop back to the start are noticed. A change of speed restarts it at that
+ * speed: the sound goes up or down in pitch with it, which is what keeps it in
+ * step.
+ *
+ * How far apart is too far is not the same both ways. Sound *early* is what a
+ * viewer notices first: ITU-R BT.1359 puts the threshold of detectability at
+ * 45 ms early and 125 ms late, so the sound is started again when it runs more
+ * than `EARLY` ahead of the picture or `LATE` behind it. With one figure for
+ * both (0.12 s), a main-thread stall the playhead does not fully make up —
+ * it counts at most a quarter of a second of any gap (`motionplay.ts`) — left
+ * the sound 48 ms ahead of the picture for the rest of the play (measured in
+ * the app's WebKit, the R2 review).
+ *
+ * A frame that takes long to draw is not a drift. When the playhead has moved
+ * on less than the wall clock since `follow` last saw it, the picture is late,
+ * not lost — its next tick catches up — so the sound is left alone for that
+ * one call. Without that, a 150 ms stall between the clock's tick and this
+ * call sent the sound back 150 ms (heard twice) and then forward again.
+ *
+ * While the window is hidden the playhead stands still (no animation frames)
+ * and so does the sound: it stops when the page is hidden and starts again at
+ * the playhead with the next frame after it is shown, rather than playing on to
+ * its end behind a picture that is not moving.
  *
  * ## Started by a person
  *
@@ -46,8 +65,10 @@ import { renderSoundBed, soundKey, type SoundBed } from './motionsound';
  * is a no-op and `prepare` resolves `false`. Nothing here throws.
  */
 
-/** Seconds the sound may be ahead of or behind the playhead before it is started again at it. */
-const DRIFT = 0.12;
+/** Seconds the sound may run ahead of the picture before it is started again at the playhead: BT.1359's threshold for sound early. */
+const EARLY = 0.045;
+/** Seconds it may fall behind: sound late is noticed later (125 ms), and a restart is itself heard, so it waits longer. */
+const LATE = 0.12;
 /** Seconds a start or a stop is faded over, so it is not a click. */
 const RAMP = 0.008;
 /** Seconds before the end of the sound that a start is not worth making: the last frame or two. */
@@ -70,6 +91,14 @@ let pos = 0;
 /** The playhead's last second, for a start that has to wait for the context. */
 let clock = 0;
 let armed = false;
+/** When `follow` last ran (ms, the page's clock), and whether it last let a drift wait for the playhead to catch up. */
+let seenAt = 0;
+let waited = false;
+let watching = false;
+
+const wallNow = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
+/** Whether the page is hidden: no animation frames, so the playhead is not moving. */
+const away = () => typeof document !== 'undefined' && document.hidden === true;
 
 /** The window's own context, or null where it has none. */
 function windowContext(): AudioContext | null {
@@ -106,6 +135,20 @@ function disarm(): void {
   armed = false;
 }
 
+/** The page was hidden: the playhead stops, so the sound does too (it starts again at the playhead once frames run). */
+function onVisibility(): void {
+  if (!away() || !voice) return;
+  pos = position();
+  stopVoice();
+}
+
+function watch(on: boolean): void {
+  if (on === watching || typeof document === 'undefined' || typeof document.addEventListener !== 'function') return;
+  if (on) document.addEventListener('visibilitychange', onVisibility);
+  else document.removeEventListener('visibilitychange', onVisibility);
+  watching = on;
+}
+
 /** The context, made the first time a graphic with sound needs it. */
 function context(): AudioContext | null {
   if (ctx) return ctx;
@@ -133,6 +176,7 @@ function context(): AudioContext | null {
     }
   };
   if (mine.state !== 'running') arm();
+  watch(true);
   return mine;
 }
 
@@ -216,7 +260,7 @@ export function prepare(doc: Motion): Promise<boolean> {
 
 function start(at: number): void {
   const c = ctx;
-  if (!c || !buffer || !master || !playing) return;
+  if (!c || !buffer || !master || !playing || away()) return;
   if (c.state !== 'running') {
     wake();
     return;
@@ -323,13 +367,19 @@ export function setLevel(v: number): void {
  * the clock moves. Cheap when nothing needs doing, which is nearly always.
  */
 export function follow(p: { t: number; playing: boolean; speed: number }): void {
+  const wall = wallNow();
+  const since = seenAt ? (wall - seenAt) / 1000 : 0;
+  const before = clock;
+  seenAt = wall;
   clock = second(p.t);
   if (!p.playing) {
     if (playing) pause();
     pos = clock;
+    waited = false;
     return;
   }
   if (!playing || speedOf(p.speed) !== rate) {
+    waited = false;
     play(clock, p.speed);
     return;
   }
@@ -339,7 +389,20 @@ export function follow(p: { t: number; playing: boolean; speed: number }): void 
     start(clock);
     return;
   }
-  if (Math.abs(position() - clock) > DRIFT) seek(clock);
+  const off = position() - clock;
+  if (off <= EARLY && off >= -LATE) {
+    waited = false;
+    return;
+  }
+  // The picture fell behind the wall clock since the last call (a slow frame): it catches up on its next
+  // tick, so give it that one tick. A seek or a loop moves the playhead itself and is followed at once.
+  const behind = since * rate - Math.max(0, clock - before);
+  if (!waited && behind > EARLY) {
+    waited = true;
+    return;
+  }
+  waited = false;
+  seek(clock);
 }
 
 /** Stop, let go of the bed and close the context: the graphic was closed. Safe to call at any time. */
@@ -354,7 +417,10 @@ export function dispose(): void {
   wantKey = '';
   pos = 0;
   clock = 0;
+  seenAt = 0;
+  waited = false;
   disarm();
+  watch(false);
   const c = ctx;
   ctx = null;
   master = null;
