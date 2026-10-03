@@ -3087,6 +3087,13 @@ const ar: Dict = {
   'the design’s': 'لون التصميم',
   'The design’s own': 'كما في التصميم',
   'Use the design’s colour': 'استخدم لون التصميم',
+  // Motion pro: 04 sound
+  'Effects': 'المؤثرات',
+  'Both': 'كلاهما',
+  'Level': 'المستوى',
+  'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'أصوات تُصنع من الحركة نفسها: صوت اندفاع للانزلاق، ونقرات للعدّاد',
+  'Music composed for this graphic, on this computer': 'موسيقى تُؤلَّف لهذا التصميم المتحرك على هذا الحاسوب',
+  'Effects over music': 'المؤثرات فوق الموسيقى',
 };
 
 const ckb: Dict = {
@@ -6153,6 +6160,13 @@ const ckb: Dict = {
   'the design’s': 'هی دیزاینەکە',
   'The design’s own': 'هی دیزاینەکە',
   'Use the design’s colour': 'ڕەنگی دیزاینەکە بەکاربهێنە',
+  // Motion pro: 04 sound
+  'Effects': 'ئێفێکتەکان',
+  'Both': 'هەردووکیان',
+  'Level': 'ئاست',
+  'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'دەنگ لە جووڵەکەوە دروست دەکرێن: فشەیەک بۆ خلیسکان، تیکتیک بۆ ژمێرەر',
+  'Music composed for this graphic, on this computer': 'مۆسیقایەک بۆ ئەم گرافیکە، لەسەر ئەم کۆمپیوتەرە دادەنرێت',
+  'Effects over music': 'ئێفێکت لەسەر مۆسیقا',
 };
 
 const kmr: Dict = {
@@ -9217,6 +9231,13 @@ const kmr: Dict = {
   'the design’s': 'یێ دیزاینی',
   'The design’s own': 'یێ دیزاینی',
   'Use the design’s colour': 'ڕەنگێ دیزاینی بکار بینە',
+  // Motion pro: 04 sound
+  'Effects': 'ئێفێکت',
+  'Both': 'هەردوو',
+  'Level': 'ئاست',
+  'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'دەنگ ژ لڤینێ دهێنە چێکرن: فشەک بۆ خشکاندنێ، تیکتیک بۆ ژمارتنێ',
+  'Music composed for this graphic, on this computer': 'مۆسیقایەک بۆ ڤی گرافیکی، ل سەر ڤی کۆمپیوتەری دهێتە دانان',
+  'Effects over music': 'ئێفێکت ل سەر مۆسیقایێ',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
