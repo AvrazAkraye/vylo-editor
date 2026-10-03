@@ -466,6 +466,23 @@ export interface RecipeRef {
   until?: number;
 }
 
+/**
+ * A web page a graphic's facts came from (docs/VM.md, "Motion's Ask finds
+ * out"): when the person asks for facts the graphic does not have, the model
+ * may search the web, and the pages it read are kept with the graphic and
+ * shown as links. Only ever an `https:` address with no user name or password
+ * in it — the same rule the app's `open_url` command keeps — and a title of
+ * one line; motionread.ts `readSources` holds both to that, and to
+ * `SOURCES_MAX` of them.
+ */
+export interface Source {
+  title: string;
+  url: string;
+}
+
+/** The most pages a graphic keeps as its sources. */
+export const SOURCES_MAX = 6;
+
 export interface Motion {
   id: string;
   title: string;
@@ -487,6 +504,8 @@ export interface Motion {
   sound?: SoundSpec;
   /** Its scenes and the transitions between them (`motionscene.ts`). Absent is one scene, as before. */
   scenes?: SceneSpec[];
+  /** The web pages its facts came from, newest first; absent when none did (`Source`). */
+  sources?: Source[];
   /** Designed by the model rather than started from a template as it is. */
   ai?: boolean;
   stage: 'new' | 'planning' | 'ready';

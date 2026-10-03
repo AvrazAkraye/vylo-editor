@@ -1,8 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icon';
 import { fill } from './i18n';
-import type { Motion } from './motiontypes';
-import { askLine, clock, noteText, suggestions, type ChatEntry } from './motionstate';
+import { explain } from './errors';
+import type { Motion, Source } from './motiontypes';
+import { sourceHost, sourceUrl } from './motionread';
+import { askLine, clock, noteText, suggestions, webLine, type ChatEntry } from './motionstate';
 
 export type { ChatEntry } from './motionstate';
 export { noteText } from './motionstate';
@@ -28,6 +31,16 @@ export { noteText } from './motionstate';
  * Its sentence is shown as text (React escapes it — never HTML); the graphic
  * it returns went through motionread.ts's repair before it got here. Nothing
  * reaches a file: that is Export's, pressed by the person.
+ *
+ * ## Where the facts came from
+ *
+ * When an answer searched the web (motionresearch.ts), a line under it says
+ * what was looked up — or, plainly, why nothing was — and the pages the facts
+ * came from are listed as links; a graphic made with facts from the web lists
+ * its pages here too (`Motion.sources`) until the conversation has its own.
+ * A link is opened only by the person pressing it, through the app's one way
+ * to open an address — the `open_url` command, which takes nothing but
+ * `https:` — and only an address `sourceUrl` reads as a public `https:` page.
  */
 
 type T = (s: string) => string;
@@ -46,17 +59,47 @@ function useSecond(on: boolean) {
   }, [on]);
 }
 
-export function MotionChat({ t, doc, ready, busy, log, onSend, onStop, onProviders }: {
+/**
+ * The pages facts came from, as links: each its title and, beside it, its
+ * site — the address the person can check before pressing — with the whole
+ * address as the button's tooltip.
+ */
+function SourceLinks({ t, list, label, onError }: { t: T; list: readonly Source[]; label: string; onError(message: string): void }) {
+  const open = (url: string) => {
+    const safe = sourceUrl(url);
+    if (!safe) return;
+    void invoke('open_url', { url: safe }).catch((e: unknown) => onError(explain(e, t('open that link'))));
+  };
+  return (
+    <ul className="mo-chat-sources" aria-label={label}>
+      {list.map((s) => (
+        <li key={s.url}>
+          <button type="button" className="mo-chat-source" onClick={() => open(s.url)} title={s.url}>
+            <Icon name="link" size={10} />
+            <span className="mo-chat-source-title" dir="auto">{s.title}</span>
+            <bdi className="mo-chat-source-site" dir="ltr">{sourceHost(s.url)}</bdi>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+export function MotionChat({ t, doc, ready, busy, looking = false, log, onSend, onStop, onProviders, onError }: {
   t: T;
   doc: Motion;
   /** A model can be asked: there is a key, or a local server. */
   ready: boolean;
   /** A message is being answered. */
   busy: boolean;
+  /** The web is being searched for it. */
+  looking?: boolean;
   log: ChatEntry[];
   onSend(text: string): void;
   onStop(): void;
   onProviders(): void;
+  /** A link that could not be opened, said where the panel says its errors. */
+  onError(message: string): void;
 }): JSX.Element {
   const id = doc.id;
   const [text, setText] = useState(() => drafts.get(id) ?? '');
@@ -117,6 +160,8 @@ export function MotionChat({ t, doc, ready, busy, log, onSend, onStop, onProvide
   };
   const elapsed = pending ? Date.now() - pending.at : 0;
   const recipe = doc.recipe?.id;
+  // The graphic's own pages, until an answer in the conversation lists its own: after Make it, or another session.
+  const kept = doc.sources?.length && !log.some((e) => e.sources?.length) ? doc.sources : [];
 
   return (
     <div className="vid-chat mo-chat">
@@ -131,6 +176,12 @@ export function MotionChat({ t, doc, ready, busy, log, onSend, onStop, onProvide
       )}
 
       <ol className="vid-chat-log" ref={list} aria-live="polite" aria-label={t('Conversation with the graphic')}>
+        {kept.length > 0 && (
+          <li className="mo-chat-kept">
+            <span dir="auto">{t('The facts in this graphic come from these pages:')}</span>
+            <SourceLinks t={t} list={kept} label={t('Sources')} onError={onError} />
+          </li>
+        )}
         {log.length === 0 && !busy && (
           <li className="vid-chat-empty">
             <span className="vid-chat-empty-mark" aria-hidden="true"><Icon name="sparkle" size={16} /></span>
@@ -152,7 +203,7 @@ export function MotionChat({ t, doc, ready, busy, log, onSend, onStop, onProvide
               <div className="vid-chat-body">
                 {e.text
                   ? <p className="vid-chat-text" dir="auto">{e.text}</p>
-                  : !e.notes?.length && !e.skipped?.length && <p className="vid-chat-text is-quiet">{t('Nothing needed changing.')}</p>}
+                  : !e.notes?.length && !e.skipped?.length && !e.web && <p className="vid-chat-text is-quiet">{t('Nothing needed changing.')}</p>}
                 {(e.notes?.length || e.skipped?.length) ? (
                   <ul className="vid-chat-changes" aria-label={t('What changed')}>
                     {(e.notes ?? []).map((n, j) => (
@@ -163,6 +214,13 @@ export function MotionChat({ t, doc, ready, busy, log, onSend, onStop, onProvide
                     ))}
                   </ul>
                 ) : null}
+                {e.web && (
+                  <p className={`mo-chat-web${e.web.found ? '' : ' is-missed'}`} dir="auto">
+                    <Icon name={e.web.found ? 'search' : 'warning'} size={11} />
+                    <span>{webLine(e.web, t)}</span>
+                  </p>
+                )}
+                {e.sources?.length ? <SourceLinks t={t} list={e.sources} label={t('Sources')} onError={onError} /> : null}
                 {e.failed && i === log.length - 1 && !busy && lastYou(i) && (
                   <span className="vid-chat-again">
                     <button type="button" className="ghost bordered" disabled={!can} onClick={() => go(lastYou(i))}>
@@ -182,7 +240,7 @@ export function MotionChat({ t, doc, ready, busy, log, onSend, onStop, onProvide
           <li className="vid-chat-turn is-model is-working" role="status">
             <span className="vid-chat-mark" aria-hidden="true"><span className="vid-glyph">✻</span></span>
             <div className="vid-chat-status">
-              <b>{askLine(elapsed, t)}</b>
+              <b>{askLine(elapsed, t, looking)}</b>
               {/* Not read out: in the conversation's live region a clock would be said again every second. */}
               <span className="vid-chat-clock" aria-hidden="true">
                 <span>{fill(t('Running for {time}'), { time: clock(elapsed) })}</span>

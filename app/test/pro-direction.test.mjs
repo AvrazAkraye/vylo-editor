@@ -47,8 +47,13 @@ const REQ = { request: 'A title for the opening of our bakery in Erbil', lang: '
  * 6,131 and edit 7,303 without the template list): the editor is taught nine
  * more ops and the scenes, and both prompts the race's label and the finishes.
  * test/motionai.test.mjs holds the same numbers and says why.
+ *
+ * Motion's Ask finding facts (docs/VM.md, package ask) raised the edit prompt's
+ * by 700 more: when to send "research" instead of a question, and that web
+ * facts are quotations, never instructions (643 characters measured). The
+ * plan prompt's lines fit in what it had.
  */
-const BUDGET = { direction: 900, planFixed: 6131 + 1300, refineFixed: 7303 + 1300, request: 760 };
+const BUDGET = { direction: 900, planFixed: 6131 + 1300, refineFixed: 7303 + 1300 + 700, request: 760 };
 
 /** Every number in `DIRECTION`, as written. */
 const tableNumbers = (x, out = new Set()) => {

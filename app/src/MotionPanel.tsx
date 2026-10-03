@@ -21,7 +21,7 @@ import { planMotion, planned, refineMotion, type PlanRequest } from './motionai'
 import {
   LENGTHS, SHAPES, TOP_TEMPLATES, answerFate, canMake, clock, dragChanged, endStep, errorText, fitWidth, formatName, formatRatio,
   freshDraft, JOURNAL_MAX, journalOf, keyAction, logged, moveKey, placeholderOf, planLine, planRequestOf, recordEdit, secondsText, sortMotions,
-  tabStep, templateOptions, withJournal, type ChatEntry, type Draft,
+  tabStep, templateOptions, webNoteOf, withJournal, type ChatEntry, type Draft,
 } from './motionstate';
 import { MotionStage } from './MotionStage';
 import { MotionTimeline } from './MotionTimeline';
@@ -111,6 +111,8 @@ interface Job {
   started: number;
   /** Characters of the model's answer so far, so a long wait visibly moves. */
   chars: number;
+  /** The web is being searched for the facts the answer needs (motionresearch.ts): the status line says so. */
+  looking?: boolean;
 }
 
 /** Model runs, by graphic. They outlive the panel: closing the sidebar does not stop one. */
@@ -442,6 +444,10 @@ function startPlan(doc: Motion, req: PlanRequest, gw: Target, book: EffortBook, 
       job.chars = n;
       notifySoon();
     },
+    onLookup: (query) => {
+      job.looking = query !== null;
+      notify();
+    },
   })
     .then((made) => {
       const cur = known.get(id);
@@ -484,7 +490,13 @@ function startRefine(doc: Motion, text: string, gw: Target, book: EffortBook, wo
   const answer = (entry: ChatEntry) => {
     if (!gone.has(id)) logs.set(id, logged(logs.get(id) ?? [], [you, entry]));
   };
-  refineMotion(gw, book, doc, message, { signal: ctl.signal })
+  refineMotion(gw, book, doc, message, {
+    signal: ctl.signal,
+    onLookup: (query) => {
+      job.looking = query !== null;
+      notify();
+    },
+  })
     .then((r) => {
       const fate = answerFate(doc, known.get(id), r.notes);
       if (fate === 'gone' || gone.has(id)) return;
@@ -497,7 +509,12 @@ function startRefine(doc: Motion, text: string, gw: Target, book: EffortBook, wo
         if (planned(r.motion)) examples.add(id);
         edit(id, (m) => ({ ...r.motion, id, created: m.created, stage: 'ready' }));
       }
-      answer({ who: 'motion', text: r.said, notes: r.notes, skipped: r.skipped, at: Date.now() });
+      // A search is said under the answer, and the pages it read listed as links (MotionChat.tsx).
+      const web = webNoteOf(r.research);
+      answer({
+        who: 'motion', text: r.said, notes: r.notes, skipped: r.skipped, at: Date.now(),
+        ...(web ? { web } : {}), ...(r.sources?.length ? { sources: r.sources } : {}),
+      });
     })
     .catch((e: unknown) => {
       if (ctl.signal.aborted || isAbort(e)) return;
@@ -648,7 +665,7 @@ function Working({ t, job, onCancel }: { t: T; job: Job; onCancel: () => void })
     <div className="vid-status mo-status">
       <p className="vid-status-line" role="status">
         <span className="vid-glyph" aria-hidden="true">✻</span>
-        <b>{planLine(elapsed, job.chars, t)}</b>
+        <b>{planLine(elapsed, job.chars, t, !!job.looking)}</b>
       </p>
       <div className="vid-bar is-early" role="progressbar" aria-label={t('Progress')}><i /></div>
       <p className="vid-clock">
@@ -1391,8 +1408,8 @@ function View({ t, doc, job, making, ready, inFull, sel, log, onEdit, onRemove, 
             {tabNow === 'design' && <MotionDesign t={t} doc={doc} selected={sel} onSelect={select} onEdit={onEdit} />}
             {tabNow === 'layers' && <MotionLayers t={t} doc={doc} selected={sel} onSelect={select} onEdit={inScene} />}
             {tabNow === 'ask' && (
-              <MotionChat t={t} doc={doc} ready={ready} busy={busy} log={log} onSend={onSend}
-                          onStop={() => stop(doc.id)} onProviders={onProviders} />
+              <MotionChat t={t} doc={doc} ready={ready} busy={busy} looking={busy && !!job?.looking} log={log} onSend={onSend}
+                          onStop={() => stop(doc.id)} onProviders={onProviders} onError={onError} />
             )}
             {tabNow === 'export' && <MotionExport t={t} doc={doc} onError={onError} />}
           </div>

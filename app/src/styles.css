@@ -9137,3 +9137,32 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .ghost.mb-icon{ min-inline-size:24px; min-block-size:24px; }
 :root[dir="rtl"] .mb-preview-bar{ transform:scaleX(-1); }
 /* pro:r3 end */
+
+/* vm:ask start */
+/* Motion's Ask looks facts up on the web (MotionChat.tsx). The line under an answer says what was searched, or plainly why
+   nothing was; the pages the facts came from follow as links — the title, then the site, which is what a person checks
+   before pressing. Quiet: the answer is the point, the sources its footnote. */
+.mo-chat-web{
+  display:flex; align-items:flex-start; gap:var(--sp-2); margin:0; font-size:var(--fs-2); line-height:1.5; color:var(--ink-2);
+}
+.mo-chat-web svg{ flex:none; margin-block-start:3px; color:var(--brand); }
+.mo-chat-web.is-missed{ color:var(--mute); }
+.mo-chat-web.is-missed svg{ color:var(--warn); }
+.mo-chat-sources{
+  list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); min-inline-size:0;
+}
+.mo-chat-sources li{ min-inline-size:0; }
+.mo-chat-source{
+  display:inline-flex; align-items:center; gap:var(--sp-2); max-inline-size:100%; min-block-size:24px; padding:0;
+  border:0; background:none; font:inherit; font-size:var(--fs-2); color:var(--brand); cursor:pointer; text-align:start;
+}
+.mo-chat-source svg{ flex:none; }
+.mo-chat-source-title{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-chat-source-site{ flex:none; color:var(--mute); }
+.mo-chat-source:hover .mo-chat-source-title{ text-decoration:underline; }
+.mo-chat-source:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; border-radius:var(--r-1); }
+.mo-chat-kept{
+  display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel); font-size:var(--fs-2); color:var(--mute);
+}
+/* vm:ask end */

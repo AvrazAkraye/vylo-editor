@@ -1,10 +1,10 @@
 import {
   BACKDROPS, BLENDS, CHARTS, DIRS, EASES, EFFECTS, FORMAT_IDS, FORMATS, FPS_CHOICES, ICON_IDS, LANGUAGES, LAYER_KINDS,
-  LIMITS, LOOPS, PARTICLES, PINS, RECIPE_IDS, SHAPES, SPLITS, TONES, VOICES,
+  LIMITS, LOOPS, PARTICLES, PINS, RECIPE_IDS, SHAPES, SOURCES_MAX, SPLITS, TONES, VOICES,
   type Anim, type BackdropLayer, type ChartLayer, type CounterLayer, type EaseName, type Format, type Fps,
   type Gradient, type IconLayer, type ImageLayer, type Layer, type LayerBase, type LayerKind, type LoopAnim,
   type Motion, type Paint, type Palette, type ParticlesLayer, type Pin, type RecipeRef, type Shadow,
-  type ShapeLayer, type Stroke, type TextLayer,
+  type ShapeLayer, type Source, type Stroke, type TextLayer,
 } from './motiontypes';
 import { readSound } from './motionsound';
 import { readScenes } from './motionscene';
@@ -1166,6 +1166,91 @@ function timeOf(x: unknown, fallback: number): number {
   return n !== null && n >= 0 && n <= MAX_TIME ? n || 0 : fallback;
 }
 
+// ── sources ───────────────────────────────────────────────────────────────
+
+/**
+ * The longest address a source may have. The app's one way to open a link,
+ * the `open_url` command, refuses anything longer, so a longer one would be a
+ * link shown and then refused.
+ */
+export const SOURCE_URL_MAX = 2048;
+/** A source's title as it is shown under an answer: one line. */
+export const SOURCE_TITLE_MAX = 80;
+
+/**
+ * Letters that turn text around or hide in it — the bidirectional overrides,
+ * isolates and marks, the zero-width space, the byte-order mark —
+ * which the reader's control-character rule does not reach. In a link's title
+ * they could make "moc.elpmaxe" read as another site's name. The zero-width
+ * joiner and non-joiner stay: Sorani and Persian spell words with them.
+ */
+const INVISIBLE = /[\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+const HAS_INVISIBLE = /[\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/;
+
+/** A host no public page lives on: this machine, a private name, a bare IP address. */
+function privateHost(host: string): boolean {
+  return !host.includes('.') || host.endsWith('.') || host.startsWith('[') || /^[\d.]+$/.test(host)
+    || host === 'localhost' || /\.(?:localhost|local|internal|lan|home|arpa)$/.test(host);
+}
+
+/**
+ * A source's address as it is kept, or null: a public `https:` page, written
+ * the way the platform writes it (`URL.href`, so reading it again changes
+ * nothing). Refused: any other scheme (`http:`, `javascript:`, `file:`,
+ * `data:`), a user name or password in it (`https://user:pass@host` is how a
+ * link pretends to be another site), white space, control or invisible
+ * letters, an address past `SOURCE_URL_MAX`, and a host that is this machine,
+ * a private name or a bare IP address — a page the web search read is on the
+ * public web. The same rule as the Rust `open_url`, and a little stricter.
+ */
+export function sourceUrl(x: unknown): string | null {
+  if (typeof x !== 'string' || x.length > SOURCE_URL_MAX + 64) return null;
+  const s = x.trim();
+  if (!s || s.length > SOURCE_URL_MAX || /[\s\u0000-\u001F\u007F-\u009F]/.test(s) || HAS_INVISIBLE.test(s)) return null;
+  let u: URL;
+  try {
+    u = new URL(s);
+  } catch {
+    return null;
+  }
+  if (u.protocol !== 'https:' || u.username || u.password || privateHost(u.hostname.toLowerCase())) return null;
+  return u.href.length <= SOURCE_URL_MAX ? u.href : null;
+}
+
+/** The site of an address as a person reads it: `en.wikipedia.org`, without `www.`; '' when it is no address. */
+export function sourceHost(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * One source as it is kept, or null when its address is not one
+ * (`sourceUrl`). The title is one line of at most `SOURCE_TITLE_MAX`
+ * characters with no invisible letters; the site's name when it has none.
+ */
+export function readSource(x: unknown): Source | null {
+  const o = rec(x);
+  if (!o) return null;
+  const url = sourceUrl(own(o, 'url'));
+  if (!url) return null;
+  const title = capped(scrub(own(o, 'title'), roomFor(SOURCE_TITLE_MAX)).replace(INVISIBLE, '').replace(/\s+/g, ' ').trim(), SOURCE_TITLE_MAX).trim();
+  return { title: title || sourceHost(url), url };
+}
+
+/** A graphic's sources: each read by `readSource`, each address once, at most `SOURCES_MAX`; none from anything that is not a list. */
+export function readSources(x: unknown): Source[] {
+  const out: Source[] = [];
+  for (const item of listOf(x, 64) ?? []) {
+    const s = readSource(item);
+    if (s && !out.some((o) => o.url === s.url)) out.push(s);
+    if (out.length === SOURCES_MAX) break;
+  }
+  return out;
+}
+
 const STAGES = ['new', 'planning', 'ready'] as const;
 const MOTION_KEYS = [
   'id', 'title', 'request', 'lang', 'format', 'fps', 'seconds', 'palette', 'backdrop', 'layers', 'recipe', 'ai',
@@ -1218,6 +1303,8 @@ export function readMotion(x: unknown, now: number = Date.now()): Motion | null 
     if (sound) m.sound = sound;
     const scenes = readScenes(own(o, 'scenes'), layers, seconds);
     if (scenes) m.scenes = scenes;
+    const sources = readSources(own(o, 'sources'));
+    if (sources.length) m.sources = sources;
     const error = cleanText(own(o, 'error'), ERROR_CHARS);
     if (error) m.error = error;
     return m;

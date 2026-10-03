@@ -1,6 +1,7 @@
 import { fill, type Lang } from './i18n';
 import { explain } from './errors';
-import { FORMATS, LIMITS, type Format, type Motion, type RecipeId, type Tone } from './motiontypes';
+import { FORMATS, LIMITS, type Format, type Motion, type RecipeId, type Source, type Tone } from './motiontypes';
+import type { Research } from './motionresearch';
 import { META, paletteOf, type PaletteId } from './motionrecipe';
 import { detach, setLayer } from './motionedit';
 import { readMotion } from './motionread';
@@ -210,8 +211,13 @@ export function clock(ms: number): string {
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
-/** What the model is doing while a graphic is made: a line that changes says it is working, until its answer starts arriving. */
-export function planLine(ms: number, chars: number, t: T): string {
+/**
+ * What the model is doing while a graphic is made: a line that changes says it
+ * is working, until its answer starts arriving. While the web is searched for
+ * the facts it needs (motionresearch.ts), it says that instead.
+ */
+export function planLine(ms: number, chars: number, t: T, looking = false): string {
+  if (looking) return t('Looking it up…');
   if (chars > 0) return t('Writing the graphic…');
   const n = Math.floor(Math.max(0, ms) / 4000) % 4;
   if (n === 1) return `${t('Choosing a design')}…`;
@@ -273,8 +279,9 @@ export function errorText(e: unknown, t: T, doing: string, host = ''): string {
   return explain(e, doing);
 }
 
-/** The same while a message in the Ask tab is answered. */
-export function askLine(ms: number, t: T): string {
+/** The same while a message in the Ask tab is answered, and while the web is searched for it. */
+export function askLine(ms: number, t: T, looking = false): string {
+  if (looking) return t('Looking it up…');
   const n = Math.floor(Math.max(0, ms) / 4000) % 4;
   if (n === 1) return `${t('Looking at the layers')}…`;
   if (n === 2) return `${t('Planning the changes')}…`;
@@ -390,6 +397,43 @@ export interface ChatEntry {
   at: number;
   /** Nothing was applied: the answer could not be had, or the graphic changed while it was coming. Said with Try again. */
   failed?: boolean;
+  /** The web search the answer made, when it made one (`webNoteOf`). */
+  web?: WebNote;
+  /** The pages its facts came from, shown under it as links. */
+  sources?: Source[];
+}
+
+/**
+ * What a message's web search came to, as the conversation says it: what was
+ * searched, how many facts came back, and why none did (motionresearch.ts
+ * `Research.refused`).
+ */
+export interface WebNote {
+  query: string;
+  found: number;
+  refused?: 'wire' | 'gateway' | 'none';
+}
+
+/** A search, as the conversation keeps it; nothing when there was none. Read defensively: it came through a model run. */
+export function webNoteOf(r: Research | undefined | null): WebNote | undefined {
+  if (!r || typeof r !== 'object') return undefined;
+  const query = typeof r.query === 'string' ? r.query : '';
+  const found = Array.isArray(r.facts) ? r.facts.length : 0;
+  const refused = r.refused === 'wire' || r.refused === 'gateway' || r.refused === 'none' ? r.refused : undefined;
+  return found ? { query, found } : { query, found, refused: refused ?? 'none' };
+}
+
+/**
+ * The line under an answer that searched: what was looked up, or — said
+ * plainly, whatever the model wrote — why nothing was: this connection cannot
+ * search the web (not the Anthropic wire), the gateway does not allow it, or
+ * nothing usable was found. The query is the model's words, `quoted`.
+ */
+export function webLine(n: WebNote, t: T): string {
+  if (n.found > 0) return fill(t('Looked up on the web: {query}'), { query: quoted(n.query, 80) });
+  if (n.refused === 'wire') return t('The web cannot be searched on this connection, so nothing was looked up.');
+  if (n.refused === 'gateway') return t('The gateway does not allow web search here, so nothing was looked up.');
+  return fill(t('Nothing usable was found on the web for {query}.'), { query: quoted(n.query, 80) });
 }
 
 /** Turns kept a graphic: a long session keeps its newest. */

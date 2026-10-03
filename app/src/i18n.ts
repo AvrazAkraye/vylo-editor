@@ -3352,6 +3352,12 @@ const ar: Dict = {
   'The disk is full. Free some space, or save somewhere else.': 'القرص ممتلئ. حرّر بعض المساحة، أو احفظ في مكان آخر.',
   'This disk is read-only. Save somewhere else.': 'هذا القرص للقراءة فقط. احفظ في مكان آخر.',
   'Saving there is not allowed. Save somewhere else, or check the permissions.': 'الحفظ في ذلك المكان غير مسموح. احفظ في مكان آخر، أو تحقّق من الأذونات.',
+  // vm ask: Motion's Ask looks facts up on the web (MotionChat.tsx, motionstate.ts `webLine`).
+  'Looked up on the web: {query}': 'بُحث على الويب عن: {query}',
+  'The web cannot be searched on this connection, so nothing was looked up.': 'لا يمكن البحث في الويب عبر هذا الاتصال، فلم يُبحث عن شيء.',
+  'The gateway does not allow web search here, so nothing was looked up.': 'لا تسمح البوابة بالبحث في الويب هنا، فلم يُبحث عن شيء.',
+  'Nothing usable was found on the web for {query}.': 'لم يُعثر على الويب على ما يمكن استخدامه عن {query}.',
+  'The facts in this graphic come from these pages:': 'الحقائق في هذا الرسم مأخوذة من هذه الصفحات:',
 };
 
 const ckb: Dict = {
@@ -6683,6 +6689,12 @@ const ckb: Dict = {
   'The disk is full. Free some space, or save somewhere else.': 'دیسکەکە پڕە. هەندێک شوێن بەتاڵ بکەرەوە، یان لە شوێنێکی تر پاشەکەوتی بکە.',
   'This disk is read-only. Save somewhere else.': 'ئەم دیسکە تەنها بۆ خوێندنەوەیە. لە شوێنێکی تر پاشەکەوتی بکە.',
   'Saving there is not allowed. Save somewhere else, or check the permissions.': 'پاشەکەوتکردن لەو شوێنە ڕێگەپێنەدراوە. لە شوێنێکی تر پاشەکەوتی بکە، یان مۆڵەتەکان بپشکنە.',
+  // vm ask: Motion's Ask looks facts up on the web (MotionChat.tsx, motionstate.ts `webLine`).
+  'Looked up on the web: {query}': 'لە وێب گەڕا بۆ: {query}',
+  'The web cannot be searched on this connection, so nothing was looked up.': 'لەسەر ئەم پەیوەندییە گەڕان لە وێب ناکرێت، بۆیە بە دوای هیچدا نەگەڕا.',
+  'The gateway does not allow web search here, so nothing was looked up.': 'دەروازەکە لێرە ڕێگە بە گەڕانی وێب نادات، بۆیە بە دوای هیچدا نەگەڕا.',
+  'Nothing usable was found on the web for {query}.': 'هیچ شتێکی بەکەڵک لە وێب نەدۆزرایەوە بۆ {query}.',
+  'The facts in this graphic come from these pages:': 'زانیارییەکانی ئەم گرافیکە لەم پەڕانەوە هاتوون:',
 };
 
 const kmr: Dict = {
@@ -10012,6 +10024,12 @@ const kmr: Dict = {
   'The disk is full. Free some space, or save somewhere else.': 'دیسک تژییە. هندەک جهێ ڤالا بکە، یان ل جهەکێ دی پاشەکەفت بکە.',
   'This disk is read-only. Save somewhere else.': 'ئەڤ دیسکە تنێ بۆ خواندنێیە. ل جهەکێ دی پاشەکەفت بکە.',
   'Saving there is not allowed. Save somewhere else, or check the permissions.': 'پاشەکەفتکرن ل وی جهی نەهاتیە ڕێپێدان. ل جهەکێ دی پاشەکەفت بکە، یان دەستویران بپشکنە.',
+  // vm ask: Motion's Ask looks facts up on the web (MotionChat.tsx, motionstate.ts `webLine`).
+  'Looked up on the web: {query}': 'ل سەر وێبێ هاتە گەڕیان بۆ: {query}',
+  'The web cannot be searched on this connection, so nothing was looked up.': 'ل سەر ڤێ پەیوەندیێ گەڕیان ل وێبێ ناهێتە کرن، لەوما ل چ تشتی نەهاتە گەڕیان.',
+  'The gateway does not allow web search here, so nothing was looked up.': 'دەرگەه ل ڤێرێ دەستویریێ نادەتە گەڕیانا وێبێ، لەوما ل چ تشتی نەهاتە گەڕیان.',
+  'Nothing usable was found on the web for {query}.': 'چ تشتەکێ ب کێر ل سەر وێبێ نەهاتە دیتن بۆ {query}.',
+  'The facts in this graphic come from these pages:': 'زانیاریێت ڤێ گرافیکێ ژ ڤان پەڕان هاتینە:',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

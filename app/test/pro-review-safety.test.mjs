@@ -606,6 +606,8 @@ async function main() {
     'generate.ts': 'the one request Motion causes: the model the person asks (SAFETY.md, the request table)',
     'videomix.ts': 'through videosynth.ts, which takes encodeWav, sceneStarts and toDataUrl from it: pure functions (checked below)',
     'videomedia.ts': 'imported by videomix.ts for its picture search, which nothing in Motion calls',
+    // docs/VM.md, package ask: Motion's web search is a tool of the model's own request, made by generate.ts.
+    'videoresearch.ts': 'motionresearch.ts loads it by import() when Motion first searches, for WEB_SEARCH_TOOL and webSearchRefused — a constant and a set lookup, so Motion sends the tool Video sends and honours the refusals Video remembered; its Wikidata lookup, which is what asks for the network, nothing in Motion calls (vm-ask.test.mjs checks)',
   };
   ok(`Motion's run-time import closure is ${closure.size} files; the ones that can reach the network are exactly the pinned list, each for a stated reason`,
     same(net, Object.keys(REACHED).sort()), { found: net, pinned: Object.keys(REACHED).sort() });
@@ -638,8 +640,10 @@ async function main() {
   for (const f of closure) for (const m of strip(text(f)).matchAll(COMMAND)) commands[m[1]] = [...new Set([...(commands[m[1]] ?? []), f])];
   const PINNED = {
     export_write_video: ['motionexportops.ts'], open_exported: ['motionexportops.ts'], reveal_path: ['MotionExport.tsx'],
+    // docs/VM.md, package ask: a source's page, opened when the person presses its link in the Ask tab (https only, in Rust too).
+    open_url: ['MotionChat.tsx'],
   };
-  ok('the Tauri commands anywhere in that closure are the pinned three: the export, Open and Show in Finder (SignIn\'s list_tree and read_file are gone with it)',
+  ok('the Tauri commands anywhere in that closure are the pinned four: the export, Open, Show in Finder, and a source\'s page the person presses (SignIn\'s list_tree and read_file are gone with it)',
     same(Object.keys(commands).sort(), Object.keys(PINNED).sort()) && Object.entries(PINNED).every(([c, fs]) => same(commands[c].sort(), fs)), commands);
   const tauri = [...pkgs.keys()].filter((p) => p.startsWith('@tauri-apps/')).sort();
   ok('and the only Tauri packages it imports are the core, the path helper and the save dialog — no shell, no http, no opener, no fs',

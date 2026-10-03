@@ -337,7 +337,12 @@ are text written out in the page, and send nothing.
 from a template — code in this app, `app/src/motiontemplates.ts`, which sends
 nothing — or from words you write, which go to the model you chose exactly as
 the Video panel's requests do, through `app/src/generate.ts` and the request
-listed above. When you later ask it to change the graphic, that request carries
+listed above. When you ask Motion for facts it does not have — "add today's
+LLM models" — the model may search the web through the gateway: that request
+carries Anthropic's own web-search tool, as the Video panel's lookup does
+(`app/src/motionresearch.ts`), the search happens at Anthropic, and the pages'
+addresses are shown under the answer and kept with the graphic. When you later
+ask it to change the graphic, that request carries
 the graphic's current words, colours and layer settings — never a picture you
 added. What comes back is a description in a fixed vocabulary — words
 chosen from lists, numbers within limits, and text — never code:

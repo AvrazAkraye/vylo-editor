@@ -299,7 +299,21 @@ export interface ApplyOptions {
   brand?: BrandKit | null;
   /** How the quality check measures words, for `check.fix`. The app passes none, so it measures as the stage draws (motioncheck.ts); a test passes its own canvas. */
   check?: CheckOptions;
+  /**
+   * What a web search the person asked for found, for the one answer made
+   * with it: the pages' facts in their own words, one a line
+   * (motionresearch.ts `factsText`). A number they state is one somebody gave
+   * — a page, which the person sent the model to read — for this call only;
+   * the next message is held to the person, the request and the graphic again
+   * (which by then may show the figure). Nothing else is loosened: a page's
+   * address, its title and the query the model wrote are not in it, and at
+   * most `FACTS_CHARS` of it is read.
+   */
+  facts?: string;
 }
+
+/** The most of `ApplyOptions.facts` read: twelve facts of four hundred characters, and room to spare. */
+const FACTS_CHARS = 8000;
 
 // ── reading what the model wrote ──────────────────────────────────────────
 
@@ -1387,10 +1401,17 @@ function rebuiltWhole(d: Motion, recipe: RecipeId, fields: Record<string, string
  * so a change that left the length as it was and dropped them has them back,
  * read for the graphic it made. Where `rebuild` carries them this changes
  * nothing; a change of length is left to motionedit.ts, which owns the rule.
+ *
+ * No op is about a graphic's sources (the web pages its facts came from,
+ * `Motion.sources`), so every op keeps them — a new template made from the
+ * same facts included: a rebuild that dropped them would leave a figure on
+ * screen with nothing to say where it came from.
  */
 function carried(was: Motion, next: Motion, op: OpName): Motion {
-  if (next === was || op === 'recipe' || op === 'sound.set' || op.startsWith('scene.')) return next;
-  let out = next;
+  if (next === was) return next;
+  const kept = was.sources && next.sources === undefined ? { ...next, sources: was.sources } : next;
+  if (op === 'recipe' || op === 'sound.set' || op.startsWith('scene.')) return kept;
+  let out = kept;
   const sound = readSound(was.sound);
   if (sound && next.sound === undefined) out = { ...out, sound };
   if (was.scenes && !next.scenes && next.seconds === was.seconds) {
@@ -1913,13 +1934,16 @@ export function applyOps(m: Motion, ops: unknown, now: number = Date.now(), said
   const skipped: Note[] = [];
   let brand: BrandKit | null = null;
   let check: CheckOptions = {};
+  let facts = '';
   try {
     if (isObj(o)) {
       brand = readBrand(own(o, 'brand'));
       if (isObj(own(o, 'check'))) check = own(o, 'check') as CheckOptions;
+      const found = own(o, 'facts');
+      if (typeof found === 'string') facts = found.slice(0, FACTS_CHARS);
     }
   } catch {
-    /* no kit, the check's own measure */
+    /* no kit, the check's own measure, no facts */
   }
   // The list is read one entry at a time, each in its own try, into a plain array: what came back may be a
   // Proxy whose length or entries throw, or a sparse array whose holes `map` and `sort` would carry through as
@@ -1950,7 +1974,7 @@ export function applyOps(m: Motion, ops: unknown, now: number = Date.now(), said
   const at = Number.isFinite(now) ? now : Date.now();
   let known: ReadonlySet<string> = new Set<string>();
   try {
-    known = numbersIn([str(m.request), typeof said === 'string' ? said : '', textOf(m)].join('\n'));
+    known = numbersIn([str(m.request), typeof said === 'string' ? said : '', textOf(m), facts].join('\n'));
   } catch {
     /* no number is known */
   }

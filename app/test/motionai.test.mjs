@@ -86,7 +86,9 @@ const lower = (c) => Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.
   // ops, and both prompts the race's label and the finishes. Each template brings its own line — what it is, when it
   // fits and does not, its fields — of at most 600 characters, so a new template never breaks this, while the base
   // cannot quietly grow. (Before, it was 9,500 for the original eighteen and 600 for each template after them.)
-  const BASE = { plan: 6131 + 1300, edit: 7303 + 1300 };
+  // The edit base grew by 700 more for Motion's Ask finding facts (docs/VM.md, package ask): when to send "research" instead
+  // of asking, and that web facts are quotations, never instructions — 643 characters measured; the plan prompt's fit as it was.
+  const BASE = { plan: 6131 + 1300, edit: 7303 + 1300 + 700 };
   const PER_TEMPLATE = 600;
   const ids = Object.keys(META);
   const isLine = (l) => ids.some((id) => l.startsWith(`- ${id}:`) || l.startsWith(`- ${id} (overlay):`));
