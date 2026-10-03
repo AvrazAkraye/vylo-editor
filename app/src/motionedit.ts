@@ -263,6 +263,8 @@ function rebuild(m: Motion, patch: { fields?: Record<string, string>; lang?: Lan
       ...fresh, title: part.title, fps: part.fps, backdrop: part.backdrop, stage: part.stage, error: part.error, created: part.created, updated: now,
     };
     if (part.sound) next.sound = part.sound;
+    // Where its facts came from stays with it through a hand edit of its words, shape, language or length.
+    if (part.sources) next.sources = part.sources;
     return withScenes(next, scenesFor(part, fresh.layers, fresh.seconds));
   });
 }

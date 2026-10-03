@@ -18,7 +18,9 @@ draws with Remotion (and sends one licence-telemetry event to remotion.pro per
 export, which SAFETY.md discloses). **Motion makes no network request of its
 own**: the only traffic it can cause is the model request the person starts by
 asking for a graphic in words, which goes through `generate.ts` where every
-other request in the app goes. Nothing else needs the network, and nothing else
+other request in the app goes. When the person asks for facts the model does not
+have, that same request may carry Anthropic's web-search tool (`motionresearch.ts`;
+SAFETY.md says so), and the pages it read are listed with the graphic. Nothing else needs the network, and nothing else
 asks for it: a picture is data inside the graphic, the fonts are the system's
 and the app's own, the sound is synthesised on the machine (the effects in plain
 JavaScript, the music by `videosynth.ts`, which plays its score in an
