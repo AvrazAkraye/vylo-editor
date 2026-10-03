@@ -1031,8 +1031,12 @@ function emptiness(s: Scene, out: Out): void {
     });
   }
   const seconds = s.doc.seconds;
+  // A scene with nothing in it yet is one that has just been added: it is being built, not a mistake to report, and the repair
+  // (trim the graphic) would delete it. A gap that lies wholly inside such a scene is left alone.
+  const building = (s.doc.scenes ?? []).filter((sc) => !spans.some((x) => x.from < sc.end - 1e-6 && x.to > sc.start + 1e-6));
   for (const g of gaps(spans, first, seconds)) {
     if (g.to - g.from < CHECK.empty) continue;
+    if (building.some((sc) => g.from >= sc.start - 1e-6 && g.to <= sc.end + 1e-6)) continue;
     const last = g.to >= seconds - 1e-6;
     // At the end, the graphic could simply stop when its last layer does.
     const end = Math.ceil((Math.max(...fg.map((it) => it.layer.end)) + 0.05) * 10) / 10;

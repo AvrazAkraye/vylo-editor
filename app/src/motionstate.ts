@@ -6,7 +6,7 @@ import { detach, setLayer } from './motionedit';
 import { readMotion } from './motionread';
 import { emptyHistory, recorded, sameSnapshot, synced, type MotionHistory } from './motionhistory';
 import type { PlanRequest } from './motionai';
-import { MAX_OPS, type Note } from './motionchatops';
+import { MAX_OPS, chatNoteText, type Note } from './motionchatops';
 import { shownName } from './motionui';
 
 /**
@@ -475,6 +475,6 @@ export function noteText(n: Note, t: T, recipe?: RecipeId): string {
     case 'no-data': return t('Skipped: a chart needs numbers to draw');
     case 'full': return fill(t('Skipped: a graphic holds at most {n} layers'), { n: LIMITS.layers });
     case 'too-many': return fill(t('Skipped the rest: at most {n} changes a message'), { n: MAX_OPS });
-    default: return t('Skipped a change that could not be read');
+    default: return chatNoteText(n, t) ?? t('Skipped a change that could not be read');
   }
 }

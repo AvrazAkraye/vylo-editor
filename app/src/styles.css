@@ -9076,7 +9076,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
    scene's box is as wide as it is long (MotionScenes.tsx), so its edges then fall on its cuts. */
 .mo-full-time > .ms:not(.ms-one){ gap:0; padding-inline:0; }
 .mo-full-time > .ms:not(.ms-one) > .ms-end{
-  order:-1; flex:none; inline-size:clamp(128px, 30%, 176px); flex-wrap:wrap; justify-content:center; gap:0 var(--sp-1);
+  flex:none; inline-size:clamp(128px, 30%, 176px); flex-wrap:wrap; justify-content:center; gap:0 var(--sp-1);
   padding-inline:var(--sp-2);
 }
 .mo-full-time > .ms:not(.ms-one) > .ms-track{ padding-inline:13px; }

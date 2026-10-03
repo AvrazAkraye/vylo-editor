@@ -315,6 +315,11 @@ console.log('time');
   const tr = fix(tail);
   ok('trimmed, the graphic ends with its words', tr.seconds === 3.1 && check(tr).length === 0, [tr.seconds, check(tr)]);
 
+  // A scene just added is empty on purpose: not a tip, and the trim (which would delete it) is not offered.
+  const sceneDoc = (scenes) => D([BG({ speed: 0 }), T({ end: 3 }), RULE({ end: 6 })], { seconds: 6, scenes });
+  const cuts = [{ id: 's1', name: 'One', start: 0, end: 3 }, { id: 's2', name: 'Two', start: 3, end: 6 }];
+  ok('without scenes, three empty seconds at the end are a tip', of(run(D([BG({ speed: 0 }), T({ end: 3 })], { seconds: 6 })), 'empty-frame').length === 1);
+  ok('with a second scene that nothing is in yet: nothing said about it', of(run(sceneDoc(cuts)), 'empty-frame').length === 0, run(sceneDoc(cuts)));
   const four = (i) => T({ text: 'four words in here', y: -40 + i * 8, size: 3 });
   const dense = run(D([BG(), ...Array.from({ length: 11 }, (_, i) => four(i))]));
   ok('eleven four-word texts at once: dense, a tip', of(dense, 'dense').length === 1 && of(dense, 'dense')[0].vars.count === 11, dense);

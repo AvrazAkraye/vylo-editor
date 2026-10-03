@@ -419,6 +419,16 @@ export function MotionScenes({ t, doc, onEdit, onSeek }: ScenesProps) {
   const canSplit = canSplitAt(doc, now);
   return (
     <div className="ms" ref={strip}>
+      <div className="ms-end">
+        {addButton}
+        <button type="button" className="ghost ms-split" disabled={!canSplit} onClick={split}
+                title={canSplit
+                  ? t('Cut the scene in two at the playhead')
+                  : fill(t('A scene is cut at least {s} s from its ends, and a graphic has at most {n} scenes'), { s: LIMITS.sceneMin, n: LIMITS.scenes })}>
+          <Icon name="split" size={12} />
+          <span>{t('Split here')}</span>
+        </button>
+      </div>
       <div className="ms-track" ref={track} dir="ltr" role="toolbar" aria-label={t('Scenes')} aria-describedby={help} onKeyDown={onTrackKey}>
         {list.map((s, i) => {
           const name = shown(s, i, t);
@@ -448,16 +458,6 @@ export function MotionScenes({ t, doc, onEdit, onSeek }: ScenesProps) {
             </div>
           );
         })}
-      </div>
-      <div className="ms-end">
-        {addButton}
-        <button type="button" className="ghost ms-split" disabled={!canSplit} onClick={split}
-                title={canSplit
-                  ? t('Cut the scene in two at the playhead')
-                  : fill(t('A scene is cut at least {s} s from its ends, and a graphic has at most {n} scenes'), { s: LIMITS.sceneMin, n: LIMITS.scenes })}>
-          <Icon name="split" size={12} />
-          <span>{t('Split here')}</span>
-        </button>
       </div>
       <p id={help} className="vid-tl-sr">
         {t('Left and right arrows go from scene to transition to scene. Enter opens one. Alt with an arrow moves a scene earlier or later; Delete joins it with its neighbour; F2 renames it.')}

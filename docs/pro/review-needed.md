@@ -376,3 +376,7 @@ but the model); the `export_write_video` bullet (`.gif` accepted, a GIF that doe
 for a poster or a GIF, Motion writes an MP4, a GIF or a PNG); and the `open_exported` bullet (`.gif` opened). The Arabic was
 written with care but not by a native speaker; the Sorani and Badini sentences, the sound sentence above all, are best effort and
 need a native speaker before a release. The parity test (`test/i18n.test.mjs`) holds the identifiers and the shape, not the prose.
+
+## Integration: SAFETY storage sentence (brand kit)
+
+The sentence about the brand kit (`vylo-motion-brand`) in `SAFETY.ckb.md` and `SAFETY.kmr.md` is best effort: "کیتی براند / کیتا براندی" for "brand kit", and the rest. Arabic and English are the reference.

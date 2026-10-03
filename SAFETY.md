@@ -959,6 +959,10 @@ resolution, bitrate and sound you last chose for a download are remembered in
 for, its layers and words, its colours, and any picture you added, kept as data
 — is in the webview's IndexedDB, in a database named `vylo-motion`, on this
 machine (`app/src/motionstore.ts`). Deleting one in the panel deletes it there.
+The brand kit — the name, account name, web address, logo, colours and headline
+face you set once so that new graphics start in them — is kept the same way, in
+its own database named `vylo-motion-brand`, on this machine; clearing it in the
+brand sheet removes it.
 A video file or a picture is written only when you press **Download** or
 **Save as…**, and only there. The format, size and quality you last chose for a
 save are remembered in `localStorage` (`vylo.motion.export.v1`). So that the
