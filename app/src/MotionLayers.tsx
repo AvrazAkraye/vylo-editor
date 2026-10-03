@@ -9,7 +9,7 @@ import {
   type Anim, type Blend, type Dir4, type Effect, type Layer, type LayerKind, type Loop, type Motion, type Split,
 } from './motiontypes';
 import { addLayer, duplicateLayer, moveLayer, removeLayer, setLayer } from './motionedit';
-import { newLayerId } from './motionread';
+import { newLayerId, textShadowMax } from './motionread';
 import { scriptOf } from './motionfonts';
 import { layerOf, shownName, type InspectorProps, type T } from './motionui';
 import { useReorder } from './useReorder';
@@ -444,7 +444,7 @@ function StyleFields({ t, layer, doc, set, update }: EditProps) {
           {shadow && (
             <>
               <ColorField t={t} label={t('Colour')} value={shadow.color} palette={doc.palette} onChange={(color) => setShadow({ color }, 'color')} />
-              <NumberField label={t('Blur')} value={shadow.blur} min={0} max={100} step={0.1} digits={1} unit="u" unitTitle={uTitle(t)}
+              <NumberField label={t('Blur')} value={shadow.blur} min={0} max={layer.kind === 'text' ? textShadowMax(layer.size) : 100} step={0.1} digits={1} unit="u" unitTitle={uTitle(t)}
                            onChange={(blur) => setShadow({ blur }, 'blur')} />
               <Row label={t('Offset')}>
                 <NumberBox label={t('Horizontal')} glyph="across" value={shadow.x} min={-100} max={100} step={0.1} digits={1} unit="u"
