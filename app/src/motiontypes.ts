@@ -455,6 +455,15 @@ export const LAYER_KINDS: readonly LayerKind[] = ['text', 'shape', 'icon', 'imag
 export interface RecipeRef {
   id: RecipeId;
   fields: Record<string, string>;
+  /**
+   * Seconds: where the template's part of the graphic ends, when scenes were
+   * added after it (pro pass, F1). The template is built for this long, and a
+   * layer that starts here or later is the person's, kept through a rebuild
+   * (motionedit.ts, "A template owns a span"). Absent is the whole graphic, as
+   * it always was; when present it is at least `LIMITS.minSeconds` and less
+   * than the graphic's length.
+   */
+  until?: number;
 }
 
 export interface Motion {

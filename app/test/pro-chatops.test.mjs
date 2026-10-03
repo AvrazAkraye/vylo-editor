@@ -103,8 +103,13 @@ const KIT = { name: 'Acme Bakery', handle: 'acme', url: 'acme.example', paletteI
   const s = sceneList(r.motion);
   ok('scene.add on a graphic of one scene: a second scene of 3 s at the end, the graphic 3 s longer',
     s.length === 2 && s[1].start === 6 && s[1].end === 9 && r.motion.seconds === 9 && fixed(r.motion), r.motion.scenes);
-  ok('it arrives with a fade, as the strip\'s + Scene does; moving layers in time ends the template, and says so',
-    s[1].transition?.kind === 'fade' && same(codes(r.notes), ['scene-add', 'detached']) && r.notes[0].n === 2 && !r.motion.recipe, r.notes);
+  // Added at the end, the scene is the person's and the template keeps its own six seconds (docs/pro/f1-until.md).
+  ok('it arrives with a fade, as the strip\'s + Scene does; the template stays one, owning its six seconds, and nothing is said of it',
+    s[1].transition?.kind === 'fade' && same(codes(r.notes), ['scene-add']) && r.notes[0].n === 2 && r.motion.recipe?.id === 'big-title'
+    && r.motion.recipe.until === 6 && same(r.motion.recipe.fields, tmpl.recipe.fields), r.notes);
+  const inside = applyOps(three, [{ op: 'scene.add', at: 1 }], NOW);
+  ok('a scene added inside the template\'s time still moves its layers, ends the template, and says so',
+    same(codes(inside.notes), ['scene-add', 'detached']) && !inside.motion.recipe && fixed(inside.motion), inside.notes);
   const mid = applyOps(three, [{ op: 'scene.add', at: 1, name: 'Offer', transition: { kind: 'whip', dir: 'up', d: 0.4 } }], NOW);
   const m = sceneList(mid.motion);
   ok('at 1 s: after the first scene, with its name and the way it arrives',
@@ -297,7 +302,7 @@ const KIT = { name: 'Acme Bakery', handle: 'acme', url: 'acme.example', paletteI
   const r = applyOps(tmpl, [
     { op: 'scene.add', name: 'End' }, { op: 'sound.set', mode: 'both', mood: 'epic' }, { op: 'brand.apply' }, { op: 'fields', set: { title: 'Warm bread' } },
   ], NOW, '', { brand: KIT, ...MEASURE });
-  ok('words, then the brand, then the sound, then scenes', codes(r.notes).join() === 'fields,brand,sound,scene-add,detached', codes(r.notes));
+  ok('words, then the brand, then the sound, then scenes', codes(r.notes).join() === 'fields,brand,sound,scene-add' && r.motion.recipe?.until === 6, codes(r.notes));
   ok('and each kept what the one before did', r.motion.layers.some((l) => l.kind === 'text' && l.text.includes('Warm bread')) && r.motion.palette.accent === '#ff7a45'
     && r.motion.sound?.mood === 'epic' && sceneList(r.motion).length === 2 && sceneList(r.motion)[1].name === 'End' && fixed(r.motion));
   const scened = { ...three, sound: { mode: 'fx', level: 0.6 } };
@@ -438,7 +443,8 @@ const KIT = { name: 'Acme Bakery', handle: 'acme', url: 'acme.example', paletteI
   const r = await refineMotion(TARGET, BOOK, tmpl, 'add a scene after the title with a push, upbeat music, and use my brand', {
     ask: ask('{"say":"Done.","ops":[{"op":"scene.add","at":1,"transition":"push"},{"op":"sound.set","mood":"upbeat"},{"op":"brand.apply"}]}'), now: NOW, brand: KIT,
   });
-  ok('an answer with the new ops: all applied, in one graphic', same(codes(r.notes).slice(0, 4), ['brand', 'sound', 'scene-add', 'detached']) && sceneList(r.motion)[1].transition?.kind === 'push'
+  ok('an answer with the new ops: all applied, in one graphic, still a template', same(codes(r.notes), ['brand', 'sound', 'scene-add']) && sceneList(r.motion)[1].transition?.kind === 'push'
+    && r.motion.recipe?.until === 6
     && r.motion.sound?.mood === 'uplifting' && r.motion.palette.accent === '#ff7a45' && fixed(r.motion) && told.includes('Brand kit: saved'), r.notes);
   const jazz = await refineMotion(TARGET, BOOK, tmpl, 'jazz please', { ask: ask('{"say":"Jazz it is.","ops":[{"op":"sound.set","mode":"music","mood":"jazz"},{"op":"scene.teleport","to":3}]}'), now: NOW, brand: null });
   ok('what the vocabulary does not have is repaired to nothing, never trusted', jazz.motion === tmpl && !jazz.notes.length

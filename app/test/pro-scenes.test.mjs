@@ -504,7 +504,12 @@ const fixed = (m) => J(readMotion(JSON.parse(J(m)), 1)) === J(m);
     const was = m.layers[i];
     return l.kind === 'backdrop' && was.end === m.seconds ? l.start === was.start && l.end === two.seconds : J(l) === J(was);
   }) && m.layers.some((l) => l.kind === 'backdrop'));
-  ok('it is stamped, detached from the template, and reads back unchanged', two.updated === 5 && !two.recipe && fixed(two));
+  // At the template's end the new scene is the person's: the template keeps its words and owns its six seconds (docs/pro/f1-until.md).
+  ok('it is stamped, still the template\'s, which now owns the time up to the cut, and reads back unchanged',
+    two.updated === 5 && two.recipe?.id === 'big-title' && two.recipe.until === 6 && J(two.recipe.fields) === J(m.recipe.fields) && fixed(two));
+  ok('a second "+ Scene" at the end keeps that span', addScene(two, 7, 5).recipe?.until === 6);
+  const inside = addScene(splitSceneAt(m, 3, 5), 1, 5);
+  ok('a scene added inside the template\'s time moves its layers: the template ends', inside.seconds === 9 && !inside.recipe && fixed(inside));
   // A background that ran to the end runs on; layers after the cut move; layers across it grow.
   const base = readMotion({
     id: 'e', title: 'e', lang: 'en', format: 'square', fps: 30, seconds: 9, stage: 'ready', created: 1, updated: 1,
