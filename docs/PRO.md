@@ -9,6 +9,10 @@ HyperFrames, an Apache-2.0 HTML-to-video framework, and what is not).
 **Nothing in this pass is released or pushed.** It is built, tested and committed on `pro`. A release
 is a separate decision the owner makes.
 
+> **Status (2026-10-03): built, reviewed, fixed and green.** The ten packages, four wiring packages, five reviews and
+> four fixes are merged. `docs/pro/SUMMARY.md` is the handoff: the gates, what a person gets, the decisions that are
+> the owner's, the known limits, and how to merge into the main tree.
+
 ## The one idea
 
 *Simple on top, deep underneath.* Motion should look the same to a person who only wants a title on
