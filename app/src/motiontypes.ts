@@ -89,6 +89,12 @@ export const LIMITS = {
    * cut to what is left.
    */
   particleBudget: 1200,
+  /** The most scenes a graphic may be cut into, and the shortest a scene may be, in seconds (`motionscene.ts`). */
+  scenes: 12,
+  sceneMin: 0.5,
+  /** Seconds a transition between two scenes may take; never longer than either scene beside it. */
+  transitionMin: 0.15,
+  transitionMax: 1.5,
 } as const;
 
 // ── the vocabulary ────────────────────────────────────────────────────────
