@@ -7,6 +7,7 @@ import { setBackdrop, setFields, setFormat, setFps, setLang, setPalette, setSeco
 import { readTitle } from './motionread';
 import { META, PALETTES, type Field } from './motionrecipe';
 import { withSound } from './motionsound';
+import { pause, read as readPlay } from './motionplay';
 import { MotionSoundPanel } from './MotionSoundPanel';
 import { MotionBrandKit } from './MotionBrandKit';
 
@@ -390,7 +391,16 @@ export function MotionDesign(p: InspectorProps) {
 
       {/* One row, its own label for a heading: Off, Effects, Music, Both. */}
       <div className="mo-de-sec mo-de-sound">
-        <MotionSoundPanel t={t} doc={doc} onChange={(next) => onEdit((m) => withSound(m, next.sound), 'sound')} />
+        <MotionSoundPanel t={t} doc={doc} onChange={(next) => {
+          // Choosing or changing music makes the composer hold the page for a moment (up to a second in the worst case) while the
+          // new piece is written, and a playing preview would stutter for it. Pausing first costs nothing: a person who is picking
+          // a mood is not watching, and the sound picks up again when it is ready.
+          const a = doc.sound;
+          const b = next.sound;
+          const music = !!b && (b.mode === 'music' || b.mode === 'both');
+          if (music && (a?.mode !== b?.mode || a?.mood !== b?.mood) && readPlay().playing) pause();
+          onEdit((m) => withSound(m, next.sound), 'sound');
+        }} />
       </div>
 
       <Section title={t('Language of the words')}>
