@@ -10,12 +10,15 @@
 // one sample per picture with the parameter sets in `avcC`. Where ffmpeg is
 // installed, the file must also decode without a word on stderr to the same
 // frames, hash for hash, as ffmpeg's own MP4 of the same stream, with and
-// without B-frames.
+// without B-frames. A sound track beside the pictures leaves the pictures'
+// own tables as they were (only where their chunks sit moves), and a file
+// without sound is the file it always was. The sound track itself is
+// pro-mux-audio.test.mjs's.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Mp4Writer, annexBToAvcc } from '../.test-build/motionmp4.js';
+import { Mp4Writer, annexBToAvcc, ascFor } from '../.test-build/motionmp4.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -232,6 +235,30 @@ const inOrder = (n, keyEvery = 30, start = 0) => Array.from({ length: n }, (_, i
   const bare = read(write(inOrder(5).map((s) => ({ ...s, duration: 0 }))).file);
   ok('samples without durations: timed by their timestamps, the last lasting one frame',
     same(bare.stts, [[5, 3000]]) && bare.mdhd.duration === 15000 && bare.ctts === null, bare.stts);
+}
+
+// ── pictures with a sound track beside them ───────────────────────────────
+{
+  const samples = inOrder(65);
+  const plain = write(samples).file;
+  const w = new Mp4Writer({ width: 1280, height: 720, fps: 30, avcC: AVCC });
+  for (const s of samples) w.add(s);
+  w.addAudioTrack({ asc: ascFor(48000, 2), sampleRate: 48000, channels: 2, delaySamples: 2112, totalSamples: Math.round((65 / 30) * 48000) });
+  for (let j = 0; j < 104; j++) w.addAudioSample({ data: Uint8Array.of(0x21, j & 0xff, 3, 4) });
+  const file = w.finish();
+  const f = read(file);
+  const p = read(plain);
+  const top = parse(file, 0, file.length);
+  const traks = get(top, 'moov').kids.filter((k) => k.type === 'trak');
+  ok('with sound: two tracks, and still ftyp, moov, mdat, every box as long as it holds', traks.length === 2 && same(f.types, ['ftyp', 'moov', 'mdat']) && f.nesting.length === 0, f.nesting);
+  ok('the pictures\' tables are the ones they have without sound: stts, stss, stsc, stsz, avcC, colr, lengths',
+    same([f.stts, f.stss, f.stsc, f.stsz, f.colr, f.mdhd, f.tkhd], [p.stts, p.stss, p.stsc, p.stsz, p.colr, p.mdhd, p.tkhd]) && equalBytes(f.avcC, p.avcC));
+  ok('only where their chunks sit has moved, and every picture is still where the index says',
+    !same(f.stco, p.stco) && f.stco.length === p.stco.length && samples.every((s, i) => equalBytes(file.subarray(f.offsets[i], f.offsets[i] + s.data.length), s.data)));
+  ok('the movie is as long as the longer track: 2167 ms', f.mvhd.duration === 2167);
+  const plainTop = parse(plain, 0, plain.length);
+  ok('without sound: one track, and the next free track id is 2, as before there was sound',
+    get(plainTop, 'moov').kids.filter((k) => k.type === 'trak').length === 1 && u32(plain, get(plainTop, 'moov/mvhd').body + 96) === 2);
 }
 
 // ── pictures out of order (B-frames) ──────────────────────────────────────

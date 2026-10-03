@@ -31,6 +31,29 @@
  * request sends Annex B instead (no `description` with the first sample);
  * that stream is kept whole and converted at the end.
  *
+ * ## Frames that cannot have changed
+ *
+ * `unchanged(i)` says frame `i` would paint exactly what frame `i - 1`
+ * painted (`motionexportops.ts` works that out from the document). Then
+ * `draw` is not called: the canvas still holds the previous frame, untouched,
+ * and it is wrapped and encoded again with frame `i`'s own time. The file
+ * keeps one sample per frame at a steady rate, its key frames where they
+ * were, and the pixels are the ones a repaint would have made, because they
+ * are the same pixels; only the painting — most of an export's time, eight
+ * paints a frame with motion blur — is saved.
+ *
+ * ## Sound
+ *
+ * With `audio`, the bed is fitted to the film's length (`fitBed`: cut, or
+ * made up with silence, to `frames / fps` seconds) and encoded to AAC
+ * (`motionaudioenc.ts`) before the first frame is drawn, then written as the
+ * file's second track. Sound is never the reason an export fails: when this
+ * window has no AAC encoder, or encoding fails, the film is made without it
+ * and the result says `audio: 'dropped'` so the panel can say so. Cancel
+ * during the sound is Cancel. The result is the file's bytes, as before,
+ * carrying `audio` (`'kept'`, `'dropped'`, or `'none'` when none was given)
+ * and `painted` (the frames actually drawn) beside them.
+ *
  * Both engines were checked for real (Chrome 154, and macOS 26.2's WKWebView,
  * the app's own): each hands back an avcC with its first sample, no
  * parameter sets inside the samples, timestamps in order (no B-frames), and
@@ -50,6 +73,9 @@
 
 import { Mp4Writer, annexBToAvcc } from './motionmp4';
 import type { Mp4Sample } from './motionmp4';
+import { encodeAac, fitBed } from './motionaudioenc';
+import type { AacTrack } from './motionaudioenc';
+import type { SoundBed } from './motionsound';
 
 // ── choosing the encoder ──────────────────────────────────────────────────
 
@@ -186,8 +212,11 @@ export async function canEncode(width: number, height: number, fps: number, qual
 /**
  * An export. `draw(frame)` paints frame `frame` into `canvas`, which must be
  * `width` x `height` (or larger: an odd size is rounded down to even and the
- * frame cropped, never scaled). `onProgress` hears after each frame is handed
- * to the encoder; aborting `signal` cancels.
+ * frame cropped, never scaled). `unchanged(frame)`, when given, is asked
+ * before every frame but the first; true means the frame is the one before
+ * it again, and `draw` is not called for it. `onProgress` hears after each
+ * frame is handed to the encoder, `onSound` as the sound is encoded (samples
+ * done of samples, before any frame); aborting `signal` cancels either.
  */
 export interface EncodeOptions {
   canvas: HTMLCanvasElement | OffscreenCanvas;
@@ -197,8 +226,40 @@ export interface EncodeOptions {
   frames: number;
   quality?: EncodeQuality;
   draw: (frame: number) => void | Promise<void>;
+  unchanged?: (frame: number) => boolean;
+  /** The film's sound, if it has any: planar PCM, fitted to the film's length here. */
+  audio?: SoundBed;
   onProgress?: (done: number, total: number) => void;
+  onSound?: (done: number, total: number) => void;
   signal?: AbortSignal;
+}
+
+/** What became of the sound: in the file, left out because it could not be encoded, or never given. */
+export type AudioOutcome = 'kept' | 'dropped' | 'none';
+
+/** What an export reports beside its bytes. */
+export interface EncodeReport {
+  audio: AudioOutcome;
+  /** Frames `draw` was called for; the rest were the frame before them again. */
+  painted: number;
+  /** Frames in the film. */
+  frames: number;
+}
+
+/**
+ * An MP4's bytes, with the report on them as read-only properties that are
+ * not enumerated: everything that took a `Uint8Array` — Rust's write, a
+ * test's byte comparison — takes this unchanged, and a caller that wants to
+ * know reads `bytes.audio`.
+ */
+export type Mp4Bytes = Uint8Array & Readonly<EncodeReport>;
+
+/** `bytes` with `report` on it (see `Mp4Bytes`); the same object, so its identity is kept. */
+export function withReport(bytes: Uint8Array, report: EncodeReport): Mp4Bytes {
+  for (const [key, value] of Object.entries(report)) {
+    Object.defineProperty(bytes, key, { value, enumerable: false, writable: false, configurable: true });
+  }
+  return bytes as Mp4Bytes;
 }
 
 /** Frames the encoder may hold before drawing waits: enough to keep a hardware encoder busy, few enough that memory stays flat. */
@@ -215,10 +276,50 @@ const YIELD_MS = 50;
 const clock = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
 
 /**
- * The frames `draw` paints, as an MP4's bytes. Rejects with the codes above,
- * or with whatever `draw` throws; either way nothing is left open.
+ * The sound of a film `seconds` long as AAC, or null when it cannot be made
+ * (a bed with nothing usable in it, no AAC encoder, the encoder failing):
+ * then the film is made without it. Cancel is the one failure passed on.
  */
-export async function encodeMp4(o: EncodeOptions): Promise<Uint8Array> {
+async function encodeSound(
+  bed: SoundBed, seconds: number, signal: AbortSignal | undefined, onSound: EncodeOptions['onSound'],
+): Promise<AacTrack | null> {
+  const fitted = fitBed(bed, seconds);
+  if (!fitted) return null;
+  try {
+    return await encodeAac(fitted, { signal, onProgress: onSound });
+  } catch (e) {
+    if (signal?.aborted || (e as { name?: unknown })?.name === 'AbortError') throw aborted();
+    return null;
+  }
+}
+
+/**
+ * The file, with the sound in it when there is sound and the writer takes
+ * it. A track `motionaudioenc.ts` made is one the writer takes (both read
+ * the config the same way), so `kept` is false only for a config that
+ * reading somehow let through; a sample the writer refuses past that is a
+ * real failure (`motion:too-large`) and is thrown.
+ */
+function finishFile(w: Mp4Writer, track: AacTrack | null): { bytes: Uint8Array; kept: boolean } {
+  let kept = false;
+  if (track) {
+    try {
+      w.addAudioTrack(track);
+      kept = true;
+    } catch {
+      kept = false;
+    }
+    if (kept) for (const f of track.frames) w.addAudioSample(f);
+  }
+  return { bytes: w.finish(), kept };
+}
+
+/**
+ * The frames `draw` paints, as an MP4's bytes, with the report on them
+ * (`Mp4Bytes`). Rejects with the codes above, or with whatever `draw` or
+ * `unchanged` throws; either way nothing is left open.
+ */
+export async function encodeMp4(o: EncodeOptions): Promise<Mp4Bytes> {
   const { canvas, fps, signal } = o;
   if (signal?.aborted) throw aborted();
   const frames = Math.floor(o.frames);
@@ -230,6 +331,11 @@ export async function encodeMp4(o: EncodeOptions): Promise<Uint8Array> {
   }
   const choice = await choose(width, height, fps, bitrateFor(width, height, fps, o.quality ?? 'high'));
   if (!choice) throw new Error('motion:no-encoder');
+  if (signal?.aborted) throw aborted();
+
+  // The sound before the pictures: it takes a fraction of their time, and
+  // the file needs all of it at the end either way.
+  const sound = o.audio ? await encodeSound(o.audio, frames / fps, signal, o.onSound) : null;
   if (signal?.aborted) throw aborted();
 
   const step = Math.round(1e6 / fps);
@@ -278,8 +384,15 @@ export async function encodeMp4(o: EncodeOptions): Promise<Uint8Array> {
     encoder.configure(choice.config);
 
     let turned = clock();
+    let painted = 0;
     for (let i = 0; i < frames; i++) {
-      await until(o.draw(i), stopped);
+      // A frame that is the one before it again is not drawn: the canvas
+      // still holds that frame, untouched, and is encoded again at this
+      // frame's time.
+      if (!(i > 0 && o.unchanged?.(i) === true)) {
+        await until(o.draw(i), stopped);
+        painted++;
+      }
       if (failure !== null) throw failure;
       const time = { timestamp: Math.round((i * 1e6) / fps), duration: step };
       frame = new VideoFrame(canvas, crop ? { ...time, visibleRect: crop } : time);
@@ -299,9 +412,12 @@ export async function encodeMp4(o: EncodeOptions): Promise<Uint8Array> {
     await until(encoder.flush(), stopped);
     if (failure !== null) throw failure;
 
-    if (writer) return writer.finish();
-    if (annexB && annexB.length) return fromAnnexB(annexB, width, height, fps);
-    throw new Error('motion:encode-failed: the encoder returned no frames');
+    let made: { bytes: Uint8Array; kept: boolean };
+    if (writer) made = finishFile(writer, sound);
+    else if (annexB && annexB.length) made = fromAnnexB(annexB, width, height, fps, sound);
+    else throw new Error('motion:encode-failed: the encoder returned no frames');
+    const audio: AudioOutcome = !o.audio ? 'none' : made.kept ? 'kept' : 'dropped';
+    return withReport(made.bytes, { audio, painted, frames });
   } catch (e) {
     throw failure ?? e;
   } finally {
@@ -316,7 +432,7 @@ export async function encodeMp4(o: EncodeOptions): Promise<Uint8Array> {
  * and converted by `annexBToAvcc`, and given the encoder's timestamps again,
  * which only works if the split found exactly one picture per sample.
  */
-function fromAnnexB(samples: Mp4Sample[], width: number, height: number, fps: number): Uint8Array {
+function fromAnnexB(samples: Mp4Sample[], width: number, height: number, fps: number, sound: AacTrack | null): { bytes: Uint8Array; kept: boolean } {
   let size = 0;
   for (const s of samples) size += s.data.byteLength;
   const stream = new Uint8Array(size);
@@ -331,7 +447,7 @@ function fromAnnexB(samples: Mp4Sample[], width: number, height: number, fps: nu
   }
   const w = new Mp4Writer({ width, height, fps, avcC: avc.avcC });
   avc.samples.forEach((data, i) => w.add({ ...samples[i], data }));
-  return w.finish();
+  return finishFile(w, sound);
 }
 
 /** `p`, unless the export fails first; `p` failing after that is then ignored instead of left unhandled. */

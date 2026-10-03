@@ -17,6 +17,30 @@
  * averaged, **centred on** the frame's time, so a blurred frame is the moment
  * it stands for, smeared both ways, rather than a moment half a frame late.
  *
+ * ## Frames that are not painted
+ *
+ * Most of a graphic stands still most of the time: a title arrives in half a
+ * second and holds for four. The document says exactly when anything can
+ * move (`changingFrames`): a layer appears at its `start` (once it can be
+ * seen) and goes at its `end`; between them it changes only while its
+ * entrance, its exit, its loop, its count or its highlight runs, or always
+ * if it is a moving backdrop, particles, or a kind not known to stand still.
+ * A frame none of that touches — nor its motion-blur sub-frames, nor the
+ * previous frame's — is the frame before it again, and is not painted: the
+ * encoder takes the canvas as it stands (`motionencode.ts`). `paint` is a
+ * pure function of the document and the time, so the pixels are the ones
+ * painting would have made; hashed frame by frame in WebKit and Chrome,
+ * every template in four languages, no skipped frame differed. A graphic
+ * with scenes is painted whole until `motionscene.ts` says when its own
+ * time moves.
+ *
+ * ## Sound
+ *
+ * With `sound`, the graphic's sound is rendered (`renderSoundBed`, at 48 kHz)
+ * before the first frame and handed to the encoder, which writes it as an AAC
+ * track or, when this window cannot encode AAC, leaves it out and says so in
+ * the result's `audio`. A graphic without sound gives `audio: 'none'`.
+ *
  * ## Sizes
  *
  * By the short side — 720, 1080 or 2160 pixels — as a whole multiple of the
@@ -64,10 +88,16 @@
 
 import { invoke } from '@tauri-apps/api/core';
 import { downloadDir, join } from '@tauri-apps/api/path';
-import { bitrateFor, encodeMp4 } from './motionencode';
+import { bitrateFor, encodeMp4, withReport } from './motionencode';
+import type { AudioOutcome, Mp4Bytes } from './motionencode';
+import { AAC_RATE } from './motionaudioenc';
+import { countAt, gapOf, poseAt } from './motionanim';
 import { paint, preload } from './motiondraw';
-import { frameCount, sizeOf } from './motiontypes';
-import type { Ctx, Format, Motion } from './motiontypes';
+import { formatNumber, scriptOf } from './motionfonts';
+import { renderSoundBed } from './motionsound';
+import type { SoundBed } from './motionsound';
+import { LIMITS, SPLITS, frameCount, sizeOf } from './motiontypes';
+import type { Anim, Ctx, Format, Layer, Motion } from './motiontypes';
 
 // ── what can be made ──────────────────────────────────────────────────────
 
@@ -143,16 +173,221 @@ export function frameAt(m: Pick<Motion, 'seconds' | 'fps'>, at: number): number 
 
 // ── rendering ─────────────────────────────────────────────────────────────
 
+// ── frames that cannot have changed ───────────────────────────────────────
+
+/** `motionanim.ts`'s shortest effect: a duration of 0 is this. */
+const MIN_D = 0.001;
+/** `motiondraw.ts`'s `MARK_D`: how long a highlight's box or underline takes to draw itself once the words have landed. */
+const MARK_D = 0.45;
+/** `motiondraw.ts`'s `MAX_SAMPLES`: the most sub-frames motion blur paints. */
+const MAX_SAMPLES = 32;
+/** Loops whose `amount` scales all they do, so that at 0 they do nothing. A shimmer moves at any amount. */
+const SCALED_LOOPS = ['float', 'pulse', 'spin', 'sway', 'breathe'];
+/**
+ * The kinds of layer, and of chart, known to be drawn from their pose (and a
+ * counter from its figure) and nothing else that moves with time. Written
+ * out rather than read from `LAYER_KINDS` and `CHARTS` on purpose: a kind or
+ * a chart added later (a bar-chart race re-orders its bars as time passes)
+ * is painted at every frame it shows until someone has checked it and listed
+ * it here, so a new drawing can never be frozen by a skipped frame.
+ */
+const STILL_KINDS: readonly string[] = ['text', 'counter', 'shape', 'icon', 'image', 'chart'];
+const STILL_CHARTS: readonly string[] = ['bars', 'hbars', 'line', 'donut', 'ring'];
+
+/**
+ * How far a run of `count` staggered effects has got at one moment: unit `i`
+ * has progressed `r(i)` — at most 0 not begun, at least 1 done, in between
+ * under way, read exactly as `clamp01` reads it — and `r` is monotone in `i`
+ * (each unit starts a steady `gap` after the one before). The number of
+ * units done when none is under way; NaN, which equals nothing, when one is.
+ * Found by bisection, so a 500-letter title costs ten looks, not 500.
+ */
+function standing(count: number, r: (i: number) => number): number {
+  const done = (i: number) => r(i) >= 1;
+  const moving = (i: number) => {
+    const x = r(i);
+    return x > 0 && x < 1;
+  };
+  if (count <= 1) return moving(0) ? NaN : done(0) ? 1 : 0;
+  // The units done are a prefix when progress falls with `i`, a suffix when it rises.
+  const falling = r(0) >= r(count - 1);
+  let lo = 0;
+  let hi = count;
+  // The first index on the other side of the done/not-done boundary.
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (done(mid) === falling) lo = mid + 1;
+    else hi = mid;
+  }
+  const doneCount = falling ? lo : count - lo;
+  // The not-done unit nearest the boundary has made the most progress of all
+  // the not-done ones: if it has not begun, none has.
+  const nearest = falling ? lo : lo - 1;
+  if (nearest >= 0 && nearest < count && moving(nearest)) return NaN;
+  return doneCount;
+}
+
+/**
+ * The pieces a layer's entrance and exit run on: a chart's data, and a split
+ * text's words, lines or letters; `split` when the text is drawn piece by
+ * piece rather than whole. The renderer decides the exact count from its
+ * layout (a wrapped line, a letter cluster), so where this cannot be sure it
+ * counts what the renderer cannot exceed — every word for lines that wrap,
+ * every code point for letters — and says the count is not `exact`: a piece
+ * the renderer has is then never missed, and one it does not have only costs
+ * a frame painted that need not have been.
+ */
+function piecesOf(l: Layer): { n: number; exact: boolean; split: boolean } {
+  if (l.kind === 'chart') return { n: Math.max(1, Math.min(LIMITS.dataPoints, Array.isArray(l.data) ? l.data.length : 0)), exact: true, split: false };
+  if (l.kind !== 'text') return { n: 1, exact: true, split: false };
+  const by = l.in?.by ?? l.out?.by ?? 'all';
+  if (by === 'all' || !(SPLITS as readonly string[]).includes(by)) return { n: 1, exact: true, split: false };
+  // The text as `motiondraw.ts`'s `textBlock` reads it, and its words as that splits them.
+  const raw = String(typeof l.text === 'string' ? l.text : '').replace(/\r\n?/g, '\n').replace(/\t/g, ' ').slice(0, LIMITS.text * 2);
+  const words = raw.match(/\S+/g) ?? [];
+  const n = (count: number, exact: boolean) => ({ n: Math.max(1, count), exact: exact && count > 0, split: true });
+  if (by === 'word') return n(words.length, true);
+  if (by === 'line') {
+    if (finite(l.max, 0) > 0 && !l.fit) return n(words.length, false);
+    return n(raw.split('\n').filter((p) => /\S/.test(p)).length, true);
+  }
+  // Letters, except in Arabic script, whose letters join and which splits into words instead.
+  if (scriptOf(raw) === 'arabic') return n(words.length, true);
+  let letters = 0;
+  for (const w of words) letters += Array.from(w).length;
+  // A letter is a code point exactly when nothing combines with it: plain printable ASCII.
+  return n(letters, words.every((w) => /^[\x21-\x7e]+$/.test(w)));
+}
+
+/** How many pieces a layer's entrance and exit run on, or more (see `piecesOf`). */
+export function unitsBound(l: Layer): number {
+  return piecesOf(l).n;
+}
+
+/** Above this many pieces, whether any is visible is not worked out piece by piece: the frame is painted. */
+const MAX_LOOKS = 64;
+
+/** A finite number, or `fallback`: `motionmath.ts`'s `finite`, which the timings below must read numbers exactly as. */
+function finite(x: unknown, fallback: number): number {
+  return typeof x === 'number' && Number.isFinite(x) ? x : fallback;
+}
+
+/**
+ * Everything about a layer that can make two moments look different, as a
+ * key: equal keys at two moments mean the layer is drawn the same at both.
+ * Null when it is under way — moving, so like no other moment. Every timing
+ * is computed with the same arithmetic, in the same order, as `poseAt` and
+ * the highlight's `markProgress` compute it, so a key changes exactly where
+ * what they return can. A counter's part is the number it shows, as
+ * `motiondraw.ts`'s `counterBlock` writes it: the end of a roll that eases
+ * out shows the same figure for many frames, and those are the same picture.
+ */
+function keyAt(l: Layer, t: number, pieces: { n: number; exact: boolean; split: boolean }, lang: Motion['lang']): (number | string)[] | null {
+  // Drawn from `start` up to `end` (`motiondraw.ts`'s `drawLayer`), and only
+  // if it shows: its pose `on`, or, for a text drawn in pieces, one piece's.
+  // A layer that is there but cannot be seen — an entrance not yet begun, an
+  // exit over — draws nothing, the same nothing as a layer that is not there.
+  if (!(t >= l.start) || !(t < l.end)) return [0];
+  const units = pieces.n;
+  if (!pieces.split) {
+    if (!poseAt(l, t, false).on) return [0];
+  } else if (pieces.exact && units <= MAX_LOOKS) {
+    let any = false;
+    for (let i = 0; i < units && !any; i++) any = poseAt(l, t, false, { i, n: units }).on;
+    if (!any) return [0];
+  }
+  // Backdrops and particles move for as long as they show; so does anything not known to stand still.
+  if (!STILL_KINDS.includes(l.kind) || (l.kind === 'chart' && !STILL_CHARTS.includes(l.chart))) return null;
+  const loop = l.loop;
+  if (loop && loop.fx !== 'none') {
+    const still = SCALED_LOOPS.includes(loop.fx) && Math.min(3, Math.max(0, finite(loop.amount, 1))) === 0;
+    if (!still) return null;
+  }
+  const key: (number | string)[] = [1];
+  const enter: Anim | undefined = l.in;
+  if (enter && enter.fx !== 'none') {
+    const d = Math.max(MIN_D, finite(enter.d, 0.6));
+    const g = gapOf(l, enter);
+    key.push(standing(units, (i) => (t - (l.start + finite(enter.delay, 0) + i * g)) / d));
+    if (l.kind === 'text' && typeof l.hi === 'string' && l.hi && (l.hiStyle === 'box' || l.hiStyle === 'underline')) {
+      // The highlight draws itself after the last piece lands: `inDone(layer, n) + MARK_D`, n the pieces.
+      const landed = l.start + finite(enter.delay, 0);
+      key.push(standing(units, (i) => (t - (landed + Math.max(0, i) * g + d)) / MARK_D));
+    }
+  }
+  const leave: Anim | undefined = l.out;
+  if (leave && leave.fx !== 'none') {
+    const d = Math.max(MIN_D, finite(leave.d, 0.4));
+    const g = gapOf(l, leave);
+    // The piece `j` places from the last leaves `j` gaps before the end.
+    key.push(standing(units, (j) => (l.end - finite(leave.delay, 0) - j * g - t) / d));
+  }
+  if (l.kind === 'counter') {
+    if (!l.count || typeof l.count !== 'object') return null;
+    const decimals = Math.min(3, Math.max(0, Math.round(finite(l.decimals, 0))));
+    key.push(formatNumber(countAt(l, t), { decimals, group: !!l.group, lang }));
+  }
+  return key.some((k) => typeof k === 'number' && Number.isNaN(k)) ? null : key;
+}
+
+/**
+ * Which frames of a film must be painted: 1 for a frame that can look
+ * different from the one before it, 0 for one that is that frame again. The
+ * first frame is always painted. A frame is the one before it again when,
+ * at each of its motion-blur sub-frames (`blur`, as `paint` takes it) and the
+ * same sub-frame of the frame before, every layer's key (`keyAt`) is the
+ * same: nothing is under way at either, and nothing appeared, left, landed
+ * or began between them. A document with scenes is painted whole: how its
+ * time moves is `motionscene.ts`'s to say.
+ */
+export function changingFrames(m: Motion, o: { fps: number; frames: number; blur?: { samples: number; shutter: number } }): Uint8Array {
+  const frames = Math.max(0, Math.floor(finite(o.frames, 0)));
+  const out = new Uint8Array(frames);
+  if (!frames) return out;
+  const fps = o.fps;
+  const layers = Array.isArray(m?.layers) ? m.layers : [];
+  if (!(fps > 0) || !Number.isFinite(fps) || (Array.isArray(m.scenes) && m.scenes.length > 0)) return out.fill(1);
+  // The moments `paint` draws a frame at: its own time, or its blur's sub-frames (`motiondraw.ts`'s `blurred`).
+  const samples = Math.min(MAX_SAMPLES, Math.round(finite(o.blur?.samples, 1)));
+  const docFps = finite(m.fps, 30) > 0 ? m.fps : 30;
+  const shutter = Math.min(4, Math.max(0, finite(o.blur?.shutter, 0.5)));
+  const moments = (i: number): number[] => {
+    const t = i / fps;
+    if (samples <= 1) return [t];
+    return Array.from({ length: samples }, (_, s) => t + ((s + 0.5) / samples - 0.5) * shutter / docFps);
+  };
+  const shown = layers.filter((l): l is Layer => !!l && typeof l === 'object' && !l.hidden);
+  const pieces = shown.map(piecesOf);
+  const lang = m.lang ?? 'en';
+  const keys = (i: number) => moments(i).map((t) => shown.map((l, k) => keyAt(l, t, pieces[k], lang)));
+  type Key = ReturnType<typeof keyAt>;
+  const same = (a: Key[][], b: Key[][]) => a.every((at, s) => at.every((x, k) => {
+    const y = b[s][k];
+    return x !== null && y !== null && x.length === y.length && x.every((v, n) => v === y[n]);
+  }));
+  out[0] = 1;
+  let before = keys(0);
+  for (let i = 1; i < frames; i++) {
+    const now = keys(i);
+    out[i] = same(before, now) ? 0 : 1;
+    before = now;
+  }
+  return out;
+}
+
+// ── rendering ─────────────────────────────────────────────────────────────
+
 /**
  * What rendering uses, so a test can hand in its own: the encoder, the
- * painter, the loader, and where the canvas comes from. The defaults are the
- * real ones.
+ * painter, the loader, where the canvas comes from, and the sound. The
+ * defaults are the real ones.
  */
 export interface RenderDeps {
   encodeMp4: typeof encodeMp4;
   paint: typeof paint;
   preload: typeof preload;
   canvas: (width: number, height: number) => HTMLCanvasElement | OffscreenCanvas;
+  soundBed: typeof renderSoundBed;
 }
 
 /**
@@ -177,6 +412,7 @@ function depsOf(d: Partial<RenderDeps>): RenderDeps {
     paint: d.paint ?? paint,
     preload: d.preload ?? preload,
     canvas: d.canvas ?? makeCanvas,
+    soundBed: d.soundBed ?? renderSoundBed,
   };
 }
 
@@ -221,39 +457,72 @@ function aborted(): Error {
     : Object.assign(new Error('Aborted'), { name: 'AbortError' });
 }
 
+const isAbort = (e: unknown) => (e as { name?: unknown } | null)?.name === 'AbortError';
+
 /**
- * The whole graphic as an MP4's bytes, at `size` and `quality`.
+ * The whole graphic as an MP4's bytes, at `size` and `quality`, with its
+ * sound when `sound` is true (off unless asked: the shortest path to a film
+ * is unchanged).
  *
- * Fonts and pictures are loaded first. Each frame `i` is painted at `i / fps`
- * into one canvas the size of the film and handed to the encoder, which
- * reports `onProgress(frames done, frames)` and stops between frames when
- * `signal` is aborted, rejecting with an `AbortError`. Its own failures come
- * through as they are: `motion:no-encoder` when this window has no H.264
- * encoder for the size, `motion:encode-failed: …`, `motion:too-large`.
+ * Fonts and pictures are loaded first, then the sound is rendered
+ * (`onSound(0, 1)` as it starts, then the encoder's `onSound(samples done,
+ * samples)`). Each frame `i` is painted at `i / fps` into one canvas the size
+ * of the film — except a frame that cannot differ from the one before it
+ * (`changingFrames`), which is not painted again — and handed to the
+ * encoder, which reports `onProgress(frames done, frames)` and stops between
+ * frames when `signal` is aborted, rejecting with an `AbortError`. Its own
+ * failures come through as they are: `motion:no-encoder` when this window has
+ * no H.264 encoder for the size, `motion:encode-failed: …`,
+ * `motion:too-large`. Sound never fails a film: a bed that will not render
+ * or encode leaves the film silent, and the result's `audio` says
+ * `'dropped'` (`Mp4Bytes`).
  */
 export async function renderMp4(
   m: Motion,
-  o: { size: Size; quality: Quality; blur: boolean; onProgress?: (done: number, total: number) => void; signal?: AbortSignal },
+  o: {
+    size: Size; quality: Quality; blur: boolean; sound?: boolean;
+    onProgress?: (done: number, total: number) => void; onSound?: (done: number, total: number) => void; signal?: AbortSignal;
+  },
   deps: Partial<RenderDeps> = {},
-): Promise<Uint8Array> {
+): Promise<Mp4Bytes> {
   const d = depsOf(deps);
   const { signal } = o;
   if (signal?.aborted) throw aborted();
   await d.preload(m);
   if (signal?.aborted) throw aborted();
 
+  let bed: SoundBed | null = null;
+  let lost = false;
+  if (o.sound) {
+    o.onSound?.(0, 1);
+    try {
+      bed = await d.soundBed(m, { signal, sampleRate: AAC_RATE });
+    } catch (e) {
+      if (signal?.aborted || isAbort(e)) throw aborted();
+      lost = true;
+    }
+    if (signal?.aborted) throw aborted();
+  }
+
   const { width, height } = pixelsFor(m.format, o.size);
   const canvas = d.canvas(width, height);
   const ctx = context2d(canvas, false);
   const film = opaque(m);
   const fps = m.fps;
+  const frames = frameCount(m);
   const look = o.blur ? { width, height, clear: true, blur: { ...BLUR } } : { width, height, clear: true };
-  return d.encodeMp4({
-    canvas, width, height, fps, frames: frameCount(m), quality: o.quality,
+  const changes = changingFrames(film, { fps, frames, blur: o.blur ? BLUR : undefined });
+  const bytes: Uint8Array & Partial<Mp4Bytes> = await d.encodeMp4({
+    canvas, width, height, fps, frames, quality: o.quality,
     draw: (i: number) => d.paint(ctx, film, i / fps, look),
+    unchanged: (i: number) => changes[i] === 0,
+    audio: bed ?? undefined,
     onProgress: o.onProgress,
+    onSound: o.onSound,
     signal,
   });
+  const audio: AudioOutcome = lost ? 'dropped' : bytes.audio ?? (bed ? 'dropped' : 'none');
+  return withReport(bytes, { audio, painted: bytes.painted ?? frames, frames });
 }
 
 /** The eight bytes every PNG starts with. */
