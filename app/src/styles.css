@@ -9049,3 +9049,43 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   .mo-share-dest, .mo-share-more .ic{ transition:none; }
 }
 /* pro:09 end */
+/* pro:w2-1 start */
+/* ── Motion pro, wave 2: the parts mounted in the studio (MotionPanel.tsx, MotionDesign.tsx) ─────────────────────
+   Each new part is one quiet line where the work is. The quality check's chip sits in a row of its own under the
+   stage, at the row's end in the reading direction: not in the transport, which is left to right in every
+   language. In the full window that row lines up with the transport bar above it (the bar is at most 960px and
+   centred in the stage's padding); in the sidebar, with the compact stage's edges. */
+.mo-checks{ flex:none; display:flex; justify-content:flex-end; min-inline-size:0; padding-inline:var(--sp-6); }
+.mo-full-canvas > .mo-checks{
+  inline-size:100%; max-inline-size:calc(960px + 2 * var(--sp-10)); margin-inline:auto;
+  margin-block:calc(-1 * var(--sp-5)) var(--sp-5); padding-inline:var(--sp-10);
+}
+@media (max-width: 840px){
+  .mo-full-canvas > .mo-checks{ padding-inline:var(--sp-5); }
+}
+/* The scene strip above the full window's timeline: the timeline's own inset, and a hair of room under it. Its menus
+   open upward over the stage when there is no room below, so the time area lets them out: the timeline keeps its own
+   scroll (`.mo-tl-scroll`), which is what kept it inside the 40% before, not this box's clipping. */
+.mo-full-time:has(> .ms){ overflow:visible; }
+.mo-full-time > .ms{ flex:none; padding:var(--sp-2) var(--sp-5) 0; }
+/* One scene: only the quiet "+ Scene", as tall as itself, so a plain graphic's timeline loses no more than its height. */
+.mo-full-time > .ms.ms-one{ padding-block:0; }
+/* Two or more: the chips on the timeline's own time axis, so a scene's chip stands over its layers' bars. The strip's
+   buttons take the column of the timeline's names (`.mo-tl-corner`: the same clamp of the same width), and the track
+   the ruler's, less the ruler's inset at each end (motiontrack.ts `PAD`, 12px, and the timeline's 1px border). A
+   scene's box is as wide as it is long (MotionScenes.tsx), so its edges then fall on its cuts. */
+.mo-full-time > .ms:not(.ms-one){ gap:0; padding-inline:0; }
+.mo-full-time > .ms:not(.ms-one) > .ms-end{
+  order:-1; flex:none; inline-size:clamp(128px, 30%, 176px); flex-wrap:wrap; justify-content:center; gap:0 var(--sp-1);
+  padding-inline:var(--sp-2);
+}
+.mo-full-time > .ms:not(.ms-one) > .ms-track{ padding-inline:13px; }
+/* Design: the brand kit's button on the Colours heading's line, at its end, no taller than a chip there. */
+.mo-de-head{ display:flex; align-items:center; justify-content:space-between; gap:var(--sp-4); min-inline-size:0; }
+.mo-de-head .mo-de-h{ min-inline-size:0; }
+.mo-de-head .ghost.mb-btn{ block-size:28px; max-inline-size:180px; padding-inline:var(--sp-4); }
+.mo-de-brand{ flex:none; display:flex; min-inline-size:0; }
+/* Design's Sound row: a section of one row, its label in the column the tab's other label rows use (`.vid-look-line`:
+   8.5em of its --fs-3 text), so "Sound" and "Frame rate" start their choices on the same line. */
+.mo-de-sound{ --mo-label:calc(8.5 * var(--fs-3)); }
+/* pro:w2-1 end */

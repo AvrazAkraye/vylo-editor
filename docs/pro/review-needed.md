@@ -336,3 +336,22 @@ Template samples (the words a template shows before the person writes any; the g
 | progress-stats.items | Attendance: 92% / Homework done: 78% / Exams passed: 85% / Projects: 64% | ئامادەبوون: 92% / ئەرکی تەواوکراو: 78% / دەرچوون لە تاقیکردنەوە: 85% / پرۆژەکان: 64% | ئامادەبوون: 92% / ئەرکێن ب دوماهی هاتین: 78% / دەرباسبوون د ئەزموونان دا: 85% / پرۆژە: 64% |
 | retro-title.title | Retro night | شەوی بیرەوەری | شەڤا بیرهاتنان |
 | retro-title.subtitle | Live from the studio | ڕاستەوخۆ لە ستۆدیۆوە | ڕاستەوخۆ ژ ستۆدیۆیێ |
+
+## W2-1 Panel wiring (`MotionKinds.tsx`: the finishes' sliders, the race's data)
+
+Arabic is checked; Sorani and Badini are best effort. The slider names are what each finish's two sliders do (see
+`motionbackdrop.ts`, "Grounds and finishes"): a film grain's coarseness and how fast it flickers, a vignette's reach and
+its slow breathing, how strong light leaks are and how many times they bloom, how fine scan lines are and how many times
+their band rolls down, how fine a halftone screen is and how its light flows.
+
+| English | ar | ckb (Sorani) | kmr (Badini) |
+|---|---|---|---|
+| Coarseness | الخشونة | زبری | زڤری |
+| Flicker | الارتعاش | لەرزین | لەرزین |
+| Reach | المدى | مەودا | مەودا |
+| Breathing | التنفّس | هەناسە | بێهن |
+| Blooms | التوهّجات | گەشانەوە | گەشبوون |
+| Fineness | الدقّة | وردی | هویری |
+| Rolls | مرور الشريط | تێپەڕینی تیشک | دەرباسبوونا تیشکێ |
+| Flow | الانسياب | ڕەوت | هەرکین |
+| Earlier values go in the label after a \|, like Rome\|12 18 25. The value is the last one. | تُكتب القيم السابقة في التسمية بعد \|، مثل روما\|12 18 25. والقيمة هي الأخيرة. | بەهاکانی پێشوو لە ناونیشانەکەدا دوای \| دەنووسرێن، وەک ڕۆما\|12 18 25. بەهاکە دوایینیانە. | بهایێن بەری د ناڤونیشانیدا پشتی \| دهێنە نڤیسین، وەکی ڕۆما\|12 18 25. بها یا دوماهیێ یە. |

@@ -3330,6 +3330,16 @@ const ar: Dict = {
   'No brand kit is saved yet: set one up with the Brand kit button': 'لا توجد هوية تجارية محفوظة بعد: أنشئها من زر «الهوية التجارية»',
   'The quality check found nothing to fix': 'لم يجد فحص الجودة شيئاً يحتاج إلى إصلاح',
   'The quality check found {n} tips, and none it can fix by itself': 'وجد فحص الجودة نصائح ({n})، ولا يستطيع إصلاح أيٍّ منها بنفسه',
+  // Motion pro: w2-1 panel wiring (MotionKinds.tsx: the finishes' sliders, the race's data).
+  'Coarseness': 'الخشونة',
+  'Flicker': 'الارتعاش',
+  'Reach': 'المدى',
+  'Breathing': 'التنفّس',
+  'Blooms': 'التوهّجات',
+  'Fineness': 'الدقّة',
+  'Rolls': 'مرور الشريط',
+  'Flow': 'الانسياب',
+  'Earlier values go in the label after a |, like Rome|12 18 25. The value is the last one.': 'تُكتب القيم السابقة في التسمية بعد |، مثل روما|12 18 25. والقيمة هي الأخيرة.',
 };
 
 const ckb: Dict = {
@@ -6639,6 +6649,16 @@ const ckb: Dict = {
   'No brand kit is saved yet: set one up with the Brand kit button': 'هێشتا هیچ ناسنامەی براندێک پاشەکەوت نەکراوە: بە دوگمەی «ناسنامەی براند» دروستی بکە',
   'The quality check found nothing to fix': 'پشکنینی کوالیتی هیچ شتێکی بۆ چاککردن نەدۆزییەوە',
   'The quality check found {n} tips, and none it can fix by itself': 'پشکنینی کوالیتی {n} ئامۆژگاری دۆزییەوە، بەڵام ناتوانێت هیچیان خۆی چاک بکات',
+  // Motion pro: w2-1 panel wiring (MotionKinds.tsx: the finishes' sliders, the race's data).
+  'Coarseness': 'زبری',
+  'Flicker': 'لەرزین',
+  'Reach': 'مەودا',
+  'Breathing': 'هەناسە',
+  'Blooms': 'گەشانەوە',
+  'Fineness': 'وردی',
+  'Rolls': 'تێپەڕینی تیشک',
+  'Flow': 'ڕەوت',
+  'Earlier values go in the label after a |, like Rome|12 18 25. The value is the last one.': 'بەهاکانی پێشوو لە ناونیشانەکەدا دوای | دەنووسرێن، وەک ڕۆما|12 18 25. بەهاکە دوایینیانە.',
 };
 
 const kmr: Dict = {
@@ -9946,6 +9966,16 @@ const kmr: Dict = {
   'No brand kit is saved yet: set one up with the Brand kit button': 'هێشتا چو ناسناما براندی نەهاتییە پاشەکەفتکرن: ب دوگمەیا «ناسناما براندی» چێبکە',
   'The quality check found nothing to fix': 'پشکنینا کوالیتیێ چو تشت بۆ چاککرنێ نەدیت',
   'The quality check found {n} tips, and none it can fix by itself': 'پشکنینا کوالیتیێ {n} شیرەت دیتن، بەلێ نەشێت چو ژ وان ب خۆ چاک بکەت',
+  // Motion pro: w2-1 panel wiring (MotionKinds.tsx: the finishes' sliders, the race's data).
+  'Coarseness': 'زڤری',
+  'Flicker': 'لەرزین',
+  'Reach': 'مەودا',
+  'Breathing': 'بێهن',
+  'Blooms': 'گەشبوون',
+  'Fineness': 'هویری',
+  'Rolls': 'دەرباسبوونا تیشکێ',
+  'Flow': 'هەرکین',
+  'Earlier values go in the label after a |, like Rome|12 18 25. The value is the last one.': 'بهایێن بەری د ناڤونیشانیدا پشتی | دهێنە نڤیسین، وەکی ڕۆما|12 18 25. بها یا دوماهیێ یە.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
