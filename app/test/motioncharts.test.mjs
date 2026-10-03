@@ -123,7 +123,7 @@ function outside(r, W, H, slack = 2) {
   return out;
 }
 
-ok('the contract lists five charts', CHARTS.length === 5 && CHARTS.join() === 'bars,hbars,line,donut,ring', CHARTS);
+ok('the contract lists six charts', CHARTS.length === 6 && CHARTS.join() === 'bars,hbars,line,donut,ring,race', CHARTS);
 {
   const bad = [];
   const empty = [];
@@ -261,12 +261,15 @@ ok('the contract lists five charts', CHARTS.length === 5 && CHARTS.join() === 'b
     // The legend's rows, then the middle: the largest datum's share and its label.
     donut: (l, v, n) => (l ? n : 0) + (v ? n : 0) + (v ? 1 : 0) + (l && v ? 1 : 0),
     ring: (l, v) => (l ? 1 : 0) + (v ? 1 : 0),
+    // Its scale's tick numbers, in their own row above the bars, are counted apart (pro-templates-b checks them).
+    race: (l, v, n) => (l ? n : 0) + (v ? n : 0),
   };
   for (const type of CHARTS) {
     for (const [l, v] of [[true, true], [true, false], [false, true], [false, false]]) {
       for (const data of [SETS.four, SETS.one, SETS.twelve]) {
         const r = draw(chart({ chart: type, labels: l, values: v, data, w: 90, h: 60 }), 2);
-        const n = r.texts.length;
+        const tickRow = Math.min(...r.texts.map((x) => x.y));
+        const n = type === 'race' && v ? r.texts.filter((x) => x.y > tickRow + 1e-6).length : r.texts.length;
         const expect = want[type](l, v, data.length);
         if (n !== expect) counts.push([type, l, v, data.length, n, expect]);
       }

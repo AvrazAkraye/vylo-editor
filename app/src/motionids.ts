@@ -7,4 +7,4 @@
  * may take the ids without a cycle.
  */
 export const PRO_A_IDS = [] as const;
-export const PRO_B_IDS = [] as const;
+export const PRO_B_IDS = ['film-look', 'bar-race', 'timeline', 'compare', 'price-card', 'progress-stats', 'retro-title'] as const;

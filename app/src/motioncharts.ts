@@ -1,12 +1,12 @@
 import type { ChartLayer, Ctx, Env, Pose } from './motiontypes';
 import { LIMITS } from './motiontypes';
-import { poseAt } from './motionanim';
+import { inDone, outStart, poseAt } from './motionanim';
 import { clamp, clamp01, easeOf, finite, lerp, mixColors, smoothstep, withAlpha } from './motionmath';
 import { digitsFor, fontString, formatNumber, scriptOf } from './motionfonts';
 
 /**
- * Charts for Motion: bars, horizontal bars, a line, a donut and a progress
- * ring, drawn inside the chart layer's own `w × h` box. `motiondraw.ts`'s
+ * Charts for Motion: bars, horizontal bars, a line, a donut, a progress ring
+ * and a bar-chart race, drawn inside the chart layer's own `w × h` box. `motiondraw.ts`'s
  * `paint` has already moved the origin to the middle of that box and applied
  * the layer's own pose (its place, turn, scale and opacity), so this file
  * only lays the chart out and animates its data.
@@ -48,6 +48,39 @@ import { digitsFor, fontString, formatNumber, scriptOf } from './motionfonts';
  * stage's small preview, a gallery card and the export. Now every size,
  * ellipsis and place is a function of the document and the time alone; only
  * a hairline's least width is the frame's, so it never vanishes when small.
+ *
+ * ## The race
+ *
+ * `race` is a bar-chart race: horizontal bars, one per datum, whose values
+ * change over time, overtaking one another, the scale rescaling to the
+ * leader as it goes. A chart's datum is a label and one value, so a race
+ * keeps the rest of its numbers in the label, after a bar:
+ *
+ *     { "label": "Rome|12 18 25 31", "value": 40 }
+ *
+ * is Rome at 12, 18, 25 and 31 in the first four periods and 40 in the last.
+ * The value is always the last period's, so the same data read as `hbars` (or
+ * by anything that knows only values) is the final standing, and a label
+ * with no bar, or whose part after the last bar is not a list of numbers, is
+ * a name with one value that holds still. The numbers after the bar are
+ * plain — digits (Arabic-Indic too), a sign, a point, an exponent, spaces
+ * between — and a race has at most twelve periods; a shorter list holds its
+ * last value to the end. Every kind shows only the part before the bar, so a
+ * race switched to bars shows the names. `raceData` writes this from rows of
+ * names and values; `raceSeries` reads it back.
+ *
+ * The bars arrive as any chart's do (each datum's entrance, `gap` apart, in
+ * the order they stand at the start). The race runs from when the last one
+ * has arrived to a beat before the exit (`raceWindow`): a short lead, then
+ * the periods at an even pace, then a hold on the final standing. Between
+ * two periods a value follows a monotone cubic through them — smooth, never
+ * past either end, so a bar never overshoots its next number — easing out of
+ * the first period and into the last. Places are the standings averaged over
+ * a moment around now, so an overtaking bar slides into its new row rather
+ * than jumping; a tie keeps the order the data were written in. With two
+ * colours the bars are the first and the leader the second, the colour
+ * handed over as the lead changes; with one or three and more each bar keeps
+ * its own.
  */
 
 const TAU = Math.PI * 2;
@@ -69,7 +102,10 @@ const ARABIC_PERCENT = String.fromCharCode(0x066a);
 
 /** One datum as drawn. */
 interface Datum {
+  /** The words shown: the label's part before a race's bar. */
   label: string;
+  /** Its values period by period: a race's, or just `shown` for any other datum. */
+  series: number[];
   /** Never negative, always finite. */
   value: number;
   /** The number as it was given (signed, finite): what a label says, so a negative datum is never labelled 0. */
@@ -108,6 +144,8 @@ interface Chart {
   /** The context's opacity on entry: the layer's. */
   base: number;
   rtl: boolean;
+  /** The data colours, as CSS colours, in the layer's order. */
+  colors: string[];
 }
 
 /**
@@ -134,18 +172,15 @@ export function drawChart(env: Env, layer: ChartLayer, pose: Pose, scale = 1): v
   const n = raw.length;
   const layerAlpha = Math.max(1e-6, finite(pose.opacity, 1));
   const data: Datum[] = raw.map((d, i) => {
-    const p = poseAt(layer, env.t, env.rtl, { i, n });
-    // A draw or a wipe still under way caps the growth; with neither, a curve that overshoots may stretch the datum past its length.
-    const held = Math.min(clamp01(finite(p.draw, 1)), clamp01(finite(p.reveal, 1)));
-    const grow = held < 1 ? Math.min(clamp(finite(p.grow, 1), 0, 1.25), held) : clamp(finite(p.grow, 1), 0, 1.25);
+    const shown = Math.min(BIG, Math.max(-BIG, finite(Number(d?.value), 0))) || 0;
+    const { name, series } = raceSeries(typeof d?.label === 'string' ? Array.from(d.label.trim()).slice(0, LIMITS.label).join('') : '', shown);
     return {
-      label: typeof d?.label === 'string' ? Array.from(d.label.trim()).slice(0, LIMITS.label).join('') : '',
-      value: Math.max(0, finite(Number(d?.value), 0)),
-      shown: finite(Number(d?.value), 0),
+      label: name,
+      series,
+      value: Math.max(0, shown),
+      shown,
       color: colors[i % colors.length],
-      grow,
-      e: clamp01(grow),
-      alpha: clamp01(finite(p.opacity, 0) / layerAlpha),
+      ...growthOf(poseAt(layer, env.t, env.rtl, { i, n }), layerAlpha),
     };
   });
   const largest = Math.max(...data.map((d) => d.value));
@@ -162,6 +197,7 @@ export function drawChart(env: Env, layer: ChartLayer, pose: Pose, scale = 1): v
     bg: env.color('bg'),
     base: clamp01(finite(ctx.globalAlpha, 1)),
     rtl: !!env.rtl,
+    colors,
   };
   ctx.save();
   if (drawn !== 1) ctx.scale(drawn, drawn);
@@ -172,12 +208,28 @@ export function drawChart(env: Env, layer: ChartLayer, pose: Pose, scale = 1): v
     case 'line': line(c); break;
     case 'donut': donut(c); break;
     case 'ring': ring(c); break;
+    case 'race': race(c, layerAlpha); break;
     default: bars(c); break;
   }
   ctx.restore();
 }
 
 // ── shared ────────────────────────────────────────────────────────────────
+
+/** The largest value a chart keeps (the reader's own ceiling): past it, a sum of twelve could overflow. */
+const BIG = 1e12;
+
+/**
+ * How much of a datum is there, from its pose: how far it has grown (past 1
+ * on a curve that overshoots), the same held to 0..1, and its opacity
+ * relative to the layer's. A draw or a wipe still under way caps the growth;
+ * with neither, an overshoot may stretch the datum past its length.
+ */
+function growthOf(p: Pose, layerAlpha: number): { grow: number; e: number; alpha: number } {
+  const held = Math.min(clamp01(finite(p.draw, 1)), clamp01(finite(p.reveal, 1)));
+  const grow = held < 1 ? Math.min(clamp(finite(p.grow, 1), 0, 1.25), held) : clamp(finite(p.grow, 1), 0, 1.25);
+  return { grow, e: clamp01(grow), alpha: clamp01(finite(p.opacity, 0) / layerAlpha) };
+}
 
 function rgba(color: string, alpha: number): string {
   return withAlpha(color, clamp01(finite(alpha, 0)));
@@ -829,4 +881,333 @@ function ring(c: Chart): void {
     y += px * 0.5 + labelPx * 0.7;
   }
   if (showLabel) label(c, d.label, labelPx, 0, y, 'center', hole * 0.74, d.alpha * 0.75);
+}
+
+// ── the race ──────────────────────────────────────────────────────────────
+
+/** The most periods a race has. */
+export const RACE_STEPS = LIMITS.dataPoints;
+
+/** Seconds: the pause between the last bar arriving and the race setting off, and the hold on the final standing before the exit. */
+const RACE_LEAD = 0.35;
+const RACE_HOLD = 1.2;
+
+/** Seconds an overtaking bar takes to slide into its new row, and how many moments it is averaged over. */
+const SWAP = 0.5;
+const SWAP_SAMPLES = 12;
+
+/** Arabic-Indic and Persian digits, and the Arabic decimal sign, as a race's numbers may be written. */
+function plainDigits(s: string): string {
+  let out = '';
+  for (const ch of s) {
+    const c = ch.charCodeAt(0);
+    if (c >= 0x660 && c <= 0x669) out += String(c - 0x660);
+    else if (c >= 0x6f0 && c <= 0x6f9) out += String(c - 0x6f0);
+    else if (c === 0x66b) out += '.';
+    else if (c === 0x2212) out += '-';
+    else out += ch;
+  }
+  return out;
+}
+
+const RACE_NUMBER = /^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d{1,3})?$/i;
+
+/**
+ * A datum read as a race: its name (the label up to the last `|`) and its
+ * values period by period (the numbers after the bar, then `value`, at most
+ * `RACE_STEPS`). A label with no bar, or with something after its last bar
+ * that is not a list of numbers, is all name, and its series is `value`
+ * alone. Every number is finite and held to ±1e12.
+ */
+export function raceSeries(label: string, value: number): { name: string; series: number[] } {
+  const text = typeof label === 'string' ? label : '';
+  const last = Math.min(BIG, Math.max(-BIG, finite(value, 0))) || 0;
+  const bar = text.lastIndexOf('|');
+  if (bar >= 0) {
+    const tail = plainDigits(text.slice(bar + 1)).trim();
+    const words = tail ? tail.split(/[\s;]+/).filter(Boolean) : [];
+    if (words.every((w) => RACE_NUMBER.test(w))) {
+      const nums = words.map((w) => Math.min(BIG, Math.max(-BIG, Number(w))) || 0).filter(Number.isFinite);
+      return { name: text.slice(0, bar).trim(), series: [...nums.slice(0, RACE_STEPS - 1), last] };
+    }
+  }
+  return { name: text.trim(), series: [last] };
+}
+
+/** The shortest way to write a number that reads back as exactly it: `1.2e6` rather than `1200000`, `12.5` as it is. */
+function shortest(v: number): string {
+  const plain = String(v);
+  const exp = v.toExponential().replace('e+', 'e');
+  return exp.length < plain.length && Number(exp) === v ? exp : plain;
+}
+
+/**
+ * Race data from rows of a name and its values, period by period, written so
+ * `raceSeries` reads them back: `Name|v1 v2 …` with the last value as the
+ * datum's value. Rows are padded to the longest (a short one holds its last
+ * value) and every row keeps the same periods: when a label would be longer
+ * than `LIMITS.label` — a long name, big numbers, many periods — periods are
+ * dropped evenly between the first and the last, which are always kept, and
+ * a name is cut only when even two periods do not fit. `steps` is which of
+ * the given periods were kept, so a template can label them.
+ */
+export function raceData(rows: readonly { name: string; values: readonly number[] }[]): { data: { label: string; value: number }[]; steps: number[] } {
+  const clean = rows.slice(0, LIMITS.dataPoints).map((r) => ({
+    name: Array.from(String(r?.name ?? '').replace(/\|/g, '/').replace(/\s+/g, ' ').trim()).slice(0, LIMITS.label).join(''),
+    values: (Array.isArray(r?.values) ? r.values : []).map((v) => Math.min(BIG, Math.max(-BIG, finite(Number(v), 0))) || 0),
+  }));
+  const total = Math.min(RACE_STEPS, Math.max(1, ...clean.map((r) => r.values.length)));
+  const at = (r: { values: number[] }, i: number) => (r.values.length ? r.values[Math.min(i, r.values.length - 1)] : 0);
+  const write = (name: string, values: number[]) => (values.length > 1 ? `${name}|${values.slice(0, -1).map(shortest).join(' ')}` : name);
+  const fits = (steps: number[]) => clean.every((r) => Array.from(write(r.name, steps.map((i) => at(r, i)))).length <= LIMITS.label);
+  // Evenly spread periods, the first and the last always among them.
+  const spread = (m: number) => (m <= 1 ? [total - 1] : Array.from({ length: m }, (_, j) => Math.round((j * (total - 1)) / (m - 1))));
+  let m = total;
+  let steps = spread(m);
+  while (m > 2 && !fits(steps)) steps = spread(--m);
+  steps = [...new Set(steps)];
+  const data = clean.map((r) => {
+    const values = steps.map((i) => at(r, i));
+    let name = r.name;
+    // Even two periods are too long: the name gives way, never the numbers.
+    while (name && Array.from(write(name, values)).length > LIMITS.label) name = Array.from(name).slice(0, -1).join('').trimEnd();
+    return { label: write(name, values), value: values[values.length - 1] };
+  });
+  return { data, steps };
+}
+
+/** One datum's values over the race: its value at each period, and the slope the curve passes each one at. */
+interface Track {
+  y: number[];
+  m: number[];
+}
+
+/**
+ * A series padded to `steps` (its last value held) with Fritsch–Carlson
+ * slopes: the harmonic mean of the two neighbouring differences where they
+ * agree in sign, flat where they do not, at a peak and at both ends. Such a
+ * cubic never leaves the range of the two periods it joins.
+ */
+function trackOf(series: readonly number[], steps: number): Track {
+  const y = Array.from({ length: steps }, (_, i) => series[Math.min(i, series.length - 1)] ?? 0);
+  const m = y.map(() => 0);
+  for (let i = 1; i < steps - 1; i++) {
+    const a = y[i] - y[i - 1];
+    const b = y[i + 1] - y[i];
+    m[i] = a * b > 0 ? (2 * a * b) / (a + b) : 0;
+  }
+  return { y, m };
+}
+
+/** A track's value `q` periods in (0 the first period): exactly the period's value at a whole `q`. */
+function valueAt(tr: Track, q: number): number {
+  const S = tr.y.length;
+  if (S < 2) return tr.y[0] ?? 0;
+  const x = clamp(finite(q, 0), 0, S - 1);
+  const i = Math.min(S - 2, Math.floor(x));
+  const s = x - i;
+  const s2 = s * s;
+  const s3 = s2 * s;
+  return (2 * s3 - 3 * s2 + 1) * tr.y[i] + (s3 - 2 * s2 + s) * tr.m[i] + (-2 * s3 + 3 * s2) * tr.y[i + 1] + (s3 - s2) * tr.m[i + 1];
+}
+
+/** Every series' value `q` periods in: what the race shows at that moment (the series padded to the longest). */
+export function raceValues(series: readonly (readonly number[])[], q: number): number[] {
+  const steps = Math.max(1, ...series.map((s) => s.length));
+  return series.map((s) => valueAt(trackOf(s.length ? s : [0], steps), q));
+}
+
+/** Each value's place, 0 the largest: equal values keep the order they were given in. */
+export function raceOrder(values: readonly number[]): number[] {
+  const v = values.map((x) => finite(x, 0));
+  const order = v.map((_, i) => i).sort((a, b) => (v[b] - v[a]) || (a - b));
+  const rank = v.map(() => 0);
+  order.forEach((i, r) => { rank[i] = r; });
+  return rank;
+}
+
+/**
+ * When a race runs: from a short lead after its last bar has arrived to a
+ * hold before its exit begins, both shorter in a short graphic. A template
+ * times anything that marks the periods by it.
+ */
+export function raceWindow(layer: ChartLayer): { from: number; to: number } {
+  const units = Math.max(1, Math.min(LIMITS.dataPoints, Array.isArray(layer.data) ? layer.data.length : 1));
+  const a = finite(inDone(layer, units), 0);
+  const b = Math.max(a, finite(outStart(layer, units), a));
+  const span = b - a;
+  const from = a + Math.min(RACE_LEAD, span * 0.12);
+  return { from, to: Math.max(from, b - Math.min(RACE_HOLD, span * 0.22)) };
+}
+
+/** How many periods into its race a layer is at `t`, 0 to `steps - 1`, at an even pace through its window. */
+export function raceAt(layer: ChartLayer, t: number, steps: number): number {
+  if (!(steps > 1)) return 0;
+  const { from, to } = raceWindow(layer);
+  const now = finite(t, 0);
+  const u = to > from ? clamp01((now - from) / (to - from)) : now >= to ? 1 : 0;
+  return u * (steps - 1);
+}
+
+/** Steps of 1, 2 and 5 times a power of ten: an axis's ticks. */
+const NICE = [1, 2, 5];
+
+/**
+ * `race`: bars lying down, in order, the largest on top, each with its name
+ * before it and its value past its tip, under a row of ticks that slide
+ * toward the start as the scale grows. See "The race" above.
+ */
+function race(c: Chart, layerAlpha: number): void {
+  const { ctx, W, H, k, data, env, layer } = c;
+  const n = data.length;
+  const steps = Math.min(RACE_STEPS, Math.max(1, ...data.map((d) => d.series.length)));
+  const tracks = data.map((d) => trackOf(d.series, steps));
+  const now = raceAt(layer, env.t, steps);
+  const values = tracks.map((tr) => valueAt(tr, now));
+
+  // Places: the standings averaged over a moment around now, weighted to its middle, so an overtake is a slide.
+  const pos = data.map(() => 0);
+  const lead = data.map(() => 0);
+  let weight = 0;
+  for (let s = 0; s < SWAP_SAMPLES; s++) {
+    const f = (s + 0.5) / SWAP_SAMPLES;
+    const w = Math.sin(Math.PI * f) ** 2;
+    const q = raceAt(layer, env.t + (f - 0.5) * SWAP, steps);
+    const rank = raceOrder(tracks.map((tr) => valueAt(tr, q)));
+    for (let i = 0; i < n; i++) {
+      pos[i] += w * rank[i];
+      if (rank[i] === 0) lead[i] += w;
+    }
+    weight += w;
+  }
+  for (let i = 0; i < n; i++) {
+    pos[i] = clamp(pos[i] / weight, 0, n - 1);
+    lead[i] = clamp01(lead[i] / weight);
+  }
+
+  // Sizes from every value the race will show, not only this frame's, so nothing resizes as it runs.
+  const all = data.flatMap((d) => d.series);
+  const decimals = decimalsOf(all);
+  const showLabels = c.layer.labels && data.some((d) => d.label);
+  const showValues = c.layer.values;
+  const tickRow = showValues ? Math.min(c.font * 1.6, H * 0.14) : 0;
+  const rowH = (H - tickRow) / n;
+  const cap = rowH * 0.62;
+  const labelPx = showLabels ? Math.min(sizeFor(c, c.font, data.map((d) => d.label), W * 0.3), cap) : 0;
+  const extremes = [valueText(c, Math.max(...all), decimals), valueText(c, Math.min(...all), decimals)];
+  const valuePx = showValues ? Math.min(sizeFor(c, c.font, extremes, W * 0.22, 0.5, true), cap) : 0;
+  let labelW = 0;
+  if (showLabels) {
+    for (const d of data) {
+      if (!d.label) continue;
+      setType(c, labelPx, d.label);
+      labelW = Math.max(labelW, widthOf(c, d.label));
+    }
+    labelW = Math.min(labelW, W * 0.3);
+  }
+  let valueW = 0;
+  if (showValues) {
+    for (const t of extremes) {
+      setType(c, valuePx, t, true);
+      valueW = Math.max(valueW, widthOf(c, t));
+    }
+  }
+  const gap = Math.max(labelPx, valuePx, k) * 0.6;
+  const start = -W / 2 + (labelW > 0 ? labelW + gap : 0);
+  const room = Math.max(0, W / 2 - (valueW > 0 ? valueW + gap : 0) - start);
+  const full = room / STRETCH;
+  const thick = Math.max(1, Math.min(rowH * 0.7, c.font * 3));
+  const radius = Math.min(thick * 0.3, k * 1.6);
+  const dir = c.rtl ? -1 : 1;
+  const x0 = dir * start;
+  const rowsTop = -H / 2 + tickRow;
+  // The scale is the leader's value now: the leading bar always runs the whole length.
+  const top = Math.max(0, ...values) > 0 ? Math.max(...values) : 1;
+
+  if (showValues && full > 0) raceTicks(c, { x0, dir, full, top, y0: rowsTop, y1: H / 2, row: tickRow, px: Math.min(valuePx * 0.78, tickRow * 0.62) });
+  rule(c, x0, rowsTop + rowH * 0.5 - thick * 0.7, x0, H / 2 - rowH * 0.5 + thick * 0.7);
+
+  // Two colours: the bars in the first and the leader in the second. Otherwise each bar its own.
+  const handOver = c.colors.length === 2;
+  const colorOf = (i: number) => (handOver ? mixColors(c.colors[0], c.colors[1], lead[i]) : c.colors[i % c.colors.length]);
+  // The larger drawn last, so an overtaking bar passes over the one it overtakes.
+  const order = data.map((_, i) => i).sort((a, b) => (values[a] - values[b]) || (b - a));
+  for (const i of order) {
+    const d = data[i];
+    // Each bar arrives and leaves by its place, not by where it was written.
+    const g = growthOf(poseAt(layer, env.t, env.rtl, { i: Math.round(pos[i]), n }), layerAlpha);
+    if (!(g.alpha > 0.002)) continue;
+    const v = values[i];
+    const cy = rowsTop + (pos[i] + 0.5) * rowH;
+    const f = clamp01(Math.max(0, v) / top);
+    const len = (f > 0 ? Math.max(full * f, Math.min(full, k * 0.45)) : 0) * stretch(g.grow);
+    const tip = x0 + dir * len;
+    const color = colorOf(i);
+    if (len > 0.25) {
+      ctx.globalAlpha = c.base * g.alpha;
+      if (dir > 0) tipRounded(ctx, x0, cy - thick / 2, tip, cy + thick / 2, radius, 'right');
+      else tipRounded(ctx, tip, cy - thick / 2, x0, cy + thick / 2, radius, 'left');
+      const grad = ctx.createLinearGradient(x0, 0, x0 + dir * Math.max(len, 1), 0);
+      grad.addColorStop(0, mixColors(color, c.bg, 0.3));
+      grad.addColorStop(1, color);
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+    ctx.textBaseline = 'middle';
+    if (showValues && g.e > 0) {
+      // The leader's number in its own colour: the figure the eye follows.
+      const fill = lead[i] > 0.01 ? mixColors(c.ink, color, lead[i]) : c.inkFill;
+      value(c, valueText(c, v * g.e, decimals), valuePx, tip + dir * gap * 0.8, cy, dir > 0 ? 'left' : 'right', g.alpha * smoothstep(0, 0.12, g.e), fill);
+    }
+    if (showLabels) label(c, d.label, labelPx, x0 - dir * gap, cy, dir > 0 ? 'right' : 'left', labelW, g.alpha * 0.85 * smoothstep(0, 0.2, g.e));
+  }
+}
+
+/**
+ * The race's ticks: faint lines down through the rows at round values, their
+ * numbers in a row above. About four to the scale, in steps of 1, 2 or 5
+ * times a power of ten — the one nearest a quarter of the scale, so three
+ * to six — and as the scale grows past the middle between two steps, the
+ * finer set fades out as the coarser fades in, so no tick ever jumps. The
+ * numbers follow the stronger set, so two sets' numbers never crowd, and a
+ * set too close to label is drawn without them.
+ */
+function raceTicks(c: Chart, o: { x0: number; dir: number; full: number; top: number; y0: number; y1: number; row: number; px: number }): void {
+  const { ctx, W } = c;
+  const want = o.top / 4;
+  if (!(want > 1e-3) || !Number.isFinite(want)) return;
+  const e = Math.floor(Math.log10(want));
+  const base = Math.pow(10, e);
+  let at = 0;
+  for (let j = 0; j < NICE.length; j++) if (NICE[j] * base <= want * (1 + 1e-9)) at = j;
+  const lo = NICE[at] * base;
+  const hi = (at + 1 < NICE.length ? NICE[at + 1] : 10) * base;
+  const fade = smoothstep(0.42, 0.58, Math.log(want / lo) / Math.log(hi / lo));
+  const decimalsFor = (step: number) => (step >= 1 ? 0 : Math.min(3, Math.ceil(-Math.log10(step) - 1e-9)));
+  const shown = new Map<number, { alpha: number; step: number }>();
+  for (const [step, alpha] of [[lo, 1 - fade], [hi, fade]] as const) {
+    if (alpha <= 0.01) continue;
+    for (let m = 1; m * step <= o.top * (1 + 1e-9) && m <= 40; m++) {
+      const v = Math.round(m * step * 1e6) / 1e6;
+      const was = shown.get(v);
+      shown.set(v, { alpha: Math.min(1, (was?.alpha ?? 0) + alpha), step: was ? Math.max(was.step, step) : step });
+    }
+  }
+  for (const [v, { alpha, step }] of shown) {
+    const x = o.x0 + o.dir * o.full * (v / o.top);
+    ctx.globalAlpha = c.base * alpha;
+    ctx.beginPath();
+    ctx.moveTo(x, o.y0);
+    ctx.lineTo(x, o.y1);
+    ctx.strokeStyle = rgba(c.ink, 0.1);
+    ctx.lineWidth = Math.max(1 / c.scale, 0.1 * c.k);
+    ctx.stroke();
+    const text = formatNumber(v, { decimals: decimalsFor(step), group: true, lang: c.env.doc.lang });
+    setType(c, o.px, text, true);
+    const w = widthOf(c, text);
+    // Labels a step apart that would touch are left off; the lines alone show the scale.
+    if (o.full * (step / o.top) < w * 1.3) continue;
+    ctx.textBaseline = 'middle';
+    value(c, text, o.px, clamp(x, -W / 2 + w / 2, W / 2 - w / 2), o.y0 - o.row / 2, 'center', smoothstep(0.3, 0.7, alpha) * 0.6);
+  }
 }

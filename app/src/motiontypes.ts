@@ -162,11 +162,19 @@ export type Voice = (typeof VOICES)[number];
 export const SHAPES = ['rect', 'ellipse', 'arc', 'polygon', 'star', 'line', 'arrow', 'burst', 'wave', 'blob', 'path'] as const;
 export type Shape = (typeof SHAPES)[number];
 
-export const CHARTS = ['bars', 'hbars', 'line', 'donut', 'ring'] as const;
+/** `race` is a bar-chart race: each datum's label carries its earlier values (`motioncharts.ts`, "The race"). */
+export const CHARTS = ['bars', 'hbars', 'line', 'donut', 'ring', 'race'] as const;
 export type Chart = (typeof CHARTS)[number];
 
-export const BACKDROPS = ['aurora', 'grid', 'dots', 'rays', 'waves', 'bokeh', 'stripes'] as const;
+/**
+ * Seven moving grounds made to loop under words, then five finishes laid over
+ * a picture: film grain, a vignette, light leaks, scan lines and a halftone
+ * screen. What each field means to each is in `motionbackdrop.ts`.
+ */
+export const BACKDROPS = ['aurora', 'grid', 'dots', 'rays', 'waves', 'bokeh', 'stripes', 'grain', 'vignette', 'lightleak', 'scanlines', 'halftone'] as const;
 export type Backdrop = (typeof BACKDROPS)[number];
+/** The grounds alone: what a loop background can be. */
+export type Ground = Exclude<Backdrop, 'grain' | 'vignette' | 'lightleak' | 'scanlines' | 'halftone'>;
 
 export const PARTICLES = ['confetti', 'sparks', 'bubbles', 'stars', 'snow'] as const;
 export type Particles = (typeof PARTICLES)[number];
