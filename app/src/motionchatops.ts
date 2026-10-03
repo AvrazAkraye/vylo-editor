@@ -45,6 +45,14 @@
  * rule, with no graphic to keep numbers from, reads a planned graphic
  * (motionai.ts `parsePlan`).
  *
+ * A bar chart race draws a number for every period, so every number of its
+ * line is a figure (`Rome: 12, 18, 25`, read as the template reads it), and so
+ * is every earlier value a chart keeps in a datum's label (`Rome|12 18 25`,
+ * motioncharts.ts `raceSeries`) — whatever the chart's kind, so a number cannot
+ * be hidden in a bar chart's label and shown by turning it into a race. A price
+ * card's price is a figure too: the number it counts up to, and any other
+ * digits written in the field.
+ *
  * That is the whole of the check. Where a countdown starts is a choice about
  * the graphic, not a claim, and is not held to it; and words are not read for
  * numbers at all — a figure written into a headline, a label or a text layer
@@ -56,16 +64,44 @@
  * the words. It is applied only when the words, after the same answer's other
  * ops, are written in the new language's script: a graphic whose English
  * words run right to left is worse than either language.
+ *
+ * ## Scenes, sound, the brand kit, the check
+ *
+ * Whatever a person can do to these by hand they can ask for (`PRO_OPS`), and
+ * each op goes through the pure edit the buttons use: `motionscene.ts` for
+ * scenes, `withSound` for sound, `applyBrand` for the brand kit, `autofix` for
+ * the quality check. Their words come from closed lists — a transition's kind
+ * and direction, a sound's mode and mood — and an op with one word that is not
+ * on its list changes nothing: "jazz" is not a mood, and music in some other
+ * mood is not what was asked for. A number that cannot mean anything there —
+ * a time outside the graphic, a transition longer than any graphic, 1e308 —
+ * is refused the same way; one that can is held to the edits' own limits
+ * (twelve scenes, half a second each, transitions of 0.15 to 1.5 s, a level of
+ * 0 to 1). A scene is named by its id or its number, counted from 1, as the
+ * graphic is shown to the model. The brand kit is the person's own, saved on
+ * this machine and handed in by the caller (`ApplyOptions.brand`): the op
+ * carries nothing of it, so a model cannot make one up, and with none saved it
+ * is refused and says so. The check repairs only what it can prove better.
  */
 
-import type { Lang } from './i18n';
-import type { Format, Layer, LayerBase, LayerKind, Motion, Palette, RecipeId, Tone } from './motiontypes';
-import { FORMAT_IDS, FORMATS, LANGUAGES, LAYER_KINDS, LIMITS, TONES } from './motiontypes';
+import { fill, type Lang } from './i18n';
+import type { Dir4, Format, Layer, LayerBase, LayerKind, Motion, Palette, RecipeId, Tone } from './motiontypes';
+import { DIRS, FORMAT_IDS, FORMATS, LANGUAGES, LAYER_KINDS, LIMITS, TONES } from './motiontypes';
 import { META, PALETTES, type Field, type PaletteId, type PaletteInfo, type RecipeMeta } from './motionrecipe';
 import { blankLayer, readLayer, readMotion, readPalette } from './motionread';
-import { buildMotion, sampleFields } from './motiontemplates';
+import { buildMotion, lookOf, sampleFields } from './motiontemplates';
 import { itemOf, numberOf, type Item } from './motionrecipes-data';
 import { addLayer, detach, removeLayer, setFields, setFormat, setLang, setPalette, setSeconds, setTitle } from './motionedit';
+import { raceSeries } from './motioncharts';
+import {
+  NEW_SCENE, addScene, canAddScene, canSplitAt, moveScene, readScenes, removeScene, renameScene, sceneList, sceneName, setTransition, splitSceneAt,
+  type SceneSpec, type TransitionChange,
+} from './motionscene';
+import { TRANSITIONS, TRANSITION_EASES, transitionKindOf, type TransitionEase, type TransitionKind } from './motiontransition';
+import { SOUND_MODES, SOUND_MOODS, defaultSound, readSound, withSound, type SoundMode, type SoundSpec } from './motionsound';
+import type { Mood } from './videosynth';
+import { applyBrand, readBrand, type BrandKit } from './motionbrand';
+import { autofix, checkMotion, type CheckOptions } from './motioncheck';
 
 // ── limits ────────────────────────────────────────────────────────────────
 
@@ -93,14 +129,30 @@ const ALL_WHITE: Palette = { bg: '#ffffff', fg: '#ffffff', accent: '#ffffff', ac
 
 // ── the ops ───────────────────────────────────────────────────────────────
 
-/** The operations the model may ask for. Anything else is skipped. */
+/** The operations the model may ask for on a graphic's template, settings and layers. */
 export const OPS = ['fields', 'palette', 'seconds', 'format', 'lang', 'title', 'layer', 'add', 'remove', 'recipe', 'speed'] as const;
-export type OpName = (typeof OPS)[number];
+
+/**
+ * The operations on what the pro pass gave a graphic (docs/PRO.md, "Words work
+ * as well as buttons"): its scenes and how each arrives, its sound, the
+ * person's brand kit, and the quality check's repairs. A list of their own so
+ * the eleven above stay as they were; `ALL_OPS` is both, and is what the
+ * prompt teaches and the reader takes. Anything else is skipped.
+ */
+export const PRO_OPS = [
+  'scene.add', 'scene.split', 'scene.remove', 'scene.move', 'scene.transition', 'scene.rename', 'sound.set', 'brand.apply', 'check.fix',
+] as const;
+export const ALL_OPS = [...OPS, ...PRO_OPS] as const;
+export type OpName = (typeof ALL_OPS)[number];
+
+/** The moods music can be in, as the model is taught them. */
+const MOOD_IDS: readonly Mood[] = SOUND_MOODS.map((m) => m.id);
 
 /**
  * Each op as the model is shown it: its shape, and what it does. A record over
  * `OpName`, so an op cannot be added here without its line, and the prompt
- * (motionai.ts) is written from it rather than from a copy.
+ * (motionai.ts) is written from it rather than from a copy. The words each
+ * lists are read from the tables the op is checked against.
  */
 export const OP_GUIDE: Readonly<Record<OpName, string>> = {
   fields: '{"op":"fields","set":{"title":"…"}} — the template\'s words, by its field keys; fields left out stay as they are. Only while the graphic is a template.',
@@ -114,6 +166,15 @@ export const OP_GUIDE: Readonly<Record<OpName, string>> = {
   remove: '{"op":"remove","id":"<layer id>"}',
   recipe: '{"op":"recipe","id":"lower-third","fields":{…}} — start again from another template, keeping the palette, format, length and language. Write all its fields.',
   speed: `{"op":"speed","value":1.5} — every movement 1.5 times as fast; below 1 is slower (0.7). ${SPEED.min} to ${SPEED.max}.`,
+  'scene.add': `{"op":"scene.add","at":2,"name":"Offer","transition":"push"} — an empty ${NEW_SCENE} s scene after the one at "at" s (else last).`,
+  'scene.split': '{"op":"scene.split","at":4.5} — cut the scene at 4.5 s in two.',
+  'scene.remove': '{"op":"scene.remove","scene":"s2"} — join it to the one before.',
+  'scene.move': '{"op":"scene.move","scene":"s3","to":1} — make it the first.',
+  'scene.transition': `{"op":"scene.transition","scene":2,"kind":"push","d":0.5,"dir":"start"} — how it arrives: ${TRANSITIONS.join(' ')}; dir: ${DIRS.join(' ')}; d ${LIMITS.transitionMin}-${LIMITS.transitionMax}.`,
+  'scene.rename': '{"op":"scene.rename","scene":"s2","name":"Offer"}',
+  'sound.set': `{"op":"sound.set","mode":"music","mood":"calm","level":0.6} — mode: ${SOUND_MODES.join(' ')}; mood: ${MOOD_IDS.join(' ')}; level 0-1.`,
+  'brand.apply': '{"op":"brand.apply"} — the person\'s saved brand kit.',
+  'check.fix': '{"op":"check.fix"} — the quality check fixes what it can.',
 };
 
 /**
@@ -138,6 +199,16 @@ export const OP_GUIDE: Readonly<Record<OpName, string>> = {
  *   so from now on its words are changed layer by layer, not in the fields.
  * - `sample` — a number nobody gave, or a figure that is no number at all,
  *   was replaced by an example: the person should put in the real one.
+ * - `scene-add` — a new scene, the `n`th (counted from 1), called `name` ('' shows as "Scene n").
+ * - `scene-split` — the scene playing at `at` seconds was cut in two; the second piece is the `n`th.
+ * - `scene-remove` — the `n`th scene, `name`, was joined to its neighbour.
+ * - `scene-move` — the `n`th scene, `name`, is now the `to`th.
+ * - `scene-transition` — the `n`th scene now arrives with `kind` (`cut`: none).
+ * - `scene-rename` — the `n`th scene is now called `name` ('': its number again).
+ * - `sound` — the sound is now `mode`, at `level` (0..1), in `mood` when one was chosen.
+ * - `brand` — the saved brand kit, called `name` ('' when it has none), was applied.
+ * - `check` — the quality check's repairs were made, `fixes` their labels
+ *   (motioncheck.ts `Fix.label`, i18n keys), and `left` tips remain for a hand.
  *
  * Skipped (`Applied.skipped`):
  * - `unknown` — `op` is not something the app can do.
@@ -156,6 +227,14 @@ export const OP_GUIDE: Readonly<Record<OpName, string>> = {
  * - `no-data` — a chart with no numbers, which would draw an empty frame.
  * - `full` — the graphic already has as many layers as it may (`LIMITS.layers`).
  * - `too-many` — `count` ops past the twelfth were not read.
+ * - `no-scene` — `op` names a scene, `scene`, that the graphic does not have
+ *   (a graphic that was never cut has one scene and nothing to join, move or name).
+ * - `scene-limit` — `op` would pass a limit: `full`, twelve scenes or thirty
+ *   seconds already; `short`, a piece shorter than half a second; `first`,
+ *   the first scene, which starts the graphic and arrives with nothing.
+ * - `no-brand` — no brand kit is saved, so there is none to apply.
+ * - `check-clean` — the quality check found nothing at all.
+ * - `check-by-hand` — it found `count` tips, and none it can repair by itself.
  */
 export type Note =
   | { code: 'fields'; keys: string[] }
@@ -182,7 +261,21 @@ export type Note =
   | { code: 'refused'; op: string; field: string }
   | { code: 'no-data'; op: string }
   | { code: 'full'; op: string }
-  | { code: 'too-many'; count: number };
+  | { code: 'too-many'; count: number }
+  | { code: 'scene-add'; n: number; name: string }
+  | { code: 'scene-split'; at: number; n: number }
+  | { code: 'scene-remove'; n: number; name: string }
+  | { code: 'scene-move'; n: number; to: number; name: string }
+  | { code: 'scene-transition'; n: number; name: string; kind: TransitionKind }
+  | { code: 'scene-rename'; n: number; name: string }
+  | { code: 'sound'; mode: SoundMode; level: number; mood?: Mood }
+  | { code: 'brand'; name: string }
+  | { code: 'check'; fixes: string[]; left: number }
+  | { code: 'no-scene'; op: string; scene: string }
+  | { code: 'scene-limit'; op: string; why: 'full' | 'short' | 'first' }
+  | { code: 'no-brand' }
+  | { code: 'check-clean' }
+  | { code: 'check-by-hand'; count: number };
 
 export interface Applied {
   /** The graphic after every valid op, read once more: one value, so the panel records one undo step. `m` itself when nothing changed. */
@@ -191,6 +284,18 @@ export interface Applied {
   notes: Note[];
   /** What was not done, and why. */
   skipped: Note[];
+}
+
+/** What the ops need from the app rather than from the model. */
+export interface ApplyOptions {
+  /**
+   * The person's saved brand kit (motionstore.ts `currentBrand`), for
+   * `brand.apply`; read again here (`readBrand`). None, and the op is refused
+   * and says so.
+   */
+  brand?: BrandKit | null;
+  /** How the quality check measures words, for `check.fix`. The app passes none, so it measures as the stage draws (motioncheck.ts); a test passes its own canvas. */
+  check?: CheckOptions;
 }
 
 // ── reading what the model wrote ──────────────────────────────────────────
@@ -531,13 +636,141 @@ function lineWith(item: Item, n: number): string {
   return item.label ? `${item.label}: ${figure}` : figure;
 }
 
-/** Which of a template's fields hold figures: a `number` field, or a list in a data template ("Label: value" a line). */
-function figuresIn(recipe: RecipeId, f: Field): 'one' | 'list' | null {
+/**
+ * Fields whose figures the generic rules below would not see, by template:
+ * a race's line holds a value for every period, not one; a price card's price
+ * is a `line` (so the currency and the period can be typed) that it draws as a
+ * number counting up.
+ */
+const FIGURE_FIELDS: Readonly<Record<string, Readonly<Record<string, 'race' | 'price'>>>> = {
+  'bar-race': { items: 'race' },
+  'price-card': { price: 'price' },
+};
+
+/** Which of a template's fields hold figures: a `number` field, a list in a data template ("Label: value" a line), a race's lines, a price. */
+function figuresIn(recipe: RecipeId, f: Field): 'one' | 'list' | 'race' | 'price' | null {
   // Where a countdown starts is a choice about the graphic, not a claim about the world:
   // "a countdown" with no number is still 3, 2, 1, and needs no notice that its number is an example.
   if (recipe === 'countdown' && f.key === 'from') return null;
+  const special = Object.prototype.hasOwnProperty.call(FIGURE_FIELDS, recipe) ? FIGURE_FIELDS[recipe] : undefined;
+  if (special && Object.prototype.hasOwnProperty.call(special, f.key)) return special[f.key];
   if (f.kind === 'number') return 'one';
   return f.kind === 'list' && META[recipe]?.group === 'data' ? 'list' : null;
+}
+
+/** Whether every number written in `s`, in some reading of it, is one somebody gave (a number grouped by spaces read whole, as the templates read it). */
+function allKnown(s: string, known: ReadonlySet<string>): boolean {
+  for (const m of plainDigits(s).replace(GROUP_SPACE, '$1').matchAll(NUMBER)) if (!readingsOf(m[0]).some((r) => known.has(r))) return false;
+  return true;
+}
+
+/**
+ * Whether a price card's price shows only figures somebody gave: the number
+ * it counts up to — read as the card reads it, `numberOf` of what comes before
+ * the first slash, so `1e3` is a thousand — and every other number written in
+ * the field, such as a period's ("/3 months") or one the card cannot read as a
+ * figure and so draws as words ("from 19"). A price with no digits ("Free") is
+ * words.
+ */
+function priceSourced(v: string, known: ReadonlySet<string>): boolean {
+  const raw = v.trim();
+  const slash = raw.indexOf('/');
+  const figure = numberOf((slash >= 0 ? raw.slice(0, slash) : raw).trim());
+  return (!figure || hasNumber(figure.value, known)) && allKnown(raw, known);
+}
+
+/** Where one of a racer's values ends and the next begins, as the race template splits them (motionrecipes-pro-b.ts `VALUE_SEP`). */
+const VALUE_SEP = /\s*[;\u061B\u060C|]\s*|,\s+|\s+/;
+/** A bullet in front of a list's line, which the templates take off before reading it. */
+const BULLET = /^\s*(?:[\u2022\u00B7\u25AA\u25E6*]+|[-\u2013\u2014](?=\s))\s*/;
+
+/**
+ * A bar chart race's line as its template reads it (motionrecipes-pro-b.ts
+ * `racerOf`, which is private there): the name before the first colon, or
+ * before the first number, and every value after it, each read by `numberOf`
+ * — `12,18,25` with no spaces is three, `1e3` is a thousand. Repeated here
+ * because the rule must see every number a race draws, not only the first an
+ * item has; test/pro-chatops.test.mjs builds the template and holds the two
+ * readings to each other.
+ */
+function racerOf(line: string): { name: string; values: number[] } | null {
+  const s = line.replace(BULLET, '').trim();
+  const colon = s.search(/[:=\uFF1A]/);
+  let name = '';
+  let rest = s;
+  if (colon >= 0) {
+    name = s.slice(0, colon);
+    rest = s.slice(colon + 1);
+  } else {
+    const at = s.search(/[-+]?[\d\u0660-\u0669\u06F0-\u06F9]/);
+    if (at < 0) return null;
+    name = s.slice(0, at);
+    rest = s.slice(at);
+  }
+  const values: number[] = [];
+  for (const word of rest.split(VALUE_SEP)) {
+    if (!word) continue;
+    const one = numberOf(word);
+    if (one) values.push(one.value);
+    else for (const part of word.split(',')) {
+      const v = numberOf(part);
+      if (v) values.push(v.value);
+    }
+  }
+  const clean = name.replace(/[\s,\u060C:-]+$/, '').replace(/\s+/g, ' ').trim();
+  return values.length ? { name: clean, values } : null;
+}
+
+/** A racer's line as the template reads it back: its name, a colon, its values; the name gives way first when it would be longer than a line. */
+function racerLine(name: string, values: readonly number[]): string {
+  const nums = values.slice(0, LIMITS.dataPoints).join(', ');
+  let n = Array.from(name);
+  while (n.length && n.length + 2 + nums.length > ITEM_CHARS) n = n.slice(0, -1);
+  const who = n.join('').trim();
+  return who ? `${who}: ${nums}` : nums;
+}
+
+/** A number as short as it can be written and still read back as exactly it (motioncharts.ts writes a race's labels so). */
+function shortest(v: number): string {
+  const plain = String(v);
+  const exp = v.toExponential().replace('e+', 'e');
+  return exp.length < plain.length && Number(exp) === v ? exp : plain;
+}
+
+/**
+ * A chart datum's label with the earlier values of its race (after its last
+ * bar, motioncharts.ts `raceSeries`) held to the rule: each one nobody gave
+ * takes the value the datum had for that period (`was`), or a round
+ * placeholder. Written back as `raceSeries` reads it, within the reader's
+ * `LIMITS.label`: the name gives way first, and when even the numbers alone
+ * would not fit, they are left out — a datum with no earlier values holds its
+ * value from the first period, and shows no number nobody gave.
+ */
+function seriesSourced(
+  label: string, was: { label: string; value: number } | undefined, i: number, known: ReadonlySet<string>,
+): { label: string; kept: boolean; sampled: boolean } {
+  const s = raceSeries(label, 0);
+  const earlier = s.series.slice(0, -1);
+  if (earlier.every((x) => hasNumber(x, known))) return { label, kept: false, sampled: false };
+  const before = was ? raceSeries(was.label, was.value).series.slice(0, -1) : [];
+  let kept = false;
+  let sampled = false;
+  const fixed = earlier.map((x, j) => {
+    if (hasNumber(x, known)) return x;
+    if (j < before.length) {
+      kept = true;
+      return before[j];
+    }
+    sampled = true;
+    return PLACEHOLDER[(i + j) % PLACEHOLDER.length];
+  });
+  const nums = fixed.map(shortest).join(' ');
+  // A bar inside the name would be read as the start of the values: written as a slash, as motioncharts.ts `raceData` writes it.
+  const whole = s.name.replace(/\|/g, '/');
+  let name = Array.from(whole);
+  while (name.length && name.length + 1 + nums.length > LIMITS.label) name = name.slice(0, -1);
+  const out = name.length + 1 + nums.length <= LIMITS.label ? `${name.join('').trimEnd()}|${nums}` : whole;
+  return { label: out, kept, sampled };
 }
 
 export interface Sourcing {
@@ -562,10 +795,14 @@ export interface Sourcing {
  * (motiontemplates.ts `resolveFields`) and `sampled` says so. A list's items
  * are checked one by one: an item with a number nobody gave keeps its label
  * and takes the number the same item had before, or the example's for that
- * place, or a round placeholder. A prefix, suffix or unit with digits nobody
- * gave, or digits against the number, is left out. A field the answer wrote as
- * it already was is not checked again. Numbers that pass are written in one
- * spelling (`plainNumber`) when the field is only a number.
+ * place, or a round placeholder. A race's line is checked number by number
+ * (`racerOf`): one with any number nobody gave takes the values the same line
+ * had (the whole line, when its name is the same), or round placeholders. A
+ * price card's price is held as a number field is (`priceSourced`). A prefix,
+ * suffix or unit with digits nobody gave, or digits against the number, is
+ * left out. A field the answer wrote as it already was is not checked again.
+ * Numbers that pass are written in one spelling (`plainNumber`) when the field
+ * is only a number.
  */
 export function sourcedFields(
   recipe: RecipeId, given: Readonly<Record<string, string>>, before: Readonly<Record<string, string>> | null, known: ReadonlySet<string>, lang: Lang,
@@ -599,6 +836,28 @@ export function sourcedFields(
       delete fields[f.key];
       if (had(f.key) !== undefined) kept.push(f.key);
       else sampled = true;
+    } else if (figures === 'price') {
+      if (priceSourced(v, known)) continue;
+      delete fields[f.key];
+      if (had(f.key) !== undefined) kept.push(f.key);
+      else sampled = true;
+    } else if (figures === 'race') {
+      const was = (had(f.key) ?? '').split('\n');
+      let keptOne = false;
+      fields[f.key] = v.split('\n').map((whole, i) => {
+        const line = Array.from(whole).slice(0, ITEM_CHARS).join('');
+        const racer = racerOf(line);
+        if (!racer || racer.values.every((x) => hasNumber(x, known))) return line;
+        const prev = i < was.length ? racerOf(was[i]) : null;
+        if (prev) {
+          keptOne = true;
+          const renamed = racerLine(racer.name, prev.values);
+          return prev.name === racer.name || racerOf(renamed)?.values.length !== prev.values.length ? was[i] : renamed;
+        }
+        sampled = true;
+        return racerLine(racer.name, racer.values.slice(0, LIMITS.dataPoints).map((_, j) => PLACEHOLDER[(i + j) % PLACEHOLDER.length]));
+      }).join('\n');
+      if (keptOne) kept.push(f.key);
     } else if (figures === 'list') {
       const was = (had(f.key) ?? '').split('\n');
       const samples = (example[f.key] ?? '').split('\n').map(itemOf).filter((x): x is Item => x !== null);
@@ -624,7 +883,8 @@ export function sourcedFields(
 
 /**
  * A counter's or a chart's numbers, with the same rule: a counter rolls up to
- * a number somebody gave, and a chart shows values somebody gave. A number
+ * a number somebody gave, and a chart shows values somebody gave — its values
+ * and the earlier values of a race (`seriesSourced`). A number
  * from nowhere is put back to what the layer had (`was`), or, on a new layer,
  * a round placeholder — 100 for a counter — so `sampled` says the person has
  * numbers to put in. A counter that starts from anything but 0 is held to the
@@ -667,15 +927,23 @@ export function sourcedLayer(l: Layer, was: Layer | null, known: ReadonlySet<str
   if (l.kind === 'chart') {
     let touched = false;
     const data = l.data.map((d, i) => {
-      if (hasNumber(d.value, known)) return d;
-      touched = true;
       const old = was?.kind === 'chart' ? was.data[i] : undefined;
+      // A race's earlier values, kept in the label after its bar, are figures whatever the chart's kind is now.
+      const series = seriesSourced(d.label, old, i, known);
+      if (series.kept && !kept.includes('data')) kept.push('data');
+      if (series.sampled) sampled = true;
+      const next = series.label === d.label ? d : { ...d, label: series.label };
+      if (hasNumber(d.value, known)) {
+        if (next !== d) touched = true;
+        return next;
+      }
+      touched = true;
       if (old) {
         if (!kept.includes('data')) kept.push('data');
-        return { ...d, value: old.value };
+        return { ...next, value: old.value };
       }
       sampled = true;
-      return { ...d, value: PLACEHOLDER[i % PLACEHOLDER.length] };
+      return { ...next, value: PLACEHOLDER[i % PLACEHOLDER.length] };
     });
     const unit = affix('unit', l.unit, was?.kind === 'chart' ? was.unit : undefined);
     return { layer: touched || unit !== l.unit ? { ...l, data, unit } : l, kept, sampled };
@@ -841,6 +1109,117 @@ export function readsAs(lang: Lang, words: string): boolean {
   return lang === 'en' ? c.latin >= c.arabic : c.arabic >= c.latin;
 }
 
+// ── scenes, sound ─────────────────────────────────────────────────────────
+
+/**
+ * Whether `n` is a number in `lo`..`hi`: what a scene op's number must be to
+ * mean anything. A number inside is then held to the edit's own limits; one
+ * outside — a time past the graphic, a transition longer than any graphic,
+ * 1e308 — is refused, never stretched to fit.
+ */
+const within = (n: number, lo: number, hi: number): boolean => Number.isFinite(n) && n >= lo - 1e-9 && n <= hi + 1e-9;
+
+/** A graphic that was never cut, as one scene: what "after the first scene" and "split" mean on it. */
+const wholeOf = (m: Motion): SceneSpec => ({ id: 's1', name: '', start: 0, end: m.seconds });
+
+/** The scene `t` seconds falls in: the last that starts at or before it. */
+function sceneIndexAt(list: readonly SceneSpec[], t: number): number {
+  let i = 0;
+  while (i + 1 < list.length && t >= list[i + 1].start - 1e-6) i += 1;
+  return i;
+}
+
+/**
+ * The scene an op names, as its index in `list`: its id ("s2"), its number
+ * counted from 1 (2, "2", "٢", "Scene 2"), or its name when exactly one scene
+ * has it, whatever the case. -1 when it names none.
+ */
+function sceneIndex(list: readonly SceneSpec[], x: unknown): number {
+  if (typeof x === 'number') return Number.isInteger(x) && x >= 1 && x <= list.length ? x - 1 : -1;
+  if (typeof x !== 'string' || !x.trim() || x.length > 80) return -1;
+  const s = x.trim();
+  const byId = list.findIndex((sc) => sc.id === s);
+  if (byId >= 0) return byId;
+  const n = /^(?:scene\s*)?(\d{1,3})$/i.exec(plainDigits(s));
+  if (n) return Number(n[1]) >= 1 && Number(n[1]) <= list.length ? Number(n[1]) - 1 : -1;
+  const named = list.flatMap((sc, i) => (sc.name && sc.name.toLowerCase() === s.toLowerCase() ? [i] : []));
+  return named.length === 1 ? named[0] : -1;
+}
+
+/** How a scene an op named is said back when it named none: its own words, one short line. */
+function sceneWord(x: unknown): string {
+  return typeof x === 'string' || typeof x === 'number' ? String(x).slice(0, 40) : '';
+}
+
+/**
+ * A transition as an op gives it — its kind (a word from `TRANSITIONS`, or
+ * one of the names models use for one, `crossfade`, `whip-pan`), its length,
+ * its direction (`DIRS`: never left or right, which swap in Arabic) and its
+ * curve — as the change `setTransition` takes; or, when a part was given that
+ * is not on its list, or is no length a graphic could hold, the name of that
+ * part. A length is then held to the limits, and `setTransition` holds it to
+ * the two scenes beside it.
+ */
+function transitionChange(kind: unknown, d: unknown, dir: unknown, ease: unknown): TransitionChange | string {
+  let k: TransitionKind | undefined;
+  if (kind !== undefined) {
+    k = transitionKindOf(kind);
+    if (!k) return 'kind';
+  }
+  let secs: number | undefined;
+  if (d !== undefined) {
+    const n = toNumber(d);
+    if (!within(n, 0, LIMITS.seconds)) return 'd';
+    secs = Math.min(LIMITS.transitionMax, Math.max(LIMITS.transitionMin, n));
+  }
+  let way: Dir4 | undefined;
+  if (dir !== undefined) {
+    const w = str(dir).toLowerCase();
+    way = (DIRS as readonly string[]).includes(w) ? w as Dir4 : undefined;
+    if (!way) return 'dir';
+  }
+  let curve: TransitionEase | undefined;
+  if (ease !== undefined) {
+    const w = str(ease).toLowerCase();
+    curve = (TRANSITION_EASES as readonly string[]).includes(w) ? w as TransitionEase : undefined;
+    if (!curve) return 'ease';
+  }
+  // Written as one literal: rtl.test.mjs keeps every assignment to a `dir` property in rtl.ts.
+  return { ...(k ? { kind: k } : {}), ...(secs !== undefined ? { d: secs } : {}), ...(way ? { dir: way } : {}), ...(curve ? { ease: curve } : {}) };
+}
+
+/** A transition written as a word, or as `{ kind, d, dir, ease }`: what `scene.add` takes as its `transition`. */
+function transitionGiven(x: unknown): TransitionChange | string {
+  if (isObj(x)) return transitionChange(first(x, 'kind', 'fx', 'type'), first(x, 'd', 'duration'), own(x, 'dir'), own(x, 'ease'));
+  return transitionChange(x, undefined, undefined, undefined);
+}
+
+/** Words for a sound's mode besides its own. */
+const SOUND_MODE_WORDS: ReadonlyMap<string, SoundMode> = new Map<string, SoundMode>([
+  ...SOUND_MODES.map((m) => [m, m] as const),
+  ['none', 'off'], ['silent', 'off'], ['silence', 'off'], ['mute', 'off'], ['no sound', 'off'],
+  ['sfx', 'fx'], ['effects', 'fx'], ['effect', 'fx'], ['sound effects', 'fx'],
+  ['all', 'both'], ['music and effects', 'both'], ['effects and music', 'both'], ['fx+music', 'both'], ['music+fx', 'both'],
+]);
+
+/** Words for a mood that name one of the moods (motionsound.ts reads a few more: lo-fi, chill, arabic, kurdish). */
+const MOOD_WORDS: ReadonlyMap<string, Mood> = new Map<string, Mood>([
+  ['upbeat', 'uplifting'], ['happy', 'uplifting'], ['cheerful', 'uplifting'], ['bright', 'uplifting'], ['positive', 'uplifting'],
+  ['relaxed', 'calm'], ['relaxing', 'calm'], ['peaceful', 'calm'], ['gentle', 'calm'], ['soft', 'calm'],
+  ['dramatic', 'cinematic'], ['film', 'cinematic'], ['business', 'corporate'], ['professional', 'corporate'],
+  ['energetic', 'electronic'], ['techno', 'electronic'], ['edm', 'electronic'], ['lo fi', 'lofi'], ['middle eastern', 'oriental'],
+]);
+
+/** A mood from its id, its label or a word for it; undefined when it names none. */
+function moodWord(x: unknown): Mood | undefined {
+  if (typeof x !== 'string' || x.length > 40) return undefined;
+  const s = x.trim().toLowerCase().replace(/[\s_]+/g, ' ');
+  return readSound({ mode: 'music', mood: s })?.mood ?? MOOD_WORDS.get(s) ?? SOUND_MOODS.find((m) => m.label.toLowerCase() === s)?.id;
+}
+
+/** A mood an op takes back to the template's own. */
+const MOOD_RESET = /^(?:auto|default|none|template)$/i;
+
 // ── applying ──────────────────────────────────────────────────────────────
 
 /** Names models reach for, and the op each means. */
@@ -856,9 +1235,18 @@ const OP_ALIASES: ReadonlyMap<string, OpName> = new Map<string, OpName>([
   ['remove_layer', 'remove'], ['delete', 'remove'], ['delete_layer', 'remove'], ['drop', 'remove'],
   ['template', 'recipe'], ['set_recipe', 'recipe'], ['set_template', 'recipe'], ['use_template', 'recipe'], ['use_recipe', 'recipe'],
   ['set_speed', 'speed'], ['pace', 'speed'], ['tempo', 'speed'],
+  ['scene_add', 'scene.add'], ['add_scene', 'scene.add'], ['new_scene', 'scene.add'], ['insert_scene', 'scene.add'],
+  ['scene_split', 'scene.split'], ['split_scene', 'scene.split'], ['split', 'scene.split'], ['cut_scene', 'scene.split'],
+  ['scene_remove', 'scene.remove'], ['remove_scene', 'scene.remove'], ['delete_scene', 'scene.remove'], ['join_scene', 'scene.remove'], ['join_scenes', 'scene.remove'], ['merge_scenes', 'scene.remove'],
+  ['scene_move', 'scene.move'], ['move_scene', 'scene.move'], ['reorder_scene', 'scene.move'],
+  ['scene_transition', 'scene.transition'], ['transition', 'scene.transition'], ['set_transition', 'scene.transition'],
+  ['scene_rename', 'scene.rename'], ['rename_scene', 'scene.rename'],
+  ['sound_set', 'sound.set'], ['sound', 'sound.set'], ['set_sound', 'sound.set'], ['music', 'sound.set'], ['set_music', 'sound.set'], ['audio', 'sound.set'],
+  ['brand_apply', 'brand.apply'], ['brand', 'brand.apply'], ['apply_brand', 'brand.apply'], ['use_brand', 'brand.apply'],
+  ['check_fix', 'check.fix'], ['check', 'check.fix'], ['fix', 'check.fix'], ['tidy', 'check.fix'], ['tidy_up', 'check.fix'], ['autofix', 'check.fix'], ['fix_all', 'check.fix'],
 ]);
 
-const OP_SET: ReadonlySet<string> = new Set(OPS);
+const OP_SET: ReadonlySet<string> = new Set(ALL_OPS);
 
 interface ReadOp {
   raw: Rec;
@@ -892,6 +1280,10 @@ interface Run {
   read: readonly ReadOp[];
   /** The graphic the answer was written for. */
   start: Motion;
+  /** The person's saved brand kit, read; null when none is saved. */
+  brand: BrandKit | null;
+  /** How the quality check measures (motioncheck.ts); empty in the app. */
+  check: CheckOptions;
   note(n: Note): void;
   skip(n: Note): void;
   sampled(): void;
@@ -947,12 +1339,46 @@ function wordsReady(m: Motion, read: readonly ReadOp[], lang: Lang): boolean {
   return readsAs(lang, wordy.map(([, v]) => v).join('\n'));
 }
 
-/** A draft built again from a template, keeping what the person chose that a template does not decide. */
+/**
+ * A draft built again from a template, keeping what the person chose that a
+ * template does not decide: the name, the frame rate, the sound. Built again
+ * from the same template, it keeps the brand's face and logo (`lookOf`) and
+ * its scenes too, since the layout is the same; another template is another
+ * layout, whose time the old cuts would split at random, so it starts as one
+ * scene.
+ */
 function rebuilt(d: Motion, recipe: RecipeId, fields: Record<string, string>, now: number): Motion {
+  const same = d.recipe?.id === recipe;
   const fresh = buildMotion({
     id: d.id, recipe, fields, lang: d.lang, format: d.format, palette: d.palette, seconds: d.seconds, now: d.created, request: d.request, ai: true,
+    look: same ? lookOf(d) : null,
   });
-  return { ...fresh, title: d.title, fps: d.fps, stage: 'ready', created: d.created, updated: now };
+  const out: Motion = { ...fresh, title: d.title, fps: d.fps, stage: 'ready', created: d.created, updated: now };
+  const sound = readSound(d.sound);
+  if (sound) out.sound = sound;
+  const scenes = same ? readScenes(d.scenes, fresh.layers, fresh.seconds) : undefined;
+  if (scenes) out.scenes = scenes;
+  return out;
+}
+
+/**
+ * Only the ops about them change a graphic's sound and scenes. A template
+ * rebuilt for new words, a new shape or language (motionedit.ts `rebuild`)
+ * did not carry them when this was written (docs/pro/requests/04.md, 05.md);
+ * so a change that left the length as it was and dropped them has them back,
+ * read for the graphic it made. Where `rebuild` carries them this changes
+ * nothing; a change of length is left to motionedit.ts, which owns the rule.
+ */
+function carried(was: Motion, next: Motion, op: OpName): Motion {
+  if (next === was || op === 'recipe' || op === 'sound.set' || op.startsWith('scene.')) return next;
+  let out = next;
+  const sound = readSound(was.sound);
+  if (sound && next.sound === undefined) out = { ...out, sound };
+  if (was.scenes && !next.scenes && next.seconds === was.seconds) {
+    const scenes = readScenes(was.scenes, next.layers, next.seconds);
+    if (scenes) out = { ...out, scenes };
+  }
+  return out;
 }
 
 /** Replace one layer of a draft, keeping its place. */
@@ -1168,22 +1594,271 @@ const STEPS: Readonly<Record<OpName, Step>> = {
     run.note({ code: 'speed', value: Math.round(f * 100) / 100 });
     return { ...detach(d), layers, updated: run.now };
   },
+
+  // A new empty scene after the one playing at `at` seconds — or the one `after` (or `scene`) names — else after the last;
+  // with a name and the way it arrives when the op gives them. Every part is read before anything changes.
+  'scene.add'(d, o, run) {
+    const list = sceneList(d);
+    const scenes = list.length ? list : [wholeOf(d)];
+    let i = scenes.length - 1;
+    const ref = first(o, 'after', 'scene');
+    const at = own(o, 'at');
+    if (ref !== undefined) {
+      i = sceneIndex(scenes, ref);
+      if (i < 0) {
+        run.skip({ code: 'no-scene', op: 'scene.add', scene: sceneWord(ref) });
+        return d;
+      }
+    } else if (at !== undefined && at !== null) {
+      const byId = typeof at === 'string' ? scenes.findIndex((s) => s.id === at.trim()) : -1;
+      const t = toNumber(at);
+      if (byId < 0 && !within(t, 0, d.seconds)) {
+        run.skip({ code: 'invalid', op: 'scene.add', field: 'at' });
+        return d;
+      }
+      i = byId >= 0 ? byId : sceneIndexAt(scenes, t);
+    }
+    const named = own(o, 'name') ?? own(o, 'title');
+    if (named !== undefined && typeof named !== 'string') {
+      run.skip({ code: 'invalid', op: 'scene.add', field: 'name' });
+      return d;
+    }
+    const name = typeof named === 'string' ? sceneName(cleanWords(named, false, d.lang)) : '';
+    const way = own(o, 'transition');
+    const change = way === undefined || way === null ? null : transitionGiven(way);
+    if (typeof change === 'string' || (change && !Object.keys(change).length)) {
+      run.skip({ code: 'invalid', op: 'scene.add', field: typeof change === 'string' ? `transition.${change}` : 'transition' });
+      return d;
+    }
+    if (!canAddScene(d)) {
+      run.skip({ code: 'scene-limit', op: 'scene.add', why: 'full' });
+      return d;
+    }
+    let next = addScene(d, scenes[i].start, run.now);
+    const added = sceneList(next)[i + 1];
+    if (next === d || !added) {
+      run.skip({ code: 'scene-limit', op: 'scene.add', why: 'full' });
+      return d;
+    }
+    if (name) next = renameScene(next, added.id, name, run.now);
+    if (change) next = setTransition(next, added.id, change, run.now);
+    run.note({ code: 'scene-add', n: i + 2, name });
+    return next;
+  },
+
+  'scene.split'(d, o, run) {
+    const t = toNumber(first(o, 'at', 'time', 't', 'seconds', 'value'));
+    if (!within(t, 0, d.seconds)) {
+      run.skip({ code: 'invalid', op: 'scene.split', field: 'at' });
+      return d;
+    }
+    const at = Math.round(t * 1000) / 1000;
+    const next = canSplitAt(d, at) ? splitSceneAt(d, at, run.now) : d;
+    if (next === d) {
+      run.skip({ code: 'scene-limit', op: 'scene.split', why: sceneList(d).length >= LIMITS.scenes ? 'full' : 'short' });
+      return d;
+    }
+    run.note({ code: 'scene-split', at, n: sceneIndexAt(sceneList(next), at) + 1 });
+    return next;
+  },
+
+  'scene.remove'(d, o, run) {
+    const list = sceneList(d);
+    const ref = first(o, 'scene', 'id', 'target', 'value');
+    const i = sceneIndex(list, ref);
+    if (i < 0) {
+      run.skip({ code: 'no-scene', op: 'scene.remove', scene: sceneWord(ref) });
+      return d;
+    }
+    const next = removeScene(d, list[i].id, run.now);
+    if (next === d) return d;
+    run.note({ code: 'scene-remove', n: i + 1, name: list[i].name });
+    return next;
+  },
+
+  // To a place counted from 1 (`to`, or first/last), or just before or after another scene.
+  'scene.move'(d, o, run) {
+    const list = sceneList(d);
+    const ref = first(o, 'scene', 'id', 'target');
+    const i = sceneIndex(list, ref);
+    if (i < 0) {
+      run.skip({ code: 'no-scene', op: 'scene.move', scene: sceneWord(ref) });
+      return d;
+    }
+    let to = -1;
+    const before = own(o, 'before');
+    const after = own(o, 'after');
+    const place = first(o, 'to', 'place', 'position');
+    if (before !== undefined || after !== undefined) {
+      const r = sceneIndex(list, before ?? after);
+      if (r < 0) {
+        run.skip({ code: 'no-scene', op: 'scene.move', scene: sceneWord(before ?? after) });
+        return d;
+      }
+      to = before !== undefined ? (i < r ? r - 1 : r) : (i < r ? r : r + 1);
+    } else {
+      const w = str(place).toLowerCase();
+      const byId = typeof place === 'string' ? list.findIndex((s) => s.id === place.trim()) : -1;
+      const n = toNumber(place);
+      if (w === 'first' || w === 'start') to = 0;
+      else if (w === 'last' || w === 'end') to = list.length - 1;
+      else if (byId >= 0) to = byId;
+      else if (within(n, 1, LIMITS.scenes)) to = Math.min(list.length, Math.round(n)) - 1;
+      else {
+        run.skip({ code: 'invalid', op: 'scene.move', field: 'to' });
+        return d;
+      }
+    }
+    to = Math.min(list.length - 1, Math.max(0, to));
+    const next = to === i ? d : moveScene(d, list[i].id, to, run.now);
+    if (next === d) return d;
+    run.note({ code: 'scene-move', n: i + 1, to: to + 1, name: list[i].name });
+    return next;
+  },
+
+  // Its kind, length, direction and curve, written flat on the op or as its `transition`; any part not on its list changes nothing.
+  'scene.transition'(d, o, run) {
+    const list = sceneList(d);
+    const ref = first(o, 'scene', 'id', 'target');
+    const i = sceneIndex(list, ref);
+    if (i < 0) {
+      run.skip({ code: 'no-scene', op: 'scene.transition', scene: sceneWord(ref) });
+      return d;
+    }
+    const way = own(o, 'transition');
+    const change = isObj(way)
+      ? transitionGiven(way)
+      : transitionChange(way ?? first(o, 'kind', 'value'), first(o, 'd', 'duration'), own(o, 'dir'), own(o, 'ease'));
+    if (typeof change === 'string' || !Object.keys(change).length) {
+      run.skip({ code: 'invalid', op: 'scene.transition', ...(typeof change === 'string' ? { field: change } : {}) });
+      return d;
+    }
+    if (i === 0) {
+      run.skip({ code: 'scene-limit', op: 'scene.transition', why: 'first' });
+      return d;
+    }
+    const next = setTransition(d, list[i].id, change, run.now);
+    if (next === d) return d;
+    run.note({ code: 'scene-transition', n: i + 1, name: list[i].name, kind: sceneList(next)[i]?.transition?.kind ?? 'cut' });
+    return next;
+  },
+
+  'scene.rename'(d, o, run) {
+    const list = sceneList(d);
+    const ref = first(o, 'scene', 'id', 'target');
+    const i = sceneIndex(list, ref);
+    if (i < 0) {
+      run.skip({ code: 'no-scene', op: 'scene.rename', scene: sceneWord(ref) });
+      return d;
+    }
+    const named = first(o, 'name', 'value', 'title');
+    if (typeof named !== 'string') {
+      run.skip({ code: 'invalid', op: 'scene.rename', field: 'name' });
+      return d;
+    }
+    const name = sceneName(cleanWords(named, false, d.lang));
+    const next = renameScene(d, list[i].id, name, run.now);
+    if (next === d) return d;
+    run.note({ code: 'scene-rename', n: i + 1, name });
+    return next;
+  },
+
+  // Some of mode, mood and level over what the graphic has; a mood alone turns music on, since a mood is music's.
+  'sound.set'(d, o, run) {
+    const modeGiven = first(o, 'mode', 'value');
+    const moodGiven = own(o, 'mood');
+    const levelGiven = first(o, 'level', 'volume');
+    const bad = (field: string) => {
+      run.skip({ code: 'invalid', op: 'sound.set', field });
+      return d;
+    };
+    if (modeGiven === undefined && moodGiven === undefined && levelGiven === undefined) return bad('mode');
+    const mode = modeGiven === undefined ? undefined : typeof modeGiven === 'string' ? SOUND_MODE_WORDS.get(modeGiven.trim().toLowerCase()) : undefined;
+    if (modeGiven !== undefined && !mode) return bad('mode');
+    const reset = moodGiven === null || (typeof moodGiven === 'string' && MOOD_RESET.test(moodGiven.trim()));
+    const mood = moodGiven === undefined || reset ? undefined : moodWord(moodGiven);
+    if (moodGiven !== undefined && !reset && !mood) return bad('mood');
+    // 0 to 1, or a percentage up to 100 (motionsound.ts reads 60 as 60%).
+    const level = levelGiven === undefined ? undefined : toNumber(levelGiven);
+    if (level !== undefined && !within(level, 0, 100)) return bad('level');
+    const now = readSound(d.sound) ?? defaultSound();
+    const on: SoundMode = mode ?? (mood && now.mode === 'off' ? 'music' : mood && now.mode === 'fx' ? 'both' : now.mode);
+    const chosen = reset ? undefined : mood ?? now.mood;
+    const spec: SoundSpec = {
+      mode: on, level: level ?? now.level, ...(chosen ? { mood: chosen } : {}), ...(now.seed !== undefined ? { seed: now.seed } : {}),
+    };
+    const next = withSound(d, spec, run.now);
+    if (next === d) return d;
+    const s = readSound(next.sound) ?? defaultSound();
+    run.note({ code: 'sound', mode: s.mode, level: s.level, ...(s.mood ? { mood: s.mood } : {}) });
+    return next;
+  },
+
+  // The kit is the caller's, never the op's: whatever else the op holds is not read.
+  'brand.apply'(d, _o, run) {
+    if (!run.brand) {
+      run.skip({ code: 'no-brand' });
+      return d;
+    }
+    const next = applyBrand(d, run.brand, run.now);
+    if (next === d) return d;
+    run.note({ code: 'brand', name: run.brand.name });
+    return next;
+  },
+
+  // Every repair the check can prove better (motioncheck.ts `autofix`); what it repaired is said by the repairs' own labels.
+  'check.fix'(d, _o, run) {
+    const found = checkMotion(d, run.check);
+    if (!found.length) {
+      run.skip({ code: 'check-clean' });
+      return d;
+    }
+    const next = found.some((f) => f.fix) ? autofix(d, found, undefined, run.check) : d;
+    if (next === d) {
+      run.skip({ code: 'check-by-hand', count: found.length });
+      return d;
+    }
+    const left = checkMotion(next, run.check);
+    const still = new Set(left.map((f) => f.id));
+    const labels = (gone: boolean) => [...new Set(found.filter((f) => f.fix && (!gone || !still.has(f.id))).map((f) => f.fix?.label ?? ''))].filter(Boolean);
+    // A repair that made a tip smaller without making it go is still a repair: said by what was tried.
+    const fixes = labels(true).length ? labels(true) : labels(false);
+    run.note({ code: 'check', fixes, left: left.length });
+    return { ...next, updated: run.now };
+  },
 };
 
-/** The ops that edit a graphic's layers by hand, and so end its template (motionedit.ts `detach`). */
-const BY_HAND: ReadonlySet<OpName> = new Set<OpName>(['layer', 'add', 'remove', 'speed']);
+/**
+ * When each op is applied, in five turns: 0, the ops on the template (its
+ * words, shape, length, language, palette, name, a new template); 1, the brand
+ * kit, which builds the template again with the brand in it, so after its words
+ * are set; 2, the sound, which nothing after it can drop; 3, the ops that edit
+ * the layers by hand (which end the template) and the scenes, which cut the
+ * graphic as it now is; 4, the quality check, which repairs what all of that
+ * made.
+ */
+const TURN: Readonly<Record<OpName, number>> = {
+  fields: 0, palette: 0, seconds: 0, format: 0, lang: 0, title: 0, recipe: 0,
+  'brand.apply': 1,
+  'sound.set': 2,
+  layer: 3, add: 3, remove: 3, speed: 3,
+  'scene.add': 3, 'scene.split': 3, 'scene.remove': 3, 'scene.move': 3, 'scene.transition': 3, 'scene.rename': 3,
+  'check.fix': 4,
+};
 
 /**
- * The ops in the order they are applied: every op that works on the template
- * (its words, shape, length, language, palette, a new template) first, in the
- * order the answer wrote them, then the ops that edit layers by hand, in theirs.
+ * The ops in the order they are applied: by `TURN`, and within a turn in the
+ * order the answer wrote them (an op that is none is skipped with the first).
  * The other way round, "faster, and change the title" would end the template
  * with the first and have nothing left for the second to change; done this way
  * the words are rebuilt into the template's layout and the hand edits go on top
- * of it (layers keep their ids through a rebuild).
+ * of it (layers keep their ids through a rebuild). Scenes share the hand edits'
+ * turn and keep their written order with them: "add a scene, then a title in
+ * it" names times in the graphic the first op made.
  */
 function inOrder(read: readonly ReadOp[]): ReadOp[] {
-  return [...read.filter((r) => !r.op || !BY_HAND.has(r.op)), ...read.filter((r) => r.op && BY_HAND.has(r.op))];
+  const turn = (r: ReadOp) => (r.op ? TURN[r.op] : 0);
+  return read.map((r, i) => ({ r, i })).sort((a, b) => turn(a.r) - turn(b.r) || a.i - b.i).map((x) => x.r);
 }
 
 /** The same note twice is said once. */
@@ -1206,13 +1881,24 @@ function unique(list: Note[]): Note[] {
  * checked on its own and applied through motionedit.ts, so the model's edits
  * behave exactly as the person's do; one that cannot be applied is skipped
  * with a reason. At most `MAX_OPS` are read. `said` is the person's message,
- * one more place a number may come from. The result is read once more by
+ * one more place a number may come from; `o` what the ops on the brand kit and
+ * the check need from the app (`ApplyOptions`). The result is read once more by
  * `readMotion`, so it is a graphic the rest of the studio can trust without
  * checking, and `m` itself when nothing changed.
  */
-export function applyOps(m: Motion, ops: unknown, now: number = Date.now(), said = ''): Applied {
+export function applyOps(m: Motion, ops: unknown, now: number = Date.now(), said = '', o: ApplyOptions = {}): Applied {
   const notes: Note[] = [];
   const skipped: Note[] = [];
+  let brand: BrandKit | null = null;
+  let check: CheckOptions = {};
+  try {
+    if (isObj(o)) {
+      brand = readBrand(own(o, 'brand'));
+      if (isObj(own(o, 'check'))) check = own(o, 'check') as CheckOptions;
+    }
+  } catch {
+    /* no kit, the check's own measure */
+  }
   let list: unknown[] = [];
   try {
     list = opList(ops);
@@ -1236,7 +1922,7 @@ export function applyOps(m: Motion, ops: unknown, now: number = Date.now(), said
   }
   let sampled = false;
   const run: Run = {
-    now: at, known, read, start: m,
+    now: at, known, read, start: m, brand, check,
     note: (n) => { notes.push(n); },
     skip: (n) => { skipped.push(n); },
     sampled: () => { sampled = true; },
@@ -1251,7 +1937,7 @@ export function applyOps(m: Motion, ops: unknown, now: number = Date.now(), said
     }
     const kept = notes.length;
     try {
-      draft = STEPS[r.op](was, r.raw, run);
+      draft = carried(was, STEPS[r.op](was, r.raw, run), r.op);
     } catch {
       // An op that trips over something is that op skipped, never the answer.
       draft = was;
@@ -1273,4 +1959,99 @@ export function applyOps(m: Motion, ops: unknown, now: number = Date.now(), said
   // A later op that started a template again undoes the detaching said earlier.
   const told = out.recipe ? notes.filter((n) => n.code !== 'detached') : notes;
   return { motion: out, notes: unique(told), skipped: unique(skipped) };
+}
+
+// ── saying what the new ops did ───────────────────────────────────────────
+
+type T = (s: string) => string;
+
+/**
+ * Words the model or the person wrote, as a sentence carries them: one line,
+ * no letter that turns text around, isolated between U+2068 and U+2069 so
+ * they cannot reorder the sentence round them, at most `max` characters.
+ * motionstate.ts `quoted`'s rule, repeated because that file imports this one.
+ */
+function isolated(s: unknown, max = 40): string {
+  const one = String(s ?? '')
+    .replace(/\s+/g, ' ')
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069\uFEFF]/g, '')
+    .trim();
+  const chars = Array.from(one);
+  const cut = chars.length > max ? `${chars.slice(0, Math.max(1, max - 1)).join('')}…` : one;
+  return `\u2068${cut}\u2069`;
+}
+
+/** A transition's name, in the words the scene strip uses (MotionScenes.tsx). */
+function transitionName(k: TransitionKind, t: T): string {
+  switch (k) {
+    case 'fade': return t('Fade');
+    case 'push': return t('Push across');
+    case 'slide': return t('Slide');
+    case 'iris': return t('Iris');
+    case 'clock': return t('Clock wipe');
+    case 'blinds': return t('Blinds');
+    case 'pixelate': return t('Pixelate');
+    case 'zoom': return t('Zoom');
+    case 'whip': return t('Whip pan');
+    case 'flash': return t('Flash');
+    case 'light-leak': return t('Light leak');
+    case 'glitch': return t('Glitch');
+    default: return t('Cut');
+  }
+}
+
+/** A sound's mode as the Sound row names it (MotionSoundPanel.tsx). */
+const MODE_LABEL: Readonly<Record<SoundMode, string>> = { off: 'Off', fx: 'Effects', music: 'Music', both: 'Both' };
+
+/** A scene as a note names it: its own name, or "Scene n" as the strip shows a scene without one. */
+function sceneCalled(n: unknown, name: unknown, t: T): string {
+  return typeof name === 'string' && name ? isolated(name) : fill(t('Scene {n}'), { n: Number(n) || 1 });
+}
+
+/** Seconds as a note says them: at most two decimals. */
+const secs = (x: unknown) => String(Math.round((Number(x) || 0) * 100) / 100);
+
+/**
+ * The notes of the ops in `PRO_OPS`, said in the interface's language through
+ * `t`; null for every other note, which motionstate.ts `noteText` says. Kept
+ * beside the notes so the panel needs one line to say them all:
+ * `default: return chatNoteText(n, t) ?? t('Skipped a change that could not be read');`
+ * Every word that came from the model or the person is `isolated`.
+ */
+export function chatNoteText(n: Note, t: T): string | null {
+  switch (n.code) {
+    case 'scene-add': return fill(t('Added a scene: {name}'), { name: sceneCalled(n.n, n.name, t) });
+    case 'scene-split': return fill(t('Cut the scene in two at {s} s'), { s: secs(n.at) });
+    case 'scene-remove': return fill(t('Joined {name} with the scene beside it'), { name: sceneCalled(n.n, n.name, t) });
+    case 'scene-move': return fill(t('Moved {name} to place {n}'), { name: sceneCalled(n.n, n.name, t), n: Number(n.to) || 1 });
+    case 'scene-transition': return fill(t('{name} now arrives with: {kind}'), { name: sceneCalled(n.n, n.name, t), kind: transitionName(n.kind, t) });
+    case 'scene-rename':
+      return n.name
+        ? fill(t('Scene {n} is now called {name}'), { n: Number(n.n) || 1, name: isolated(n.name) })
+        : fill(t('Scene {n} has no name of its own now'), { n: Number(n.n) || 1 });
+    case 'sound': {
+      if (n.mode === 'off') return t('Sound off');
+      const mode = Object.prototype.hasOwnProperty.call(MODE_LABEL, n.mode) ? t(MODE_LABEL[n.mode]) : t('Music');
+      const mood = n.mode !== 'fx' && n.mood ? SOUND_MOODS.find((m) => m.id === n.mood)?.label : undefined;
+      const level = `${Math.round(Math.min(1, Math.max(0, Number(n.level) || 0)) * 100)}%`;
+      return fill(t('Sound: {how}'), { how: [mode, ...(mood ? [t(mood)] : []), level].join(' · ') });
+    }
+    case 'brand': return n.name ? fill(t('Applied the brand kit: {name}'), { name: isolated(n.name) }) : t('Applied the brand kit');
+    case 'check': {
+      const fixes = (Array.isArray(n.fixes) ? n.fixes : []).slice(0, 8).map((f) => t(String(f))).join(' · ');
+      const left = Number(n.left) || 0;
+      return left > 0 ? fill(t('Tidied: {fixes}. {n} tips are left for a change by hand'), { fixes, n: left }) : fill(t('Tidied: {fixes}'), { fixes });
+    }
+    case 'no-scene': return fill(t('Skipped: there is no scene “{scene}”'), { scene: isolated(n.scene) });
+    case 'scene-limit':
+      if (n.why === 'first') return t('Skipped: the first scene starts the graphic, so it arrives from nothing');
+      return n.why === 'short'
+        ? fill(t('A scene is cut at least {s} s from its ends, and a graphic has at most {n} scenes'), { s: LIMITS.sceneMin, n: LIMITS.scenes })
+        : fill(t('No room for another scene: a graphic is at most {s} s long and has at most {n} scenes'), { s: LIMITS.seconds, n: LIMITS.scenes });
+    case 'no-brand': return t('No brand kit is saved yet: set one up with the Brand kit button');
+    case 'check-clean': return t('The quality check found nothing to fix');
+    case 'check-by-hand': return fill(t('The quality check found {n} tips, and none it can fix by itself'), { n: Number(n.count) || 0 });
+    default: return null;
+  }
 }

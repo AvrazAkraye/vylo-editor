@@ -41,8 +41,14 @@ const REQ = { request: 'A title for the opening of our bakery in Erbil', lang: '
  * is the model's. The template list is left out of the budget on purpose:
  * packages 07 and 08 add templates and 06 their notes, each line bounded on its
  * own (`NOTES_MAX`), so a new template never breaks this suite.
+ *
+ * Wave 2's chat operations (W2-3) raised the two prompt budgets by the 1,300
+ * characters their brief allows over what the prompts were when it began (plan
+ * 6,131 and edit 7,303 without the template list): the editor is taught nine
+ * more ops and the scenes, and both prompts the race's label and the finishes.
+ * test/motionai.test.mjs holds the same numbers and says why.
  */
-const BUDGET = { direction: 900, planFixed: 6300, refineFixed: 7450, request: 760 };
+const BUDGET = { direction: 900, planFixed: 6131 + 1300, refineFixed: 7303 + 1300, request: 760 };
 
 /** Every number in `DIRECTION`, as written. */
 const tableNumbers = (x, out = new Set()) => {
