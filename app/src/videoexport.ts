@@ -475,6 +475,8 @@ export function wordsOf(s: Scene, v: Pick<Video, 'brand'>): string[] {
     case 'features': out = [s.heading, ...list(s.items).map((it) => ((it ?? {}) as { label?: unknown }).label)]; break;
     case 'device': out = [s.heading, s.text]; break;
     case 'marquee': out = [s.text, s.sub]; break;
+    // A graphic from Motion draws its own words; the film's subtitles carry its narration, when it has one.
+    case 'motion': out = []; break;
     default: out = ['title', 'heading', 'headline', 'text', 'caption', 'subtitle', 'tagline'].map((k) => x[k]);
   }
   return out.map(str).filter(Boolean);

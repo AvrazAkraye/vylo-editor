@@ -629,7 +629,7 @@ console.log('the files around it');
     && readme.includes('the\nmodel may search the web through the gateway'));
   const css = readFileSync(new URL('../src/styles.css', import.meta.url), 'utf8');
   const block = css.slice(css.indexOf('/* vm:ask start */'), css.indexOf('/* vm:ask end */'));
-  ok('the stylesheet\'s part is between its markers, at the end, in logical properties only', block.length > 100 && css.trimEnd().endsWith('/* vm:ask end */')
+  ok('the stylesheet\'s part is between its markers, at the end (only other packages\' marked blocks may follow), in logical properties only', block.length > 100 && /^\s*(\/\* vm:[a-z]+ start \*\/[\s\S]*?\/\* vm:[a-z]+ end \*\/\s*)*$/.test(css.slice(css.indexOf('/* vm:ask end */') + '/* vm:ask end */'.length))
     && !/(?:^|[\s;{])(?:left|right|margin-left|margin-right|padding-left|padding-right|border-left|border-right|text-align:\s*(?:left|right))\s*:/m.test(block));
 }
 

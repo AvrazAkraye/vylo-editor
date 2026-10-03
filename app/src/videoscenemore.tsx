@@ -35,6 +35,7 @@ import { Stage, firstKindView, fit, fitScaled, markHeight, per } from './videosc
 import type { Align } from './videolook';
 import { qrModules, qrPath } from './videoqr';
 import { newKindView } from './videoscenenew';
+import { MotionOverlay, MotionSceneView } from './VideoMotionView';
 
 // ---------------------------------------------------------------------------
 // Shared
@@ -976,12 +977,16 @@ export function SceneBody({ info }: { info: SceneInfo }) {
       case 'device':
       case 'marquee':
       case 'clip': body = newKindView(scene); break;
+      // A graphic from Motion, painted by Motion's own renderer (VideoMotionView.tsx).
+      case 'motion': body = <MotionSceneView scene={scene} />; break;
       default: body = firstKindView(scene);
     }
   }
   return (
     <SceneProvider value={info}>
       {body ?? <Stage><div /></Stage>}
+      {/* A graphic the person laid on top, over the scene and outside its camera, from its start in the scene. */}
+      {scene?.over ? <MotionOverlay scene={scene} video={info.video} /> : null}
       {info.mark && scene ? <BandMark top={info.mark.top} height={info.mark.height} scene={scene} /> : null}
     </SceneProvider>
   );

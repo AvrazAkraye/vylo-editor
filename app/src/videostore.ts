@@ -1,6 +1,7 @@
 import type { Scene, Video } from './videotypes';
 import { artOf, mainTextOf } from './video';
 import { readDesign } from './videodesign';
+import { readVideoMotions } from './videomotion';
 
 /**
  * Where videos are kept between sessions: the webview's IndexedDB, database
@@ -99,6 +100,8 @@ function checked(v: Video): Video {
     });
     out = { ...out, scenes };
   }
+  // The graphics the film holds from Motion, read again like any stored record; a scene whose graphic is gone goes with it.
+  out = readVideoMotions(out);
   return out;
 }
 

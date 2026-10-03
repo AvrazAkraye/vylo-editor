@@ -1799,7 +1799,7 @@ function VideoView({ t, video, routes, efforts, plan, ready, inFull, seek, onSee
           {tab === 'scenes' && (
             <Storyboard t={t} video={video} redoingId={job?.how === 'scene' ? job.sceneId : undefined} locked={busy || !ready}
                         restyling={job?.how === 'art'} onRestyle={() => begin(video, { how: 'art' })}
-                        onScenes={(scenes) => change({ scenes })} onRedo={(id) => void redo(id)} onSeek={seekScene} onAdd={add} onError={onError} />
+                        onScenes={(scenes) => change({ scenes })} onVideo={change} onRedo={(id) => void redo(id)} onSeek={seekScene} onAdd={add} onError={onError} />
           )}
           {tab === 'chat' && (
             <VideoChat t={t} video={video} onChange={change} locked={busy} ready={ready} target={target} providers={routes.providers}

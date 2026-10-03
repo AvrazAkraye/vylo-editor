@@ -10,6 +10,8 @@ import { STYLE_SWATCH, SceneThumb } from './VideoScenes';
 import { MAX_BIGTYPE_LINES, MAX_FEATURES, artOf, isRtl, mainTextOf, pictureSlots, qrText, withPicture } from './video';
 import { FONT_CHOICES, LOOK_LIMITS, lookFor, normalSceneLook } from './videolook';
 import { VideoIcon } from './videoicons';
+import { MotionPicker, MotionSceneRow, OverRow } from './VideoMotionPicker';
+import { addMotionScene, heldIn } from './videomotion';
 
 /**
  * The storyboard, as the person edits it: one card a scene.
@@ -57,6 +59,7 @@ export function kindName(k: SceneKind, t: T): string {
   if (k === 'device') return t('Phone or laptop');
   if (k === 'marquee') return t('Scrolling words');
   if (k === 'clip') return t('Video clip');
+  if (k === 'motion') return t('Motion graphic');
   return t('Closing');
 }
 
@@ -81,6 +84,7 @@ export function kindAbout(k: SceneKind, t: T): string {
   if (k === 'device') return t('Your picture on a phone or laptop screen, with a heading beside it.');
   if (k === 'marquee') return t('One short phrase, huge, scrolling across the frame again and again.');
   if (k === 'clip') return t('A piece of a real video from a link you gave, across the whole frame, with a caption.');
+  if (k === 'motion') return t('A graphic you made in Motion — a title, a lower third, a number — across the whole frame.');
   return t('The brand, what to do next, and where.');
 }
 
@@ -120,6 +124,8 @@ export function gistOf(s: Scene): string {
     case 'device': return s.heading;
     case 'marquee': return s.text;
     case 'clip': return s.caption ?? '';
+    // Its name is the film's copy's (SceneCard reads it there): the scene itself holds only an id.
+    case 'motion': return '';
     default: return s.headline;
   }
 }
@@ -1007,11 +1013,13 @@ function FeaturesFields({ t, scene, onChange, disabled }: {
 }
 
 /** One scene's own fields, by kind. */
-function SceneFields({ t, scene, video, onChange, onError, disabled }: {
+function SceneFields({ t, scene, video, onChange, onVideo, onError, disabled }: {
   t: T;
   scene: Scene;
   video: Video;
   onChange: (patch: Partial<Scene>) => void;
+  /** Changes to the film beyond this scene — a graphic from Motion held — when the panel gives the way. */
+  onVideo?: (patch: Partial<Video>) => void;
   onError: (m: string) => void;
   disabled?: boolean;
 }) {
@@ -1149,6 +1157,7 @@ function SceneFields({ t, scene, video, onChange, onError, disabled }: {
     );
   }
   if (s.kind === 'marquee') return <>{text(t('Words that scroll'), s.text, 'text', true)}{text(t('Line under it'), s.sub, 'sub', true)}</>;
+  if (s.kind === 'motion') return <MotionSceneRow t={t} video={video} scene={s} onChange={onChange} onVideo={onVideo} disabled={disabled} />;
   if (s.kind === 'clip') {
     const clips = video.clips ?? [];
     const cur = clips.find((c) => c.id === s.clip);
@@ -1189,7 +1198,7 @@ function SceneFields({ t, scene, video, onChange, onError, disabled }: {
 }
 
 /** One scene of the storyboard. */
-function SceneCard({ t, video, scene, index, count, open, redoing, locked, onToggle, onChange, onMove, onRemove, onRedo, onSeek, onError }: {
+function SceneCard({ t, video, scene, index, count, open, redoing, locked, onToggle, onChange, onVideo, onMove, onRemove, onRedo, onSeek, onError }: {
   t: T;
   video: Video;
   scene: Scene;
@@ -1202,6 +1211,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
   locked: boolean;
   onToggle: () => void;
   onChange: (patch: Partial<Scene>) => void;
+  onVideo?: (patch: Partial<Video>) => void;
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
   onRedo: () => void;
@@ -1210,7 +1220,9 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
 }) {
   const [picking, setPicking] = useState(false);
   const last = index === count - 1;
-  const gist = gistOf(scene);
+  // A graphic from Motion is drawn as Motion made it: no art direction, no look of the film's, and no model to write it again.
+  const graphic = scene.kind === 'motion';
+  const gist = scene.kind === 'motion' ? heldIn(video, scene.motion)?.title ?? '' : gistOf(scene);
   return (
     <li className={`vid-scene ${open ? 'is-open' : ''} ${redoing ? 'is-live' : ''}`}>
       <div className="vid-scene-head">
@@ -1238,7 +1250,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
       {open && (
         <div className="vid-scene-body">
           <div className="vid-form">
-            <SceneFields t={t} scene={scene} video={video} onChange={onChange} onError={onError} disabled={redoing} />
+            <SceneFields t={t} scene={scene} video={video} onChange={onChange} onVideo={onVideo} onError={onError} disabled={redoing} />
             <label className="vid-f">
               <span>{t('Seconds on screen')}</span>
               <input type="number" min={2} max={20} step={0.5} value={scene.seconds} disabled={redoing}
@@ -1255,6 +1267,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
               </select>
             </label>
           </div>
+          {!graphic && <OverRow t={t} video={video} scene={scene} onChange={onChange} onVideo={onVideo} disabled={redoing} />}
           {wantsPicture(scene) && (
             <div className="vid-pic">
               {scene.picture
@@ -1274,14 +1287,16 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
                             onPick={(picture) => onChange({ picture, ...(picture ? { imageQuery: picture.query } : {}) })}
                             onClose={() => setPicking(false)} />
           )}
-          <SceneArtFields t={t} video={video} scene={scene} onChange={onChange} disabled={redoing} />
-          <SceneLookFields t={t} video={video} scene={scene} onChange={onChange} disabled={redoing} />
-          <div className="vid-scene-foot">
-            <button type="button" className="ghost" disabled={locked || redoing} onClick={onRedo}
-                    title={t('Ask the model to write this scene again, with an instruction of yours.')}>
-              <Icon name="sparkle" size={12} />{t('Redo this scene…')}
-            </button>
-          </div>
+          {!graphic && <SceneArtFields t={t} video={video} scene={scene} onChange={onChange} disabled={redoing} />}
+          {!graphic && <SceneLookFields t={t} video={video} scene={scene} onChange={onChange} disabled={redoing} />}
+          {!graphic && (
+            <div className="vid-scene-foot">
+              <button type="button" className="ghost" disabled={locked || redoing} onClick={onRedo}
+                      title={t('Ask the model to write this scene again, with an instruction of yours.')}>
+                <Icon name="sparkle" size={12} />{t('Redo this scene…')}
+              </button>
+            </div>
+          )}
         </div>
       )}
     </li>
@@ -1292,7 +1307,7 @@ function SceneCard({ t, video, scene, index, count, open, redoing, locked, onTog
  * The storyboard: the cards, and a way to add one. Changes are handed up as
  * whole scene lists, and the panel keeps the video.
  */
-export function Storyboard({ t, video, redoingId, restyling, locked, onScenes, onRedo, onRestyle, onSeek, onAdd, onError }: {
+export function Storyboard({ t, video, redoingId, restyling, locked, onScenes, onVideo, onRedo, onRestyle, onSeek, onAdd, onError }: {
   t: T;
   video: Video;
   redoingId?: string;
@@ -1300,6 +1315,12 @@ export function Storyboard({ t, video, redoingId, restyling, locked, onScenes, o
   restyling?: boolean;
   locked: boolean;
   onScenes: (scenes: Scene[]) => void;
+  /**
+   * A change to the film beyond its scenes, in the same step: placing a graphic from Motion holds a copy of it
+   * (`Video.motions`) and adds or changes the scene that shows it at once. Given by the panel (VideoPanel.tsx,
+   * `onVideo={change}`); without it there is no way in to a graphic, and the storyboard is as it was.
+   */
+  onVideo?: (patch: Partial<Video>) => void;
   onRedo: (id: string) => void;
   /** Ask the model to art-direct every scene again, words untouched (VideoPanel.tsx's `art` run). */
   onRestyle?: () => void;
@@ -1309,6 +1330,8 @@ export function Storyboard({ t, video, redoingId, restyling, locked, onScenes, o
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [kind, setKind] = useState<SceneKind>('kinetic');
+  // Add scene → Motion graphic opens the list of saved graphics instead of adding a blank scene.
+  const [picking, setPicking] = useState(false);
   const scenes = video.scenes;
   const patch = (id: string, p: Partial<Scene>) =>
     onScenes(scenes.map((s) => (s.id === id ? ({ ...s, ...p } as Scene) : s)));
@@ -1336,6 +1359,7 @@ export function Storyboard({ t, video, redoingId, restyling, locked, onScenes, o
                      open={openId === s.id} redoing={redoingId === s.id} locked={locked}
                      onToggle={() => setOpenId(openId === s.id ? null : s.id)}
                      onChange={(p) => patch(s.id, p)}
+                     onVideo={onVideo}
                      onMove={(by) => move(i, by)}
                      onRemove={() => onScenes(scenes.filter((x) => x.id !== s.id))}
                      onRedo={() => onRedo(s.id)}
@@ -1344,13 +1368,24 @@ export function Storyboard({ t, video, redoingId, restyling, locked, onScenes, o
         ))}
       </ol>
       <div className="vid-add">
-        <select value={kind} onChange={(e) => setKind(e.target.value as SceneKind)} aria-label={t('Kind of scene')}>
-          {SCENE_KINDS.map((k) => <option key={k} value={k}>{kindName(k, t)}</option>)}
+        <select value={kind} onChange={(e) => { setKind(e.target.value as SceneKind); setPicking(false); }} aria-label={t('Kind of scene')}>
+          {SCENE_KINDS.filter((k) => k !== 'motion' || onVideo).map((k) => <option key={k} value={k}>{kindName(k, t)}</option>)}
         </select>
-        <button type="button" className="ghost" onClick={() => onAdd(kind)}>
+        <button type="button" className="ghost" aria-expanded={kind === 'motion' ? picking : undefined}
+                onClick={() => (kind === 'motion' && onVideo ? setPicking(!picking) : onAdd(kind))}>
           <Icon name="plus" size={12} />{t('Add a scene')}
         </button>
       </div>
+      {picking && kind === 'motion' && onVideo && (
+        <MotionPicker t={t} title={t('Choose a graphic for the new scene')} onClose={() => setPicking(false)}
+                      onPick={(m) => {
+                        const r = addMotionScene(video, m);
+                        if ('refused' in r) return r.refused;
+                        onVideo(r.patch);
+                        setOpenId(r.sceneId);
+                        return null;
+                      }} />
+      )}
       <p className="vid-note">{kindAbout(kind, t)}</p>
     </div>
   );

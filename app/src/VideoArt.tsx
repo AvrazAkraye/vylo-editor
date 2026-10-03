@@ -11,7 +11,7 @@ import { Bars, Ground, Nodes, Page, c } from './GalleryArt';
 export const SCENE_HUE: Readonly<Record<SceneKind, number>> = {
   title: 262, kinetic: 292, bullets: 222, stat: 38, chart: 200, quote: 330, image: 158, split: 176,
   steps: 250, outro: 12, gallery: 140, timeline: 48, compare: 190, people: 24, logo: 280, qr: 210,
-  bigtype: 318, features: 236, device: 128, marquee: 64, clip: 348,
+  bigtype: 318, features: 236, device: 128, marquee: 64, clip: 348, motion: 300,
 };
 
 /** How the gallery groups the scenes, for its chips. */
@@ -21,6 +21,7 @@ export const SCENE_GROUP: Readonly<Record<SceneKind, SceneGroup>> = {
   bigtype: 'words', features: 'words', marquee: 'words',
   stat: 'data', chart: 'data', timeline: 'data', compare: 'data',
   image: 'pictures', split: 'pictures', gallery: 'pictures', people: 'pictures', logo: 'pictures', qr: 'pictures', device: 'pictures', clip: 'pictures',
+  motion: 'pictures',
 };
 
 const X = 44;
@@ -256,6 +257,15 @@ export function SceneKindArt({ kind }: { kind: SceneKind }) {
         <circle cx={cx} cy={cy - 6} r="22" fill={hi} />
         <path d={`M${cx - 7} ${cy - 18} L${cx + 11} ${cy - 6} L${cx - 7} ${cy + 6} Z`} fill="#F4F1FA" />
         {bar(cx - 60, cy + 28, 120, 7, '#F4F1FA')}
+      </>
+    ),
+    // A graphic from Motion (vm video): a lower third sliding in over the frame.
+    motion: (
+      <>
+        <circle cx={cx + 50} cy={cy - 22} r="18" fill={soft} opacity=".35" />
+        <rect x={X + 24} y={cy + 14} width="6" height="34" rx="2" fill={hi} />
+        {bar(X + 38, cy + 16, 120, 12, '#F4F1FA')}
+        {bar(X + 38, cy + 36, 80, 7, hi)}
       </>
     ),
   };
