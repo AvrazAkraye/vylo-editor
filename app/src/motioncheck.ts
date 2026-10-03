@@ -3,7 +3,7 @@ import { FORMATS, LIMITS, TONES, isTone } from './motiontypes';
 import { layerBox, makeEnv } from './motiondraw';
 import { inDone, outStart, unitsOf } from './motionanim';
 import { drawChart } from './motioncharts';
-import { clamp, contrast, cssOf, finite, parseColor, type RGBA } from './motionmath';
+import { clamp, contrast, cssOf, finite, flatten, parseColor, parsePath, pathBounds, type RGBA } from './motionmath';
 import { fontString, scriptOf } from './motionfonts';
 import { setLayer, setSeconds } from './motionedit';
 
@@ -135,8 +135,11 @@ export const CHECK = {
   glanceWords: 3,
   glanceLetters: 16,
   blink: 0.5,
-  /** Seconds with nothing moving before a graphic looks stuck. */
-  frozen: 3,
+  /**
+   * Seconds with nothing moving before a graphic looks stuck. Four, not three: a title holds while it is read, and a before-and-after
+   * or a price card holds a good while longer than that. (A graphic made to sit over video is exempt: the video moves.)
+   */
+  frozen: 4,
   /** Seconds before which something must have appeared. */
   lateStart: 0.5,
   /** Seconds of an empty frame, after the first thing appears, that count. */
@@ -146,7 +149,7 @@ export const CHECK = {
    * frame is too much to read. Both, because a line chart's twelve month
    * names are twelve layers and twelve words, and read as one axis.
    */
-  dense: 7,
+  dense: 10,
   denseWords: 24,
 } as const;
 
@@ -558,13 +561,58 @@ function itemOf(env: Env, ctx: MeasureCtx | null, layer: Layer, i: number): Item
   return item;
 }
 
+/**
+ * How much of its bounding box a path shape fills, worked out from its outline
+ * rather than guessed. A speech bubble or a rounded plate drawn as a path is
+ * nearly all of its box; a star or an arrow is about half. Counting every path
+ * as half-filled meant words set on such a plate were judged against the frame
+ * behind it, and a good graphic was told its words could not be read. The
+ * outline's closed pieces are summed by the shoelace formula (holes are not
+ * subtracted: a path with one is rare, and its words are then judged on a plate
+ * a little too solid, which can only miss a problem, never invent one). An open
+ * or unreadable path keeps the old half. Remembered by the path's text.
+ */
+const SOLID_PATHS = new Map<string, number>();
+function pathSolid(d: string | undefined): number {
+  if (typeof d !== 'string' || !d) return 0.5;
+  const hit = SOLID_PATHS.get(d);
+  if (hit !== undefined) return hit;
+  let out = 0.5;
+  try {
+    const segs = parsePath(d);
+    if (segs && segs.length > 1) {
+      const box = pathBounds(segs);
+      let area = 0;
+      let closedAny = false;
+      for (const line of flatten(segs)) {
+        if (!line.closed || line.pts.length < 6) continue;
+        closedAny = true;
+        let sum = 0;
+        for (let i = 0; i < line.pts.length; i += 2) {
+          const j = (i + 2) % line.pts.length;
+          sum += line.pts[i] * line.pts[j + 1] - line.pts[j] * line.pts[i + 1];
+        }
+        area += Math.abs(sum) / 2;
+      }
+      if (closedAny && box.w > 0 && box.h > 0) out = clamp(area / (box.w * box.h), 0.05, 1);
+    }
+  } catch {
+    out = 0.5;
+  }
+  if (SOLID_PATHS.size >= 64) SOLID_PATHS.clear();
+  SOLID_PATHS.set(d, out);
+  return out;
+}
+
 /** The share of `a`'s points inside `b`. A shape that is not a rectangle counts as round when it is an ellipse, and by `SOLID` otherwise. */
 function shareIn(a: Item, b: Item): number {
   if (!a.pts.length || !b.parts.length) return 0;
   const round = b.layer.kind === 'shape' && b.layer.shape === 'ellipse';
   let n = 0;
   for (const p of a.pts) if (b.parts.some((q) => holds(q, p, round))) n += 1;
-  const solid = b.layer.kind === 'shape' && b.layer.shape !== 'ellipse' ? SOLID[b.layer.shape] ?? 0.5 : 1;
+  const solid = b.layer.kind === 'shape' && b.layer.shape !== 'ellipse'
+    ? (b.layer.shape === 'path' ? pathSolid(b.layer.d) : SOLID[b.layer.shape] ?? 0.5)
+    : 1;
   return (n / a.pts.length) * solid;
 }
 
@@ -966,13 +1014,17 @@ function gaps(spans: readonly Span[], from: number, to: number): Span[] {
   return out.filter((x) => x.to - x.from > 1e-6);
 }
 
+/** A graphic with a transparent frame goes over footage somebody else made: nothing it does not draw is "stuck" or "empty". */
+const overVideo = (s: Scene) => s.doc.backdrop === null || s.doc.backdrop === undefined;
+
 /** `late-start` and `empty-frame`: a graphic that keeps the viewer waiting, or shows nothing. */
 function emptiness(s: Scene, out: Out): void {
   const fg = foreground(s);
   if (!fg.length) return;
   const spans = fg.map((it) => it.on as Span);
   const first = Math.min(...spans.map((x) => x.from));
-  if (first > CHECK.lateStart) {
+  // Over video (a transparent frame) the picture is moving and the graphic is meant to arrive when it is needed: not kept waiting.
+  if (first > CHECK.lateStart && !overVideo(s)) {
     out({
       id: 'late-start', rule: 'late-start', severity: 'tip', from: 0, to: first,
       message: 'Nothing appears until {seconds} s; the first half second is when a viewer decides to stay.', vars: { seconds: secs(first) },
@@ -1021,7 +1073,7 @@ function changes(s: Scene): Span[] {
 
 /** `frozen`: a stretch where nothing at all moves. */
 function stillness(s: Scene, out: Out): void {
-  if (!foreground(s).length) return;
+  if (!foreground(s).length || overVideo(s)) return;
   for (const g of gaps(changes(s), 0, s.doc.seconds)) {
     if (g.to - g.from < CHECK.frozen) continue;
     out({

@@ -223,6 +223,8 @@ interface Entry {
   /** Its words as one list, for matching the start of a word. */
   words: readonly string[];
   strongWords: readonly string[];
+  /** Its name, in English and in the language, each as its words in order: typing a template's whole name finds that template first. */
+  names: readonly (readonly string[])[];
 }
 
 /** A word in a name or tag is worth this many in a description. */
@@ -231,6 +233,12 @@ const STRONG = 3;
 const PREFIX = 0.5;
 /** The most words of a search that are looked at; the rest add nothing a person would notice. */
 const MOST_WORDS = 12;
+/**
+ * Added when everything typed, in order, is a template's whole name. A family of templates shares words (every lower third is tagged
+ * "lower third"), and the one actually called that must not lose to a sibling that merely mentions it. Large enough to win outright,
+ * and a search is never a name by accident: it has to be the name, word for word.
+ */
+const WHOLE_NAME = 1000;
 
 const indexes = new Map<Lang, readonly Entry[]>();
 
@@ -244,7 +252,8 @@ function entryOf(m: RecipeMeta, lang: Lang): Entry {
   ];
   const strong = new Set(strongText.flatMap(searchWords));
   const all = new Set([...strong, ...weakText.flatMap(searchWords)]);
-  return { id: m.id, strong, all, words: [...all], strongWords: [...strong] };
+  const names = [m.name, t(m.name)].map(searchWords).filter((w) => w.length > 0);
+  return { id: m.id, strong, all, words: [...all], strongWords: [...strong], names };
 }
 
 /** Every template's words in a language, in the gallery's order. Built once a language; a code that is not one of the four is English. */
@@ -274,7 +283,8 @@ function hitOf(e: Entry, q: string): number {
  */
 export function searchRecipes(query: string, lang: Lang): RecipeId[] {
   const index = indexOf(lang);
-  const asked = [...new Set(searchWords(String(query ?? '').slice(0, 400)))].slice(0, MOST_WORDS);
+  const typed = searchWords(String(query ?? '').slice(0, 400));
+  const asked = [...new Set(typed)].slice(0, MOST_WORDS);
   if (!asked.length) return index.map((e) => e.id);
   const hits = asked.map((q) => index.map((e) => hitOf(e, q)));
   const n = index.length;
@@ -282,7 +292,8 @@ export function searchRecipes(query: string, lang: Lang): RecipeId[] {
   const scored = index.map((e, i) => {
     let score = 0;
     for (let k = 0; k < asked.length; k++) score += rarity[k] * hits[k][i];
-    return { id: e.id, at: i, score: score / Math.sqrt(Math.max(1, e.all.size)) };
+    const named = e.names.some((n) => n.length === typed.length && n.every((w, j) => w === typed[j]));
+    return { id: e.id, at: i, score: score / Math.sqrt(Math.max(1, e.all.size)) + (named ? WHOLE_NAME : 0) };
   });
   return scored.filter((s) => s.score > 0).sort((a, b) => b.score - a.score || a.at - b.at).map((s) => s.id);
 }

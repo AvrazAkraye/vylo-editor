@@ -227,7 +227,7 @@ const NOTE_CHARS = 100;
 const TAG_CHARS = 20;
 const TAGS = 4;
 const PAIRS = 3;
-export const NOTES_MAX = 220;
+export const NOTES_MAX = 170;
 
 /** A note on a template as the model reads it: one line, cut at a word, ending as a sentence ends. Empty when there is none. */
 function noteText(x: unknown, max: number): string {

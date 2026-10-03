@@ -1313,7 +1313,9 @@ function chat(c: Kit): Layer[] {
       const lead = ARABIC_CHAR.test(msg.text) ? 1.42 : 1.28;
       const lines = wrap(msg.text, size, textM, room, most);
       const textW = Math.max(0, ...lines.map((l) => lineWidth(l, size, textM)));
-      const w = r3(Math.max(textW + 2 * padH, size * 2.6));
+      // The text gets 6% more room than the estimate says it needs: the estimate and the face the app draws in can differ by a few
+      // per cent, and a line that is a hair too long for its box wraps its last word onto a second line, below the bubble.
+      const w = r3(Math.max(textW * 1.06 + 2 * padH, size * 2.6));
       const h = r3(Math.max(1, lines.length) * size * lead + 2 * padV);
       const gap = i === 0 ? 0 : msg.me === msgs[i - 1].me ? size * 0.4 : size * 1;
       total += gap + h;

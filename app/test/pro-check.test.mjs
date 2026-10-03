@@ -208,6 +208,15 @@ console.log('low-contrast');
   ok('and a tip for small text', of(small, 'low-contrast', 'w').length === 1 && of(small, 'low-contrast')[0].severity === 'tip', small);
   ok('bold at 2u is large', run(D([BG(), T({ size: 2.1, weight: 700 })], { palette: mid })).length === 0);
   ok('a transparent frame is a ground nobody here has seen: nothing said', of(run(D([T({ size: 2.4 })], { palette: grey, backdrop: null })), 'low-contrast').length === 0);
+  // Words set on a plate drawn as a path (a speech bubble): the plate is the ground, as a rectangle's would be. Counting every
+  // path as half-filled once told a good chat card that its replies could not be read.
+  const bubble = 'M6 0H94Q100 0 100 6V54Q100 60 94 60H30L20 72L22 60H6Q0 60 0 54V6Q0 0 6 0Z';
+  const onBubble = run(D([BG(), RULE(), R({ id: 'p', shape: 'path', d: bubble, w: 60, h: 20, fill: 'accent' }), T({ id: 'w', color: 'bg', size: 4 })]));
+  ok('words on a bubble drawn as a path: read against the bubble, nothing said', of(onBubble, 'low-contrast', 'w').length === 0, onBubble);
+  const starPath = 'M50 0L61 35L98 35L68 57L79 91L50 70L21 91L32 57L2 35L39 35Z';
+  const onStar = run(D([BG(), RULE(), R({ id: 'p', shape: 'path', d: starPath, w: 60, h: 20, fill: 'accent' }), T({ id: 'w', color: 'bg', size: 4 })]));
+  ok('but a star-shaped path is no ground under words: they are still judged against the frame behind', of(onStar, 'low-contrast', 'w').length === 1, onStar);
+  ok('an unreadable or open path keeps the old half, and never throws', of(run(D([BG(), RULE(), R({ id: 'p', shape: 'path', d: 'M0 0 L10', w: 60, h: 20, fill: 'accent' }), T({ id: 'w', color: 'bg', size: 4 })])), 'low-contrast', 'w').length === 1);
   const plate = { ...grey, fg: '#ffffff' };
   ok('words on a dark plate over a pale ground read', run(D([BG(), R({ fill: '#000000' }), T({ color: 'fg' })], { palette: { ...plate, bg: '#eeeeee' } })).length === 0);
   const onPale = run(D([BG(), R({ fill: '#f4f4f4' }), T({ id: 'w', color: '#ffffff' })], { palette: plate }));
@@ -288,7 +297,8 @@ console.log('time');
   ok('three seconds of a short graphic is not frozen', run(D([T({ end: 3 })], { seconds: 3 })).length === 0);
   // 0.4 s to 3 s, then 3 s to 5.8 s: two still stretches, neither 3 s, because the cut at 3 s is a change.
   ok('a cut is a change: two still titles one after the other are not frozen', run(D([T({ end: 3 }), T({ text: 'Then this', start: 3, end: 5.8, in: undefined })], { seconds: 5.8 })).length === 0);
-  ok('but 3 s still after the cut is', of(run(D([T({ end: 3 }), T({ text: 'Then this', start: 3, in: undefined })])), 'frozen').length === 1);
+  ok('but a stretch past the limit (four seconds) still after the cut is', of(run(D([T({ end: 3 }), T({ text: 'Then this', start: 3, end: 8, in: undefined })], { seconds: 8 })), 'frozen').length === 1);
+  ok('and a graphic over video (a transparent frame) is never frozen: the video moves', of(run(D([T({ end: 3 }), T({ text: 'Then this', start: 3, end: 8, in: undefined })], { seconds: 8, backdrop: null })), 'frozen').length === 0);
 
   const late = run(D([BG(), T({ start: 1.2 })]));
   ok('nothing until 1.2 s: late-start, a tip', of(late, 'late-start').length === 1 && J(of(late, 'late-start')[0].vars) === J({ seconds: '1.2' }), late);
@@ -305,9 +315,9 @@ console.log('time');
   const tr = fix(tail);
   ok('trimmed, the graphic ends with its words', tr.seconds === 3.1 && check(tr).length === 0, [tr.seconds, check(tr)]);
 
-  const four = (i) => T({ text: 'four words in here', y: -40 + i * 11, size: 3 });
-  const dense = run(D([BG(), ...Array.from({ length: 8 }, (_, i) => four(i))]));
-  ok('eight four-word texts at once: dense, a tip', of(dense, 'dense').length === 1 && of(dense, 'dense')[0].vars.count === 8, dense);
+  const four = (i) => T({ text: 'four words in here', y: -40 + i * 8, size: 3 });
+  const dense = run(D([BG(), ...Array.from({ length: 11 }, (_, i) => four(i))]));
+  ok('eleven four-word texts at once: dense, a tip', of(dense, 'dense').length === 1 && of(dense, 'dense')[0].vars.count === 11, dense);
   ok('eight one-word labels (an axis) are not', run(D([BG(), ...Array.from({ length: 8 }, (_, i) => T({ text: `L${i}`, y: -40 + i * 11, size: 3 }))])).length === 0);
   ok('seven texts are not', of(run(D([BG(), ...Array.from({ length: 7 }, (_, i) => four(i))])), 'dense').length === 0);
 }

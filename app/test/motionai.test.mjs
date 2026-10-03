@@ -80,8 +80,12 @@ const lower = (c) => Object.fromEntries(Object.entries(c).map(([k, v]) => [k, v.
   ok('the prompt\'s own example is in the vocabulary the reader keeps: every layer of it reads', example.layers.length === 4 && !planned(example), example.layers.length);
   const edit = refineSystem().split('\n').pop();
   ok('and so is the editor\'s', JSON.parse(edit).ops.every((o) => OPS.includes(o.op)));
-  const BUDGET = 9500;
-  ok(`the plan prompt stays within its budget (${s.length} of ${BUDGET} characters)`, s.length <= BUDGET, s.length);
+  // 9,500 characters for the original eighteen templates, and each template added since brings its own line (what it is,
+  // when it fits and does not, its fields): about 600 characters at most. The budget follows the template count so a new
+  // template never breaks this, while the rest of the prompt (the rules, the vocabulary, the guards) cannot quietly grow.
+  const ORIGINAL = 18;
+  const BUDGET = 9500 + 600 * Math.max(0, Object.keys(META).length - ORIGINAL);
+  ok(`the plan prompt stays within its budget (${s.length} of ${BUDGET} characters, ${Object.keys(META).length} templates)`, s.length <= BUDGET, s.length);
 }
 {
   // Drift: whatever is in the tables when the prompt is written is in the prompt.

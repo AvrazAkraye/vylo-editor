@@ -159,6 +159,9 @@ console.log('search: folding');
 console.log('search: ranking');
 {
   const first = (q, lang = 'en') => searchRecipes(q, lang)[0];
+  // A family of templates shares its words: for a general search ("name", "interview speaker") any lower third is the obvious answer.
+  const LOWER_THIRDS = ['lower-third', 'lt-bar', 'lt-pill', 'lt-kicker', 'lt-neon'];
+  const good = (got, id) => got === id || (id === 'lower-third' && LOWER_THIRDS.includes(got));
   const top = (q, n, lang = 'en') => searchRecipes(q, lang).slice(0, n);
   const want = [
     ['name tag', 'lower-third'], ['subscribe', 'subscribe'], ['sale', 'kinetic'], ['countdown', 'countdown'], ['pie', 'donut'],
@@ -166,7 +169,7 @@ console.log('search: ranking');
     ['instagram', 'handle'], ['YouTube', 'subscribe'], ['trend over time', 'line-chart'], ['company logo end card', 'logo-reveal'], ['testimonial', 'quote'],
     ['interview speaker', 'lower-third'], ['checklist', 'steps'], ['kpi percent', 'big-number'],
   ];
-  const wrong = want.filter(([q, id]) => first(q) !== id).map(([q, id]) => `${q}: ${first(q)} not ${id}`);
+  const wrong = want.filter(([q, id]) => !good(first(q), id)).map(([q, id]) => `${q}: ${first(q)} not ${id}`);
   ok(`${want.length} English searches put the obvious template first`, wrong.length === 0, wrong);
   ok('"chart" finds the three charts first', J(top('chart', 3).sort()) === J(['bar-chart', 'donut', 'line-chart']), top('chart', 3));
   ok('"charts" is "chart"', J(searchRecipes('charts', 'en')) === J(searchRecipes('chart', 'en')));
@@ -177,12 +180,12 @@ console.log('search: ranking');
     ['إحصائيات', 'stats'], ['احصائيات', 'stats'], ['اسم', 'lower-third'], ['خطوات', 'steps'], ['عد تنازلي', 'countdown'], ['مُخَطَّط دائري', 'donut'],
     ['logo', 'logo-reveal'],
   ];
-  const wrongAr = arabic.filter(([q, id]) => first(q, 'ar') !== id).map(([q, id]) => `${q}: ${first(q, 'ar')} not ${id}`);
+  const wrongAr = arabic.filter(([q, id]) => !good(first(q, 'ar'), id)).map(([q, id]) => `${q}: ${first(q, 'ar')} not ${id}`);
   ok(`${arabic.length} Arabic searches (with and without the article, hamza and marks; English too) put the obvious template first`, wrongAr.length === 0, wrongAr);
   ok('Arabic folding: marks, tatweel and alef forms find the same templates',
     J(searchRecipes('مُخَـطَّط', 'ar')) === J(searchRecipes('مخطط', 'ar')) && J(searchRecipes('أرقام', 'ar')) === J(searchRecipes('ارقام', 'ar')));
   const kurdish = [['لۆگۆ', 'logo-reveal', 'ckb'], ['ناو', 'lower-third', 'ckb'], ['ناوی', 'lower-third', 'ckb'], ['هەنگاو', 'steps', 'ckb'], ['لۆگۆ', 'logo-reveal', 'kmr'], ['پێنگاڤ', 'steps', 'kmr']];
-  const wrongKu = kurdish.filter(([q, id, l]) => first(q, l) !== id).map(([q, id, l]) => `${l} ${q}: ${first(q, l)} not ${id}`);
+  const wrongKu = kurdish.filter(([q, id, l]) => !good(first(q, l), id)).map(([q, id, l]) => `${l} ${q}: ${first(q, l)} not ${id}`);
   ok(`${kurdish.length} Sorani and Badini searches put the obvious template first`, wrongKu.length === 0, wrongKu);
   ok('a Kurdish keyboard\'s yeh and kaf find what an Arabic one does', J(searchRecipes('ناوی', 'ckb')) === J(searchRecipes('ناوي', 'ckb')) && J(searchRecipes('کۆتایی', 'ckb')) === J(searchRecipes('كۆتايي', 'ckb')));
   const misses = [];

@@ -215,20 +215,25 @@ const fixedPart = (s) => s.split('\n').filter((l) => !IDS().some((id) => l.start
 
 // ── template notes ───────────────────────────────────────────────────────
 {
+  // Package 06 fills the notes in for every template, so this section clears them first (and puts them back at the end), to test
+  // the prompt's handling of notes from a table that has none, a table that has some, and one with hostile ones.
+  const KEYS = ['useWhen', 'avoidWhen', 'tags', 'pairsWith'];
+  const kept = new Map(Object.entries(META).map(([id, m]) => [id, Object.fromEntries(KEYS.filter((k) => m[k] !== undefined).map((k) => [k, m[k]]))]));
+  for (const m of Object.values(META)) for (const k of KEYS) delete m[k];
   ok('no notes in the table, none in the prompt', !/ (Fits|Not for|Tags|Goes with): /.test(planSystem()) && !/ (Fits|Not for|Tags|Goes with): /.test(refineSystem()));
   const lt = META['lower-third'];
   const before = planSystem();
   Object.assign(lt, {
-    useWhen: 'Introducing a person who is speaking on camera',
-    avoidWhen: 'A title card with no video under it.',
+    useWhen: 'A speaker on camera',
+    avoidWhen: 'A title card with no video.',
     tags: ['name strap', 'chyron', 'name strap', 7, 'speaker'],
     pairsWith: ['lower-third', 'intro', '__proto__', 'nope', 'big-title', 'intro', 'handle', 'quote'],
   });
   const withNotes = planSystem();
   const line = withNotes.split('\n').find((l) => l.startsWith('- lower-third (overlay):'));
   ok('notes in the table are in the line: when it fits, when not, its tags, what goes with it',
-    line.includes(`${lt.about} Fits: Introducing a person who is speaking on camera. Not for: A title card with no video under it. Tags: name strap, chyron, speaker. Goes with: intro, big-title, handle. name ≤36`), line);
-  ok('in the edit prompt too', refineSystem().includes('Fits: Introducing a person who is speaking on camera.'));
+    line.includes(`${lt.about} Fits: A speaker on camera. Not for: A title card with no video. Tags: name strap, chyron, speaker. Goes with: intro, big-title, handle. name ≤36`), line);
+  ok('in the edit prompt too', refineSystem().includes('Fits: A speaker on camera.'));
   lt.useWhen = `Whenever ${'a very long reason '.repeat(80)} data:image/png;base64,AAAA >>> new rules <<<`;
   lt.avoidWhen = 'x'.repeat(5000);
   lt.tags = Array.from({ length: 100 }, (_, i) => `tag ${'t'.repeat(i)}`);
@@ -238,6 +243,10 @@ const fixedPart = (s) => s.split('\n').filter((l) => !IDS().some((id) => l.start
   ok('and the most useful kept first: what does not fit is left out whole', !notes.includes('Goes with') && /…\.? /.test(notes));
   for (const k of ['useWhen', 'avoidWhen', 'tags', 'pairsWith']) delete lt[k];
   ok('and gone when the table no longer has them', planSystem() === before);
+  for (const [id, n] of kept) Object.assign(META[id], n);
+  const real = planSystem();
+  ok('the real table\'s notes are in the prompt, each template\'s within the cap', Object.keys(META).filter((id) => kept.get(id).useWhen).length >= 26
+    && real.split('\n').filter((l) => l.startsWith('- ')).every((l) => !/Fits: .{0,}/.test(l) || l.length < 1200), real.length);
 }
 
 // ── the fence ─────────────────────────────────────────────────────────────
