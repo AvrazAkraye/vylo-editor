@@ -349,9 +349,14 @@ library is fetched for it: its typefaces are the ones your system has and the
 Arabic face bundled with the app, and a picture you add is kept inside the
 graphic. Saving happens in the window too — the frames are encoded by the
 window's own H.264 encoder and written into an MP4 by a writer that is part of
-this app (`app/src/motionencode.ts`, `app/src/motionmp4.ts`), or one frame is
-saved as a PNG — and **no telemetry event is sent for either**: the buttons
-that render send nothing.
+this app (`app/src/motionencode.ts`, `app/src/motionmp4.ts`), or written into a
+GIF by another (`app/src/motiongif.ts`), or one frame is saved as a PNG — and
+**no telemetry event is sent for any of them**: the buttons that render send
+nothing. A graphic's sound, when you turn it on, is made the same way: its
+effects and music are synthesised on this machine from the graphic itself
+(`app/src/motionsound.ts`), encoded by the window's own AAC encoder and
+written into that same MP4, so nothing is downloaded for it, nothing about it
+is sent, and the Motion panel still contacts no one but the model you ask.
 
 **The eighteenth is WhatsApp, and it goes where you send it.** Every request is
 built in one place, `app/src/whatsappwire.ts`, from an Evolution API instance
@@ -646,8 +651,8 @@ item, and every one of them is absent from the tool schema below:
   panel's **Save as PDF** is `save_pdf` again, on pages the shape of a slide.
 - `export_write_video` writes what the Video and Motion panels export — an MP4
   or WebM film, a PNG poster, SRT subtitles, or the storyboard as JSON, and
-  from the Motion panel an MP4 or a PNG — after you pressed the button for that
-  file. **Save as MP4…** writes to the path the save
+  from the Motion panel an MP4, a GIF or a PNG — after you pressed the button
+  for that file. **Save as MP4…** writes to the path the save
   panel returned, replacing a file there only because the panel asked you
   first. **Download MP4** and the other downloads write into your Downloads
   folder, and never over a file already there: if `Title.mp4` is taken it
@@ -657,22 +662,23 @@ item, and every one of them is absent from the tool schema below:
   storyboard file are that storyboard's own words, written out as text. Its
   bytes arrive as the raw body of the request rather than as text. It refuses a
   path that is not absolute, a folder that does not exist, any name but .mp4,
-  .webm, .png, .srt and .json, and bytes that are not what the name says — an
-  MP4 without its `ftyp` mark, a WebM without its EBML header, a PNG without its
-  signature, subtitles that are not plain UTF-8 text, a storyboard that is not
-  JSON — or that are too many: 1 GiB for a film, 64 MiB for a poster, 5 MiB for
+  .webm, .png, .gif, .srt and .json, and bytes that are not what the name says
+  — an MP4 without its `ftyp` mark, a WebM without its EBML header, a PNG
+  without its signature, a GIF that does not begin `GIF89a` or `GIF87a`,
+  subtitles that are not plain UTF-8 text, a storyboard that is not JSON — or
+  that are too many: 1 GiB for a film, 64 MiB for a poster or a GIF, 5 MiB for
   text. It creates no folders. The Motion panel's **Download** and **Save as…**
-  write an MP4 or a PNG the same two ways, from exactly the graphic you were
-  previewing.
+  write an MP4, a GIF or a PNG the same two ways, from exactly the graphic you
+  were previewing.
 - `reveal_path` writes nothing and opens nothing: it selects a file in Finder
   or Explorer — a row of the file tree, or a document you have just saved.
 - `open_exported` writes nothing: when you press **Open** beside a file the
   Video or Motion panel has just saved, it opens that file in the app your system opens
   it with — the film in your video player. It opens only a path
-  `export_write_video` wrote since the app started, only a .mp4, .webm, .png or
-  .srt, and only while that is still a plain file beginning the way it did when
-  it was written; never the storyboard file, never a folder or a link, and never
-  anything that runs.
+  `export_write_video` wrote since the app started, only a .mp4, .webm, .png,
+  .gif or .srt, and only while that is still a plain file beginning the way it
+  did when it was written; never the storyboard file, never a folder or a link,
+  and never anything that runs.
 - `history_restore`, `checkpoint_restore`, `checkpoint_redo` — putting a file
   back to a version this app already recorded, from the File History panel or an
   undo button.

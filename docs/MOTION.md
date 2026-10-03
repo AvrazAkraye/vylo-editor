@@ -3,26 +3,39 @@
 Motion is the studio for animated graphics: a title that types itself in, a
 lower third, a logo sting, a counter that rolls up to a number, a bar chart that
 grows, a looping background. You describe one in a sentence or start from a
-template, edit it on a timeline, and save it as an MP4 or a PNG.
+template, edit it on a timeline, give it sound and scenes if you want them, and
+save it as an MP4, a GIF or a PNG.
 
-**It uses no animation, drawing, or encoding library.** Everything below is this
-repository's own code: the easing and spring maths, the keyframe evaluator, the
-canvas renderer, the H.264 sample muxer that writes the `.mp4`. The only things
-it calls are the browser's own canvas, `VideoEncoder` and `Intl`, and the same
-Tauri commands every other module uses to save a file. That is a deliberate
-contrast with Video, which draws with Remotion (and sends one licence-telemetry
-event to remotion.pro per export, which SAFETY.md discloses). **Motion makes no
-network request of its own**: the only traffic it can cause is the model request
-the person starts by asking for a graphic in words, which goes where every
-other request in the app goes.
+**It uses no animation, drawing, audio or encoding library.** Everything below is
+this repository's own code: the easing and spring maths, the keyframe evaluator,
+the canvas renderer, the sound effects and the loudness meter, the H.264 and AAC
+muxer that writes the `.mp4`, the GIF writer. The only things it calls are the
+browser's own canvas, WebCodecs (`VideoEncoder`, and `AudioEncoder` and
+`AudioDecoder` for a film's sound), Web Audio (to play the music's score offline
+and the sound in the preview), `Intl`, and the same Tauri commands every other
+module uses to save a file. That is a deliberate contrast with Video, which
+draws with Remotion (and sends one licence-telemetry event to remotion.pro per
+export, which SAFETY.md discloses). **Motion makes no network request of its
+own**: the only traffic it can cause is the model request the person starts by
+asking for a graphic in words, which goes through `generate.ts` where every
+other request in the app goes. Nothing else needs the network, and nothing else
+asks for it: a picture is data inside the graphic, the fonts are the system's
+and the app's own, the sound is synthesised on the machine (the effects in plain
+JavaScript, the music by `videosynth.ts`, which plays its score in an
+`OfflineAudioContext`), the gallery's search runs over the templates in memory,
+the brand kit's logo is kept as data, and the check is arithmetic on the
+document. No Motion source file calls `fetch`, `XMLHttpRequest`, a socket or a
+beacon, and `test/pro-export.test.mjs` reads every one of them to keep it so.
 
 ## The one rule
 
 A frame is a pure function of the document and a time: `paint(ctx, doc, t)`.
 Nothing is remembered between frames, nothing depends on the wall clock, and
-anything that looks random is seeded. So the preview, a thumbnail, a PNG and
-every frame of the MP4 are the same picture, scrubbing is exact, and a test can
-render any moment.
+anything that looks random is seeded. So the preview, a thumbnail, a PNG, every
+frame of the MP4 and every frame of the GIF are the same picture, scrubbing is
+exact, and a test can render any moment. The sound follows the same rule: it is
+made from the document (its timings, its seed) and nothing else, so the same
+graphic makes the same sound.
 
 **The same at any size.** Text and chart labels are laid out — measured, wrapped,
 cut with an ellipsis — at the size they have in a frame whose short side is 1080
@@ -45,7 +58,10 @@ file (the name comes from the graphic's title, which `fileNameFor` sanitises).
 This is the same promise as Video's storyboard.
 
 When the person later asks for a change, the request carries the graphic's
-current words, colours and layer settings — never a picture.
+current words, colours and layer settings — never a picture. Both prompts also
+carry the direction rules (`motiondirection.ts`): how long an entrance takes,
+when the first thing moves, how far words stay from the edges, how large a
+headline is. They are words in a prompt; the reader still decides what is kept.
 
 **Limits.** `LIMITS` in `motiontypes.ts` is the one list of ceilings, and the
 reader is where they are enforced — for a model's answer, a stored record and a
@@ -53,8 +69,9 @@ hand edit alike, because an edit is read again too: 60 layers; 500 characters
 in a text layer; type (a chart's labels too) up to 200u, two frame-heights, and a
 shape, picture or icon up to 600u; scale up to 4; an offset up to 400u from its pin; 300 particles a layer
 and 1,200 a document (earlier layers keep theirs, later ones are cut to what is
-left), none wider than 50u; 30 seconds. So the cost of a frame has a ceiling
-whoever wrote the document.
+left), none wider than 50u; 30 seconds; 12 scenes, none shorter than 0.5
+seconds, and a transition between them of 0.15 to 1.5 seconds. So the cost of a
+frame has a ceiling whoever wrote the document.
 
 **No figure the model made up.** A number the graphic draws as a figure — a big
 number, the values of a chart or a counter, three stats, and any digits in the
@@ -80,7 +97,12 @@ Motion
   backdrop  Paint | null               null is transparent
   layers    back to front
   recipe    { id, fields }             when it came from a template
+  sound     { mode, level, mood?, seed? }          off | fx | music | both; absent is silence
+  scenes    [{ id, name, start, end, transition? }] absent, or one, is one scene
 ```
+
+Both new fields are optional, and a graphic without them is read, drawn and
+exported exactly as before they existed.
 
 **Units.** Sizes and offsets are in `u`: 1u is 1% of the frame's **short side**
 (10.8 px in a 1080 frame). A 9u headline is the same fraction of the frame in
@@ -128,23 +150,39 @@ re-coloured by choosing another palette, and why the model can write
 | `motionanim.ts` | `poseAt`: a layer's animated state at time `t`; `stillTime` | no |
 | `motionfonts.ts` | voices to font stacks, script detection, digits | no (loads via `document.fonts` when asked) |
 | `motiondraw.ts` | `paint`: the frame; text, shapes, icons, images, counters; `layerBox`, `hitTest` | canvas |
-| `motionbackdrop.ts` | moving backdrops and particles | canvas |
-| `motioncharts.ts` | bars, lines, donuts, rings | canvas |
-| `motionrecipe.ts` | the templates' metadata, the palettes, and the kit a recipe builds with | no |
-| `motionrecipes-titles.ts`, `-overlays.ts`, `-data.ts` | the eighteen recipes | no |
+| `motionbackdrop.ts` | moving backdrops and particles, and the five finishes laid over a picture (grain, vignette, light leak, scan lines, halftone) | canvas |
+| `motioncharts.ts` | bars, lines, donuts, rings, and a bar-chart race | canvas |
+| `motionscene.ts` | scenes: the reader, painting a graphic scene by scene, and the scene edits | canvas |
+| `motiontransition.ts` | the thirteen ways a scene can arrive | canvas |
+| `motionrecipe.ts` | the templates' metadata (with when to use each), the palettes, and the kit a recipe builds with | no |
+| `motionrecipes-titles.ts`, `-overlays.ts`, `-data.ts` | the original eighteen recipes | no |
+| `motionids.ts`, `motionrecipes-pro-a.ts`, `motionrecipes-pro-b.ts` (each with its `-meta.ts`) | fifteen more: lower thirds, notifications, a chat, a device frame, a hand-drawn circle, a film look, a bar-chart race, a timeline, a comparison, a price card, progress rings, a retro screen | no |
 | `motiontemplates.ts` | the registry; `buildMotion` | no |
+| `motionsearch.ts` | the gallery's search, in all four languages | no |
+| `motionbrand.ts` | the brand kit: what it fills in a new graphic, and Apply brand | no |
+| `motioncheck.ts` | the quality check: its rules, its tips and their fixes | no (an optional canvas to measure words) |
 | `motionread.ts` | reading and repairing any document, from anywhere | no |
 | `motionedit.ts` | every edit a person can make, as a pure function | no |
 | `motionai.ts`, `motionchatops.ts` | the prompts, reading the model's answer, and applying its edits | no |
-| `motionmp4.ts` | the MP4 container writer | no |
-| `motionencode.ts` | frames to H.264 with WebCodecs, then the muxer | canvas, WebCodecs |
-| `motionexportops.ts` | names, rendering, saving | Tauri |
-| `motionstore.ts` | IndexedDB `vylo-motion` | IndexedDB |
+| `motiondirection.ts` | the motion rules the model is given: timing, easing, safe areas, sizes | no |
+| `motionsound.ts` | the `sound` field: cues from the animation, the music's mood, the mix and its loudness | no (the music through `videosynth.ts`) |
+| `motionsfx.ts` | nine effects, synthesised in plain JavaScript | no |
+| `motionsoundplay.ts` | the preview's sound, following the playhead | Web Audio |
+| `audiocore.ts`, `audiofx.ts`, `audioauto.ts`, `audioduck.ts`, `loudness.ts` | the audio library: filters and resampling, six effects, automation, ducking, BS.1770 loudness and true peak | no (`audiofx.ts` builds Web Audio nodes when asked) |
+| `motionaudioenc.ts` | a graphic's sound as AAC, with WebCodecs | WebCodecs |
+| `motionmp4.ts` | the MP4 container writer, the picture and the sound | no |
+| `motionencode.ts` | frames to H.264 with WebCodecs, then the muxer; a frame that cannot have changed is encoded again without being painted | canvas, WebCodecs |
+| `motionexportops.ts` | names, rendering (`changingFrames`), saving | Tauri |
+| `motiongif.ts` | the GIF writer: palette, dithering, LZW, only what changed | no |
+| `motiongifops.ts` | a GIF of the graphic, kept under 25 MB | canvas |
+| `motionshare.ts` | the destinations, their settings and estimates, and fitting a graphic into another shape | no |
+| `motionstore.ts` | IndexedDB `vylo-motion`, and `vylo-motion-brand` for the brand kit | IndexedDB |
 | `motionhistory.ts` | undo and redo | no |
 | `motionplay.ts` | the playback clock | no |
 | `motionui.ts`, `motionstate.ts`, `motiontrack.ts`, `motionpicture.ts` | the components' contracts and their pure helpers (`shownName` puts a template's layer names in the interface's language) | no |
 | `MotionPanel.tsx` | the studio: the store, the runs, the sidebar and the full window; a small `localStorage` journal (`vylo.motion.unsaved.v1`) keeps an edit not yet written when the window closes | React |
 | `MotionStage.tsx`, `MotionTimeline.tsx`, `MotionDesign.tsx`, `MotionLayers.tsx` (+ `MotionControls.tsx`, `MotionKinds.tsx`), `MotionExport.tsx`, `MotionChat.tsx`, `MotionHome.tsx`, `MotionThumb.tsx` | the screens | React |
+| `MotionChecks.tsx`, `MotionSoundPanel.tsx`, `MotionScenes.tsx`, `MotionBrandKit.tsx` | the check's chip, the Sound row, the scene strip, the brand kit's sheet | React |
 
 `test/` holds a suite for every file that does not touch the DOM, and a
 recording canvas (`test/motioncanvas.mjs`) that lets `motiondraw` and the
@@ -157,6 +195,61 @@ are the same name to an import: that is why the export logic is `motionexportops
 and the timeline's helpers `motiontrack.ts`. And WebKit, the engine the app runs
 in on macOS, has no `ctx.filter`: soft focus is drawn with a shadow trick in
 `motiondraw.ts`, and nothing may call `filter`.
+
+## Simple on top
+
+Everything below is off, or silent, until it is asked for: a graphic made from a
+template and exported with one press is the same graphic, and the same file, it
+was before any of it existed.
+
+**Scenes and transitions** (`motionscene.ts`, `motiontransition.ts`). A graphic is
+one scene until somebody adds a second; the timeline then shows a thin strip of
+scenes with a small chip between two saying how the second arrives: a cut, or one
+of twelve transitions (fade, push, slide, iris, clock, blinds, pixelate, zoom,
+whip, flash, light leak, glitch), each a Canvas2D composite of the two scenes'
+frames. A scene the next one arrives over holds still until the cut: the
+transition is its exit.
+
+**Sound** (`motionsound.ts`, `motionsfx.ts`). One row in Design: Off, Effects,
+Music or Both. Effects are made from the animation itself — a whoosh for a slide,
+a pop for a pop, ticks while a counter rolls, an impact when a big title lands —
+thinned to a level, panned to where the layer is, mirrored in a right-to-left
+language. Music is composed for the graphic in a mood (the template's, unless
+another is chosen), its accents on the scene changes and the big landings, and
+ducked under the loudest effects. The mix is brought to a loudness (-16 LUFS at
+the default level) under a true-peak ceiling. The preview plays it with the
+playhead; the MP4 carries it as an AAC track whose start is measured and written
+into the file's edit list, so sound and picture begin together. A GIF and a PNG
+have no sound, and Export says so.
+
+**The brand kit** (`motionbrand.ts`, `MotionBrandKit.tsx`). A name, a handle, a
+logo, colours and a typeface, kept on the machine. A new graphic starts in them;
+Apply brand re-skins one that exists.
+
+**The check** (`motioncheck.ts`, `MotionChecks.tsx`). A chip by the stage says
+"Looks good" or how many tips there are: a layer off the frame or outside the
+safe area, words cut short, covered or overlapping, too little contrast, words
+too small or on screen too briefly to read, flashing, a slow start, an empty or
+frozen stretch, too much at once. Each tip has a Fix, and there is Fix all. It never blocks
+anything, and it is arithmetic on the document, debounced, not a rendered frame.
+
+**Export: where is it going?** (`motionshare.ts`, `MotionExport.tsx`). Six cards:
+Story or Reel (9:16), Post (4:5, or 1:1 for a square graphic), YouTube (16:9),
+Web loop (a GIF), Picture (a PNG of the moment the graphic reads best) and
+Custom. The card for the graphic's own shape is chosen already, so the shortest
+path is still one press. A destination of another shape makes the file from a
+copy: a template built again for that shape, or a graphic edited by hand fitted
+whole inside it on its own background; the graphic itself is not changed. Size,
+quality, motion blur, transparency and Save as… are under More options.
+
+**GIF** (`motiongif.ts`, `motiongifops.ts`). One palette for the whole loop,
+sampled across it, so a still area keeps its colours and does not shimmer; flat
+colour and text are exact, the rest dithered in a pattern anchored to the frame;
+each frame stores only the rectangle that changed. At most 15 seconds and 20
+frames a second, 720 px on the long side unless asked; a GIF that would pass
+25 MB is made again with fewer colours, then smaller, then fewer frames, and the
+saved file says what was given up. It is saved through the same command as the
+MP4 and the PNG.
 
 ## Adding a recipe
 
@@ -172,7 +265,7 @@ in on macOS, has no `ctx.filter`: soft focus is drawn with a shadow trick in
 
 ## Not in this version
 
-Sound; transparent video (an MP4 has no alpha, so PNG stills keep it and the
-panel says so); GIF; nested groups; per-property keyframes edited by hand (the
-engine has none: an effect is the keyframe set, tuned once). Each is a
-deliberate cut, not an oversight.
+Transparent video (an MP4 has no alpha, so PNG stills keep it, a GIF keeps it a
+pixel at a time, and the panel says so); nested groups; per-property keyframes
+edited by hand (the engine has none: an effect is the keyframe set, tuned once).
+Each is a deliberate cut, not an oversight.

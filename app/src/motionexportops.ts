@@ -1,6 +1,7 @@
 /**
  * Taking a motion graphic away: rendering it to an MP4 or a PNG, and putting
- * the file on the person's disk.
+ * the file on the person's disk (a GIF is rendered by `motiongifops.ts` and
+ * saved through here too).
  *
  * ## What is rendered
  *
@@ -39,7 +40,11 @@
  * With `sound`, the graphic's sound is rendered (`renderSoundBed`, at 48 kHz)
  * before the first frame and handed to the encoder, which writes it as an AAC
  * track or, when this window cannot encode AAC, leaves it out and says so in
- * the result's `audio`. A graphic without sound gives `audio: 'none'`.
+ * the result's `audio`. A graphic without sound gives `audio: 'none'`. The
+ * Export tab asks for it exactly when the graphic has sound that is not off
+ * (`filmSound`), so a graphic that never chose any is exported as it always
+ * was. The sound is synthesised here from the graphic itself — nothing is
+ * downloaded for it and nothing about it leaves the machine.
  *
  * ## Sizes
  *
@@ -66,8 +71,11 @@
  * folder under a name made from the title, never over a file already there
  * (`Title.mp4`, then `Title (2).mp4`…, which Rust picks and returns). That
  * command is absent from the model's tool schema, writes only `.mp4 .webm .png
- * .srt .json` at an absolute path, and checks the first bytes are what the name
- * says. Motion adds no command and no kind of file: an MP4 and a PNG.
+ * .gif .srt .json` at an absolute path, and checks the first bytes are what the
+ * name says. Motion adds no command of its own, and saves three kinds of file
+ * through that one: an MP4, a GIF and a PNG. The GIF is the one kind Motion
+ * added to it, with its own signature check (`GIF89a`, or the older `GIF87a`)
+ * and the poster's 64 MiB ceiling; SAFETY.md lists it.
  *
  * ## Why the rules below are copies
  *
@@ -94,7 +102,7 @@ import { AAC_RATE } from './motionaudioenc';
 import { countAt, gapOf, poseAt } from './motionanim';
 import { paint, preload } from './motiondraw';
 import { formatNumber, scriptOf } from './motionfonts';
-import { renderSoundBed } from './motionsound';
+import { readSound, renderSoundBed } from './motionsound';
 import type { SoundBed } from './motionsound';
 import { LIMITS, SPLITS, frameCount, sizeOf } from './motiontypes';
 import type { Anim, Ctx, Format, Layer, Motion } from './motiontypes';
@@ -436,14 +444,27 @@ function context2d(canvas: HTMLCanvasElement | OffscreenCanvas, alpha: boolean):
  * colour that is not opaque — `#rrggbbaa`, which is how the reader writes one,
  * and what a model's `"backdrop": "transparent"` becomes (`#00000000`). Such a
  * film was drawn over black, and its "opaque" PNG came out see-through.
+ * Exported so the GIF's rule can be held to this one (`motiongifops.ts` keeps
+ * a copy, and `test/pro-export.test.mjs` compares the two).
  */
-function seeThrough(backdrop: Motion['backdrop']): boolean {
+export function seeThrough(backdrop: Motion['backdrop']): boolean {
   return backdrop === null || (typeof backdrop === 'string' && /^#[0-9a-f]{8}$/i.test(backdrop) && !/ff$/i.test(backdrop));
 }
 
 /** The graphic drawn over its own background colour: a copy when it is transparent, the graphic itself otherwise. */
 function opaque(m: Motion): Motion {
   return seeThrough(m.backdrop) ? { ...m, backdrop: 'bg' } : m;
+}
+
+/**
+ * Whether a graphic's film carries sound: it has a sound (`readSound`, which
+ * repairs whatever the document holds) and that sound is not off. What the
+ * Export tab passes as `renderMp4`'s `sound`, so a graphic that never chose
+ * any is rendered exactly as before there was sound.
+ */
+export function filmSound(m: Pick<Motion, 'sound'> | null | undefined): boolean {
+  const spec = readSound(m?.sound);
+  return !!spec && spec.mode !== 'off';
 }
 
 /** Motion blur for a film: eight paints over half a frame, the frame's time at their centre. */
@@ -578,12 +599,14 @@ const DEVICE = /^(?:con|prn|aux|nul|com\d|lpt\d)$/i;
  * a path or refuse: no `/ \ : * ? " < > |`, no control characters, no other
  * punctuation. `tag` follows the title — `16x9` for the shape. At most eighty
  * characters with the extension, cut where a word ends. `motion.mp4` when the
- * title leaves nothing, and never a name Windows keeps for a device.
+ * title leaves nothing, and never a name Windows keeps for a device. `ext` is
+ * one of the three kinds Motion saves; `gif` and `png` are the same length, so
+ * a GIF's name is cut exactly where its picture's would be.
  *
  * Only a wish: when the name is taken in the Downloads folder, Rust saves at
  * `Title (2).mp4`, `Title (3).mp4`… and says which.
  */
-export function fileNameFor(m: Pick<Motion, 'title'>, ext: 'mp4' | 'png', tag = ''): string {
+export function fileNameFor(m: Pick<Motion, 'title'>, ext: 'mp4' | 'gif' | 'png', tag = ''): string {
   const title = (typeof m?.title === 'string' ? m.title : '').normalize('NFC');
   const kept = title.replace(/[^\p{L}\p{M}\p{N}\u200C _-]+/gu, ' ').replace(/\s+/g, ' ').trim();
   const end = `${tag ? ` ${tag}` : ''}.${ext}`;
@@ -614,9 +637,9 @@ export async function downloadsPath(name: string): Promise<string> {
  * of `Title.mp4`, `Title (2).mp4`… and returns it. The bytes are the request's
  * whole body (a raw IPC body, not base64 in JSON: a film is megabytes) and the
  * path travels in a header, URI-encoded because a header is ASCII and a path
- * can be Arabic or Kurdish. Rust's refusal — not an absolute `.mp4` or `.png`
- * path in a folder that exists, bytes that are not what the name says, too
- * many of them — comes back as the rejection's message.
+ * can be Arabic or Kurdish. Rust's refusal — not an absolute `.mp4`, `.gif` or
+ * `.png` path in a folder that exists, bytes that are not what the name says,
+ * too many of them — comes back as the rejection's message.
  */
 export async function writeMotionFile(path: string, bytes: Uint8Array, o: { unique?: boolean } = {}): Promise<string> {
   const headers: Record<string, string> = { 'x-path': encodeURIComponent(path) };

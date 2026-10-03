@@ -355,3 +355,24 @@ their band rolls down, how fine a halftone screen is and how its light flows.
 | Rolls | مرور الشريط | تێپەڕینی تیشک | دەرباسبوونا تیشکێ |
 | Flow | الانسياب | ڕەوت | هەرکین |
 | Earlier values go in the label after a \|, like Rome\|12 18 25. The value is the last one. | تُكتب القيم السابقة في التسمية بعد \|، مثل روما\|12 18 25. والقيمة هي الأخيرة. | بەهاکانی پێشوو لە ناونیشانەکەدا دوای \| دەنووسرێن، وەک ڕۆما\|12 18 25. بەهاکە دوایینیانە. | بهایێن بەری د ناڤونیشانیدا پشتی \| دهێنە نڤیسین، وەکی ڕۆما\|12 18 25. بها یا دوماهیێ یە. |
+## W2-2 Export wiring (sound in the film, what the file carries; SAFETY)
+
+The sound lines and the saved-without-sound notice (`MotionExport.tsx`). Arabic was written with care; these Sorani and Badini lines are best effort.
+
+| English | ckb (Sorani) | kmr (Badini) |
+|---|---|---|
+| Saved without sound: this computer cannot make the audio track. | بێ دەنگ پاشەکەوت کرا: ئەم کۆمپیوتەرە ناتوانێت تراکی دەنگ دروست بکات. | بێ دەنگ هاتە پاشەکەفتکرن: ئەڤ کۆمپیوتەرە نەشێت تراکا دەنگی چێبکەت. |
+| Preparing the sound… | ئامادەکردنی دەنگەکە… | ئامادەکرنا دەنگی… |
+| Without sound: a GIF cannot carry it. | بێ دەنگ: GIF ناتوانێت دەنگ هەڵبگرێت. | بێ دەنگ: GIF نەشێت دەنگی هەلگریت. |
+| Without sound: a picture has none. | بێ دەنگ: وێنە دەنگی نییە. | بێ دەنگ: وێنەی چ دەنگ نینە. |
+| With sound: effects made from the animation. | لەگەڵ دەنگ: ئێفێکتی دروستکراو لە جووڵەکەوە. | دگەل دەنگی: ئێفێکتێن ژ لڤینێ هاتینە چێکرن. |
+| With sound: music ({mood}). | لەگەڵ دەنگ: مۆسیقا ({mood}). | دگەل دەنگی: مۆسیقا ({mood}). |
+| With sound: effects and music ({mood}). | لەگەڵ دەنگ: ئێفێکت و مۆسیقا ({mood}). | دگەل دەنگی: ئێفێکت و مۆسیقا ({mood}). |
+
+**SAFETY, all three translations.** Three places changed in each of `SAFETY.ar.md`, `SAFETY.ckb.md` and `SAFETY.kmr.md`, mirroring
+`SAFETY.md`: the Motion paragraph under *What reaches the network* (the GIF writer, and one new sentence on sound: made on this
+machine from the graphic itself, encoded by the window's own AAC encoder, nothing downloaded or sent, Motion still contacts no one
+but the model); the `export_write_video` bullet (`.gif` accepted, a GIF that does not begin `GIF89a` or `GIF87a` refused, 64 MiB
+for a poster or a GIF, Motion writes an MP4, a GIF or a PNG); and the `open_exported` bullet (`.gif` opened). The Arabic was
+written with care but not by a native speaker; the Sorani and Badini sentences, the sound sentence above all, are best effort and
+need a native speaker before a release. The parity test (`test/i18n.test.mjs`) holds the identifiers and the shape, not the prose.

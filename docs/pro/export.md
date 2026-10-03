@@ -174,6 +174,8 @@ Whole chain: `npm test` 35 s, 156 suites, all passing; `npx tsc --noEmit` and `n
    off limits here) accepts only `.mp4 .webm .png .srt .json`, so Download GIF and Save as… GIF end in
    its refusal, shown as a sentence. SAFETY.md (all four languages) lists those extensions. Both need
    changing together: `docs/pro/requests/09.md`.
+   **Done in wave 2 (W2-2):** `.gif` is accepted (beginning `GIF89a` or `GIF87a`, at most 64 MiB) and opened, and
+   SAFETY.md says so in all four languages (`docs/pro/w2-export.md`).
 2. Not seen in the real app: the tab was rendered alone in WKWebView with the app's stylesheet and a
    stand-in Tauri bridge (an end-to-end GIF and a fitted 9:16 MP4 were rendered, "written" and decoded),
    but never inside the running app, its sidebar or its full window.

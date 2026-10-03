@@ -16,6 +16,14 @@
 # one arrives (LGPL, EPL, CDDL), it needs the same treatment and will not get it
 # by accident.
 #
+# One more kind of third-party material is not a package at all: code adapted
+# from another project into Vylo's own source (`app/src`). Its notice cannot
+# come from npm or cargo, so each such file carries a header that begins
+# "Portions derived from <Project> (<repo>, <licence>)", the renderer finds
+# those headers, and the upstream project's own copyright line is recorded in
+# UPSTREAM below. A header naming a project UPSTREAM does not know is reported
+# under the file's gaps rather than printed without its notice.
+#
 # Why it is not `license-checker` or `cargo-about`: everything below reads
 # `npm ls --json` and `cargo metadata --format-version 1`, which are stable,
 # already installed, and cannot themselves rot. A tool would be a fourth thing
@@ -110,6 +118,13 @@ const CLASSIFIERS = [
   ['Apache-2.0', t => APACHE_BODY(t)],
   ['MPL-2.0', t => /Mozilla Public License Version 2\.0/i.test(t) && /Covered Software/i.test(t)],
   ['Unicode-3.0', t => /UNICODE LICENSE V3/i.test(t) && /COPYRIGHT AND PERMISSION NOTICE/i.test(t)],
+  // Remotion's own licence (a free licence for individuals and small
+  // companies, a company licence otherwise) is not an SPDX licence, and its
+  // "Allowed use cases" paragraph opens "Permission is hereby granted, free of
+  // charge", which the MIT-0 test below would otherwise claim. Its packages
+  // declare `SEE LICENSE IN LICENSE.md`; LicenseRef- is SPDX's form for a
+  // licence that has no identifier.
+  ['LicenseRef-Remotion', t => /Remotion License/.test(t) && /Free License/.test(t) && /Company License/.test(t)],
   ['CC0-1.0', t => /CC0 1\.0 Universal/i.test(t) && /Copyright and Related Rights/i.test(t)],
   ['Unlicense', t => /This is free and unencumbered software released into the public domain/i.test(t) && /Anyone is free to copy, modify, publish/i.test(t)],
   ['Zlib', t => /This software is provided ['\u2018\u2019]as-is['\u2018\u2019], without any express or implied/i.test(t) && /altered source versions must be plainly marked/i.test(t)],
@@ -333,6 +348,10 @@ w('MPL-2.0 asks for one thing more — section 3.2 requires that a recipient of'
 w('the binary be told how to obtain the source of the covered components — and');
 w('*Source for MPL-2.0 components* below is that notice.');
 w('');
+w('A few of Vylo Editor\'s own source files contain code adapted from another');
+w('project rather than a package; *Code adapted into this source* below names');
+w('each one, what it took, and that project\'s copyright and licence.');
+w('');
 w('The list is deliberately over-inclusive. It is every package npm and cargo');
 w('resolve as a non-development dependency of the app, which sweeps in a few');
 w('that are only ever used while building — a proc-macro crate and its own');
@@ -424,17 +443,29 @@ for (const id of [...texts.keys()].sort((a, b) => a.localeCompare(b))) {
 // Identifiers that appear in a declaration but whose text is nowhere in the tree.
 const declared = new Set();
 for (const p of packages) for (const id of idsIn(p.expr)) declared.add(id);
+// `SEE LICENSE IN <file>` is npm's way of saying "not an SPDX licence: read
+// this file", so it is not an identifier SPDX publishes a text for. Where the
+// package's own file was found and recognised, its text is above under the
+// name it was recognised as, and that is said instead.
+const POINTER = /^SEE LICEN[SC]E IN /i;
 const missingText = [...declared].filter(id => !texts.has(id)).sort();
 if (missingText.length) {
   w('### Identifiers with no text found in the tree');
   w('');
   w('These identifiers appear in a package\'s declaration, but no package in the');
   w('tree ships a copy of the text, so none is reproduced above. The canonical');
-  w('text for each is published by SPDX at `https://spdx.org/licenses/<id>.html`.');
+  w('text for each is published by SPDX at `https://spdx.org/licenses/<id>.html`,');
+  w('except for a `SEE LICENSE IN` pointer, which names the package\'s own file.');
   w('');
   for (const id of missingText) {
-    const who = packages.filter(p => idsIn(p.expr).includes(id)).map(p => `\`${p.name}\``);
-    w(`- **${id}** — declared by ${who.slice(0, 8).join(', ')}${who.length > 8 ? `, and ${who.length - 8} more` : ''}`);
+    const decl = packages.filter(p => idsIn(p.expr).includes(id));
+    const who = decl.map(p => `\`${p.name}\``);
+    let found = '';
+    if (POINTER.test(id)) {
+      const as = [...new Set(decl.flatMap(p => p.texts.map(t => t.id).filter(Boolean)))].sort();
+      found = as.length ? ` — a pointer to the package's own licence file, reproduced above as ${as.map(a => `**${a}**`).join(', ')}` : ' — a pointer to a file the package does not ship';
+    }
+    w(`- **${id}** — declared by ${who.slice(0, 8).join(', ')}${who.length > 8 ? `, and ${who.length - 8} more` : ''}${found}`);
   }
   w('');
 }
@@ -476,10 +507,100 @@ if (reciprocal.length) {
   w('');
 }
 
+// --- code adapted into Vylo's own source --------------------------------------
+// A package's notice travels in its own files. Code adapted from another
+// project into app/src does not: it is in Vylo's files. Apache-2.0 section 4
+// asks that it travel with the licence (reproduced above), a statement that it
+// was changed, and the upstream's copyright and attribution notices. The file's
+// header is the statement and is printed as it stands; the notice is
+// UPSTREAM's, copied from the upstream's own LICENSE (and NOTICE, if it had
+// one). Ideas and numbers taken without code need no notice; where a project
+// keeps a record of those (docs/pro/credits), the record is named.
+const UPSTREAM = {
+  HyperFrames: {
+    url: 'https://github.com/heygen-com/hyperframes',
+    // From its LICENSE, read at commit 8c81efb (2026-10-03). It has no NOTICE
+    // file, so section 4(d) asks for nothing more.
+    copyright: 'Copyright 2026 HeyGen, Inc.',
+    notice: 'HyperFrames ships no NOTICE file.',
+  },
+};
+const appDir = path.dirname(appPkgPath);
+const srcDir = path.join(appDir, 'src');
+const creditsDir = path.join(appDir, '..', 'docs', 'pro', 'credits');
+const ported = [];   // {file, project, repo, licence, header}
+const unknownUpstream = [];
+{
+  let names = [];
+  try { names = fs.readdirSync(srcDir).filter(n => /\.(ts|tsx)$/.test(n)).sort(); } catch { /* no source here */ }
+  for (const n of names) {
+    const text = readCapped(path.join(srcDir, n));
+    if (text === null) continue;
+    // Only the comment the file opens with: a header, not a mention further down.
+    const m = text.match(/^\s*\/\*([\s\S]*?)\*\//);
+    if (!m) continue;
+    const header = m[1].replace(/\r\n/g, '\n').split('\n').map(l => l.replace(/^\s*\* ?/, '').trimEnd()).join('\n').trim();
+    const d = header.replace(/\s+/g, ' ').match(/Portions derived from ([^(]+?) \(([^,()]+), ([^)]+)\)/);
+    if (!d) continue;
+    const rec = { file: `app/src/${n}`, project: d[1].trim(), repo: d[2].trim(), licence: d[3].trim(), header };
+    if (!UPSTREAM[rec.project]) unknownUpstream.push(rec);
+    else ported.push(rec);
+  }
+}
+if (ported.length) {
+  w('## Code adapted into this source');
+  w('');
+  w('Not packages: these are files of Vylo Editor\'s own source that contain code');
+  w('adapted from another project. Each says so in its header, which is printed as');
+  w('it stands in the file, and the project\'s notice and licence follow.');
+  w('');
+  const byProject = new Map();
+  for (const r of ported) {
+    if (!byProject.has(r.project)) byProject.set(r.project, []);
+    byProject.get(r.project).push(r);
+  }
+  for (const [project, list] of [...byProject.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+    const up = UPSTREAM[project];
+    const licences = [...new Set(list.map(r => r.licence))].sort();
+    w(`### ${project} — ${licences.join(', ')}`);
+    w('');
+    w(`\`${list[0].repo}\`, ${up.url}. ${up.copyright} ${licences.map(l => (texts.has(l) ? `Licensed under ${l}; its full text is under *Licence texts* above.` : `Licensed under ${l}; its text is published by SPDX at https://spdx.org/licenses/${l}.html.`)).join(' ')}${up.notice ? ' ' + up.notice : ''}`);
+    w('');
+    for (const r of list) {
+      w(`#### \`${r.file}\``);
+      w('');
+      w('```');
+      w(r.header.replace(/```/g, "'''"));
+      w('```');
+      w('');
+    }
+    // Where ideas and numbers were taken without code, the record of them.
+    let credits = [];
+    try {
+      credits = fs.readdirSync(creditsDir).filter(n => n.endsWith('.md')).sort()
+        .filter(n => (readCapped(path.join(creditsDir, n)) || '').includes(project));
+    } catch { /* no record kept here */ }
+    if (credits.length) {
+      w(`Ideas and numbers taken from ${project} without its code need no notice. Each part`);
+      w(`of the work that read ${project} records what it took, if anything, and where it went:`);
+      w(`${credits.map(n => `\`docs/pro/credits/${n}\``).join(', ')}.`);
+      w('');
+    }
+  }
+}
+
 // Everything the generator could not read or could not classify, stated rather
 // than quietly dropped.
 w('## Gaps in this file');
 w('');
+if (unknownUpstream.length) {
+  w('Files whose header says they adapt code from a project this generator has no');
+  w('notice for (UPSTREAM in `scripts/notices.sh`). Their header is in the file; the');
+  w('project\'s copyright line is not reproduced here until it is recorded:');
+  w('');
+  for (const r of unknownUpstream) w(`- \`${r.file}\` — ${r.project} (${r.repo}, ${r.licence})`);
+  w('');
+}
 if (noFile.length) {
   w(`${noFile.length} of ${packages.length} packages declare a licence but ship no licence file in`);
   w('the published archive, so no copyright line could be read from one. The');
