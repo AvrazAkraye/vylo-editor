@@ -258,5 +258,33 @@ function drawsWithOp(calls) {
   info(`a glitch frame draws ${(draws / glitchFrames).toFixed(1)} pictures on the stage on average (slices, their wrap-round, the two colour copies)`);
 }
 
+console.log('an export does not give the thread back');
+{
+  // A film being saved has no page to keep alive, and a hidden page makes each give-back wait about a second: the export asks for
+  // `cooperative: false`, which must change nothing in the bed and give the thread back never.
+  const same = (x, y) => x && y && x.channels.length === y.channels.length
+    && x.channels.every((c, i) => c.length === y.channels[i].length && c.every((v, j) => v === y.channels[i][j]));
+  const mk = () => doc('steps', 6, { mode: 'both', level: 0.6, seed: 5 });
+  const kind = await renderSoundBed(mk(), { music: standIn });
+  const brisk = await renderSoundBed(mk(), { music: standIn, cooperative: false });
+  ok('a bed made without giving the thread back is byte for byte the cooperative one', same(kind, brisk));
+  // A 1 ms ticker beside it: a render that never yields lets no timer run until it is done (a cooperative one lets many).
+  const ticks = async (o) => {
+    let n = 0;
+    const timer = setInterval(() => { n += 1; }, 1);
+    await renderSoundBed(doc('stats', 12, { mode: 'fx', level: 0.6, seed: 8 + (o.cooperative === false ? 1 : 2) }), o);
+    clearInterval(timer);
+    return n;
+  };
+  const withYield = await ticks({});
+  const without = await ticks({ cooperative: false });
+  ok(`and it runs to the end without a timer getting in (${without} ticks, against ${withYield} for the cooperative render)`, without <= 1 && withYield > 3, { without, withYield });
+  const ctl = new AbortController();
+  ctl.abort();
+  let stopped = false;
+  try { await renderSoundBed(mk(), { music: standIn, cooperative: false, signal: ctl.signal }); } catch { stopped = true; }
+  ok('an aborted export render still stops', stopped);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);

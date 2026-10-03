@@ -253,7 +253,7 @@ for (const code of ['motion:no-encoder', 'motion:encode-failed: the GPU went awa
   const m = graphic();
   await renderMp4(m, { size: '720p', quality: 'high', blur: false, sound: true }, deps);
   ok('with sound: the graphic\'s sound rendered once, at 48 kHz, and handed to the encoder as its audio',
-    beds.length === 1 && beds[0].doc === m && beds[0].o.sampleRate === 48000 && log.encode.audio?.sampleRate === 48000 && log.order[0] === 'preload');
+    beds.length === 1 && beds[0].doc === m && beds[0].o.sampleRate === 48000 && beds[0].o.cooperative === false && log.encode.audio?.sampleRate === 48000 && log.order[0] === 'preload');
 }
 
 // ── rendering a still ─────────────────────────────────────────────────────

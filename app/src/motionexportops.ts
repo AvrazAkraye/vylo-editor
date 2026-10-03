@@ -517,7 +517,8 @@ export async function renderMp4(
   if (o.sound) {
     o.onSound?.(0, 1);
     try {
-      bed = await d.soundBed(m, { signal, sampleRate: AAC_RATE });
+      // Not cooperative: a film being saved has no page to keep alive, and a hidden page makes each give-back wait about a second.
+      bed = await d.soundBed(m, { signal, sampleRate: AAC_RATE, cooperative: false });
     } catch (e) {
       if (signal?.aborted || isAbort(e)) throw aborted();
       lost = true;

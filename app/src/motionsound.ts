@@ -771,6 +771,12 @@ export interface RenderSoundOptions {
   sampleRate?: number;
   /** Plays the music's score. Leave it out: it exists so Node, which has no Web Audio, can test the mix. */
   music?: MusicRenderer;
+  /**
+   * Give the thread back every few milliseconds so the page stays alive while the bed is made (the live preview needs that).
+   * An export has no use for it, and a page that is hidden makes each give-back wait a second, so an export passes `false`.
+   * True when not given. The bytes are the same either way.
+   */
+  cooperative?: boolean;
 }
 
 const DEFAULT_RATE = 48000;
@@ -858,15 +864,19 @@ function nextTask(): Promise<void> {
 /** One render's share of the thread: when it last gave it back, and the signal that stops it. */
 class Pace {
   private since = clockNow();
-  constructor(private readonly signal?: AbortSignal) {}
+  constructor(private readonly signal?: AbortSignal, private readonly cooperative = true) {}
 
-  /** Whether the render has held the thread for a slice. */
+  /** Whether the render has held the thread for a slice (never, for a render that does not give it back). */
   due(): boolean {
-    return clockNow() - this.since >= SLICE_MS;
+    return this.cooperative && clockNow() - this.since >= SLICE_MS;
   }
 
   /** Give the thread back for a task; then stop here if the render was stopped meanwhile. */
   async breathe(): Promise<void> {
+    if (!this.cooperative) {
+      if (this.signal?.aborted) throw abortError();
+      return;
+    }
     await nextTask();
     this.since = clockNow();
     if (this.signal?.aborted) throw abortError();
@@ -1270,7 +1280,7 @@ export async function renderSoundBed(doc: Motion, o: RenderSoundOptions = {}): P
     const hit = kept.get(key) ?? null;
     return hit ? copyOf(hit) : null;
   }
-  const pace = new Pace(o.signal);
+  const pace = new Pace(o.signal, o.cooperative !== false);
   const cues = spec.mode === 'music' ? [] : soundCues(doc);
   const ch = [new Float32Array(n), new Float32Array(n)];
   if (cues.length) await mixCues(cues, ch, rate, pace);
