@@ -98,6 +98,15 @@ export function MotionChecks({ t, doc, onApply, onSelect }: ChecksProps) {
     if (open && count === 0) setOpen(false);
   }, [open, count]);
 
+  // The last tip fixed from the keyboard: the focus goes to the status the chip has become.
+  const done = useRef<HTMLSpanElement>(null);
+  const toDone = useRef(false);
+  useLayoutEffect(() => {
+    if (!toDone.current || !summary.clean) return;
+    toDone.current = false;
+    done.current?.focus();
+  });
+
   // Opened: the first tip takes the focus, and the menu goes above the chip when there is no room below it.
   useLayoutEffect(() => {
     if (!open) return;
@@ -147,8 +156,11 @@ export function MotionChecks({ t, doc, onApply, onSelect }: ChecksProps) {
     const after = run(next);
     setFound(after);
     setRefused(new Set());
-    if (!after.length) close(true);
-    else setRefocus((n) => n + 1);
+    if (!after.length) {
+      const active = document.activeElement;
+      toDone.current = !!active && (!!menu.current?.contains(active) || active === chip.current);
+      close(false);
+    } else setRefocus((n) => n + 1);
   };
 
   const onMenuKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -175,8 +187,10 @@ export function MotionChecks({ t, doc, onApply, onSelect }: ChecksProps) {
   const status = <span className="mk-check-sr" aria-live="polite">{label}</span>;
 
   if (summary.clean) {
+    // Focusable from code only: when Fix all leaves nothing to say, the chip that had the focus becomes this status,
+    // and the focus comes here rather than falling to the page (review R3).
     return (
-      <span className="mk-check">
+      <span className="mk-check" ref={done} tabIndex={-1}>
         <span className="mk-check-chip is-clean" title={t('Quality check')} aria-hidden="true">
           <span className="mk-check-dot" />
           {label}
@@ -247,10 +261,14 @@ export function MotionChecks({ t, doc, onApply, onSelect }: ChecksProps) {
               );
             })}
           </ul>
+          {/* Kept in sight at the menu's foot while a long list scrolls under it: with five tips in Sorani the list
+              is taller than the menu, and the one button that fixes them all was below its fold (review R3). */}
           {fixable.length > 1 && (
-            <button type="button" role="menuitem" tabIndex={-1} className="ghost mk-check-all" onClick={() => apply()}>
-              {t('Fix all')}
-            </button>
+            <div className="mk-check-foot" role="none">
+              <button type="button" role="menuitem" tabIndex={-1} className="ghost mk-check-all" onClick={() => apply()}>
+                {t('Fix all')}
+              </button>
+            </div>
           )}
         </div>
       )}

@@ -9089,3 +9089,51 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
    8.5em of its --fs-3 text), so "Sound" and "Frame rate" start their choices on the same line. */
 .mo-de-sound{ --mo-label:calc(8.5 * var(--fs-3)); }
 /* pro:w2-1 end */
+/* pro:r3 start */
+/* ── Motion pro, review R3 (interface, simplicity, accessibility): docs/pro/review-interface.md ──────────────────────
+   Overrides of the new parts, kept here so each says why. Logical properties throughout. */
+
+/* The scene strip. A transition's chip sits at the start of the scene it brings in (the transition is played there),
+   inside that scene's box, which is as wide as the scene is long. It used to be as wide as its name and never gave
+   way: at 760 pixels, or in Arabic, two names ate a three-second scene whole, and the chips after it no longer stood
+   over their layers. Now it shrinks with its scene, and a scene too short for the name shows a mark (its name is
+   still its accessible name and its tooltip). 10.5px rather than 9px: Arabic script at 9px was hard to read. */
+.ms-scene{ container-type:inline-size; }
+.ms-cut-at{ max-inline-size:55%; }
+.ms-cut{ justify-content:center; gap:var(--sp-1); max-inline-size:100%; min-inline-size:24px; block-size:24px; font-size:var(--fs-2); }
+.ms-cut-glyph{ display:none; flex:none; }
+@container (max-inline-size: 130px){
+  .ms-cut{ inline-size:24px; padding-inline:0; }
+  .ms-cut-name{ display:none; }
+  .ms-cut-glyph{ display:inline-flex; }
+}
+/* "+ Scene" alone is quiet by its colour; the opacity on top took it to 3.7:1 in the light theme. */
+.ghost.ms-quiet{ opacity:1; }
+
+/* The quality check when it has nothing to say: its words in the column's quiet colour and only the dot green, no
+   pill. Silent when clean (docs/PRO.md); the amber pill is kept for when there is something to read. */
+.mk-check-chip.is-clean{ background:transparent; color:var(--mute); font-weight:500; }
+.mk-check-chip.is-clean .mk-check-dot{ color:var(--ok); }
+.mk-check:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; border-radius:999px; }
+
+/* The quality check's menu. The focused tip was shown by a fill one step from the menu's (1.1:1 in the light theme):
+   a keyboard user could not see where they were. Fix all stays at the menu's foot while a long list scrolls. */
+.mk-check-tip:focus-visible{ outline:2px solid var(--brand); outline-offset:-2px; }
+.mk-check-foot{
+  position:sticky; inset-block-end:calc(-1 * var(--sp-3)); z-index:1; display:flex; justify-content:flex-end;
+  margin:var(--sp-1) calc(-1 * var(--sp-3)) calc(-1 * var(--sp-3)); padding:var(--sp-3);
+  border-block-start:1px solid var(--rule); background:var(--panel);
+}
+.mk-check-foot .mk-check-all{ margin:0; }
+
+/* Export's destination cards: the line under each name at 10.5px, not 9px (a sentence, in Arabic and Kurdish too),
+   and on the chosen card in --ink-2, since --mute on the brand wash was 4.4:1 in the light theme. */
+.mo-share-dest small, .mo-share-hint{ font-size:var(--fs-2); }
+.mo-share-dest.on small{ color:var(--ink-2); }
+
+/* The brand kit: a 24px target for removing the logo; the preview's accent bar runs from the reading side, as a
+   right-to-left graphic would draw it. (The colour names under the five swatches stay at 9px: at 10.5px
+   "Background" broke in the middle of the word in its 58px column. Each swatch is also named by its label.) */
+.ghost.mb-icon{ min-inline-size:24px; min-block-size:24px; }
+:root[dir="rtl"] .mb-preview-bar{ transform:scaleX(-1); }
+/* pro:r3 end */

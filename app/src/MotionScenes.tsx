@@ -178,10 +178,11 @@ interface ChipProps {
 /** One scene's chip: its colour, its name, and when it is. */
 const SceneChip = memo(function SceneChip({ t, scene, index, count, here, tab, open, onOpen }: ChipProps) {
   const name = shown(scene, index, t);
+  // The name first: a chip as narrow as a short scene shows only the start of it (review R3).
   return (
     <button type="button" className={`ms-chip ${HUES[index % HUES.length]}`} data-ms-key={`s:${scene.id}`} tabIndex={tab ? 0 : -1}
             aria-haspopup="dialog" aria-expanded={open} aria-current={here ? 'true' : undefined}
-            title={fill(t('From {start} s to {end} s'), { start: secs(scene.start), end: secs(scene.end) })}
+            title={`${name}\n${fill(t('From {start} s to {end} s'), { start: secs(scene.start), end: secs(scene.end) })}`}
             aria-label={`${name}, ${fill(t('{n} of {of}'), { n: index + 1, of: count })}`}
             onClick={() => onOpen(scene.id)}>
       <span className="ms-name" dir="auto">{name}</span>
@@ -207,6 +208,8 @@ const CutChip = memo(function CutChip({ t, scene, name, tab, open, onOpen }: Cut
     <button type="button" className={tr ? 'ms-cut' : 'ms-cut is-cut'} data-ms-key={`t:${scene.id}`} tabIndex={tab ? 0 : -1}
             aria-haspopup="dialog" aria-expanded={open} aria-label={fill(t('How {name} arrives: {how}'), { name, how })} title={how}
             onClick={() => onOpen(scene.id)}>
+      {/* A scene too short for the kind's name shows this mark instead (a container query in styles.css, pro:r3). */}
+      <span className="ms-cut-glyph" aria-hidden="true"><Icon name="swap" size={10} /></span>
       <span className="ms-cut-name">{kind}</span>
     </button>
   );
@@ -407,11 +410,15 @@ export function MotionScenes({ t, doc, onEdit, onSeek }: ScenesProps) {
   );
   const status = <span className="vid-tl-sr" role="status">{say}</span>;
 
+  // The same first two children in both shapes of the strip — the status, then the end's box with "+ Scene" first
+  // in it — so the second scene does not swap them for new ones: the button keeps the focus it was pressed with,
+  // and the status that says "Scenes: 2" is the region that was already there (one put in with its words already
+  // in it is often not read out). Review R3.
   if (count < 2) {
     return (
       <div className="ms ms-one" ref={strip}>
-        {addButton}
         {status}
+        <div className="ms-end">{addButton}</div>
       </div>
     );
   }
@@ -419,6 +426,7 @@ export function MotionScenes({ t, doc, onEdit, onSeek }: ScenesProps) {
   const canSplit = canSplitAt(doc, now);
   return (
     <div className="ms" ref={strip}>
+      {status}
       <div className="ms-end">
         {addButton}
         <button type="button" className="ghost ms-split" disabled={!canSplit} onClick={split}
@@ -462,7 +470,6 @@ export function MotionScenes({ t, doc, onEdit, onSeek }: ScenesProps) {
       <p id={help} className="vid-tl-sr">
         {t('Left and right arrows go from scene to transition to scene. Enter opens one. Alt with an arrow moves a scene earlier or later; Delete joins it with its neighbour; F2 renames it.')}
       </p>
-      {status}
     </div>
   );
 }
