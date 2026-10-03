@@ -37,11 +37,14 @@ const blockIn = (name) => {
 };
 const LIMITS = Object.fromEntries([...blockIn('LIMITS').matchAll(/^\s*(\w+): ([\d_.]+),/gm)].map((m) => [m[1], Number(m[2].replace(/_/g, ''))]));
 const FORMAT_IDS = [...blockIn('FORMATS').matchAll(/^\s*(\w+): \{ width/gm)].map((m) => m[1]);
-const [EFFECTS, LOOPS, EASES, DIRS, SPLITS, VOICES, SHAPES, CHARTS, BACKDROPS, PARTICLES, BLENDS, TONES, PINS, RECIPE_IDS, LAYER_KINDS, LANGUAGES] = [
+const [EFFECTS, LOOPS, EASES, DIRS, SPLITS, VOICES, SHAPES, CHARTS, BACKDROPS, PARTICLES, BLENDS, TONES, PINS, CORE_RECIPE_IDS, LAYER_KINDS, LANGUAGES] = [
   'EFFECTS', 'LOOPS', 'EASES', 'DIRS', 'SPLITS', 'VOICES', 'SHAPES', 'CHARTS', 'BACKDROPS', 'PARTICLES', 'BLENDS', 'TONES', 'PINS',
-  'RECIPE_IDS', 'LAYER_KINDS', 'LANGUAGES',
+  'CORE_RECIPE_IDS', 'LAYER_KINDS', 'LANGUAGES',
 ].map((n) => listIn(typesSrc, n));
 const ICON_IDS = listIn(videoSrc, 'ICON_IDS');
+// The template ids are the original eighteen plus the pro pass's two lists (motionids.ts), which are separate files on purpose.
+const idsSrc = readFileSync(new URL('../src/motionids.ts', import.meta.url), 'utf8');
+const RECIPE_IDS = [...CORE_RECIPE_IDS, ...listIn(idsSrc, 'PRO_A_IDS'), ...listIn(idsSrc, 'PRO_B_IDS')];
 ok('the contract\'s lists and limits were found in its source',
   EFFECTS.includes('fade') && EASES.includes('expo-out') && PINS.length === 9 && TONES.length === 5 && LAYER_KINDS.length === 8
   && ICON_IDS.includes('sparkle') && LANGUAGES.join() === 'en,ar,ckb,kmr' && FORMAT_IDS.join() === 'landscape,portrait,square,feed'

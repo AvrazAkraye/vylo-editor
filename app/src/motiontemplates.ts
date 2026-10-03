@@ -6,6 +6,8 @@ import { readMotion } from './motionread';
 import { TITLE_RECIPES } from './motionrecipes-titles';
 import { OVERLAY_RECIPES } from './motionrecipes-overlays';
 import { DATA_RECIPES } from './motionrecipes-data';
+import { PRO_A_RECIPES } from './motionrecipes-pro-a';
+import { PRO_B_RECIPES } from './motionrecipes-pro-b';
 
 /**
  * The templates, assembled: a graphic built from a recipe and a few words.
@@ -28,7 +30,7 @@ import { DATA_RECIPES } from './motionrecipes-data';
  * the layers are theirs.
  */
 
-export const RECIPES: Readonly<Partial<Record<RecipeId, Recipe>>> = { ...TITLE_RECIPES, ...OVERLAY_RECIPES, ...DATA_RECIPES };
+export const RECIPES: Readonly<Partial<Record<RecipeId, Recipe>>> = { ...TITLE_RECIPES, ...OVERLAY_RECIPES, ...DATA_RECIPES, ...PRO_A_RECIPES, ...PRO_B_RECIPES };
 
 const WORDS_PER_LINE = 80;
 

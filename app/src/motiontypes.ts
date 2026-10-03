@@ -1,6 +1,9 @@
 import type { Lang } from './i18n';
 import { dirFor } from './rtl';
 import type { IconId } from './videotypes';
+import { PRO_A_IDS, PRO_B_IDS } from './motionids';
+import type { SoundSpec } from './motionsound';
+import type { SceneSpec } from './motionscene';
 
 export type { IconId } from './videotypes';
 export { ICON_IDS } from './videotypes';
@@ -179,13 +182,17 @@ export const LANGUAGES: readonly Lang[] = ['en', 'ar', 'ckb', 'kmr'];
  * from a few fields; `test/motiontemplates.test.mjs` fails if an id here has no
  * recipe, or a recipe has no id here.
  */
-export const RECIPE_IDS = [
+export const CORE_RECIPE_IDS = [
   'big-title', 'kinetic', 'split-title', 'quote',
   'lower-third', 'subscribe', 'callout', 'handle',
   'big-number', 'bar-chart', 'donut', 'line-chart', 'stats',
   'logo-reveal', 'countdown', 'intro',
   'steps', 'loop-bg',
 ] as const;
+export type CoreRecipeId = (typeof CORE_RECIPE_IDS)[number];
+
+/** The original eighteen, then the pro pass's (`motionids.ts`). */
+export const RECIPE_IDS = [...CORE_RECIPE_IDS, ...PRO_A_IDS, ...PRO_B_IDS] as const;
 export type RecipeId = (typeof RECIPE_IDS)[number];
 
 export const RECIPE_GROUPS = ['titles', 'overlays', 'data', 'brand', 'backgrounds'] as const;
@@ -453,6 +460,10 @@ export interface Motion {
   /** Back to front. */
   layers: Layer[];
   recipe?: RecipeRef;
+  /** The sound it carries (`motionsound.ts`). Absent is silence. */
+  sound?: SoundSpec;
+  /** Its scenes and the transitions between them (`motionscene.ts`). Absent is one scene, as before. */
+  scenes?: SceneSpec[];
   /** Designed by the model rather than started from a template as it is. */
   ai?: boolean;
   stage: 'new' | 'planning' | 'ready';

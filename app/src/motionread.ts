@@ -6,6 +6,8 @@ import {
   type Motion, type Paint, type Palette, type ParticlesLayer, type Pin, type RecipeRef, type Shadow,
   type ShapeLayer, type Stroke, type TextLayer,
 } from './motiontypes';
+import { readSound } from './motionsound';
+import { readScenes } from './motionscene';
 import type { Lang } from './i18n';
 import { parsePath } from './motionmath';
 
@@ -1098,6 +1100,10 @@ export function readMotion(x: unknown, now: number = Date.now()): Motion | null 
     const recipe = recipeOf(own(o, 'recipe'));
     if (recipe) m.recipe = recipe;
     if (own(o, 'ai') === true) m.ai = true;
+    const sound = readSound(own(o, 'sound'));
+    if (sound) m.sound = sound;
+    const scenes = readScenes(own(o, 'scenes'), layers, seconds);
+    if (scenes) m.scenes = scenes;
     const error = cleanText(own(o, 'error'), ERROR_CHARS);
     if (error) m.error = error;
     return m;

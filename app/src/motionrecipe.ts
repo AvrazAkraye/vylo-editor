@@ -2,9 +2,11 @@ import type { Lang } from './i18n';
 import { FORMATS, isRtlLang } from './motiontypes';
 import type {
   Anim, BackdropLayer, ChartLayer, CounterLayer, Effect, Format, IconLayer, ImageLayer, Layer, Loop, LoopAnim, Paint, Palette,
-  ParticlesLayer, RecipeGroup, RecipeId, ShapeLayer, TextLayer,
+  ParticlesLayer, RecipeGroup, RecipeId, ShapeLayer, TextLayer, CoreRecipeId,
 } from './motiontypes';
 import { blankLayer } from './motionread';
+import { PRO_A_META } from './motionrecipes-pro-a-meta';
+import { PRO_B_META } from './motionrecipes-pro-b-meta';
 
 /**
  * What a template is, before it is built: its name, its fields, its palette.
@@ -60,6 +62,14 @@ export interface RecipeMeta {
   /** The palette it was designed in. */
   palette: PaletteId;
   fields: readonly Field[];
+  /** Search and the model's choice: words a person might use for it (English; matched against what they type). */
+  tags?: readonly string[];
+  /** One sentence for the model and the search: when this template is the right one. */
+  useWhen?: string;
+  /** One sentence: when it is the wrong one. */
+  avoidWhen?: string;
+  /** Templates that go well together or after it. */
+  pairsWith?: readonly RecipeId[];
 }
 
 export const PALETTE_IDS = ['midnight', 'paper', 'sunset', 'mint', 'royal', 'mono', 'neon', 'ocean', 'daylight'] as const;
@@ -103,7 +113,7 @@ const list = (key: string, label: string, max: number, hint: string): Field => (
 /**
  * Every template. The order is the gallery's order within a group.
  */
-export const META: Readonly<Record<RecipeId, RecipeMeta>> = {
+const CORE_META: Readonly<Record<CoreRecipeId, RecipeMeta>> = {
   'big-title': {
     id: 'big-title', group: 'titles', name: 'Big title', hue: 262, seconds: 6, overlay: false, palette: 'midnight',
     about: 'A headline that rises line by line over a moving background.',
@@ -256,6 +266,13 @@ export const META: Readonly<Record<RecipeId, RecipeMeta>> = {
     ],
   },
 };
+
+/**
+ * Every template's metadata: the original eighteen, then the pro files' (data
+ * only, in `motionrecipes-pro-*-meta.ts`, so this file never imports code that
+ * imports it back).
+ */
+export const META: Readonly<Record<RecipeId, RecipeMeta>> = { ...CORE_META, ...PRO_A_META, ...PRO_B_META };
 
 /** The recipes of a group, in gallery order. */
 export function recipesOf(group: RecipeGroup): RecipeMeta[] {

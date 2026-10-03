@@ -1,6 +1,7 @@
 import type {
   CounterLayer, Ctx, Env, IconLayer, ImageLayer, Layer, Motion, Paint, Pose, Shadow, ShapeLayer, Split, TextLayer,
 } from './motiontypes';
+import { paintScenes } from './motionscene';
 import { LIMITS, PINS, SHAPES, SPLITS, isRtlLang, isTone, pinOf, pxPerU } from './motiontypes';
 import { countAt, inDone, poseAt } from './motionanim';
 import {
@@ -432,6 +433,8 @@ export function paint(ctx: Ctx, doc: Motion, t: number, o: PaintOptions = {}): v
   watchFonts();
   const samples = Math.min(MAX_SAMPLES, Math.round(finite(o.blur?.samples, 1)));
   if (samples > 1 && blurred(ctx, doc, t, o, width, height, samples)) return;
+  // A document with scenes is painted by `motionscene.ts` (pro pass); one without them goes on exactly as before.
+  if (doc.scenes && doc.scenes.length > 0 && paintScenes(ctx, doc, t, width, height)) return;
 
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   fresh(ctx);
