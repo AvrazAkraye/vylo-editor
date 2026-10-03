@@ -19,6 +19,7 @@ import { META, makeKit, paletteOf } from '../.test-build/motionrecipe.js';
 import { readLayer } from '../.test-build/motionread.js';
 import { countAt, inDone, outStart, poseAt, stillTime, unitsOf } from '../.test-build/motionanim.js';
 import { layerBox, makeEnv, paint } from '../.test-build/motiondraw.js';
+import { safeArea } from '../.test-build/motiondirection.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -98,11 +99,20 @@ function problems(id, lang, format, fields, seconds, o = {}) {
   const [w, h] = SIZES[format];
   const env = makeEnv(c.ctx, doc, still, w, h);
   const safe = ((format === 'landscape' ? 8 : 6) - 0.5) * (Math.min(w, h) / 100);
+  // Words — texts, numbers, a chart's labels — also inside the title-safe area the model is told to keep (motiondirection.ts
+  // `safeArea`): 8.9u from the sides of the wide frame, and out of the bottom 30.3u of a portrait one, where a phone app's
+  // own buttons and caption sit. A tenth of a u for rounding.
+  const area = safeArea(format);
+  const k = Math.min(w, h) / 100;
   for (const l of doc.layers) {
     if (l.kind === 'backdrop') continue;
     const b = layerBox(env, l);
     if (!b) continue;
     if (b.x < safe || b.y < safe || b.x + b.w > w - safe || b.y + b.h > h - safe) out.push(`${l.id}: box outside the safe margin at stillTime ${JSON.stringify([b.x, b.y, b.w, b.h].map(Math.round))}`);
+    if ((l.kind === 'text' || l.kind === 'counter' || l.kind === 'chart')
+      && (b.x < (area.side - 0.1) * k || b.x + b.w > w - (area.side - 0.1) * k || b.y < (area.top - 0.1) * k || b.y + b.h > h - (area.bottom - 0.1) * k)) {
+      out.push(`${l.id}: words outside the title-safe area at stillTime ${JSON.stringify([b.x, b.y, b.w, b.h].map((v) => Math.round(v / k * 10) / 10))}u`);
+    }
   }
   const samples = o.samples ?? 40;
   for (let i = 0; i < samples; i++) {
@@ -423,6 +433,24 @@ for (const id of IDS) {
     }
   }
   ok('every counter stays between zero and its number and lands on it', !bad.length, bad);
+}
+
+// ── chart labels shrunk to fit are not then cut ───────────────────────────
+
+{
+  // In the app's WebKit a face is not exactly proportional to its size: the Badini portrait bar chart's widest label,
+  // set at the size computed to fill its slot exactly, measured a hair over it and was cut to "چارەکا سێ…". A face that
+  // sets a little wider the smaller it is drawn (width ∝ size^0.98) shows the same here; labels that need only a shade
+  // less than their size are shrunk and drawn whole, in every shape and language.
+  const cut = [];
+  for (const lang of LANGS) for (const format of FORMATS) {
+    const doc = docOf('bar-chart', lang, format);
+    const [w, h] = SIZES[format];
+    const c = makeCanvas(w, h, { measure: (text, px) => Array.from(text).length * 0.5 * Math.pow(px, 0.98) * Math.pow(40, 0.02) });
+    paint(c.ctx, doc, stillTime(doc.layers, doc.seconds), { strict: true });
+    for (const call of c.calls) if (call.name === 'fillText' && String(call.args[0]).endsWith('…')) cut.push(`${lang}/${format}: ${call.args[0]}`);
+  }
+  ok('bar chart: labels shrunk to their slot are drawn whole, even where a face sets wider when smaller', !cut.length, cut);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

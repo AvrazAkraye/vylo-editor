@@ -28,6 +28,7 @@ import { readMotion, readLayer, blankLayer } from '../.test-build/motionread.js'
 import { paint, makeEnv, layerBox } from '../.test-build/motiondraw.js';
 import { inDone, outStart, unitsOf, stillTime, poseAt } from '../.test-build/motionanim.js';
 import { BACKDROPS, CHARTS, RECIPE_IDS, CORE_RECIPE_IDS, RECIPE_GROUPS, LIMITS } from '../.test-build/motiontypes.js';
+import { contrast, luminance, mixColors } from '../.test-build/motionmath.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -601,6 +602,11 @@ function outside(doc) {
     doc.backdrop === null && J(styles) === J(['lightleak', 'vignette', 'grain']) && doc.layers[doc.layers.length - 1].style === 'grain' && doc.layers.some((l) => l.id === 'film-look-caption'), styles);
   const bare = build('film-look', 'ar', 'portrait', { fields: { caption: '' } });
   ok('...no caption, no caption layer; the finishes run to the last frame', !bare.layers.some((l) => l.kind === 'text') && bare.layers.every((l) => l.end === bare.seconds && l.start === 0));
+  // The caption keeps inside the title-safe area the model is told about: 8.9u from the sides of the wide frame, and
+  // above the bottom 30.3u of a portrait one, where a phone app's buttons and caption lie over the video.
+  const cap = (format) => build('film-look', 'en', format).layers.find((l) => l.id === 'film-look-caption');
+  ok('...the caption sits inside the title-safe area: 8.9u in on the wide frame, above the bottom 30.3u in portrait',
+    cap('landscape').x >= 8.9 && cap('portrait').y <= -30.3 && cap('feed').y <= -6.3 && cap('square').y <= -6, [cap('landscape').x, cap('portrait').y]);
 }
 {
   const doc = build('bar-race', 'en', 'landscape');
@@ -681,6 +687,31 @@ function outside(doc) {
   const doc = build('price-card', 'en', 'landscape');
   ok('...three features with a check each, and a button that catches the light once', doc.layers.filter((l) => l.id.startsWith('price-card-feature-')).length === 3
     && doc.layers.filter((l) => l.id.startsWith('price-card-check-')).length === 3 && doc.layers.some((l) => l.id === 'price-card-button-shine' && l.loop?.fx === 'shimmer'));
+  // The light rides the button's pop and has crossed it by the still the gallery and a cover show (it used to start
+  // after everything had landed, which made it the last arrival, and the cover caught it a third of the way across).
+  const lit = [];
+  for (const lang of LANGS) for (const format of FORMATS) for (const seconds of [undefined, 2.5, 12, 30]) {
+    const d = build('price-card', lang, format, seconds ? { seconds } : {});
+    const still = stillTime(d.layers, d.seconds);
+    const shine = d.layers.find((l) => l.id === 'price-card-button-shine');
+    const button = d.layers.find((l) => l.id === 'price-card-button');
+    if (shine && !(shine.end <= still && J(shine.in) === J(button.in) && shine.start === button.start && !shine.out)) lit.push(`${lang}/${format}/${d.seconds}s ${shine.start}-${shine.end} @${still}`);
+  }
+  ok('...the button\'s light rides its pop and has crossed it by the still, at any length', !lit.length, lit.slice(0, 3));
+  // The plan's name reads on its pill (3:1 for bold words this size) in every palette: the accent where it does, the ink
+  // where it does not — the card's own palette, royal, measured 3.0 in the app's check with the accent.
+  const weak = [];
+  for (const palette of PALETTE_IDS) {
+    const d = build('price-card', 'en', 'landscape', { palette });
+    const p = d.palette;
+    const lit2 = mixColors(p.bg, luminance(p.bg) < 0.4 ? '#FFFFFF' : '#000000', luminance(p.bg) < 0.4 ? 0.09 : 0.03);
+    const ground = mixColors(lit2, p.accent, 0.18);
+    const plan = d.layers.find((l) => l.id === 'price-card-plan');
+    const ratio = contrast(p[plan.color], ground);
+    if (!(ratio >= 3.2)) weak.push(`${palette}: ${plan.color} ${ratio.toFixed(2)}`);
+  }
+  ok('...the plan\'s name reads on its pill in every palette', !weak.length, weak);
+  ok('...on the card\'s own palette the name is in the ink, on the accent\'s tint', doc.layers.find((l) => l.id === 'price-card-plan').color === 'fg');
 }
 {
   const doc = build('progress-stats', 'en', 'landscape', { fields: { items: 'Done: 92%\nUsers: 1200\nHalf: 50' } });

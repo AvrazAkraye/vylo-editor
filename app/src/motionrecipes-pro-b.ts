@@ -2,8 +2,9 @@ import type { Lang } from './i18n';
 import type { Anim, ChartLayer, Gradient, Layer, Paint, Shadow } from './motiontypes';
 import type { PRO_B_IDS } from './motionids';
 import { E, META, T, type Kit, type Recipe } from './motionrecipe';
-import { contrast, luminance } from './motionmath';
-import { inDone, outStart, unitsOf } from './motionanim';
+import { contrast, luminance, mixColors } from './motionmath';
+import { inDone, outStart, stillTime, unitsOf } from './motionanim';
+import { safeArea } from './motiondirection';
 import { digitsFor, formatNumber, toArabicDigits } from './motionfonts';
 import { itemsOf, numberOf, type Item } from './motionrecipes-data';
 import { raceData, raceWindow } from './motioncharts';
@@ -42,6 +43,19 @@ const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x
 
 /** The frame's safe margin: wider on the wide frame, as titles are set there. */
 const marginOf = (c: Kit) => (c.landscape ? 8 : 6);
+
+/**
+ * Where words may go, in u, as `motionrecipes-data.ts` keeps them: the margin
+ * above or the title-safe area the model is told about and the check measures
+ * (`safeArea`, motiondirection.ts), whichever is further in — 8.9u from the
+ * sides of the wide frame, and the bottom 30.3u of a portrait one left to the
+ * phone app's own buttons and caption.
+ */
+const sideOf = (c: Kit) => Math.max(marginOf(c), safeArea(c.format).side);
+/** u words keep clear of the frame's bottom edge. */
+const bottomOf = (c: Kit) => Math.max(marginOf(c), safeArea(c.format).bottom);
+/** u from the top of the frame down to the lowest that words may reach. */
+const footOf = (c: Kit) => c.u.h - bottomOf(c);
 
 /**
  * The timing of one graphic: `pace` is 1 at the recipe's own length or
@@ -215,11 +229,11 @@ interface Head {
  * of the line for something beside it. An empty title is no heading.
  */
 function headOf(c: Kit, b: Beat, align: 'start' | 'center', room = 0): Head {
-  const M = marginOf(c);
+  const M = sideOf(c);
   const text = (c.fields.title ?? '').trim();
   const ruleY = c.portrait ? 10 : c.landscape ? 8 : 6.5;
   const full = c.landscape ? 6.2 : c.portrait ? 6.4 : 5.6;
-  if (!text) return { layers: [], bottom: M, top: ruleY + 3, size: full };
+  if (!text) return { layers: [], bottom: marginOf(c), top: ruleY + 3, size: full };
   const max = Math.max(20, c.u.w - 2 * M - room);
   const ems = emOf(text) * 1.1;
   const wraps = !c.landscape && ems * full > max;
@@ -276,7 +290,7 @@ function linesOf(s: string): string[] {
  */
 function filmLook(c: Kit): Layer[] {
   const b = beatOf(c);
-  const M = marginOf(c);
+  const M = sideOf(c);
   const S = c.seconds;
   const caption = (c.fields.caption ?? '').trim();
   const layers: Layer[] = [
@@ -290,8 +304,8 @@ function filmLook(c: Kit): Layer[] {
     const size = c.landscape ? 3.4 : c.portrait ? 4.2 : 3.8;
     layers.push(c.text('caption', {
       text: caption, voice: 'mono', size, weight: 500, color: 'fg', align: 'start', lead: 1.25, max: c.u.w - 2 * M, fit: true, track: 0.02,
-      // Clear of a phone's captions and buttons in the tall frame.
-      pin: 'bs', x: M, y: -(c.portrait ? 18 : M), shadow: { color: 'rgba(0,0,0,.55)', blur: 1.2, x: 0, y: 0.2 },
+      // Clear of a phone's captions and buttons in the tall frame: above the bottom 30.3u (`bottomOf`), not 18u as it was.
+      pin: 'bs', x: M, y: -bottomOf(c), shadow: { color: 'rgba(0,0,0,.55)', blur: 1.2, x: 0, y: 0.2 },
       start: b.s(0.6), end: S, in: c.enter('type', { d: b.s(1.2), ease: 'linear' }), out: c.leave('fade', { d: b.exit }),
     }));
   }
@@ -363,7 +377,7 @@ function periodsOf(s: string): string[] {
  */
 function barRace(c: Kit): Layer[] {
   const b = beatOf(c);
-  const M = marginOf(c);
+  const M = sideOf(c);
   const max = META['bar-race'].fields[1].max;
   const read = (s: string) => linesOf(s).map(racerOf).filter((r): r is { name: string; values: number[] } => r !== null).slice(0, max);
   const mine = read(c.fields.items ?? '');
@@ -381,7 +395,7 @@ function barRace(c: Kit): Layer[] {
   const head = headOf(c, b, 'start', periodW ? periodW + 4 : 0);
   const size = c.landscape ? 3 : c.portrait ? 3.6 : 3.2;
   const top = Math.max(head.bottom, head.top + periodSize * 0.9) + (c.landscape ? 5 : 6);
-  const bottom = c.u.h - M - (c.portrait ? 6 : 0);
+  const bottom = footOf(c);
   const W = c.u.w - 2 * M;
   // As tall as the room, but never more than four type-heights a bar: a short race stands in the middle, not stretched.
   const h = clamp(Math.min(bottom - top, n * size * (c.portrait ? 5.2 : 4.2)), 12, Math.max(12, bottom - top));
@@ -545,10 +559,11 @@ function timeline(c: Kit): Layer[] {
     return settle(layers, c.seconds);
   }
 
-  // Down the start side.
+  // Down the start side, the last milestone's words above the bottom 30.3u of a portrait frame (`footOf`: six
+  // milestones used to reach 12u from the bottom, where a phone app's own buttons and caption lie).
   const lineX = M + 3;
   const top = head.bottom + 7;
-  const bottom = c.u.h - M - (c.portrait ? 6 : 0);
+  const bottom = footOf(c);
   const rowH = (bottom - top) / n;
   const first = top + Math.min(rowH * 0.3, 3);
   const span = n > 1 ? rowH * (n - 1) : 0;
@@ -800,13 +815,20 @@ function priceCard(c: Kit): Layer[] {
     const pw = Math.min(inner, emOf(plan, true) * planSize * 1.12 + planSize * 2.6);
     const py = next(planSize * 2.1);
     next(4);
+    // The plan's name is the accent on a tint of the accent, as a badge's is — where that reads. The pill sits at the
+    // top of the card, where its sheen is lightest, and there the accent on its own tint can fall under the 3:1 that
+    // bold words this size need (the card's own palette, royal, measured 3.0 in the app's check; paper does worse):
+    // then the name is set in the ink on the same tint. Worked out from the palette, so another palette decides anew.
+    const lit = mixColors(c.palette.bg, dark ? '#FFFFFF' : '#000000', dark ? 0.09 : 0.03);
+    const tint = mixColors(lit, c.palette.accent, 0.18);
+    const planInk = contrast(c.palette.accent, tint) >= 3.2 ? 'accent' : 'fg';
     layers.push(
       c.shape('plan-pill', {
         name: 'Plan pill', shape: 'rect', w: pw, h: planSize * 2.1, radius: planSize * 1.05, fill: 'accent', opacity: 0.18, pin: 'mc', x: 0, y: py,
         start: t0 + b.s(0.3), end: c.seconds, in: c.enter('pop', { d: b.s(T.quick), ease: E.pop, amount: 0.6 }), out: leave(),
       }),
       c.text('plan', {
-        text: plan, voice: 'sans', size: planSize, weight: 800, color: 'accent', align: 'center', caps: true, track: 0.14, lead: 1,
+        text: plan, voice: 'sans', size: planSize, weight: 800, color: planInk, align: 'center', caps: true, track: 0.14, lead: 1,
         max: pw - planSize, fit: true, pin: 'mc', x: 0, y: py, start: t0 + b.s(0.35), end: c.seconds, in: c.enter('fade', { d: b.s(0.4) }), out: leave(),
       }),
     );
@@ -869,21 +891,26 @@ function priceCard(c: Kit): Layer[] {
     const by = next(btnH);
     const at = priceIn + b.s(0.55 + features.length * 0.1);
     const box = { shape: 'rect' as const, w: inner, h: btnH, radius: btnH / 2, pin: 'mc' as const, x: 0, y: by };
+    const pop = c.enter('pop', { d: b.s(0.55), ease: E.pop, amount: 0.5 });
     layers.push(
       c.shape('button', {
-        name: 'Button', ...box, fill: sheen(0), start: at, end: c.seconds, in: c.enter('pop', { d: b.s(0.55), ease: E.pop, amount: 0.5 }), out: leave(),
+        name: 'Button', ...box, fill: sheen(0), start: at, end: c.seconds, in: pop, out: leave(),
       }),
       c.text('button-label', {
         name: 'Button label', text: button, voice: 'sans', size: featSize * 1.05, weight: 700, color: inkOn(c, sheen(0)), align: 'center', lead: 1,
         max: inner - btnH, fit: true, pin: 'mc', x: 0, y: by, start: at + b.s(0.12), end: c.seconds, in: c.enter('fade', { d: b.s(0.35) }), out: leave(),
       }),
     );
-    // One sweep of light across the button once everything has landed.
-    const shineAt = at + b.s(1.1);
-    const shineD = b.s(1);
-    if (shineAt + shineD < c.seconds - b.exit) {
+    // One sweep of light across the button as it pops in, gone by the gallery's still. The card's cover is drawn at
+    // `stillTime` (motionanim.ts), just after the last arrival; a sweep has no entrance of its own, so one that began
+    // after everything had landed was itself the last arrival, and the cover caught it a third of the way across the
+    // button. This one rides the button's own pop (it arrives with it, so it moves nothing), has no exit, and ends before
+    // the still worked out from the other layers — which it therefore cannot move.
+    const end = stillTime(settle(layers, c.seconds), c.seconds) - 0.05;
+    // At least as long as the pop it rides (else `settle` would shorten its entrance and it would drift off the button).
+    if (end - at >= Math.max(0.4, pop.d)) {
       layers.push(c.shape('button-shine', {
-        name: 'Shine', ...box, fill: '#ffffff00', opacity: 0.35, start: shineAt, end: shineAt + shineD, loop: c.loop('shimmer', { d: shineD }),
+        name: 'Shine', ...box, fill: '#ffffff00', opacity: 0.35, start: at, end, in: pop, loop: c.loop('shimmer', { d: end - at }),
       }));
     }
   }
@@ -903,14 +930,14 @@ function priceCard(c: Kit): Layer[] {
  */
 function progressStats(c: Kit): Layer[] {
   const b = beatOf(c);
-  const M = marginOf(c);
+  const M = sideOf(c);
   const items = itemsOf(c.fields.items ?? '', META['progress-stats'].fields[1].max, sampleOf(c, 'items'));
   const n = items.length;
   const cols = c.landscape ? n : c.portrait ? (n <= 3 ? 1 : 2) : n <= 3 ? n : 2;
   const rows = Math.ceil(n / cols);
   const head = headOf(c, b, 'center');
   const top = head.bottom + (c.landscape ? 6 : 7);
-  const bottom = c.u.h - M - (c.portrait ? 4 : 0);
+  const bottom = footOf(c);
   const cellW = (c.u.w - 2 * M) / cols;
   const cellH = (bottom - top) / rows;
   const labelSize = c.landscape ? 3.4 : c.portrait ? 3.8 : 3.2;

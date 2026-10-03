@@ -91,6 +91,16 @@ const STRETCH = 1.1;
 /** How much of its slot a label under a bar or a point may fill: the rest is the air between two labels. */
 const LABEL_ROOM = 0.88;
 
+/**
+ * Where a text that has to shrink is aimed: a little inside its room, not
+ * exactly at it. A face's width does not scale exactly with its size — in the
+ * app's WebKit a Badini label set at the size computed to fill its slot
+ * measured a hair wider than the slot — and a label that ends a hair past
+ * its room is cut with an ellipsis (`shorten`), which is how the portrait
+ * bar chart came to show "چارەکا سێ…" for a label with room to spare.
+ */
+const FIT = 0.97;
+
 /** Arabic script, where a label runs right to left whatever the document does. */
 const ARABIC = /\p{Script=Arabic}/u;
 
@@ -281,9 +291,10 @@ function widthOf(c: Chart, text: string): number {
 }
 
 /**
- * One size for a set of texts: `px`, or smaller until the widest fits `room`,
- * but never below `least` of it — past that a label is shortened instead,
- * because words too small to read are worse than a word cut short.
+ * One size for a set of texts: `px`, or smaller until the widest fits `room`
+ * (aimed at `FIT` of it, so it still fits as drawn), but never below `least`
+ * of it — past that a label is shortened instead, because words too small to
+ * read are worse than a word cut short.
  */
 function sizeFor(c: Chart, px: number, texts: string[], room: number, least = 0.7, number = false): number {
   let size = px;
@@ -291,7 +302,7 @@ function sizeFor(c: Chart, px: number, texts: string[], room: number, least = 0.
     if (!t) continue;
     setType(c, px, t, number);
     const w = widthOf(c, t);
-    if (w > room && w > 0) size = Math.min(size, (px * room) / w);
+    if (w > room && w > 0) size = Math.min(size, (px * room * FIT) / w);
   }
   return Math.max(px * least, size);
 }

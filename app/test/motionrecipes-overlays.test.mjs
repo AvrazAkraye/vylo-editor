@@ -12,7 +12,8 @@
 // same in every shape, so a selection survives a change of format; every layer
 // lives inside the graphic and finishes arriving before it starts to leave;
 // every frame draws only what a browser accepts, and the still the gallery
-// shows is not empty; an overlay's frame is transparent and its words stay
+// shows is not empty and catches no sweep of light half-way across the glass
+// (at any length); an overlay's frame is transparent and its words stay
 // inside the safe margin; and right to left is the mirror image of left to
 // right, box for box.
 import { makeCanvas, drewSomething } from './motioncanvas.mjs';
@@ -290,8 +291,10 @@ for (const id of IDS) {
     ok('lower third: the words end inside the plate, with headroom reaching into its end padding (SF Pro sets wider when small)',
       [by.name, by.role].every((l) => after(l) > 0 && after(l) < padStart), [after(by.name), after(by.role), padStart]);
   }
-  ok('lower third: a light crosses the glass once the words have landed',
-    by.shine?.loop?.fx === 'shimmer' && by.shine.start >= inDone(by.role) && by.shine.end - by.shine.start === by.shine.loop.d);
+  ok('lower third: a light crosses the glass as it settles, behind the words arriving, and has crossed by the gallery\'s still',
+    by.shine?.loop?.fx === 'shimmer' && by.shine.start > by.plate.start && by.shine.start < inDone(by.role)
+      && by.shine.end <= stillTime(doc.layers, doc.seconds) - 0.04 && by.shine.end - by.shine.start === by.shine.loop.d && by.shine.loop.d >= 0.7,
+    [by.shine?.start, by.shine?.end, stillTime(doc.layers, doc.seconds)]);
   const narrow = build('lower-third', 'en', 'landscape', { fields: { name: 'Al', role: 'Chef' } });
   const wide = build('lower-third', 'en', 'landscape', { fields: { name: 'Alexandra Konstantinopoulou-Smith', role: 'Head of International Partnerships' } });
   const plateW = (d) => d.layers.find((l) => l.id === 'lower-third-plate').w;
@@ -299,8 +302,9 @@ for (const id of IDS) {
   const tall = build('lower-third', 'en', 'portrait');
   const bottom = (d) => { const p = d.layers.find((l) => l.id === 'lower-third-plate'); return d.format === 'portrait' ? 177.78 / 2 - p.y : 50 - p.y; };
   ok('lower third: in portrait it sits higher', bottom(tall) > bottom(doc) + 10);
+  // A sweep that came back in a long hold was the last thing to arrive, so a long graphic's cover caught it instead.
   const long = build('lower-third', 'en', 'landscape', { seconds: 30 });
-  ok('lower third: a long hold gets more than one sweep of light', long.layers.filter((l) => l.loop?.fx === 'shimmer').length > 1);
+  ok('lower third: a long hold keeps the one sweep, so its cover is clean too', long.layers.filter((l) => l.loop?.fx === 'shimmer').length === 1);
 }
 {
   const doc = build('subscribe', 'en', 'landscape');
@@ -396,6 +400,30 @@ for (const id of IDS) {
     }
   }
   ok('every recipe\'s gallery still shows its words, settled', !off.length, off);
+}
+{
+  // The gallery's card and a graphic's cover are drawn at stillTime. A sweep of light caught there half-way across the
+  // glass reads as a smudge (the lower third and the handle did, in every shape and language): no sweep may be crossing
+  // then, at the recipe's own length, short or long, and adding the sweeps must not have moved the still.
+  const lit = [];
+  const moved = [];
+  for (const id of IDS) for (const lang of LANGS) for (const format of FORMATS) for (const seconds of [undefined, 1.5, 2.5, 12, 30]) {
+    const doc = build(id, lang, format, seconds ? { seconds } : {});
+    const still = stillTime(doc.layers, doc.seconds);
+    const sweeps = doc.layers.filter((l) => l.loop?.fx === 'shimmer');
+    for (const l of sweeps) if (l.start <= still && still < l.end) lit.push(`${id}/${lang}/${format}/${doc.seconds}s ${l.id} ${l.start}-${l.end} @${still}`);
+    if (sweeps.length && Math.abs(stillTime(doc.layers.filter((l) => !sweeps.includes(l)), doc.seconds) - still) > 1e-9) moved.push(`${id}/${lang}/${format}/${doc.seconds}s`);
+  }
+  ok('no sweep of light is crossing at the still the gallery and a cover show, at any length', !lit.length, lit.slice(0, 4));
+  ok('a sweep never moves the still: it is the same with the sweeps and without them', !moved.length, moved.slice(0, 4));
+  const handle = build('handle', 'en', 'landscape');
+  const pill = handle.layers.find((l) => l.id === 'handle-pill');
+  const shine = handle.layers.find((l) => l.id === 'handle-shine');
+  ok('handle: the light rides the pill\'s own slide, so it moves with the glass it lights', !!shine && same(shine.in, pill.in) && shine.start === pill.start);
+  const intro = build('intro', 'en', 'landscape');
+  const band = intro.layers.find((l) => l.id === 'intro-band');
+  const glint = intro.layers.find((l) => l.id === 'intro-shine');
+  ok('intro: the light rides the wide band\'s own wipe', !!glint && same(glint.in, band.in) && glint.start === band.start && glint.rot === band.rot);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
