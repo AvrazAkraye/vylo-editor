@@ -72,8 +72,10 @@ console.log('the original eighteen with no brand');
 {
   // sha256 of the JSON of every original template built with no fields, in every language and shape, at `now` 1, taken
   // from the commit before this package (c921d23). If a recipe is changed on purpose, this moves, and the new value is
-  // written here in the same commit, saying why.
-  const PINNED = 'e658d75f59b47e0cc11fdb15e1835d0b8dd26f36264d1dcb634879038ca5d4d9';
+  // written here in the same commit, saying why. Moved by W2-4 (template polish, docs/pro/w2-polish.md): the data
+  // templates keep their words inside the title-safe area (8.9u from the wide frame's sides, out of a portrait frame's
+  // bottom 30.3u), and the lower third, handle, logo reveal and intro sweep their light while landing, gone by the still.
+  const PINNED = '14aa64183f9446ebfa8083a451941754800579a2f2fb101ae4aa27c3fb1e7336';
   const h = createHash('sha256');
   for (const id of CORE_RECIPE_IDS) for (const lang of LANGUAGES) for (const format of FORMAT_IDS) {
     h.update(J(buildMotion({ id: 'x', recipe: id, lang, format, now: 1 })));

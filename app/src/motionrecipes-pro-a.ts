@@ -2,6 +2,7 @@ import type { Lang } from './i18n';
 import type { IconId, Layer, Paint, Shadow, Stroke, Voice } from './motiontypes';
 import { E, META, type Kit, type Recipe } from './motionrecipe';
 import { clamp, contrast, luminance } from './motionmath';
+import { safeArea } from './motiondirection';
 import type { PRO_A_IDS } from './motionids';
 
 /**
@@ -1252,6 +1253,26 @@ export function messagesOf(raw: unknown): ChatLine[] {
 }
 
 /**
+ * How fast words are read, as the app's quality check reckons it (`CHECK` in
+ * motioncheck.ts, which a template cannot import: the check imports the
+ * editor, which builds templates): 2.5 words a second, 2.2 in Arabic script; a
+ * text's load is the smaller of its words and its letters over five, since
+ * Kurdish writes particles as words of their own and joins others long; and a
+ * glance — three words and sixteen letters at most — is taken in at once. The
+ * template test holds these equal to the check's.
+ */
+export const READING = { wps: 2.5, wpsArabic: 2.2, letters: 5, glanceWords: 3, glanceLetters: 16 } as const;
+
+/** Seconds a message's words take to read, by `READING`: none for a glance. */
+function readNeed(text: string): number {
+  const s = text.trim();
+  const letters = (s.match(/[\p{L}\p{N}]/gu) ?? []).length;
+  const words = letters ? s.split(/\s+/).length : 0;
+  if (words <= READING.glanceWords && letters <= READING.glanceLetters) return 0;
+  return Math.min(words, letters / READING.letters) / (ARABIC_CHAR.test(s) ? READING.wpsArabic : READING.wps);
+}
+
+/**
  * A message bubble in a 100 × 100 box stretched to `w` × `h` u: round corners
  * but the sender's lower one, which is nearly square — the bubble's tail.
  * The radii are written per axis, so they are round again once stretched.
@@ -1296,8 +1317,10 @@ function chat(c: Kit): Layer[] {
   const given = messagesOf(c.fields.items ?? '');
   const msgs = given.length ? given : messagesOf(CHAT_SAMPLES[c.lang] ?? CHAT_SAMPLES.en);
   const contact = wordsOf(c.fields.name ?? '').join(' ');
+  // In portrait the conversation keeps out of the bottom 30.3u (`safeArea`), where a phone app lays its own buttons and
+  // caption over the video: six long messages used to reach 18u from the bottom.
   const z = c.landscape ? { col: 104, top: 9, bottom: 9, size: 4.1 }
-    : c.portrait ? { col: 88, top: 16, bottom: 18, size: 4.9 }
+    : c.portrait ? { col: 88, top: 16, bottom: safeArea(c.format).bottom, size: 4.9 }
       : { col: 88, top: c.feed ? 9 : 7, bottom: c.feed ? 9 : 7, size: c.feed ? 4.3 : 3.9 };
   const colX = r3((c.u.w - z.col) / 2);
   const avail = c.u.h - z.top - z.bottom;
@@ -1344,7 +1367,16 @@ function chat(c: Kit): Layer[] {
     return arrive;
   });
   const lastIn = natural[natural.length - 1] + POP;
-  const kc = clamp((S - EXIT - 0.8) / lastIn, 0.02, 1);
+  // A message stays to the end, so it can be read from half-way through its pop to half-way through the exit, as the
+  // app's check reads it; the last ones have the least of that. "All in 0.8 s before the exit" left a long one near the
+  // end short (a Sorani reply 0.2 s, a Badini one 0.3 s, at 8 s), so the conversation is also pressed together until
+  // every message has the time its words take (`readNeed`; the pop taken at its longest, so this errs toward time) —
+  // but only down to 0.35 of its pace, below which the typing dots go and the messages stop arriving in turn. A
+  // conversation too long for its graphic is pressed as it was, and the check's tip then says so.
+  const fits = (S - EXIT - 0.8) / lastIn;
+  const readBy = S - EXIT / 2 - POP / 2 - 0.05;
+  const reads = Math.min(...natural.map((when, i) => (readBy - readNeed(msgs[i].text)) / Math.max(1e-3, when)));
+  const kc = clamp(Math.min(fits, Math.max(reads, Math.min(fits, 0.35))), 0.02, 1);
   const T = (x: number) => r3(x * kc);
   const D = (x: number) => r3(Math.max(0.05, x * kc));
   const typing = kc >= 0.35;
@@ -1456,7 +1488,9 @@ function device(c: Kit): Layer[] {
   const beside = !c.portrait;
   const titleM: Measure = { voice: 'bold', weight: 800 };
   const subM: Measure = { voice: 'sans', weight: 500 };
-  const textStart = -c.u.w / 2 + m + 1;
+  // Inside the title-safe side the model is told about (`safeArea`: 8.9u on the wide frame), with half a u for a capital
+  // that overhangs its own start ("Your" set at 9u reached 8.8u in WebKit).
+  const textStart = -c.u.w / 2 + Math.max(m + 1, safeArea(c.format).side + 0.5);
   const room = beside ? r3(cx - W / 2 - 6 - textStart) : r3(c.u.w - 2 * m - 4);
   const zt = c.landscape ? { size: 8.2, sub: 3.6, lines: 3 } : c.portrait ? { size: 8.4, sub: 3.7, lines: 3 } : { size: c.feed ? 5.8 : 6, sub: 3, lines: 4 };
   const title = setBlock(c.fields.title ?? '', { size: zt.size, min: zt.size * 0.6, room, lines: zt.lines, m: titleM });

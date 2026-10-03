@@ -2,6 +2,7 @@ import type { Lang } from './i18n';
 import type { Anim, Gradient, IconId, Layer, Paint, RecipeId, Shadow } from './motiontypes';
 import { E, META, T, type Kit, type Recipe } from './motionrecipe';
 import { digitsFor, formatNumber } from './motionfonts';
+import { safeArea } from './motiondirection';
 
 /**
  * The data templates: one big number in a ring, a bar chart, a donut, a line
@@ -439,6 +440,19 @@ function beatOf(c: Kit): Beat {
 /** The frame's safe margin: wider on the wide frame, as titles are set there. */
 const marginOf = (c: Kit) => (c.landscape ? 8 : 6);
 
+/**
+ * Where words may go, in u: the margin above, or the title-safe area the model
+ * is told to keep and the check measures (`safeArea`, motiondirection.ts),
+ * whichever is further in. On the wide frame that is 8.9u from the sides
+ * rather than 8; on a portrait one it keeps the bottom 30.3u clear, where a
+ * phone app lays its own buttons and caption over the video — the figures'
+ * last label, the legend and the bar chart's names used to sit there. Elsewhere
+ * it is the margin as it was (6.3u rather than 6 under a 4:5 frame).
+ */
+const sideOf = (c: Kit) => Math.max(marginOf(c), safeArea(c.format).side);
+/** u from the top of the frame down to the lowest that words may reach. */
+const footOf = (c: Kit) => c.u.h - Math.max(marginOf(c), safeArea(c.format).bottom);
+
 /** A percent sign in the graphic's own writing: `٪` after Arabic-Indic digits. */
 function markOf(c: Kit, mark: string): string {
   const m = String(mark ?? '');
@@ -505,9 +519,9 @@ interface Head {
  * title is no title: the chart below it takes the room.
  */
 function headOf(c: Kit, b: Beat, align: 'start' | 'center'): Head {
-  const M = marginOf(c);
+  const M = sideOf(c);
   const text = (c.fields.title ?? '').trim();
-  if (!text) return { layers: [], bottom: M };
+  if (!text) return { layers: [], bottom: marginOf(c) };
   const full = c.landscape ? 6.4 : c.portrait ? 6.6 : 5.8;
   const max = c.u.w - 2 * M;
   const ems = wordsEm(text) * 1.1;
@@ -671,7 +685,7 @@ const BAR_EASE = E.enter;
  */
 function barChart(c: Kit): Layer[] {
   const b = beatOf(c);
-  const M = marginOf(c);
+  const M = sideOf(c);
   const items = itemsOf(c.fields.items ?? '', META['bar-chart'].fields[1].max, sampleOf(c, 'items'));
   const n = items.length;
   const unit = markOf(c, c.fields.unit ?? '');
@@ -681,7 +695,7 @@ function barChart(c: Kit): Layer[] {
   const longest = Math.max(...items.map((it) => wordsEm(it.label) * size));
   const horizontal = (c.portrait && n > 4) || longest > ((W / n) * 0.92) / 0.8;
   const top = head.bottom + (c.landscape ? 7 : 8);
-  const bottom = c.u.h - M;
+  const bottom = footOf(c);
   const room = Math.max(20, bottom - top);
   const h = horizontal ? Math.min(room, n * size * 3.6) : room;
   const layers: Layer[] = [
@@ -740,13 +754,13 @@ const IN_TOTAL: Readonly<Record<Lang, string>> = { en: 'in total', ar: 'بالم
  */
 function donut(c: Kit): Layer[] {
   const b = beatOf(c);
-  const M = marginOf(c);
+  const M = sideOf(c);
   const items = itemsOf(c.fields.items ?? '', META.donut.fields[1].max, sampleOf(c, 'items'));
   const n = items.length;
   const tones = tonesOf(n);
   const head = headOf(c, b, 'start');
   const top = head.bottom + (c.landscape ? 8 : 7);
-  const bottom = c.u.h - M;
+  const bottom = footOf(c);
   const side = c.landscape;
   const cols = !side && !c.portrait && n > 3 ? 2 : 1;
   const rows = Math.ceil(n / cols);
@@ -899,7 +913,7 @@ function donut(c: Kit): Layer[] {
  */
 function lineChart(c: Kit): Layer[] {
   const b = beatOf(c);
-  const M = marginOf(c);
+  const M = sideOf(c);
   const items = itemsOf(c.fields.items ?? '', META['line-chart'].fields[1].max, sampleOf(c, 'items'));
   const n = items.length;
   const unit = markOf(c, c.fields.unit ?? '');
@@ -954,7 +968,7 @@ function lineChart(c: Kit): Layer[] {
   const labelRow = font * 1.3 + 2.4;
   const above = beside ? tagH / 2 : tagH + tagGap + dotR;
   const top = head.bottom + (c.landscape ? 9 : 8) + above;
-  const bottom = c.u.h - M - labelRow;
+  const bottom = footOf(c) - labelRow;
   const Hc = Math.max(16, Math.min(bottom - top, beside ? 999 : Wc));
   const boxY = top + Math.max(0, bottom - top - Hc) * 0.4 + Hc / 2 - c.u.h / 2;
   // Where each point falls, as motioncharts.ts's `line` places it with its labels and values off.
@@ -1047,7 +1061,7 @@ function lineChart(c: Kit): Layer[] {
  */
 function stats(c: Kit): Layer[] {
   const b = beatOf(c);
-  const M = marginOf(c);
+  const M = sideOf(c);
   const items = itemsOf(c.fields.items ?? '', META.stats.fields[1].max, sampleOf(c, 'items'));
   const n = items.length;
   const stacked = c.portrait;
@@ -1056,7 +1070,7 @@ function stats(c: Kit): Layer[] {
   const marks = items.map((it) => ({ prefix: markOf(c, it.prefix), suffix: markOf(c, it.percent ? '%' : it.suffix) }));
   const widest = Math.max(...items.map((it, i) => figureEm(it.value, it.decimals, marks[i].prefix, marks[i].suffix, c.lang)));
   const top = head.bottom + (c.landscape ? 6 : 7);
-  const bottom = c.u.h - M;
+  const bottom = footOf(c);
   const at = (i: number) => b.s(0.45) + i * b.s(0.15);
 
   // One figure, centred on x: the badge, the number under it, the label under that (two lines at most, as a label is short).

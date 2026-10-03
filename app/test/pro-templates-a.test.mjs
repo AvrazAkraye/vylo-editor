@@ -17,7 +17,8 @@
 // and each template does what its comment says it does.
 import { readFileSync } from 'node:fs';
 import { makeCanvas, drewSomething } from './motioncanvas.mjs';
-import { PRO_A_RECIPES, notesOf, messagesOf } from '../.test-build/motionrecipes-pro-a.js';
+import { PRO_A_RECIPES, notesOf, messagesOf, READING } from '../.test-build/motionrecipes-pro-a.js';
+import { CHECK } from '../.test-build/motioncheck.js';
 import { buildMotion, RECIPES, sampleFields } from '../.test-build/motiontemplates.js';
 import { META, makeKit, paletteOf, PALETTE_IDS } from '../.test-build/motionrecipe.js';
 import { readLayer, readMotion } from '../.test-build/motionread.js';
@@ -486,6 +487,26 @@ ok('a line cut at the field\'s 80 characters mid-word ends in an ellipsis, not a
   const short = build('ui-chat', 'en', 'landscape', { seconds: 4 });
   ok('chat: a shorter graphic presses the conversation together, and every message has arrived before the exit',
     short.layers.filter((x) => /^ui-chat-message-\d$/.test(x.id)).every((m) => inDone(m) <= outStart(m) - 0.5));
+  ok('chat: its reading pace is the quality check\'s own (2.5 words a second, 2.2 in Arabic script, letters over five, a glance exempt)',
+    READING.wps === CHECK.wps && READING.wpsArabic === CHECK.wpsArabic && READING.letters === CHECK.letters
+      && READING.glanceWords === CHECK.glanceWords && READING.glanceLetters === CHECK.glanceLetters);
+  // Every message stays to the end, so the last ones have the least time; at 8 s a Sorani reply was 0.2 s short of
+  // what its words take, and a Badini one 0.3 s. Read as the check reads it: from half-way in to half-way out.
+  const short2 = [];
+  for (const lang of LANGS) for (const format of FORMATS) for (const seconds of [undefined, 6, 12]) {
+    const d = build('ui-chat', lang, format, seconds ? { seconds } : {});
+    for (const l of d.layers.filter((x) => /^ui-chat-message-\d-text$/.test(x.id))) {
+      const n = unitsOf(l);
+      const read = (l.end + outStart(l, n)) / 2 - (l.start + inDone(l, n)) / 2;
+      const s = l.text.trim();
+      const letters = (s.match(/[\p{L}\p{N}]/gu) ?? []).length;
+      const words = s.split(/\s+/).length;
+      const glance = words <= CHECK.glanceWords && letters <= CHECK.glanceLetters;
+      const need = glance ? 0 : Math.min(words, letters / CHECK.letters) / (/[؀-ۿ]/.test(s) ? CHECK.wpsArabic : CHECK.wps);
+      if (read < need) short2.push(`${lang}/${format}/${d.seconds}s ${l.id}: ${read.toFixed(2)} < ${need.toFixed(2)}`);
+    }
+  }
+  ok('chat: every message is on screen long enough to read, in every language and shape', !short2.length, short2.slice(0, 4));
 }
 {
   const wide = by(build('ui-device', 'en', 'landscape'));

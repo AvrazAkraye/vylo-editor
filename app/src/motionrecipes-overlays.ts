@@ -1,7 +1,8 @@
-import type { Layer, Paint, RecipeId, Shadow, Stroke, Voice } from './motiontypes';
+import type { Anim, Layer, Paint, RecipeId, Shadow, Stroke, Voice } from './motiontypes';
 import { E, META, type Kit, type Recipe } from './motionrecipe';
 import { clamp, contrast, luminance } from './motionmath';
 import { digitsFor, toArabicDigits } from './motionfonts';
+import { stillTime } from './motionanim';
 
 /**
  * The overlay and brand recipes: lower third, subscribe, callout, social
@@ -344,20 +345,38 @@ function burst(c: Kit, t0: number, o: { grow: number; d: number; from?: number; 
 }
 
 /**
- * One sweep of light across a shape: a copy of its outline with nothing in
- * it but the `shimmer` highlight, on for exactly one cycle so the band crosses
- * once and is gone. `n` sweeps, `every` seconds apart, for a long hold.
+ * One sweep of light across a shape — a copy of its outline with nothing in it
+ * but the `shimmer` highlight, on for exactly one cycle so the band crosses
+ * once — that has crossed by the graphic's still.
+ *
+ * The gallery's card and a graphic's cover are drawn at `stillTime`
+ * (motionanim.ts), a moment after the last layer has arrived. A sweep has no
+ * entrance, so one that started after the words had landed was itself the
+ * last arrival, and the cover caught it a third of the way across the glass,
+ * where it read as a smudge (with a long hold, the last of the repeated
+ * sweeps did the same, later). So there is one sweep, while the piece lands,
+ * and it is over by the still, which is worked out with that same function
+ * from `others`, the layers without it. It cannot move that still: it starts
+ * no later than they settle, and it has no exit.
+ *
+ * It wants to start at `at` and take `d`. When that would still be crossing
+ * at the still, it starts earlier, though not before `earliest` (when the
+ * shape it lights has landed), and is cut short at the still. With `ride` — the
+ * entrance of a shape that moves as it arrives — it starts with that shape at
+ * `earliest`, on the same entrance, so the light moves with what it lights,
+ * and takes until the still to cross. Under 0.4 s (or under the entrance it
+ * rides) is no sweep at all.
  */
-function shines(c: Kit, box: Record<string, unknown>, o: { at: number; d: number; until: number; opacity: number; every?: number; most?: number }): Layer[] {
-  const d = Math.max(0.4, o.d);
-  const out: Layer[] = [];
-  for (let i = 0, at = o.at; i < (o.most ?? 4) && at + d <= o.until; i++, at += o.every ?? 5) {
-    out.push(c.shape(i ? `shine-${i + 1}` : 'shine', {
-      ...box, name: i ? `Shine ${i + 1}` : 'Shine', fill: '#ffffff00', opacity: o.opacity,
-      start: at, end: at + d, loop: c.loop('shimmer', { d }),
-    }));
-  }
-  return out;
+function sweep(c: Kit, others: readonly Layer[], box: Record<string, unknown>, o: { at: number; d: number; earliest: number; opacity: number; ride?: Anim }): Layer[] {
+  const by = stillTime(others, c.seconds) - 0.05;
+  const start = o.ride ? o.earliest : Math.min(o.at, Math.max(o.earliest, by - o.d));
+  const end = o.ride ? by : Math.min(start + o.d, by);
+  // Never shorter than the entrance it rides: cut short, the entrance would no longer keep step with the shape's.
+  if (!(end - start >= Math.max(0.4, o.ride ? o.ride.delay + o.ride.d : 0))) return [];
+  return [c.shape('shine', {
+    ...box, name: 'Shine', fill: '#ffffff00', opacity: o.opacity, start, end, loop: c.loop('shimmer', { d: end - start }),
+    ...(o.ride ? { in: o.ride } : {}),
+  })];
 }
 
 // ── lower third ───────────────────────────────────────────────────────────
@@ -366,8 +385,9 @@ function shines(c: Kit, box: Record<string, unknown>, o: { at: number; d: number
  * Lower third. An accent bar grows up at the bottom-start corner; a glass
  * plate wipes out of it toward the end, and as it opens the name masks up
  * inside it and the role slides in underneath, each starting while the one
- * before is still landing. Once everything is still, a soft band of light
- * crosses the glass. It leaves the way it came — the words drop away, the
+ * before is still landing. As the plate settles a soft band of light crosses
+ * the glass, behind the words arriving, and is gone by the time all is still
+ * (`sweep`). It leaves the way it came — the words drop away, the
  * plate wipes back into the bar, the bar sinks — ending on the last frame.
  *
  * The corner is logical, so in Arabic and Kurdish the bar is on the right and
@@ -425,7 +445,6 @@ function lowerThird(c: Kit): Layer[] {
       start: at(0.2), end: until(0.12), in: plateIn, out: plateOut,
     }),
     c.shape('sheen', { name: 'Glass', ...plateBox, fill: SHEEN, start: at(0.2), end: until(0.12), in: plateIn, out: plateOut }),
-    ...shines(c, plateBox, { at: at(1.5), d: 1.1 * f, until: until(0.9), opacity: 0.2 }),
   ];
   if (nameH && name) {
     layers.push(c.text('name', {
@@ -441,6 +460,8 @@ function lowerThird(c: Kit): Layer[] {
       in: c.enter('slide', { dir: 'start', amount: 0.3, d: 0.7 * f }), out: c.leave('slide', { dir: 'start', amount: 0.3, d: 0.36 * f }),
     }));
   }
+  // Over the glass, under the words: from when the plate has all but opened (its wipe is nine tenths there) to the still.
+  layers.splice(3, 0, ...sweep(c, layers, plateBox, { at: at(1.5), d: 1.1 * f, earliest: at(0.2) + 0.55 * f, opacity: 0.2 }));
   return layers;
 }
 
@@ -692,8 +713,9 @@ function callout(c: Kit): Layer[] {
  * Social handle. A glass pill springs in from the start side — overshooting
  * a hair and settling — holding a round accent badge with an `@`, the caption
  * in small capitals and the handle under it. Everything in it moves as one
- * piece, so nothing slips inside the pill. Once it has settled, a band of
- * light crosses it; at the end it slides back out the way it came.
+ * piece, so nothing slips inside the pill. A band of light rides in with it
+ * and has crossed it by the time it has settled (`sweep`); at the end it
+ * slides back out the way it came.
  *
  * The caption sits inside the pill, not above it on the footage, so both lines
  * read over anything. With no caption the pill is shorter and holds the handle
@@ -702,8 +724,6 @@ function callout(c: Kit): Layer[] {
 function handle(c: Kit): Layer[] {
   const f = paceOf(c);
   const S = c.seconds;
-  const at = (s: number) => s * f;
-  const until = (s: number) => S - s * f;
   const g = glassOf(c);
   const m = marginOf(c);
   const k = c.portrait ? { h: 12.4, size: 4, cap: 2.4, bottom: 30 }
@@ -738,7 +758,6 @@ function handle(c: Kit): Layer[] {
     // No shadow: the pill fades as it slides, and a plate that fades is kept flat (see `glassOf`).
     c.shape('pill', { name: 'Pill', ...pillBox, ...moving, fill: g.fill, opacity: g.opacity, stroke: g.stroke }),
     c.shape('sheen', { name: 'Glass', ...pillBox, ...moving, fill: SHEEN }),
-    ...shines(c, pillBox, { at: at(1.05), d: 1 * f, until: until(0.6), opacity: 0.24 }),
     c.shape('badge', {
       name: 'Badge', shape: 'ellipse', pin: 'ms', x: m + inset, y: y(mid), w: D, h: D, fill: 'accent', ...moving,
     }),
@@ -761,6 +780,8 @@ function handle(c: Kit): Layer[] {
       max: roomy(inner, padE), fit: true, ...moving,
     }));
   }
+  // On the pill's own slide, so the light moves with the glass it lights, over the glass and under the badge.
+  layers.splice(2, 0, ...sweep(c, layers, pillBox, { at: 0, d: 1 * f, earliest: 0, opacity: 0.24, ride: slideIn }));
   return layers;
 }
 
@@ -874,7 +895,6 @@ function logoReveal(c: Kit): Layer[] {
       fill: { kind: 'linear', angle: 90, stops: [{ at: 0, color: 'rgba(255,255,255,.28)' }, { at: 0.5, color: 'rgba(255,255,255,0)' }] },
       stroke: { color: 'rgba(255,255,255,.22)', width: 0.22, cap: 'round' },
     }),
-    ...shines(c, { shape: 'rect', ...badgeBox }, { at: at(1.0), d: 0.9 * f, until: until(0.5), opacity: 0.75, every: 4 }),
     c.text('mark', {
       name: 'Badge letters', text: mark, pin: 'mc', x: badge.x, y: badge.y - B * 0.01, size: B * (Array.from(mark).length > 1 ? 0.46 : 0.56),
       weight: 800, voice: 'bold', color: ink, align: 'center', lead: 1, max: B * 0.82, fit: true, start: at(0.23), end: until(0),
@@ -895,6 +915,10 @@ function logoReveal(c: Kit): Layer[] {
       in: c.enter('rise', { amount: 0.5, d: 0.8 * f }), out: c.leave('fade', { d: 0.35 * f }),
     }));
   }
+  // Once, across the landed badge while the words come in, over its light and under its letters. (It used to come
+  // back every four seconds of a long hold, and the cover then caught the last pass instead.)
+  const light = layers.findIndex((l) => l.id === c.id('badge-light')) + 1;
+  layers.splice(light, 0, ...sweep(c, layers, { shape: 'rect', ...badgeBox }, { at: at(1.0), d: 0.9 * f, earliest: at(0.15) + 0.7 * f, opacity: 0.75 }));
   return layers;
 }
 
@@ -1006,9 +1030,10 @@ function countdown(c: Kit): Layer[] {
  * Intro sting. Three bands sweep across the frame on a slant, one after
  * another — a thin one, the wide accent band, a hairline — and the title snaps
  * onto the wide band, overshooting, with a flash and a spray of sparks; the
- * subtitle masks up under the bands. A light runs along the band while it
- * holds. Then the words go, and the bands sweep on off the far side, so the
- * sting leaves in the direction it arrived.
+ * subtitle masks up under the bands. A light rides in with the wide band and
+ * runs along it, gone by the time the words have settled (`sweep`). Then the
+ * words go, and the bands sweep on off the far side, so the sting leaves in
+ * the direction it arrived.
  *
  * The whole composition is turned 7° as one piece — every layer is placed
  * along the turned axis, not just turned where it stands — and right to left
@@ -1062,7 +1087,6 @@ function intro(c: Kit): Layer[] {
     band('band-top', 'Band above', top, 2.6, 'accent2', 0, 0.1),
     band('band', 'Band', 0, bandH, fill, 0.07, 0.05),
     band('band-low', 'Band below', low, 1.1, 'fg', 0.14, 0),
-    ...shines(c, mainBox, { at: at(1.35), d: 0.9 * f, until: until(1.05), opacity: 0.4, every: 4 }),
     c.shape('flash', {
       name: 'Flash', shape: 'rect', pin: 'mc', w: c.u.w, h: c.u.h, start: titleAt, end: titleAt + at(0.35), blend: 'screen',
       fill: { kind: 'radial', angle: 0, stops: [{ at: 0, color: 'rgba(255,255,255,.22)' }, { at: 0.7, color: 'rgba(255,255,255,0)' }] },
@@ -1085,6 +1109,9 @@ function intro(c: Kit): Layer[] {
       in: c.enter('mask', { by: 'line', gap: 0.08, d: 0.6 * f }), out: c.leave('mask', { by: 'line', gap: 0.05, d: 0.32 * f }),
     }));
   }
+  // On the wide band's own wipe (`band` above), over the bands and under the flash and the words.
+  const ride = c.enter('wipe', { dir: 'start', d: 0.55 * f });
+  layers.splice(4, 0, ...sweep(c, layers, mainBox, { at: at(0.07), d: 0.9 * f, earliest: at(0.07), opacity: 0.4, ride }));
   return layers;
 }
 
