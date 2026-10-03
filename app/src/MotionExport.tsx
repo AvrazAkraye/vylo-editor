@@ -79,7 +79,10 @@ import {
  * Nothing here writes unless the person pressed the button for that exact
  * file, and what is written is the graphic as it was when they pressed it
  * (SAFETY.md's rule, the same as Video's downloads). Download never replaces a
- * file: Rust saves at the first free name and says which. No request leaves
+ * file: Rust saves at the first free name and says which. Save as… replaces one
+ * only once the new file is whole on the disk, so a full disk keeps the old
+ * file; a full, read-only or forbidden disk is said in a plain sentence
+ * (`sentence`, `diskTrouble`) rather than in the system's words. No request leaves
  * the machine: rendering and encoding are this window's own canvas, WebCodecs
  * and `motiongif.ts`. And no `<video>` element, ever — this webview once
  * deadlocked in one — so a finished film is opened in the system's player
@@ -199,8 +202,50 @@ function abortError(): Error {
     : Object.assign(new Error('Aborted'), { name: 'AbortError' });
 }
 
-/** A failure as the sentence the person reads. The engine's codes are ours; anything else is explained. */
-function sentence(e: unknown, t: T): string {
+/** Windows, whose error numbers are its own and whose error words are in the system's language. */
+const IS_WINDOWS = typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent);
+
+/** A reason the disk gave for not taking the file that a person can do something about. */
+export type DiskTrouble = 'full' | 'read-only' | 'denied';
+
+/**
+ * Why the disk would not take the file, read from Rust's refusal. `video.rs` says `<the path>: <the system's words>`,
+ * and the system's words end `(os error N)`: `/Users/a/Downloads/promo.mp4: No space left on device (os error 28)`.
+ * Only that end is read — a folder can be called anything, "No space left" and "(os error 28)" included, and the
+ * path comes first.
+ *
+ * The number decides, not the words. macOS and Linux share the numbers that matter here (ENOSPC 28, EROFS 30,
+ * EACCES 13, EPERM 1) and spell them in English, because Rust asks the C library, which answers in its own
+ * locale. Their one difference is the quota (EDQUOT: 69 on macOS, 122 on Linux, each a number the other uses for
+ * something else), so there the words confirm it. Windows writes its words in the system's language and numbers
+ * its errors its own way — 5 is "access denied" there and an I/O error on a Mac — so on Windows only its numbers
+ * are read: ERROR_DISK_FULL 112, ERROR_HANDLE_DISK_FULL 39, ERROR_DISK_QUOTA_EXCEEDED 1295,
+ * ERROR_WRITE_PROTECT 19, ERROR_ACCESS_DENIED 5. Anything else is `null`, and is explained as it was.
+ */
+export function diskTrouble(message: string, windows = IS_WINDOWS): DiskTrouble | null {
+  const end = /([^:]*)\(os error (\d+)\)\s*$/.exec(message);
+  if (!end) return null;
+  const words = end[1];
+  const code = Number(end[2]);
+  if (windows) {
+    if (code === 112 || code === 39 || code === 1295) return 'full';
+    if (code === 19) return 'read-only';
+    if (code === 5) return 'denied';
+    return null;
+  }
+  if (code === 28) return 'full';
+  if ((code === 69 || code === 122) && /quota exceeded/i.test(words)) return 'full';
+  if (code === 30) return 'read-only';
+  if (code === 13 || code === 1) return 'denied';
+  return null;
+}
+
+/**
+ * A failure as the sentence the person reads. The engine's codes are ours; a disk that is full, read-only or not
+ * ours to write is said plainly, with what to do, in the person's language (the system's own words for it are
+ * English, or a number); anything else is explained.
+ */
+export function sentence(e: unknown, t: T, windows = IS_WINDOWS): string {
   const msg = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
   if (msg === 'motion:no-encoder') return t('This window cannot make an MP4 here. Save a PNG instead.');
   if (msg === 'motion:too-large') return t('The video is too large to save. Choose a smaller size, or make it shorter.');
@@ -211,6 +256,11 @@ function sentence(e: unknown, t: T): string {
     const why = msg.slice('motion:encode-failed'.length).replace(/^:\s*/, '').trim();
     return fill(t('The video could not be encoded: {why}'), { why: why || msg });
   }
+  // A full disk keeps the old file (Save as… replaces only once the new one is whole) and leaves no partial one.
+  const trouble = diskTrouble(msg, windows);
+  if (trouble === 'full') return t('The disk is full. Free some space, or save somewhere else.');
+  if (trouble === 'read-only') return t('This disk is read-only. Save somewhere else.');
+  if (trouble === 'denied') return t('Saving there is not allowed. Save somewhere else, or check the permissions.');
   return explain(e, t('save the file'));
 }
 

@@ -3348,6 +3348,10 @@ const ar: Dict = {
   'With sound: effects made from the animation.': 'مع الصوت: مؤثرات مصنوعة من الحركة.',
   'With sound: music ({mood}).': 'مع الصوت: موسيقى ({mood}).',
   'With sound: effects and music ({mood}).': 'مع الصوت: مؤثرات وموسيقى ({mood}).',
+  // Motion pro: F4 robust — a disk that is full, read-only or not ours to write, said plainly (MotionExport.tsx `sentence`).
+  'The disk is full. Free some space, or save somewhere else.': 'القرص ممتلئ. حرّر بعض المساحة، أو احفظ في مكان آخر.',
+  'This disk is read-only. Save somewhere else.': 'هذا القرص للقراءة فقط. احفظ في مكان آخر.',
+  'Saving there is not allowed. Save somewhere else, or check the permissions.': 'الحفظ في ذلك المكان غير مسموح. احفظ في مكان آخر، أو تحقّق من الأذونات.',
 };
 
 const ckb: Dict = {
@@ -6675,6 +6679,10 @@ const ckb: Dict = {
   'With sound: effects made from the animation.': 'لەگەڵ دەنگ: ئێفێکتی دروستکراو لە جووڵەکەوە.',
   'With sound: music ({mood}).': 'لەگەڵ دەنگ: مۆسیقا ({mood}).',
   'With sound: effects and music ({mood}).': 'لەگەڵ دەنگ: ئێفێکت و مۆسیقا ({mood}).',
+  // Motion pro: F4 robust — a disk that is full, read-only or not ours to write, said plainly (MotionExport.tsx `sentence`).
+  'The disk is full. Free some space, or save somewhere else.': 'دیسکەکە پڕە. هەندێک شوێن بەتاڵ بکەرەوە، یان لە شوێنێکی تر پاشەکەوتی بکە.',
+  'This disk is read-only. Save somewhere else.': 'ئەم دیسکە تەنها بۆ خوێندنەوەیە. لە شوێنێکی تر پاشەکەوتی بکە.',
+  'Saving there is not allowed. Save somewhere else, or check the permissions.': 'پاشەکەوتکردن لەو شوێنە ڕێگەپێنەدراوە. لە شوێنێکی تر پاشەکەوتی بکە، یان مۆڵەتەکان بپشکنە.',
 };
 
 const kmr: Dict = {
@@ -10000,6 +10008,10 @@ const kmr: Dict = {
   'With sound: effects made from the animation.': 'دگەل دەنگی: ئێفێکتێن ژ لڤینێ هاتینە چێکرن.',
   'With sound: music ({mood}).': 'دگەل دەنگی: مۆسیقا ({mood}).',
   'With sound: effects and music ({mood}).': 'دگەل دەنگی: ئێفێکت و مۆسیقا ({mood}).',
+  // Motion pro: F4 robust — a disk that is full, read-only or not ours to write, said plainly (MotionExport.tsx `sentence`).
+  'The disk is full. Free some space, or save somewhere else.': 'دیسک تژییە. هندەک جهێ ڤالا بکە، یان ل جهەکێ دی پاشەکەفت بکە.',
+  'This disk is read-only. Save somewhere else.': 'ئەڤ دیسکە تنێ بۆ خواندنێیە. ل جهەکێ دی پاشەکەفت بکە.',
+  'Saving there is not allowed. Save somewhere else, or check the permissions.': 'پاشەکەفتکرن ل وی جهی نەهاتیە ڕێپێدان. ل جهەکێ دی پاشەکەفت بکە، یان دەستویران بپشکنە.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
