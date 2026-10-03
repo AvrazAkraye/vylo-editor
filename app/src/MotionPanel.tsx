@@ -9,13 +9,14 @@ import type { EffortBook } from './effort';
 import { dateText, locale } from './fmt';
 import type { Format, Motion, RecipeId } from './motiontypes';
 import { TABS, type Change, type OnEdit, type Tab } from './motionui';
-import { bind, pause, play, reset, seek } from './motionplay';
+import { bind, pause, play, read, reset, seek } from './motionplay';
 import { stillTime } from './motionanim';
-import { duplicateLayer, removeLayer, setLayer } from './motionedit';
+import { duplicateLayer, placeAdded, removeLayer, setLayer } from './motionedit';
 import { RECIPES, buildMotion } from './motiontemplates';
 import { META, PALETTES, type PaletteId } from './motionrecipe';
+import { kitOptionsWithBrand } from './motionbrand';
 import { canRedo, canUndo, emptyHistory, redone, synced, undone, type MotionHistory } from './motionhistory';
-import { deleteMotion, loadMotions, saveMotion } from './motionstore';
+import { currentBrand, deleteMotion, loadBrand, loadMotions, saveMotion } from './motionstore';
 import { planMotion, planned, refineMotion, type PlanRequest } from './motionai';
 import {
   LENGTHS, SHAPES, TOP_TEMPLATES, answerFate, canMake, clock, dragChanged, endStep, errorText, fitWidth, formatName, formatRatio,
@@ -30,6 +31,9 @@ import { MotionHome } from './MotionHome';
 import { MotionThumb } from './MotionThumb';
 import { MotionExport, dropExports } from './MotionExport';
 import { MotionChat } from './MotionChat';
+import { MotionChecks } from './MotionChecks';
+import { MotionSoundPreview } from './MotionSoundPanel';
+import { MotionScenes } from './MotionScenes';
 
 /**
  * Motion, in the sidebar and over the whole window: describe an animated
@@ -62,6 +66,25 @@ import { MotionChat } from './MotionChat';
  *
  * Templates never ask a model: a template is built here from its recipe and
  * the language's sample words, with no key and no network.
+ *
+ * ## The pro pass, mounted quietly (docs/pro/w2-panel.md)
+ *
+ * Each new part is one line on the screen, and only where the work is:
+ *
+ * - the **quality check** (MotionChecks.tsx): a chip in a row of its own under
+ *   the stage, on its end side — not in the transport, which is left to right
+ *   in every language — in the sidebar and in the full window alike;
+ * - **sound** (MotionSoundPanel.tsx): a row in Design, and one silent
+ *   `MotionSoundPreview` wherever a graphic is open, which keeps the sound
+ *   with the playhead;
+ * - **scenes** (MotionScenes.tsx): the strip above the full window's
+ *   timeline, a single quiet "+ Scene" until there are two;
+ * - the **brand kit** (MotionBrandKit.tsx): a button beside Design's colours.
+ *   A template started here is built in the kit (`kitOptionsWithBrand`), which
+ *   is loaded once, with the graphics.
+ *
+ * A layer added in Layers while the graphic has scenes goes into the scene
+ * under the playhead (`placeAdded`, motionedit.ts).
  */
 
 export interface MotionProps {
@@ -662,6 +685,21 @@ function Waiting({ t, doc, big, idle }: { t: T; doc: Motion; big?: boolean; idle
   );
 }
 
+/**
+ * The quality check's chip, in a row of its own under the stage, on the row's
+ * end side. Its own row and not the transport's: the transport is left to
+ * right in every language, and the tips' sentences must follow the
+ * interface's direction. A repair is one edit, so one undo step; a tip with a
+ * layer chooses it.
+ */
+function Checks({ t, doc, onEdit }: { t: T; doc: Motion; onEdit: OnEdit }) {
+  return (
+    <div className="mo-checks">
+      <MotionChecks t={t} doc={doc} onApply={(next) => onEdit(() => next)} onSelect={select} />
+    </div>
+  );
+}
+
 /** The model's numbers are examples: said above the stage until dismissed, once a graphic. */
 function Examples({ t, id }: { t: T; id: string }) {
   if (!examples.has(id)) return null;
@@ -687,6 +725,8 @@ export function MotionPanel({ t, lang, gw, efforts, onProviders, onError }: Moti
   useEffect(() => {
     if (loaded) return;
     loaded = true;
+    // The brand kit, once: the sidebar's templates start in it too, and the sidebar never mounts Home, which loads its own.
+    void loadBrand();
     void loadMotions().then((list) => {
       // Edits the last session could not write as it closed are put back, and written now.
       const kept = withJournal(list, recovered());
@@ -733,7 +773,9 @@ export function MotionPanel({ t, lang, gw, efforts, onProviders, onError }: Moti
 
   const startTemplate = (id: RecipeId) => {
     const o = templateOptions(draft);
-    const built = buildMotion({ id: newId(), recipe: id, lang, format: o.format, palette: o.palette, request: '' });
+    // In the brand kit, when there is one: its colours unless a palette was picked (Auto leaves `palette` undefined),
+    // its name in the fields that are the brand's, its face and logo. With no kit, these are the options as they are.
+    const built = buildMotion(kitOptionsWithBrand({ id: newId(), recipe: id, lang, format: o.format, palette: o.palette, request: '' }, currentBrand()));
     // The sample words name it; a template whose sample gives none is called by its name, in the interface's language.
     const m = built.title === META[id].name ? { ...built, title: t(META[id].name) } : built;
     keep(m);
@@ -942,8 +984,10 @@ export function MotionPanel({ t, lang, gw, efforts, onProviders, onError }: Moti
           <Examples t={t} id={open.id} />
           <div className="mo-full-canvas">
             <MotionStage t={t} doc={open} selected={sel} onSelect={select} onMove={(id, x, y, commit) => move(open.id, id, x, y, commit)} />
+            <Checks t={t} doc={open} onEdit={onEdit} />
           </div>
           <div className="mo-full-time">
+            <MotionScenes t={t} doc={open} onEdit={onEdit} />
             <MotionTimeline t={t} doc={open} selected={sel} onSelect={select} onEdit={onEdit} />
           </div>
         </>
@@ -1253,6 +1297,8 @@ function View({ t, doc, job, making, ready, inFull, sel, log, onEdit, onRemove, 
 
   const meta = [formatName(doc.format, t), !making && !unfinished ? secondsText(doc.seconds, t) : ''].filter(Boolean).join(' · ');
   const tabNow = tab;
+  // Layers' edits, with a layer it adds put in the scene under the playhead (read when the edit lands) when there are scenes.
+  const inScene: OnEdit = (change, key) => onEdit((m) => placeAdded(m, change(m), read().t), key);
   // A tab list as the keyboard works one: a single Tab stop, and the arrows, Home and End go from tab to tab and open it.
   const onTabKey = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
@@ -1317,11 +1363,14 @@ function View({ t, doc, job, making, ready, inFull, sel, log, onEdit, onRemove, 
 
       {!making && !unfinished && (
         <>
+          {/* The one player of the open graphic's sound, in the sidebar and the full window alike (this view is in both). */}
+          <MotionSoundPreview doc={doc} />
           {!inFull && <Examples t={t} id={doc.id} />}
           {!inFull && (
             <MotionStage t={t} doc={doc} selected={sel} onSelect={select} compact
                          onMove={(id, x, y, commit) => move(doc.id, id, x, y, commit)} />
           )}
+          {!inFull && <Checks t={t} doc={doc} onEdit={onEdit} />}
           {busy && tabNow !== 'ask' && (
             <p className="mo-answering" role="status">
               <span className="vid-glyph" aria-hidden="true">✻</span>
@@ -1340,7 +1389,7 @@ function View({ t, doc, job, making, ready, inFull, sel, log, onEdit, onRemove, 
           </div>
           <div className="mo-tabs-panel" role="tabpanel" id="mo-tab-panel" aria-labelledby={`mo-tab-${tabNow}`}>
             {tabNow === 'design' && <MotionDesign t={t} doc={doc} selected={sel} onSelect={select} onEdit={onEdit} />}
-            {tabNow === 'layers' && <MotionLayers t={t} doc={doc} selected={sel} onSelect={select} onEdit={onEdit} />}
+            {tabNow === 'layers' && <MotionLayers t={t} doc={doc} selected={sel} onSelect={select} onEdit={inScene} />}
             {tabNow === 'ask' && (
               <MotionChat t={t} doc={doc} ready={ready} busy={busy} log={log} onSend={onSend}
                           onStop={() => stop(doc.id)} onProviders={onProviders} />

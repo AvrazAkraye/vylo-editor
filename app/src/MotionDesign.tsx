@@ -6,6 +6,9 @@ import type { InspectorProps, T } from './motionui';
 import { setBackdrop, setFields, setFormat, setFps, setLang, setPalette, setSeconds, setTitle } from './motionedit';
 import { readTitle } from './motionread';
 import { META, PALETTES, type Field } from './motionrecipe';
+import { withSound } from './motionsound';
+import { MotionSoundPanel } from './MotionSoundPanel';
+import { MotionBrandKit } from './MotionBrandKit';
 
 /**
  * The Design tab: the graphic as a whole, not one layer of it — its words,
@@ -37,6 +40,16 @@ import { META, PALETTES, type Field } from './motionrecipe';
  * typed at the end of a word, under the caret. A box shows what was typed
  * while it has the focus, and takes the graphic's copy when that says
  * something else (an undo, a change made elsewhere) and when it is left.
+ *
+ * ## Sound and the brand (pro pass)
+ *
+ * Two lines, no more: the graphic's sound as one row of its own after the
+ * length (MotionSoundPanel.tsx — Off until somebody chooses; the moods and the
+ * level appear only once it sounds), and the brand kit's button beside the
+ * Colours heading (MotionBrandKit.tsx), where it can also re-skin this
+ * graphic. Both change the graphic through `onEdit` like everything else: the
+ * sound is applied to the newest copy (`withSound`) under one key, so a level
+ * dragged across is one undo step.
  */
 
 /** The length chips: a sting, a title, a lower third, a chart, a long loop. */
@@ -183,11 +196,29 @@ function LengthSlider({ t, id, seconds, onCommit }: { t: T; id: string; seconds:
   );
 }
 
-function Section({ title, children }: { title: string; children: (id: string) => ReactNode }) {
+/**
+ * The brand kit's button, and its sheet brought into view when it opens: it hangs below the Colours heading, in the
+ * middle of a column that scrolls, and would otherwise open half under the column's edge.
+ */
+function BrandSlot({ children }: { children: ReactNode }) {
+  const box = useRef<HTMLSpanElement>(null);
+  const reveal = () => requestAnimationFrame(() => box.current?.querySelector('.mb-sheet')?.scrollIntoView({ block: 'nearest' }));
+  return <span className="mo-de-brand" ref={box} onClickCapture={reveal}>{children}</span>;
+}
+
+/** A section of the tab under its heading; `aside` is a quiet control on the heading's line, at its end. */
+function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: (id: string) => ReactNode }) {
   const id = useId();
   return (
     <section className="mo-de-sec" aria-labelledby={id}>
-      <h3 className="mo-de-h" id={id}>{title}</h3>
+      {aside
+        ? (
+          <div className="mo-de-head">
+            <h3 className="mo-de-h" id={id}>{title}</h3>
+            {aside}
+          </div>
+        )
+        : <h3 className="mo-de-h" id={id}>{title}</h3>}
       {children(id)}
     </section>
   );
@@ -357,6 +388,11 @@ export function MotionDesign(p: InspectorProps) {
         )}
       </Section>
 
+      {/* One row, its own label for a heading: Off, Effects, Music, Both. */}
+      <div className="mo-de-sec mo-de-sound">
+        <MotionSoundPanel t={t} doc={doc} onChange={(next) => onEdit((m) => withSound(m, next.sound), 'sound')} />
+      </div>
+
       <Section title={t('Language of the words')}>
         {(id) => (
           <>
@@ -373,7 +409,7 @@ export function MotionDesign(p: InspectorProps) {
         )}
       </Section>
 
-      <Section title={t('Colours')}>
+      <Section title={t('Colours')} aside={<BrandSlot><MotionBrandKit t={t} doc={doc} onChange={(next) => onEdit(() => next)} /></BrandSlot>}>
         {(id) => (
           <>
             <div className="vid-styles mo-de-pals" role="group" aria-labelledby={id}>

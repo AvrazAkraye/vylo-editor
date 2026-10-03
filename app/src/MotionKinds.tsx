@@ -84,11 +84,14 @@ export function shapeName(s: Shape, t: T): string {
 }
 
 export function chartName(c: Chart, t: T): string {
-  if (c === 'bars') return t('Bars');
-  if (c === 'hbars') return t('Bars across');
-  if (c === 'line') return t('Line chart');
-  if (c === 'donut') return t('Donut');
-  return t('Ring');
+  switch (c) {
+    case 'bars': return t('Bars');
+    case 'hbars': return t('Bars across');
+    case 'line': return t('Line chart');
+    case 'donut': return t('Donut');
+    case 'race': return t('Race');
+    default: return t('Ring');
+  }
 }
 
 export function backdropName(b: Backdrop, t: T): string {
@@ -99,7 +102,30 @@ export function backdropName(b: Backdrop, t: T): string {
     case 'rays': return t('Rays');
     case 'waves': return t('Waves');
     case 'bokeh': return t('Bokeh');
+    case 'grain': return t('Grain');
+    case 'vignette': return t('Vignette');
+    case 'lightleak': return t('Light leak');
+    case 'scanlines': return t('Scan lines');
+    case 'halftone': return t('Halftone');
     default: return t('Stripes');
+  }
+}
+
+/**
+ * What a background's Density and Speed sliders do, in the words of its style.
+ * The five finishes (motionbackdrop.ts: grain, vignette, light leak, scan
+ * lines, halftone — made to lie over a picture, where the seven grounds lie
+ * under words) each read the two their own way, so the inspector names them as
+ * that finish means them; a ground keeps Density and Speed.
+ */
+function backdropSliders(b: Backdrop, t: T): { density: string; speed: string } {
+  switch (b) {
+    case 'grain': return { density: t('Coarseness'), speed: t('Flicker') };
+    case 'vignette': return { density: t('Reach'), speed: t('Breathing') };
+    case 'lightleak': return { density: t('Strength'), speed: t('Blooms') };
+    case 'scanlines': return { density: t('Fineness'), speed: t('Rolls') };
+    case 'halftone': return { density: t('Fineness'), speed: t('Flow') };
+    default: return { density: t('Density'), speed: t('Speed') };
   }
 }
 
@@ -637,14 +663,20 @@ function DataTable({ t, layer, update }: { t: T; layer: ChartLayer; update: Kind
 export function ChartContent({ t, layer, doc, set, update }: KindProps<ChartLayer>) {
   const types: Choice<Chart>[] = CHARTS.map((c) => ({ value: c, label: chartName(c, t), glyph: c }));
   const round = layer.chart === 'line' || layer.chart === 'donut' || layer.chart === 'ring';
+  // A race keeps its earlier periods in each label, after a bar (motioncharts.ts, "The race"), and its scale is always
+  // the leader's: it has no top of its own to set.
+  const race = layer.chart === 'race';
   return (
     <>
       <SegField label={t('Kind')} value={layer.chart} choices={types} onChange={(chart) => set({ chart }, 'chart')} />
       <SizeRow t={t} w={layer.w} h={layer.h} onW={(w) => set({ w }, 'w')} onH={(h) => set({ h }, 'h')} />
       <DataTable t={t} layer={layer} update={update} />
+      {race && <p className="mo-hint">{t('Earlier values go in the label after a |, like Rome|12 18 25. The value is the last one.')}</p>}
       <ColoursField t={t} label={t('Colours')} colors={layer.colors} doc={doc} max={LIMITS.colors}
                     onChange={(fn) => update('colors', (l) => ({ colors: fn(l.colors) }))} />
-      <NumberField label={t('Max')} value={layer.max} min={0} max={1e12} step={1} digits={3} zero={t('Auto')} onChange={(max) => set({ max }, 'max')} />
+      {!race && (
+        <NumberField label={t('Max')} value={layer.max} min={0} max={1e12} step={1} digits={3} zero={t('Auto')} onChange={(max) => set({ max }, 'max')} />
+      )}
       <TextField label={t('Unit')} value={layer.unit} maxLength={LIMITS.suffix} onChange={(unit) => set({ unit }, 'unit')} />
       <ToggleField label={t('Labels')} checked={layer.labels} onChange={(labels) => set({ labels }, 'labels')} />
       <ToggleField label={t('Values')} checked={layer.values} onChange={(values) => set({ values }, 'values')} />
@@ -670,12 +702,13 @@ export function ChartContent({ t, layer, doc, set, update }: KindProps<ChartLaye
 
 export function BackdropContent({ t, layer, doc, set, update }: KindProps<BackdropLayer>) {
   const styles = BACKDROPS.map((b) => ({ value: b, label: backdropName(b, t) }));
+  const words = backdropSliders(layer.style, t);
   return (
     <>
       <SelectField label={t('Style')} value={layer.style} choices={styles} onChange={(style) => set({ style }, 'style')} />
       <ColoursField t={t} label={t('Colours')} colors={layer.colors} doc={doc} max={4} onChange={(fn) => update('colors', (l) => ({ colors: fn(l.colors) }))} />
-      <SliderField label={t('Speed')} value={layer.speed} min={0} max={3} step={0.05} digits={2} unit="×" onChange={(speed) => set({ speed }, 'speed')} />
-      <SliderField label={t('Density')} value={layer.density} scale={100} min={0} max={100} step={1} digits={0} unit="%"
+      <SliderField label={words.speed} value={layer.speed} min={0} max={3} step={0.05} digits={2} unit="×" onChange={(speed) => set({ speed }, 'speed')} />
+      <SliderField label={words.density} value={layer.density} scale={100} min={0} max={100} step={1} digits={0} unit="%"
                    onChange={(density) => set({ density }, 'density')} />
       <ShuffleRow t={t} seed={layer.seed} onShuffle={() => set({ seed: freshSeed() }, 'seed')} />
     </>

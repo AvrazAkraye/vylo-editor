@@ -2,7 +2,8 @@ import type { Lang } from './i18n';
 import type { Fps, Format, Layer, LayerKind, Motion, Paint, Palette } from './motiontypes';
 import { FPS_CHOICES, LIMITS } from './motiontypes';
 import { blankLayer, fitParticles, newLayerId, readLayer, readPalette, readTitle } from './motionread';
-import { buildMotion } from './motiontemplates';
+import { buildMotion, lookOf } from './motiontemplates';
+import { readScenes, sceneList, sceneSpan } from './motionscene';
 
 /**
  * Every change a person can make to a graphic, as a pure function from one
@@ -32,10 +33,62 @@ import { buildMotion } from './motiontemplates';
  * field the panel let through as -50 opacity or a scale of 9000 is clamped the
  * same way a model's answer would be. There is one set of limits, and it is the
  * reader's.
+ *
+ * ## What a rebuild keeps (pro pass, wave 2)
+ *
+ * A template graphic built again — new words, shape, language or length —
+ * comes back from `buildMotion` with only what the recipe makes. What the
+ * person chose on top of it is carried across, so an edit never takes it away
+ * without a word:
+ *
+ * - its **sound** (`Motion.sound`, motionsound.ts), exactly as it was: the
+ *   effects are worked out from the layers when they play, so new words get
+ *   new effects in the same mode, mood and level;
+ * - its **scenes** (`Motion.scenes`, motionscene.ts), read again for the
+ *   rebuilt graphic by the rule `scenesFor` states;
+ * - its **look** (`lookOf`, motiontemplates.ts): a brand's headline face and
+ *   logo, which the palette and the words do not carry.
+ *
+ * ## Scenes when the length changes
+ *
+ * A cut stays where it was put, in seconds: the scenes before the end keep
+ * their starts and lengths, and the **last scene stretches or shrinks** to the
+ * new end. A scene that would start less than `LIMITS.sceneMin` before the new
+ * end has no room left and goes, its time joining the scene before it (and
+ * with one scene left there are none). A transition longer than a scene it
+ * now sits beside is shortened to fit. That is exactly `readScenes` read for
+ * the new length, so the list in memory is always the list the reader would
+ * keep: never a scene past the end, never two that overlap, never a stale one.
+ *
+ * ## A new layer goes where the person is looking
+ *
+ * Without scenes a new layer runs the whole graphic, as it always did. With
+ * scenes it runs through the scene the playhead is in (`sceneSpan`): a layer
+ * added while looking at the third scene belongs to the third scene. `addLayer`
+ * takes the playhead as `at`; `placeAdded` does the same for a change that
+ * added a layer without knowing where the playhead was.
  */
 
 const clamp = (x: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, x));
 const stamp = (m: Motion, now: number): Motion => ({ ...m, updated: now });
+
+/**
+ * The scenes `m` keeps once it is `seconds` long and its layers are `layers`:
+ * the rule in the header ("Scenes when the length changes"). Undefined when it
+ * has none, or none left.
+ */
+function scenesFor(m: Motion, layers: readonly Layer[], seconds: number): Motion['scenes'] {
+  return readScenes(m.scenes, layers, seconds);
+}
+
+/** The graphic with these scenes, or without the key at all when there are none (`readMotion`'s fixed point needs that). */
+function withScenes(m: Motion, scenes: Motion['scenes']): Motion {
+  if (scenes) return { ...m, scenes };
+  if (!('scenes' in m)) return m;
+  const next = { ...m };
+  delete next.scenes;
+  return next;
+}
 
 /** Whether the graphic is still a template's, rebuilt when its words or shape change. */
 export function isAttached(m: Motion): boolean {
@@ -50,15 +103,21 @@ export function detach(m: Motion): Motion {
   return next;
 }
 
-/** Build a template graphic again with some of its settings changed, keeping what the person chose. */
+/**
+ * Build a template graphic again with some of its settings changed, keeping
+ * what the person chose: the title, rate, frame and dates as before, and its
+ * sound, scenes and brand look (the header's "What a rebuild keeps").
+ */
 function rebuild(m: Motion, patch: { fields?: Record<string, string>; lang?: Lang; format?: Format; seconds?: number }, now: number): Motion {
   const r = m.recipe;
   if (!r) return m;
   const fresh = buildMotion({
     id: m.id, recipe: r.id, fields: patch.fields ?? r.fields, lang: patch.lang ?? m.lang, format: patch.format ?? m.format,
-    palette: m.palette, seconds: patch.seconds ?? m.seconds, now: m.created, request: m.request, ai: m.ai,
+    palette: m.palette, seconds: patch.seconds ?? m.seconds, now: m.created, request: m.request, ai: m.ai, look: lookOf(m),
   });
-  return { ...fresh, title: m.title, fps: m.fps, backdrop: m.backdrop, stage: m.stage, error: m.error, created: m.created, updated: now };
+  const next: Motion = { ...fresh, title: m.title, fps: m.fps, backdrop: m.backdrop, stage: m.stage, error: m.error, created: m.created, updated: now };
+  if (m.sound) next.sound = m.sound;
+  return withScenes(next, scenesFor(m, fresh.layers, fresh.seconds));
 }
 
 export function setTitle(m: Motion, title: string, now = Date.now()): Motion {
@@ -98,7 +157,9 @@ export function setFps(m: Motion, fps: Fps, now = Date.now()): Motion {
  * Change the length. A template is built again for it, so its entrance stays at
  * the start and its exit lands on the new end. A graphic edited by hand keeps
  * its layers: those that ran to the old end run to the new one, and the rest
- * are only brought inside it.
+ * are only brought inside it. Either way its scenes follow the rule in the
+ * header: the last one stretches or shrinks, the others keep their place, and
+ * one with no room left goes.
  */
 export function setSeconds(m: Motion, seconds: number, now = Date.now()): Motion {
   const s = clamp(Math.round((Number.isFinite(seconds) ? seconds : m.seconds) * 10) / 10, LIMITS.minSeconds, LIMITS.seconds);
@@ -110,7 +171,7 @@ export function setSeconds(m: Motion, seconds: number, now = Date.now()): Motion
     const start = Math.min(l.start, Math.max(0, end - 0.05));
     return readLayer({ ...l, start, end }, { seconds: s }) ?? l;
   });
-  return stamp({ ...m, seconds: s, layers }, now);
+  return withScenes(stamp({ ...m, seconds: s, layers }, now), scenesFor(m, layers, s));
 }
 
 export function setPalette(m: Motion, colors: Palette, now = Date.now()): Motion {
@@ -156,16 +217,28 @@ const KIND_NAME: Readonly<Record<LayerKind, string>> = {
 };
 
 /**
- * A new layer on top of the others (a background goes to the back), visible
- * from the start to the end with a gentle fade in, so what the person adds is
- * seen arriving rather than appearing. `patch` overrides any of it.
+ * Where a layer added at `at` seconds runs: through the scene `at` is in when
+ * the graphic has scenes, the whole graphic otherwise (and when `at` is not a
+ * time).
  */
-export function addLayer(m: Motion, kind: LayerKind, patch: Partial<Layer> = {}, now = Date.now()): { motion: Motion; id: string } {
+function spanAt(m: Motion, at: number | undefined): { start: number; end: number } {
+  return typeof at === 'number' && Number.isFinite(at) && sceneList(m).length ? sceneSpan(m, at) : { start: 0, end: m.seconds };
+}
+
+/**
+ * A new layer on top of the others (a background goes to the back), visible
+ * through the scene the playhead (`at`) is in — the whole graphic when it has
+ * no scenes or no playhead is given — with a gentle fade in, so what the
+ * person adds is seen arriving rather than appearing. `patch` overrides any of
+ * it, its own `start` and `end` included.
+ */
+export function addLayer(m: Motion, kind: LayerKind, patch: Partial<Layer> = {}, now = Date.now(), at?: number): { motion: Motion; id: string } {
   if (m.layers.length >= LIMITS.layers) return { motion: m, id: '' };
   const given: Partial<Layer> = patch !== null && typeof patch === 'object' ? patch : {};
   const id = freeId(m, given.id);
+  const span = spanAt(m, at);
   const wanted = {
-    id, name: KIND_NAME[kind], start: 0, end: m.seconds,
+    id, name: KIND_NAME[kind], start: span.start, end: span.end,
     ...(kind === 'backdrop' ? {} : { in: { fx: 'fade', d: 0.5, delay: 0.1, ease: 'out', amount: 1 } }),
     ...given,
   } as Partial<Layer>;
@@ -175,6 +248,42 @@ export function addLayer(m: Motion, kind: LayerKind, patch: Partial<Layer> = {},
   const made = fitParticles(read, m.layers);
   const layers = kind === 'backdrop' ? [made, ...m.layers] : [...m.layers, made];
   return { motion: stamp(detach({ ...m, layers }), now), id };
+}
+
+/** A layer as `duplicateLayer` copies it, with what a copy changes left out: so a copy and its original compare equal. */
+function asCopy(l: Layer): string {
+  return JSON.stringify({ ...l, id: '', x: 0, y: 0, locked: false, ...(l.kind === 'particles' ? { count: 0 } : {}) });
+}
+
+/**
+ * A change that added a layer, put right for a graphic with scenes. The
+ * Layers tab's "Add" asks `addLayer` for a layer without saying where the
+ * playhead is, so the layer comes back running the whole graphic; the panel
+ * hands the change through this with the playhead, and each layer `after` has
+ * that `before` did not, running the whole graphic, is made to run through the
+ * scene `at` is in instead (`sceneSpan`). Left alone: a copy of a layer
+ * (`duplicateLayer` puts it directly above its original, the same but for its
+ * id and a small offset), which keeps its original's time; a layer given a
+ * time of its own; and every graphic without scenes, which is returned as it
+ * is — the very object.
+ */
+export function placeAdded(before: Motion, after: Motion, at: number): Motion {
+  if (after === before || !Number.isFinite(at) || !sceneList(after).length) return after;
+  const span = sceneSpan(after, at);
+  const whole = (s: { start: number; end: number }) => s.start <= 1e-6 && s.end >= after.seconds - 1e-6;
+  if (whole(span)) return after;
+  const had = new Set(before.layers.map((l) => l.id));
+  let moved = false;
+  const layers = after.layers.map((l, i) => {
+    if (had.has(l.id) || !whole(l)) return l;
+    const below = after.layers[i - 1];
+    if (below && below.kind === l.kind && asCopy(below) === asCopy(l)) return l;
+    const read = readLayer({ ...l, start: span.start, end: span.end }, { seconds: after.seconds });
+    if (!read) return l;
+    moved = true;
+    return read;
+  });
+  return moved ? { ...after, layers } : after;
 }
 
 export function removeLayer(m: Motion, id: string, now = Date.now()): Motion {

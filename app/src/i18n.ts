@@ -3311,6 +3311,16 @@ const ar: Dict = {
   'Halftone': 'شبكة نقطية',
   'Title glow': 'توهّج العنوان',
   'Scan lines': 'خطوط المسح',
+  // Motion pro: w2-1 panel wiring (MotionKinds.tsx: the finishes' sliders, the race's data).
+  'Coarseness': 'الخشونة',
+  'Flicker': 'الارتعاش',
+  'Reach': 'المدى',
+  'Breathing': 'التنفّس',
+  'Blooms': 'التوهّجات',
+  'Fineness': 'الدقّة',
+  'Rolls': 'مرور الشريط',
+  'Flow': 'الانسياب',
+  'Earlier values go in the label after a |, like Rome|12 18 25. The value is the last one.': 'تُكتب القيم السابقة في التسمية بعد |، مثل روما|12 18 25. والقيمة هي الأخيرة.',
 };
 
 const ckb: Dict = {
@@ -6601,6 +6611,16 @@ const ckb: Dict = {
   'Halftone': 'تۆڕی خاڵدار',
   'Title glow': 'درەوشانەوەی ناونیشان',
   'Scan lines': 'هێڵەکانی سکان',
+  // Motion pro: w2-1 panel wiring (MotionKinds.tsx: the finishes' sliders, the race's data).
+  'Coarseness': 'زبری',
+  'Flicker': 'لەرزین',
+  'Reach': 'مەودا',
+  'Breathing': 'هەناسە',
+  'Blooms': 'گەشانەوە',
+  'Fineness': 'وردی',
+  'Rolls': 'تێپەڕینی تیشک',
+  'Flow': 'ڕەوت',
+  'Earlier values go in the label after a |, like Rome|12 18 25. The value is the last one.': 'بەهاکانی پێشوو لە ناونیشانەکەدا دوای | دەنووسرێن، وەک ڕۆما|12 18 25. بەهاکە دوایینیانە.',
 };
 
 const kmr: Dict = {
@@ -9889,6 +9909,16 @@ const kmr: Dict = {
   'Halftone': 'تۆڕا خالدار',
   'Title glow': 'درەوشینا سەرناڤی',
   'Scan lines': 'هێلێن سکانێ',
+  // Motion pro: w2-1 panel wiring (MotionKinds.tsx: the finishes' sliders, the race's data).
+  'Coarseness': 'زڤری',
+  'Flicker': 'لەرزین',
+  'Reach': 'مەودا',
+  'Breathing': 'بێهن',
+  'Blooms': 'گەشبوون',
+  'Fineness': 'هویری',
+  'Rolls': 'دەرباسبوونا تیشکێ',
+  'Flow': 'هەرکین',
+  'Earlier values go in the label after a |, like Rome|12 18 25. The value is the last one.': 'بهایێن بەری د ناڤونیشانیدا پشتی | دهێنە نڤیسین، وەکی ڕۆما|12 18 25. بها یا دوماهیێ یە.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
