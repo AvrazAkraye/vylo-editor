@@ -400,3 +400,18 @@ something looked odd on screen, and a native speaker should decide. Nothing here
 | Templates (`i18n.ts`) | Price period | `ماوەی نرخ` | `ماوەیا بهایی` | The layer holds "/month". The Arabic "duration of the price" was odd and became "payment period" (`فترة الدفع`). |
 | Templates (`i18n.ts`) | Chat conversation | `گفتوگۆی نامە` | `ئاخفتنا نامەیان` | Fine in meaning; is it the natural name for a text-message conversation? |
 | Icon words (`motionrecipes-data.ts`) | village, volunteer | `گوند`, `خۆبەخش` (added) | (the same words are matched) | Added so "villages" gets a place pin and "volunteers" people, as in English and Arabic. Is `گوند` used in both dialects, and is there a Badini word for volunteer to add? |
+
+## F4 Robust saving (a disk that is full, read-only or not ours to write)
+
+The three sentences the Export tab now shows instead of the system's English (`MotionExport.tsx` `sentence`). Arabic was
+written with care (`حرّر بعض المساحة` for "free some space", `للقراءة فقط` as in the editor's own read-only notice, `الأذونات`
+as elsewhere in the catalogue); these Sorani and Badini lines are best effort.
+
+| English | ckb (Sorani) | kmr (Badini) |
+|---|---|---|
+| The disk is full. Free some space, or save somewhere else. | دیسکەکە پڕە. هەندێک شوێن بەتاڵ بکەرەوە، یان لە شوێنێکی تر پاشەکەوتی بکە. | دیسک تژییە. هندەک جهێ ڤالا بکە، یان ل جهەکێ دی پاشەکەفت بکە. |
+| This disk is read-only. Save somewhere else. | ئەم دیسکە تەنها بۆ خوێندنەوەیە. لە شوێنێکی تر پاشەکەوتی بکە. | ئەڤ دیسکە تنێ بۆ خواندنێیە. ل جهەکێ دی پاشەکەفت بکە. |
+| Saving there is not allowed. Save somewhere else, or check the permissions. | پاشەکەوتکردن لەو شوێنە ڕێگەپێنەدراوە. لە شوێنێکی تر پاشەکەوتی بکە، یان مۆڵەتەکان بپشکنە. | پاشەکەفتکرن ل وی جهی نەهاتیە ڕێپێدان. ل جهەکێ دی پاشەکەفت بکە، یان دەستویران بپشکنە. |
+
+Points to check: "space" on a disk is `شوێن` (place) in the Sorani and `جه` in the Badini; is there a more usual word for
+free disk space (`بۆشایی`?)? The Badini `دیسک تژییە` and `دەستویران` follow the catalogue's earlier choices.

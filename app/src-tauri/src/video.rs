@@ -42,8 +42,9 @@
 //! ASCII and the person's folder and title may well be Arabic or Kurdish.
 
 use std::fs::{self, OpenOptions};
-use std::io::{ErrorKind, Read, Write};
+use std::io::{self, ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Mutex;
 
 use tauri::ipc::{InvokeBody, Request};
@@ -70,6 +71,16 @@ const UNIQUE_HEADER: &str = "x-unique";
 
 /// The most `Title (n).mp4` a unique write tries before it gives up.
 const MAX_NUMBERED: u32 = 999;
+
+/// The most temporary names a replacing write tries before it gives up. Each
+/// name is new to this run of the app, so a second try is needed only when a
+/// file of that name was left by an earlier run that died mid-write, or put
+/// there by something else.
+const MAX_TEMPORARY: u32 = 100;
+
+/// The `n` in `.vylo-saving-<pid>-<n>.tmp`: two saves into one folder at the
+/// same moment never reach for the same name.
+static SAVING: AtomicU32 = AtomicU32::new(0);
 
 /// What a file the Video panel saves is, from its extension.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,13 +216,18 @@ fn was_written(p: &Path) -> bool {
 /// Two ways to write, chosen by the `x-unique` header:
 ///
 /// - without it, a file already at the path is replaced: that is the save
-///   panel's path, and the panel has already asked the person whether to;
+///   panel's path, and the panel has already asked the person whether to.
+///   The replacing is atomic (`replace`): the film is written beside the old
+///   file under a temporary name, flushed to the disk, and only then renamed
+///   over it, so a disk that fills up part-way leaves the old file whole
+///   rather than half a new one in its place;
 /// - with `x-unique: 1`, nothing is ever replaced. The name is a wish: if
 ///   `Title.mp4` is taken, `Title (2).mp4` is tried, then `(3)`, up to
 ///   `(999)`, each created with `create_new` so that a file which appears
 ///   between the check and the write is not overwritten either — the check
 ///   *is* the write. This is **Download**, which saves to the Downloads folder
-///   without asking, and so must never cost the person a file.
+///   without asking, and so must never cost the person a file. It is flushed
+///   to the disk before it is reported saved, and removed if that fails.
 ///
 /// Its refusals follow from what the request and the file are supposed to be,
 /// and each is cheaper than the write it prevents:
@@ -267,7 +283,7 @@ pub fn write_media(path_header: Option<&[u8]>, unique_header: Option<&[u8]>, bod
     let written = if unique {
         write_new(&p, bytes)?
     } else {
-        fs::write(&p, bytes).map_err(|e| format!("{path}: {e}"))?;
+        replace(&p, bytes)?;
         p
     };
     remember(&written);
@@ -299,17 +315,238 @@ pub fn numbered(p: &Path, n: u32) -> PathBuf {
     p.with_file_name(name)
 }
 
+/// Write all of `bytes`, then make sure they are on the disk before anyone is
+/// told they are. `write_all` succeeding means the system took the bytes, not
+/// that the disk did: a network volume (SMB, NFS) or a FUSE file system may
+/// report a full disk or an I/O error only when the file is flushed or closed,
+/// and `File`'s drop throws a close error away. `sync_all` asks for the flush
+/// and returns its error, so a film the disk did not take is reported, not
+/// announced as saved.
+fn put(f: &mut fs::File, bytes: &[u8]) -> io::Result<()> {
+    f.write_all(bytes)?;
+    flush_to_disk(f)
+}
+
+/// `sync_all`, for every file system the person may save to. On macOS it is
+/// `fcntl(F_FULLFSYNC)`, which flushes the drive's own cache too and which
+/// only some file systems offer (APFS, HFS+, FAT, UDF); the others — some
+/// network and FUSE volumes — refuse the request itself, and there a plain
+/// `fsync` is what can be had (SQLite falls back the same way). A file system
+/// that cannot flush at all is not a failed write: the bytes are as safe as
+/// the system makes them, which is what a save was before there was a flush.
+fn flush_to_disk(f: &fs::File) -> io::Result<()> {
+    match f.sync_all() {
+        Ok(()) => Ok(()),
+        #[cfg(target_os = "macos")]
+        Err(e) if cannot_flush(&e) => match fsync(f) {
+            Err(e) if cannot_flush(&e) => Ok(()),
+            done => done,
+        },
+        #[cfg(not(target_os = "macos"))]
+        Err(e) if cannot_flush(&e) => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// An error that says the file system does not offer the flush asked for —
+/// not that the flush failed. Unsupported (`ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`),
+/// an invalid request (`EINVAL`: Linux's word for a file that cannot be
+/// synchronised), and `ENOTTY`, which is what a macOS file system without an
+/// ioctl for `F_FULLFSYNC` answers; on Windows, `ERROR_INVALID_FUNCTION`. A
+/// full disk (`ENOSPC`), an I/O error (`EIO`) or a lost connection is none of
+/// these, and is the save's failure.
+fn cannot_flush(e: &io::Error) -> bool {
+    if matches!(e.kind(), ErrorKind::Unsupported | ErrorKind::InvalidInput) {
+        return true;
+    }
+    let code = e.raw_os_error();
+    #[cfg(target_os = "macos")]
+    let refused = matches!(code, Some(libc::ENOTTY | libc::ENOTSUP | libc::EOPNOTSUPP | libc::ENOSYS | libc::EINVAL));
+    // `libc` is a dependency on macOS only, so Linux's numbers are written
+    // out: ENOTTY 25, EOPNOTSUPP 95, ENOSYS 38, EINVAL 22.
+    #[cfg(target_os = "linux")]
+    let refused = matches!(code, Some(25 | 95 | 38 | 22));
+    #[cfg(windows)]
+    let refused = matches!(code, Some(1));
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    let refused = {
+        let _ = code;
+        false
+    };
+    refused
+}
+
+/// A plain `fsync`, for a macOS file system that does not offer `F_FULLFSYNC`.
+#[cfg(target_os = "macos")]
+fn fsync(f: &fs::File) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    loop {
+        // SAFETY: the descriptor belongs to `f`, which is borrowed, and so
+        // open, for the whole of the call.
+        if unsafe { libc::fsync(f.as_raw_fd()) } == 0 {
+            return Ok(());
+        }
+        let e = io::Error::last_os_error();
+        if e.kind() != ErrorKind::Interrupted {
+            return Err(e);
+        }
+    }
+}
+
+/// A file being written beside the one it will replace, under a name of its
+/// own. Dropping it removes it — every early return, and a panic, leave
+/// nothing behind — unless `put_in_place` has renamed it over the target.
+///
+/// The name is `.vylo-saving-<pid>-<n>.tmp`: hidden (a dot file) so the
+/// folder does not show a half-written file while a large film lands, in the
+/// same folder so the rename stays on one file system (a rename cannot cross
+/// two, and a copy would not be atomic), and short — not the film's own name
+/// with something added, because a title of a hundred and twenty Arabic
+/// letters is already near the 255 bytes a file name may have, and a longer
+/// temporary name would fail where the film's own would not. It is created
+/// with `create_new`, so it never replaces anything and never follows a link
+/// left at that name. A process killed between creating it and renaming it
+/// (a crash, a power cut) leaves it there; the old file is whole beside it.
+struct Temporary {
+    path: Option<PathBuf>,
+    file: Option<fs::File>,
+}
+
+impl Temporary {
+    fn new(dir: &Path) -> io::Result<Temporary> {
+        let mut taken = None;
+        for _ in 0..MAX_TEMPORARY {
+            let n = SAVING.fetch_add(1, Ordering::Relaxed);
+            let path = dir.join(format!(".vylo-saving-{}-{n}.tmp", std::process::id()));
+            match OpenOptions::new().write(true).create_new(true).open(&path) {
+                Ok(file) => return Ok(Temporary { path: Some(path), file: Some(file) }),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => taken = Some(e),
+                Err(e) => return Err(e),
+            }
+        }
+        Err(taken.unwrap_or_else(|| ErrorKind::AlreadyExists.into()))
+    }
+
+    fn file(&mut self) -> &mut fs::File {
+        self.file.as_mut().expect("a temporary file is open until it is put in place")
+    }
+
+    /// Close it and rename it over `to`. From here it is the saved file, and
+    /// dropping this removes nothing; if the rename fails, dropping it removes
+    /// the temporary file and `to` is as it was.
+    fn put_in_place(mut self, to: &Path) -> io::Result<()> {
+        drop(self.file.take());
+        let from = self.path.as_deref().expect("a temporary file has a path until it is put in place");
+        fs::rename(from, to)?;
+        self.path = None;
+        Ok(())
+    }
+}
+
+impl Drop for Temporary {
+    fn drop(&mut self) {
+        // Closed first: Windows removes an open file only once it is closed.
+        drop(self.file.take());
+        if let Some(p) = self.path.take() {
+            let _ = fs::remove_file(p);
+        }
+    }
+}
+
+/// **Save as…**: put `bytes` at `p`, replacing what is there, so that the path
+/// holds the old file whole or the new one whole, never half of either.
+///
+/// `fs::write` truncates the old file first and then writes. A disk that
+/// fills part-way (`ENOSPC`) used to leave the person with neither: the old
+/// film gone, and at its name an MP4 whose index comes first, so it opens and
+/// then stops short. Here the film is written under a temporary name in the
+/// same folder (`Temporary`), flushed to the disk (`put`), and renamed over
+/// `p` only once all of it is there; a rename within one folder is atomic on
+/// macOS, Linux and Windows. Any error — creating, writing, flushing,
+/// renaming — removes the temporary file and leaves `p` untouched.
+///
+/// What this costs, and why it is accepted:
+///
+/// - while it is written, the new film and the old one are both on the disk,
+///   so replacing a large film needs room for two. A disk with room for only
+///   one now refuses the save and keeps the old film, where it used to lose
+///   the old film and might have kept a whole new one;
+/// - a folder that lets the person change a file but not add one (rare on a
+///   personal Mac, where the save panel only offers folders it can write to)
+///   refuses a replace that writing in place would have allowed;
+/// - the new file is a new file: the old one's Finder tags, extended
+///   attributes and owner are not carried over. Its permission bits are, so a
+///   film kept private (`0600`) stays private;
+/// - a link at `p` is replaced by the film, rather than written through: the
+///   save panel showed the name in this folder, and this folder is where the
+///   film goes. The link's target is not touched.
+///
+/// A file at `p` that the person may not write is refused, as `fs::write`
+/// refused it, even though the rename alone could replace it: a film marked
+/// read-only, or locked, was marked so to be kept. That is checked by opening
+/// it for writing — without truncating, so nothing in it changes — which asks
+/// the system exactly the question `fs::write` asked.
+fn replace(p: &Path, bytes: &[u8]) -> Result<(), String> {
+    replace_with(p, &|f: &mut fs::File| put(f, bytes))
+}
+
+/// `replace`, with how the bytes are written passed in, so the tests can make
+/// the write fail part-way the way a full disk does.
+fn replace_with(p: &Path, fill: &dyn Fn(&mut fs::File) -> io::Result<()>) -> Result<(), String> {
+    let shown = p.to_string_lossy();
+    let fail = |e: io::Error| format!("{shown}: {e}");
+    let dir = p.parent().filter(|d| d.is_dir()).ok_or_else(|| format!("{shown}: its folder does not exist"))?;
+    // A plain file already there: may it be written? (`symlink_metadata`, so a
+    // link is neither followed nor asked about: it is replaced.)
+    let old = p.symlink_metadata().ok().filter(|m| m.file_type().is_file());
+    if old.is_some() {
+        OpenOptions::new().write(true).open(p).map_err(fail)?;
+    }
+    let mut temp = Temporary::new(dir).map_err(fail)?;
+    #[cfg(unix)]
+    if let Some(m) = &old {
+        use std::os::unix::fs::PermissionsExt;
+        // Before a byte is written, so a private film is never readable by
+        // others even for a moment. Best effort: some volumes (FAT, some
+        // network shares) keep no permission bits and refuse the request.
+        let _ = temp.file().set_permissions(fs::Permissions::from_mode(m.permissions().mode() & 0o777));
+    }
+    fill(temp.file()).map_err(fail)?;
+    temp.put_in_place(p).map_err(fail)?;
+    sync_folder(dir);
+    Ok(())
+}
+
+/// Flush the folder, so the rename itself survives a power cut that follows
+/// it, and not only the bytes it renamed. Best effort, and its failure is not
+/// the save's: the film is already whole at its name, and some file systems
+/// (and every Windows one, through `File::open`) do not flush a folder.
+fn sync_folder(dir: &Path) {
+    #[cfg(unix)]
+    if let Ok(d) = fs::File::open(dir) {
+        let _ = d.sync_all();
+    }
+    #[cfg(not(unix))]
+    let _ = dir;
+}
+
 /// Write `bytes` to the first of `p`, `p (2)`, `p (3)`… that does not exist,
 /// creating it exclusively — `O_EXCL`, which also refuses to follow a symlink
 /// left at the name — so nothing already there is ever replaced. A write that
-/// fails halfway removes what it began, rather than leave half a film.
+/// fails halfway, or whose flush to the disk fails (`put`), removes what it
+/// began, rather than leave half a film — or report one as saved.
 fn write_new(p: &Path, bytes: &[u8]) -> Result<PathBuf, String> {
+    write_new_with(p, &|f: &mut fs::File| put(f, bytes))
+}
+
+/// `write_new`, with how the bytes are written passed in, for the tests.
+fn write_new_with(p: &Path, fill: &dyn Fn(&mut fs::File) -> io::Result<()>) -> Result<PathBuf, String> {
     let shown = p.to_string_lossy();
     for n in 1..=MAX_NUMBERED {
         let at = numbered(p, n);
         match OpenOptions::new().write(true).create_new(true).open(&at) {
             Ok(mut f) => {
-                if let Err(e) = f.write_all(bytes) {
+                if let Err(e) = fill(&mut f) {
                     drop(f);
                     let _ = fs::remove_file(&at);
                     return Err(format!("{}: {e}", at.to_string_lossy()));
@@ -916,5 +1153,362 @@ mod tests {
         assert_eq!(Kind::of(Path::new("/a/.mp4")), None);
         assert_eq!(Kind::of(Path::new("/a/mp4")), None);
         assert_eq!(Kind::of(Path::new("/a/b.")), None);
+    }
+
+    // ── saving robustly: a full disk, a late error, a read-only place ──────
+
+    /// What a disk that fills up part-way says: the system's own error, so its
+    /// words are exactly the words the Export tab reads (`MotionExport.tsx`,
+    /// `diskTrouble`): `No space left on device (os error 28)` on macOS and
+    /// Linux, `ERROR_DISK_FULL` (112) on Windows.
+    fn full_disk() -> io::Error {
+        #[cfg(windows)]
+        let e = io::Error::from_raw_os_error(112);
+        #[cfg(not(windows))]
+        let e = io::Error::from_raw_os_error(28);
+        e
+    }
+
+    /// What a network volume says at the flush when the bytes it took never
+    /// reached its disk: an I/O error (`EIO`).
+    fn lost() -> io::Error {
+        #[cfg(windows)]
+        let e = io::Error::from_raw_os_error(1117);
+        #[cfg(not(windows))]
+        let e = io::Error::from_raw_os_error(5);
+        e
+    }
+
+    /// The temporary files a replacing write makes, found in a folder.
+    fn temporaries(dir: &Path) -> Vec<std::ffi::OsString> {
+        listing(dir).into_iter().filter(|n| n.to_string_lossy().starts_with(".vylo-saving-")).collect()
+    }
+
+    fn names(list: &[&str]) -> BTreeSet<std::ffi::OsString> {
+        list.iter().map(std::ffi::OsString::from).collect()
+    }
+
+    /// **Save as…** over an existing file replaces it by a rename: the new
+    /// bytes are there afterwards, and nothing else is — no temporary file is
+    /// left beside it. In every script the app speaks, at a name near the
+    /// longest a file system allows, with its permission bits, and over a link.
+    #[test]
+    fn save_as_replaces_by_a_rename_and_leaves_no_temporary_file() {
+        let dir = scratch("atomic");
+        let at = |name: &str| dir.join(name).to_string_lossy().to_string();
+        let save = |path: &str, bytes: &[u8]| write_media(Some(&encode(path)), None, &InvokeBody::Raw(bytes.to_vec()), None);
+        let mut second = film();
+        second.extend(b"the second film, longer than the first");
+
+        // Over an existing film: the new one is there, and only it.
+        fs::write(dir.join("promo.mp4"), film()).unwrap();
+        assert_eq!(save(&at("promo.mp4"), &second).unwrap(), at("promo.mp4"));
+        assert_eq!(fs::read(dir.join("promo.mp4")).unwrap(), second, "the new bytes, all of them");
+        assert_eq!(listing(&dir), names(&["promo.mp4"]), "no temporary file beside it");
+        // Shorter than what it replaces: no tail of the old film is left.
+        let short = b"\x00\x00\x00\x08ftypshort".to_vec();
+        save(&at("promo.mp4"), &short).unwrap();
+        assert_eq!(fs::read(dir.join("promo.mp4")).unwrap(), short);
+
+        // Arabic and Kurdish names, for each kind Motion saves, written new and
+        // then replaced.
+        let mut png2 = png();
+        png2.extend(b"second");
+        for (name, first, then) in [
+            ("عيادة الأسنان.mp4", film(), second.clone()),
+            ("ڕێکلامی کلینیک ٣٠ چرکە.gif", gif(), gif87()),
+            ("ڤیدیۆیا نوو.png", png(), png2.clone()),
+            ("Kurdî û عەرەبی.MP4", film(), second.clone()),
+        ] {
+            assert_eq!(save(&at(name), &first).unwrap_or_else(|e| panic!("{name}: {e}")), at(name));
+            assert_eq!(save(&at(name), &then).unwrap_or_else(|e| panic!("{name}: {e}")), at(name));
+            assert_eq!(fs::read(dir.join(name)).unwrap(), then, "{name}: replaced");
+        }
+
+        // A title of 120 Arabic letters is 240 bytes, near the 255 a name may
+        // have. The temporary name does not grow with it, so the save works
+        // wherever the film's own name does.
+        let long = format!("{}.mp4", "ع".repeat(120));
+        assert_eq!(long.len(), 244);
+        save(&at(&long), &film()).unwrap_or_else(|e| panic!("a long Arabic name: {e}"));
+        save(&at(&long), &second).unwrap_or_else(|e| panic!("a long Arabic name, replaced: {e}"));
+        assert_eq!(fs::read(dir.join(&long)).unwrap(), second);
+
+        // The permission bits are carried over: a film kept private stays private.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(dir.join("promo.mp4"), fs::Permissions::from_mode(0o600)).unwrap();
+            save(&at("promo.mp4"), &second).unwrap();
+            assert_eq!(fs::metadata(dir.join("promo.mp4")).unwrap().permissions().mode() & 0o777, 0o600, "still private");
+            fs::set_permissions(dir.join("promo.mp4"), fs::Permissions::from_mode(0o640)).unwrap();
+            save(&at("promo.mp4"), &short).unwrap();
+            assert_eq!(fs::metadata(dir.join("promo.mp4")).unwrap().permissions().mode() & 0o777, 0o640);
+        }
+
+        // A link at the name is replaced by the film, not written through: the
+        // file it pointed at, wherever that is, keeps its bytes.
+        #[cfg(unix)]
+        {
+            let target = dir.join("elsewhere.txt");
+            fs::write(&target, "keep me").unwrap();
+            std::os::unix::fs::symlink(&target, dir.join("Linked.mp4")).unwrap();
+            save(&at("Linked.mp4"), &second).unwrap();
+            assert_eq!(fs::read_to_string(&target).unwrap(), "keep me", "the link's target is untouched");
+            let meta = dir.join("Linked.mp4").symlink_metadata().unwrap();
+            assert!(meta.file_type().is_file(), "the name now holds the film itself");
+            assert_eq!(fs::read(dir.join("Linked.mp4")).unwrap(), second);
+        }
+
+        // Many saves in a row, and to a new name: still nothing left behind.
+        for i in 0..20u8 {
+            let mut f = film();
+            f.push(i);
+            save(&at("again.mp4"), &f).unwrap();
+            assert_eq!(fs::read(dir.join("again.mp4")).unwrap(), f);
+        }
+        assert!(temporaries(&dir).is_empty(), "{:?}", temporaries(&dir));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A Save as… that fails — the disk full half-way through the film, an
+    /// error that arrives only at the flush, a panic, a rename the folder
+    /// refuses — leaves the old file exactly as it was, and no temporary file.
+    ///
+    /// The failures are made by handing `replace_with` a write that fails the
+    /// way the system's does, with the system's own error: this cannot fill a
+    /// real disk (that is `a_real_full_disk`, run by hand on a small volume).
+    #[test]
+    fn a_failed_save_as_leaves_the_old_file_whole() {
+        let dir = scratch("failed");
+        let p = dir.join("عيادة الأسنان.mp4");
+        let shown = p.to_string_lossy().to_string();
+        let old = film();
+        fs::write(&p, &old).unwrap();
+        let before = listing(&dir);
+        let mut new = film();
+        new.extend((0u8..=255).rev().cycle().take(8192));
+
+        // The disk fills half-way through the film.
+        let half = |f: &mut fs::File| -> io::Result<()> {
+            f.write_all(&new[..new.len() / 2])?;
+            Err(full_disk())
+        };
+        let err = replace_with(&p, &half).unwrap_err();
+        assert!(err.starts_with(&format!("{shown}: ")), "the error names the file asked for, not the temporary one: {err}");
+        assert!(err.ends_with(&format!("{}", full_disk())), "and says what the system said: {err}");
+        #[cfg(unix)]
+        assert!(err.ends_with("No space left on device (os error 28)"), "{err}");
+        assert_eq!(fs::read(&p).unwrap(), old, "the old film is whole");
+        assert_eq!(listing(&dir), before, "and nothing is beside it");
+
+        // All of it written, and then the flush fails: a network volume's late error.
+        let late = |f: &mut fs::File| -> io::Result<()> {
+            f.write_all(&new)?;
+            Err(lost())
+        };
+        assert!(replace_with(&p, &late).unwrap_err().ends_with(&format!("{}", lost())));
+        assert_eq!(fs::read(&p).unwrap(), old);
+        assert_eq!(listing(&dir), before);
+
+        // A write that panics: the temporary file goes with the unwinding.
+        let panicked = std::panic::catch_unwind(|| replace_with(&p, &|_f: &mut fs::File| -> io::Result<()> { panic!("a writer that panics") }));
+        assert!(panicked.is_err());
+        assert_eq!(fs::read(&p).unwrap(), old);
+        assert_eq!(listing(&dir), before);
+
+        // Nothing at the name yet: a failed first save leaves nothing at all.
+        let fresh = dir.join("ڕێکلام.mp4");
+        assert!(replace_with(&fresh, &half).is_err());
+        assert!(!fresh.exists());
+        assert_eq!(listing(&dir), before);
+
+        // The rename refused: a folder (not empty) at the name. `check_path`
+        // refuses a folder before any of this; this is the folder that appears
+        // between that check and the rename.
+        let folder = dir.join("folder.mp4");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("inside.txt"), "keep me").unwrap();
+        assert!(replace_with(&folder, &|f: &mut fs::File| f.write_all(&new)).is_err());
+        assert_eq!(fs::read_to_string(folder.join("inside.txt")).unwrap(), "keep me");
+        let mut with_folder = before.clone();
+        with_folder.insert("folder.mp4".into());
+        assert_eq!(listing(&dir), with_folder, "no temporary file after a failed rename either");
+
+        // And the same file saved for real afterwards is fine.
+        replace(&p, &new).unwrap();
+        assert_eq!(fs::read(&p).unwrap(), new);
+        assert!(temporaries(&dir).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Download: a write that fails part-way, or whose flush fails after every
+    /// byte was taken, removes the file it began, so a failure is never a
+    /// half film in the Downloads folder — and the name it took is free again.
+    #[test]
+    fn a_failed_download_leaves_nothing() {
+        let dir = scratch("download-fails");
+        let p = dir.join("ڕێکلام.mp4");
+        let half = |f: &mut fs::File| -> io::Result<()> {
+            f.write_all(&film()[..1000])?;
+            Err(full_disk())
+        };
+        let late = |f: &mut fs::File| -> io::Result<()> {
+            f.write_all(&film())?;
+            Err(lost())
+        };
+        let err = write_new_with(&p, &half).unwrap_err();
+        assert!(err.starts_with(&format!("{}: ", p.to_string_lossy())) && err.ends_with(&format!("{}", full_disk())), "{err}");
+        assert!(listing(&dir).is_empty(), "the partial film was removed");
+        assert!(write_new_with(&p, &late).unwrap_err().ends_with(&format!("{}", lost())));
+        assert!(listing(&dir).is_empty(), "the film whose flush failed was removed");
+
+        // With a film already at the name: it is kept, the numbered one that
+        // failed is removed, and the error names the numbered one.
+        let first = film();
+        fs::write(&p, &first).unwrap();
+        let err = write_new_with(&p, &half).unwrap_err();
+        assert!(err.contains("ڕێکلام (2).mp4"), "{err}");
+        assert_eq!(listing(&dir), names(&["ڕێکلام.mp4"]));
+        assert_eq!(fs::read(&p).unwrap(), first);
+        // The next Download takes the name the failure gave back.
+        assert_eq!(write_new(&p, &film()).unwrap(), dir.join("ڕێکلام (2).mp4"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A place the system will not let the person write: the old file is kept
+    /// and the system's reason is passed on (the Export tab turns it into a
+    /// sentence). A file marked read-only is refused as `fs::write` refused
+    /// it, though a rename could replace it. A read-only folder refuses the
+    /// temporary file, so it refuses the save — where writing in place would
+    /// have replaced the old file — and the old file is untouched.
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_file_or_folder_keeps_the_old_file() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = scratch("readonly");
+        let at = |name: &str| dir.join(name).to_string_lossy().to_string();
+        let save = |path: &str, bytes: &[u8]| write_media(Some(&encode(path)), None, &InvokeBody::Raw(bytes.to_vec()), None);
+        let p = dir.join("ڤیدیۆ.mp4");
+        let old = film();
+        fs::write(&p, &old).unwrap();
+        let mut new = film();
+        new.extend(b"new");
+        let mode = |q: &Path, m: u32| fs::set_permissions(q, fs::Permissions::from_mode(m)).unwrap();
+        // Root may write anywhere; the refusals below are then not the system's to make.
+        let enforced = |q: &Path| OpenOptions::new().write(true).open(q).is_err();
+
+        mode(&p, 0o444);
+        if enforced(&p) {
+            let err = save(&at("ڤیدیۆ.mp4"), &new).unwrap_err();
+            assert!(err.ends_with("Permission denied (os error 13)"), "{err}");
+            assert_eq!(fs::read(&p).unwrap(), old, "a read-only film is not replaced");
+            assert_eq!(listing(&dir), names(&["ڤیدیۆ.mp4"]));
+        }
+        mode(&p, 0o644);
+
+        mode(&dir, 0o555);
+        let probe = dir.join("probe");
+        let locked = OpenOptions::new().write(true).create_new(true).open(&probe).is_err();
+        let _ = fs::remove_file(&probe);
+        if locked {
+            let err = save(&at("ڤیدیۆ.mp4"), &new).unwrap_err();
+            assert!(err.ends_with("Permission denied (os error 13)"), "{err}");
+            assert_eq!(fs::read(&p).unwrap(), old, "the old film is whole");
+            let err = write_media(Some(&encode(&at("نوێ.mp4"))), Some(b"1"), &InvokeBody::Raw(new.clone()), None).unwrap_err();
+            assert!(err.ends_with("Permission denied (os error 13)"), "a download there too: {err}");
+            assert_eq!(listing(&dir), names(&["ڤیدیۆ.mp4"]), "nothing was added");
+        }
+        mode(&dir, 0o755);
+        save(&at("ڤیدیۆ.mp4"), &new).expect("writable again");
+        assert_eq!(fs::read(&p).unwrap(), new);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A file system that cannot flush is not a failed save; a flush that
+    /// fails is. And the flush itself works on the disk the tests run on.
+    #[test]
+    fn a_flush_the_file_system_does_not_offer_is_not_a_failure() {
+        assert!(cannot_flush(&io::Error::from(ErrorKind::Unsupported)));
+        assert!(cannot_flush(&io::Error::from(ErrorKind::InvalidInput)));
+        #[cfg(unix)]
+        {
+            assert!(cannot_flush(&io::Error::from_raw_os_error(25)), "ENOTTY: no ioctl for F_FULLFSYNC");
+            assert!(cannot_flush(&io::Error::from_raw_os_error(22)), "EINVAL");
+        }
+        #[cfg(target_os = "macos")]
+        {
+            assert!(cannot_flush(&io::Error::from_raw_os_error(libc::ENOTSUP)));
+            assert!(cannot_flush(&io::Error::from_raw_os_error(libc::EOPNOTSUPP)));
+        }
+        assert!(!cannot_flush(&full_disk()), "a full disk is the save's failure");
+        assert!(!cannot_flush(&lost()), "so is an I/O error");
+        assert!(!cannot_flush(&io::Error::from(ErrorKind::StorageFull)));
+        assert!(!cannot_flush(&io::Error::from(ErrorKind::PermissionDenied)));
+        #[cfg(unix)]
+        {
+            assert!(!cannot_flush(&io::Error::from_raw_os_error(30)), "EROFS");
+            assert!(!cannot_flush(&io::Error::from_raw_os_error(69)), "EDQUOT on macOS");
+            assert!(!cannot_flush(&io::Error::from_raw_os_error(122)), "EDQUOT on Linux");
+        }
+
+        let dir = scratch("flush");
+        let mut f = OpenOptions::new().write(true).create_new(true).open(dir.join("f.mp4")).unwrap();
+        put(&mut f, &film()).expect("write and flush on a local disk");
+        drop(f);
+        assert_eq!(fs::read(dir.join("f.mp4")).unwrap(), film());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A real full disk, not a simulated one. Ignored by default: it needs a
+    /// small volume to fill, which a test should not make on its own. On macOS:
+    ///
+    /// ```text
+    /// hdiutil create -size 8m -fs HFS+ -volname vylofull <dir>/full.dmg
+    /// hdiutil attach -nobrowse -mountpoint <dir>/full <dir>/full.dmg
+    /// VYLO_FULL_DISK=<dir>/full cargo test --offline --lib -- --ignored a_real_full_disk
+    /// hdiutil detach <dir>/full
+    /// ```
+    #[test]
+    #[ignore]
+    fn a_real_full_disk() {
+        let Some(root) = std::env::var_os("VYLO_FULL_DISK") else {
+            return;
+        };
+        let dir = PathBuf::from(root).join(format!("vylo_full_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let at = |name: &str| dir.join(name).to_string_lossy().to_string();
+        let sized = |n: usize, seed: u8| {
+            let mut f = film();
+            f.resize(n, seed);
+            f
+        };
+        // What is in the folder, without macOS's `._name` files: on a volume
+        // that keeps no extended attributes (exFAT, FAT) the system stores a
+        // file's attributes in one of those beside it. They belong to the old
+        // film, not to the save.
+        let seen = |d: &Path| -> BTreeSet<std::ffi::OsString> { listing(d).into_iter().filter(|n| !n.to_string_lossy().starts_with("._")).collect() };
+        let old = sized(1024 * 1024, 1);
+        fs::write(dir.join("عيادة.mp4"), &old).unwrap();
+
+        // Larger than the whole volume.
+        let big = sized(64 * 1024 * 1024, 2);
+        let err = write_media(Some(&encode(&at("عيادة.mp4"))), None, &InvokeBody::Raw(big.clone()), None).unwrap_err();
+        eprintln!("save as, full disk: {err}");
+        assert!(err.ends_with(&format!("{}", full_disk())), "{err}");
+        assert_eq!(fs::read(dir.join("عيادة.mp4")).unwrap(), old, "the old film is whole");
+        assert_eq!(seen(&dir), names(&["عيادة.mp4"]), "no temporary file");
+
+        let err = write_media(Some(&encode(&at("عيادة.mp4"))), Some(b"1"), &InvokeBody::Raw(big), None).unwrap_err();
+        eprintln!("download, full disk: {err}");
+        assert!(err.ends_with(&format!("{}", full_disk())), "{err}");
+        assert_eq!(seen(&dir), names(&["عيادة.mp4"]), "no partial download");
+
+        // A film that fits still replaces the old one.
+        let fits = sized(2 * 1024 * 1024, 3);
+        write_media(Some(&encode(&at("عيادة.mp4"))), None, &InvokeBody::Raw(fits.clone()), None).unwrap();
+        assert_eq!(fs::read(dir.join("عيادة.mp4")).unwrap(), fits);
+        assert_eq!(seen(&dir), names(&["عيادة.mp4"]));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
