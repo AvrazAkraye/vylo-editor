@@ -3145,6 +3145,25 @@ const ar: Dict = {
   'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'أصوات تُصنع من الحركة نفسها: صوت اندفاع للانزلاق، ونقرات للعدّاد',
   'Music composed for this graphic, on this computer': 'موسيقى تُؤلَّف لهذا التصميم المتحرك على هذا الحاسوب',
   'Effects over music': 'المؤثرات فوق الموسيقى',
+  // Motion pro: 06 gallery and brand kit (MotionHome.tsx, MotionBrandKit.tsx).
+  'No template matches “{words}”.': 'لا يوجد قالب يطابق «{words}».',
+  'Recently used': 'المستخدمة مؤخرًا',
+  'Search the templates': 'ابحث في القوالب',
+  'Search {n} templates': 'ابحث في {n} قالبًا',
+  '{n} templates found': 'القوالب المطابقة: {n}',
+  'Brand kit': 'الهوية التجارية',
+  'Brand kit: {name}': 'الهوية التجارية: {name}',
+  'New graphics start in your colours, font and name.': 'تبدأ التصاميم الجديدة بألوانك وخطك واسمك.',
+  'Your organisation': 'اسم مؤسستك',
+  'Each template’s own': 'ألوان كل قالب',
+  'Your own colours': 'ألوانك الخاصة',
+  'Headline font': 'خط العناوين',
+  'Each template keeps the colours it was designed in.': 'يحتفظ كل قالب بالألوان التي صُمِّم بها.',
+  'The text colour is hard to read on this background.': 'يصعب قراءة لون النص على هذه الخلفية.',
+  'The brand kit could not be kept on this machine. It lasts until the app closes.': 'تعذّر حفظ الهوية التجارية على هذا الجهاز. ستبقى حتى إغلاق التطبيق.',
+  'Apply to this graphic': 'طبّقها على هذا التصميم',
+  'Clear the brand kit?': 'مسح الهوية التجارية؟',
+  'New graphics will start in each template’s own colours and words again. Graphics already made keep theirs.': 'ستبدأ التصاميم الجديدة مجددًا بألوان كل قالب وكلماته. أما التصاميم الموجودة فتبقى كما هي.',
 };
 
 const ckb: Dict = {
@@ -6269,6 +6288,25 @@ const ckb: Dict = {
   'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'دەنگ لە جووڵەکەوە دروست دەکرێن: فشەیەک بۆ خلیسکان، تیکتیک بۆ ژمێرەر',
   'Music composed for this graphic, on this computer': 'مۆسیقایەک بۆ ئەم گرافیکە، لەسەر ئەم کۆمپیوتەرە دادەنرێت',
   'Effects over music': 'ئێفێکت لەسەر مۆسیقا',
+  // Motion pro: 06 gallery and brand kit (MotionHome.tsx, MotionBrandKit.tsx).
+  'No template matches “{words}”.': 'هیچ قاڵبێک لەگەڵ «{words}» ناگونجێت.',
+  'Recently used': 'ئەوانەی دوایی بەکارهاتوون',
+  'Search the templates': 'لە قاڵبەکاندا بگەڕێ',
+  'Search {n} templates': 'لە {n} قاڵبدا بگەڕێ',
+  '{n} templates found': 'قاڵبە گونجاوەکان: {n}',
+  'Brand kit': 'ناسنامەی براند',
+  'Brand kit: {name}': 'ناسنامەی براند: {name}',
+  'New graphics start in your colours, font and name.': 'گرافیکە نوێیەکان بە ڕەنگ و فۆنت و ناوی تۆ دەست پێ دەکەن.',
+  'Your organisation': 'ڕێکخراوەکەت',
+  'Each template’s own': 'هی خودی هەر قاڵبێک',
+  'Your own colours': 'ڕەنگەکانی خۆت',
+  'Headline font': 'فۆنتی سەردێڕ',
+  'Each template keeps the colours it was designed in.': 'هەر قاڵبێک ئەو ڕەنگانە دەهێڵێتەوە کە پێی دیزاین کراوە.',
+  'The text colour is hard to read on this background.': 'خوێندنەوەی ڕەنگی نووسین لەسەر ئەم باکگراوندە قورسە.',
+  'The brand kit could not be kept on this machine. It lasts until the app closes.': 'ناسنامەی براند لەسەر ئەم ئامێرە پاشەکەوت نەکرا. تا داخستنی بەرنامەکە دەمێنێتەوە.',
+  'Apply to this graphic': 'لەسەر ئەم گرافیکە جێبەجێی بکە',
+  'Clear the brand kit?': 'ناسنامەی براند بسڕدرێتەوە؟',
+  'New graphics will start in each template’s own colours and words again. Graphics already made keep theirs.': 'گرافیکە نوێیەکان دووبارە بە ڕەنگ و وشەکانی خودی هەر قاڵبێک دەست پێ دەکەن. گرافیکە دروستکراوەکان هی خۆیان دەهێڵنەوە.',
 };
 
 const kmr: Dict = {
@@ -9391,6 +9429,25 @@ const kmr: Dict = {
   'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'دەنگ ژ لڤینێ دهێنە چێکرن: فشەک بۆ خشکاندنێ، تیکتیک بۆ ژمارتنێ',
   'Music composed for this graphic, on this computer': 'مۆسیقایەک بۆ ڤی گرافیکی، ل سەر ڤی کۆمپیوتەری دهێتە دانان',
   'Effects over music': 'ئێفێکت ل سەر مۆسیقایێ',
+  // Motion pro: 06 gallery and brand kit (MotionHome.tsx, MotionBrandKit.tsx).
+  'No template matches “{words}”.': 'چو قالب ل گەل «{words}» ناگونجیت.',
+  'Recently used': 'یێن دوماهیێ هاتینە بکارئینان',
+  'Search the templates': 'د قالبان دا لێبگەڕێ',
+  'Search {n} templates': 'د {n} قالبان دا لێبگەڕێ',
+  '{n} templates found': 'قالبێن گونجای: {n}',
+  'Brand kit': 'ناسناما براندی',
+  'Brand kit: {name}': 'ناسناما براندی: {name}',
+  'New graphics start in your colours, font and name.': 'گرافیکێن نوی ب ڕەنگ و فۆنت و ناڤێ تە دەست پێ دکەن.',
+  'Your organisation': 'ڕێکخراوا تە',
+  'Each template’s own': 'یێن هەر قالبەکی بخۆ',
+  'Your own colours': 'ڕەنگێن تە بخۆ',
+  'Headline font': 'فۆنتێ سەرنڤیسێ',
+  'Each template keeps the colours it was designed in.': 'هەر قالبەک وان ڕەنگان دپارێزیت یێن پێ هاتییە دیزاینکرن.',
+  'The text colour is hard to read on this background.': 'خواندنا ڕەنگێ نڤیسینێ ل سەر ڤێ پاشبنەمایێ زەحمەتە.',
+  'The brand kit could not be kept on this machine. It lasts until the app closes.': 'ناسناما براندی ل سەر ڤی ئامیری نەهاتە پاراستن. هەتا گرتنا بەرنامەی دمینیت.',
+  'Apply to this graphic': 'ل سەر ڤی گرافیکی جێبەجێ بکە',
+  'Clear the brand kit?': 'ناسناما براندی ژێببەی؟',
+  'New graphics will start in each template’s own colours and words again. Graphics already made keep theirs.': 'گرافیکێن نوی دێ دیسا ب ڕەنگ و پەیڤێن هەر قالبەکی بخۆ دەست پێ کەن. گرافیکێن هاتینە چێکرن یێن خۆ دپارێزن.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

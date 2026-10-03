@@ -4,7 +4,9 @@ import { GalleryChips, GalleryHero, hue, type Slide } from './Gallery';
 import { Ground } from './GalleryArt';
 import { dateText } from './fmt';
 import { fill, type Lang } from './i18n';
-import { META, paletteOf, recipesOf } from './motionrecipe';
+import { MotionBrandKit } from './MotionBrandKit';
+import { META, paletteOf } from './motionrecipe';
+import { GALLERY_ORDER, GROUP_NAMES, recentRecipes, searchRecipes } from './motionsearch';
 import { RECIPES, buildMotion } from './motiontemplates';
 import { FORMATS, RECIPE_GROUPS, type Motion, type RecipeGroup, type RecipeId } from './motiontypes';
 import type { HomeProps, T } from './motionui';
@@ -21,6 +23,19 @@ import { MotionThumb } from './MotionThumb';
  * renderer (MotionThumb.tsx) — still, at the moment it reads best, until it is
  * pointed at or focused, and then playing; a cover is the graphic as it is;
  * and each banner slide has a template playing on a screen.
+ *
+ * ## Finding one
+ *
+ * Under the banner, in place of a heading: a search box, the brand kit's
+ * button, and the kinds as chips. What is typed narrows the cards as it is typed
+ * (`motionsearch.ts`: names, tags, descriptions, in English and the
+ * interface's language), best match first; the chips then count and filter
+ * what the search found. Escape empties the box; the arrow down goes to the
+ * first card. Templates used lately sit in a line of their own under it, a
+ * click from starting again — only once there are some, and not while
+ * searching. There is no heading over the templates: the box says how many
+ * there are, and the line saying how a template is used shows only until the
+ * person has a graphic of their own.
  *
  * ## Light on its feet
  *
@@ -39,12 +54,7 @@ import { MotionThumb } from './MotionThumb';
 type Group = RecipeGroup | 'all';
 
 function groupName(g: Group, t: T): string {
-  if (g === 'titles') return t('Titles');
-  if (g === 'overlays') return t('Overlays');
-  if (g === 'data') return t('Numbers and data');
-  if (g === 'brand') return t('Brand');
-  if (g === 'backgrounds') return t('Backgrounds');
-  return t('All');
+  return g === 'all' ? t('All') : t(GROUP_NAMES[g]);
 }
 
 /** A card's badge: the group's name, the data group's cut short so it shares a line with the card's name. */
@@ -53,9 +63,6 @@ function badgeName(g: RecipeGroup, t: T): string {
 }
 
 const GROUP_HUE: Readonly<Record<RecipeGroup, number>> = { titles: 262, overlays: 200, data: 38, brand: 330, backgrounds: 160 };
-
-/** Every template in the gallery's order: by group, and within one as META lists them. */
-const ORDER: readonly RecipeId[] = RECIPE_GROUPS.flatMap((g) => recipesOf(g).map((m) => m.id));
 
 /** What each banner slide would like to play, best first. */
 const HERO_PICKS: readonly (readonly RecipeId[])[] = [
@@ -438,8 +445,10 @@ export function MotionHome({ t, lang, motions, onOpen, onTemplate, onAsk }: Home
   const root = useRef<HTMLDivElement>(null);
   const head = useRef<HTMLDivElement>(null);
   const grid = useRef<HTMLDivElement>(null);
+  const find = useRef<HTMLInputElement>(null);
   const watch = useWatch(root);
   const [group, setGroup] = useState<Group>('all');
+  const [query, setQuery] = useState('');
   const [hovered, setHovered] = useState<RecipeId | null>(null);
   const [focused, setFocused] = useState<RecipeId | null>(null);
   // Bumped when a card finds its template does not build, so the card and its count go.
@@ -449,19 +458,29 @@ export function MotionHome({ t, lang, motions, onOpen, onTemplate, onAsk }: Home
     (how === 'hover' ? setHovered : setFocused)((cur) => (on ? id : cur === id ? null : cur));
   }, []);
 
-  const exist = ORDER.filter((id) => !!RECIPES[id]);
+  const exist = GALLERY_ORDER.filter((id) => !!RECIPES[id]);
   const [ask, moving, local] = heroPicks(exist, lang);
   // A card for every template that exists and has not failed to build; those
   // not built yet are built as their cards come near the view.
   const ready = exist.filter((id) => built.get(`${id}|${lang}`) !== null);
-  const groups = RECIPE_GROUPS.filter((g) => ready.some((id) => META[id].group === g));
+  // What the search found, best first; everything, in the gallery's order, when nothing is typed.
+  const searching = query.trim() !== '';
+  const found = searching ? searchRecipes(query, lang).filter((id) => ready.includes(id)) : ready;
+  const groups = RECIPE_GROUPS.filter((g) => found.some((id) => META[id].group === g));
   const active: Group = group !== 'all' && groups.includes(group) ? group : 'all';
-  const shown = ready.filter((id) => active === 'all' || META[id].group === active);
+  const shown = found.filter((id) => active === 'all' || META[id].group === active);
+  const recent = searching ? [] : recentRecipes(motions).filter((id) => ready.includes(id));
   const live = hovered ?? focused;
 
+  const firstCard = () => grid.current?.querySelector<HTMLButtonElement>('.gal-card');
+  // A clear button goes with what it clears, so the focus goes back to the box rather than to nowhere.
+  const clearSearch = () => {
+    setQuery('');
+    find.current?.focus();
+  };
   const showTemplates = () => {
     head.current?.scrollIntoView({ behavior: reduced() ? 'auto' : 'smooth', block: 'start' });
-    grid.current?.querySelector<HTMLButtonElement>('.gal-card')?.focus({ preventScroll: true });
+    firstCard()?.focus({ preventScroll: true });
   };
 
   const slides: Slide[] = [
@@ -489,21 +508,71 @@ export function MotionHome({ t, lang, motions, onOpen, onTemplate, onAsk }: Home
 
       {ready.length > 0 && (
         <>
-          <div className="gal-head mo-head" ref={head}>
-            <h3>{t('Templates')} <small>{ready.length}</small></h3>
-            <p>{t('Start from one and change the words, the colours and the timing — or name one in your request and the model fills it in.')}</p>
+          {/* In place of a heading: find, filter, and the brand new graphics start in. */}
+          <div className="mg-bar mo-head" ref={head}>
+            <label className="mg-find">
+              <Icon name="search" size={13} />
+              <input ref={find} type="search" value={query} spellCheck={false} autoComplete="off" dir="auto"
+                     placeholder={fill(t('Search {n} templates'), { n: ready.length })} aria-label={t('Search the templates')}
+                     onChange={(e) => setQuery(e.target.value)}
+                     onKeyDown={(e) => {
+                       if (e.key === 'Escape' && query) {
+                         e.preventDefault();
+                         e.stopPropagation();
+                         setQuery('');
+                       } else if (e.key === 'ArrowDown' || (e.key === 'Enter' && searching)) {
+                         const card = firstCard();
+                         if (card) {
+                           e.preventDefault();
+                           card.focus();
+                         }
+                       }
+                     }} />
+              {query && (
+                <button type="button" className="mg-find-clear" onClick={clearSearch} title={t('Clear the search')} aria-label={t('Clear the search')}>
+                  <Icon name="close" size={11} />
+                </button>
+              )}
+            </label>
+            {found.length > 0 && (
+              <GalleryChips label={t('Kinds')} value={active} onChange={setGroup}
+                            chips={(['all', ...groups] as Group[]).map((g) => ({
+                              id: g, label: groupName(g, t), hue: g === 'all' ? undefined : GROUP_HUE[g],
+                              count: g === 'all' ? found.length : found.filter((id) => META[id].group === g).length,
+                            }))} />
+            )}
+            <MotionBrandKit t={t} />
           </div>
-          <GalleryChips label={t('Kinds')} value={active} onChange={setGroup}
-                        chips={(['all', ...groups] as Group[]).map((g) => ({
-                          id: g, label: groupName(g, t), hue: g === 'all' ? undefined : GROUP_HUE[g],
-                          count: g === 'all' ? ready.length : ready.filter((id) => META[id].group === g).length,
-                        }))} />
-          <div className="gal-grid" ref={grid}>
-            {shown.map((id) => (
-              <Card key={id} id={id} t={t} lang={lang} live={live === id} watch={watch}
-                    onPick={onTemplate} onLive={onLive} onBroken={onBroken} />
-            ))}
-          </div>
+          <span className="mg-sr" role="status">{searching ? fill(t('{n} templates found'), { n: found.length }) : ''}</span>
+          {/* How templates work, said once: until there is a graphic of one's own. */}
+          {!motions.length && !searching && (
+            <p className="mg-hint">{t('Start from one and change the words, the colours and the timing — or name one in your request and the model fills it in.')}</p>
+          )}
+          {recent.length > 0 && (
+            <div className="mg-recent" role="group" aria-label={t('Recently used')}>
+              <span className="gal-chips-label">{t('Recently used')}</span>
+              {recent.map((id) => (
+                <button key={id} type="button" className="gal-chip" style={hue(META[id].hue)} onClick={() => onTemplate(id)}>
+                  <i />{t(META[id].name)}
+                </button>
+              ))}
+            </div>
+          )}
+          {shown.length > 0 ? (
+            <div className="gal-grid" ref={grid}>
+              {shown.map((id) => (
+                <Card key={id} id={id} t={t} lang={lang} live={live === id} watch={watch}
+                      onPick={onTemplate} onLive={onLive} onBroken={onBroken} />
+              ))}
+            </div>
+          ) : (
+            <p className="mg-none">
+              <span dir="auto">{fill(t('No template matches “{words}”.'), { words: query.trim() })}</span>
+              <button type="button" className="ghost bordered mg-none-clear" onClick={clearSearch}>
+                <span className="cta-label">{t('Clear the search')}</span>
+              </button>
+            </p>
+          )}
         </>
       )}
 

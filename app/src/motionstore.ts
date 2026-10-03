@@ -1,5 +1,6 @@
 import type { Motion } from './motiontypes';
 import { readMotion } from './motionread';
+import { readBrand, type BrandKit } from './motionbrand';
 
 /**
  * Where motion graphics are kept between sessions: the webview's IndexedDB,
@@ -25,33 +26,41 @@ import { readMotion } from './motionread';
 const DB = 'vylo-motion';
 const STORE = 'motions';
 
-let opening: Promise<IDBDatabase | null> | null = null;
-
-function db(): Promise<IDBDatabase | null> {
-  if (opening) return opening;
-  opening = new Promise((resolve) => {
-    try {
-      const req = indexedDB.open(DB, 1);
-      req.onupgradeneeded = () => {
-        if (!req.result.objectStoreNames.contains(STORE)) req.result.createObjectStore(STORE, { keyPath: 'id' });
-      };
-      req.onsuccess = () => {
-        // The browser can close the connection under us (storage cleared, the
-        // disk full); the next call opens a new one rather than failing on it.
-        req.result.onclose = () => { opening = null; };
-        resolve(req.result);
-      };
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-  // A refusal is not cached: the next call tries again, in case it was the
-  // moment and not the machine.
-  void opening.then((d) => { if (!d) opening = null; });
-  return opening;
+/**
+ * The way to one database of one store, keyed by `id`, opened once and kept:
+ * `vylo-motion` for the graphics, `vylo-motion-brand` for the brand kit.
+ */
+function opener(name: string, store: string): () => Promise<IDBDatabase | null> {
+  let opening: Promise<IDBDatabase | null> | null = null;
+  return () => {
+    if (opening) return opening;
+    const now: Promise<IDBDatabase | null> = new Promise((resolve) => {
+      try {
+        const req = indexedDB.open(name, 1);
+        req.onupgradeneeded = () => {
+          if (!req.result.objectStoreNames.contains(store)) req.result.createObjectStore(store, { keyPath: 'id' });
+        };
+        req.onsuccess = () => {
+          // The browser can close the connection under us (storage cleared, the
+          // disk full); the next call opens a new one rather than failing on it.
+          req.result.onclose = () => { opening = null; };
+          resolve(req.result);
+        };
+        req.onerror = () => resolve(null);
+        req.onblocked = () => resolve(null);
+      } catch {
+        resolve(null);
+      }
+    });
+    opening = now;
+    // A refusal is not cached: the next call tries again, in case it was the
+    // moment and not the machine.
+    void now.then((d) => { if (!d && opening === now) opening = null; });
+    return now;
+  };
 }
+
+const db = opener(DB, STORE);
 
 function done<T>(req: IDBRequest<T>): Promise<T | null> {
   return new Promise((resolve) => {
@@ -151,5 +160,98 @@ export async function deleteMotion(id: string): Promise<void> {
     await committed(tx);
   } catch {
     /* kept, as it was */
+  }
+}
+
+// ── the brand kit ─────────────────────────────────────────────────────────
+
+/**
+ * The brand kit (`motionbrand.ts`) is kept in a database of its own,
+ * `vylo-motion-brand`, store `kit`, one record. Not a second store in
+ * `vylo-motion`: that would mean opening it at version 2, and a build from
+ * before the kit — the release the person goes back to, a copy of the app
+ * left on another disk — would then fail to open `vylo-motion` at version 1
+ * and show no graphics at all. Kept apart, the graphics never depend on the
+ * kit. Not `localStorage` either, for the reason at the top of this file: the
+ * kit holds its logo as a picture, as a graphic does.
+ *
+ * The session also keeps the kit in memory (`currentBrand`), so a graphic
+ * started from a template can be built in it at once, and every place that
+ * shows it (`onBrand`) changes together when it is saved. When storage refuses
+ * the kit it still lasts the session, and `saveBrand` says it was not kept.
+ */
+const BRAND_DB = 'vylo-motion-brand';
+const BRAND_STORE = 'kit';
+const BRAND_ID = 'brand';
+const brandDb = opener(BRAND_DB, BRAND_STORE);
+
+let brandNow: BrandKit | null = null;
+/** Bumped by every save, so a load that started before it does not put back what the save replaced. */
+let brandTurn = 0;
+const brandWatchers = new Set<(b: BrandKit | null) => void>();
+
+function setBrandNow(b: BrandKit | null) {
+  brandNow = b;
+  for (const fn of [...brandWatchers]) {
+    try {
+      fn(b);
+    } catch {
+      /* one watcher's failure is not another's */
+    }
+  }
+}
+
+/** The kit this session has: the last one loaded or saved, or null. */
+export function currentBrand(): BrandKit | null {
+  return brandNow;
+}
+
+/** Be told whenever the kit is loaded, saved or cleared. Returns the way to stop. */
+export function onBrand(fn: (b: BrandKit | null) => void): () => void {
+  brandWatchers.add(fn);
+  return () => { brandWatchers.delete(fn); };
+}
+
+/**
+ * The kept kit, read again (`readBrand`): a record from an older build or
+ * edited by hand is repaired, and one that is not a kit is no kit. When storage
+ * cannot be read, the session's kit, unchanged.
+ */
+export async function loadBrand(): Promise<BrandKit | null> {
+  const turn = brandTurn;
+  const d = await brandDb();
+  if (!d) return brandNow;
+  try {
+    const req = d.transaction(BRAND_STORE, 'readonly').objectStore(BRAND_STORE).get(BRAND_ID);
+    const got = await new Promise<{ ok: boolean; value: unknown }>((resolve) => {
+      req.onsuccess = () => resolve({ ok: true, value: req.result });
+      req.onerror = () => resolve({ ok: false, value: undefined });
+    });
+    if (!got.ok || turn !== brandTurn) return brandNow;
+    setBrandNow(readBrand(got.value));
+    return brandNow;
+  } catch {
+    return brandNow;
+  }
+}
+
+/**
+ * Keep a kit, or forget it (null, or a kit with nothing in it). The session
+ * has it at once; `false` when storage did not take it.
+ */
+export async function saveBrand(b: BrandKit | null): Promise<boolean> {
+  const kit = b ? readBrand(b) : null;
+  brandTurn += 1;
+  setBrandNow(kit);
+  const d = await brandDb();
+  if (!d) return false;
+  try {
+    const tx = d.transaction(BRAND_STORE, 'readwrite');
+    const store = tx.objectStore(BRAND_STORE);
+    if (kit) store.put({ ...kit, id: BRAND_ID });
+    else store.delete(BRAND_ID);
+    return await committed(tx);
+  } catch {
+    return false;
   }
 }

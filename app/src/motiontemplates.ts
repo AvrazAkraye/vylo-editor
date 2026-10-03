@@ -1,7 +1,7 @@
 import type { Lang } from './i18n';
-import type { Format, Motion, Palette, RecipeId } from './motiontypes';
-import { LIMITS } from './motiontypes';
-import { META, makeKit, paletteOf, type Field, type PaletteId, type Recipe } from './motionrecipe';
+import type { Format, ImageLayer, Layer, Motion, Palette, RecipeId, Voice } from './motiontypes';
+import { LIMITS, VOICES } from './motiontypes';
+import { META, makeKit, paletteOf, type Field, type Kit, type LogoSlot, type PaletteId, type Recipe } from './motionrecipe';
 import { readMotion } from './motionread';
 import { TITLE_RECIPES } from './motionrecipes-titles';
 import { OVERLAY_RECIPES } from './motionrecipes-overlays';
@@ -93,6 +93,113 @@ export interface BuildOptions {
   now?: number;
   request?: string;
   ai?: boolean;
+  /** How a brand draws it beyond its palette and words (`Look`). Absent or null: exactly as the recipe draws it. */
+  look?: Look | null;
+}
+
+// ── a brand's look ────────────────────────────────────────────────────────
+
+/**
+ * What a brand changes in how a template is drawn, beyond the palette and the
+ * words (which `BuildOptions` already carries): the face its headlines are set
+ * in, and its logo, in a template with a place for one (`RecipeMeta.logo`).
+ * `motionbrand.ts` makes one from a brand kit; `lookOf` reads one back from a
+ * graphic, so a template built again — new words, a new shape — keeps it.
+ */
+export interface Look {
+  voice?: Voice;
+  /** A `data:image/` PNG or JPEG, as the picture importer writes one. */
+  logo?: string;
+}
+
+/**
+ * The house's display face: every recipe sets its headline, a badge's letters
+ * and a countdown's numbers in `bold`, and its body, labels and figures in
+ * `sans`. A brand's voice takes the place of this one and of no other, so
+ * reading stays as the designer set it, and the templates whose whole look is
+ * a typeface — kinetic type's condensed words, the quote card's serif, the
+ * subscribe button's rounded label — keep theirs. Every layer set in it is
+ * fitted to its box (`fit`), so a wider face shrinks to the room the layout
+ * measured instead of running out of it.
+ */
+export const DISPLAY_VOICE: Voice = 'bold';
+
+/** A layer set in a voice, the kinds that have one. */
+type Voiced = Extract<Layer, { voice: Voice }>;
+const voiced = (l: Layer): l is Voiced => l.kind === 'text' || l.kind === 'counter' || l.kind === 'chart';
+
+/** A logo the reader will keep: the picture importer's own two formats, inside the picture limit (`motionread.ts` reads a source the same way). */
+export function logoOk(x: unknown): x is string {
+  return typeof x === 'string' && x.length <= LIMITS.image && /^data:image\/(?:png|jpeg);base64,/i.test(x.slice(0, 32));
+}
+
+/**
+ * A recipe's layers with the logo in its slot: a picture with the slot
+ * layer's place in the stack, its box, its time on screen, its entrance, exit
+ * and loop, and its shadow — fitted whole (`contain`) with square corners, so
+ * a logo on a transparent ground is its own outline and casts its own shadow
+ * (`motiondraw.ts`) — and without the layers that drew what the logo replaces.
+ * A recipe that did not make the slot's layer (a shape it leaves out) is left
+ * as it is.
+ */
+function withLogo(c: Kit, layers: readonly Layer[], slot: LogoSlot, src: string): Layer[] {
+  const at = layers.findIndex((l) => l.id === c.id(slot.layer));
+  if (at < 0) return layers.slice();
+  const from = layers[at];
+  const side = 'w' in from && 'h' in from ? { w: from.w, h: from.h } : { w: 30, h: 30 };
+  const logo: ImageLayer = c.image('logo', {
+    src, ...side, fit: 'contain', radius: 0,
+    pin: from.pin, x: from.x, y: from.y, scale: from.scale, rot: from.rot, opacity: from.opacity, start: from.start, end: from.end,
+    ...(from.in ? { in: from.in } : {}), ...(from.out ? { out: from.out } : {}), ...(from.loop ? { loop: from.loop } : {}),
+    ...(from.shadow ? { shadow: from.shadow } : {}),
+  });
+  const gone = new Set((slot.drop ?? []).map((name) => c.id(name)));
+  return layers.flatMap((l, i) => (i === at ? [logo] : gone.has(l.id) ? [] : [l]));
+}
+
+/** The layers a recipe built, drawn in a look: the display face swapped for the brand's, and the logo in its slot. */
+function styled(c: Kit, layers: Layer[], look: Look): Layer[] {
+  const voice = look.voice && (VOICES as readonly string[]).includes(look.voice) ? look.voice : null;
+  let out = voice && voice !== DISPLAY_VOICE
+    ? layers.map((l): Layer => (voiced(l) && l.voice === DISPLAY_VOICE ? { ...l, voice } : l))
+    : layers;
+  const slot = META[c.recipe]?.logo;
+  if (slot && logoOk(look.logo)) out = withLogo(c, out, slot, look.logo);
+  return out;
+}
+
+/**
+ * The look a template graphic is drawn in, read from its layers: what a
+ * rebuild (`motionedit.ts`, `motionchatops.ts`) passes to `buildMotion` so new
+ * words or a new shape do not take the brand's face and logo away. The logo is
+ * the picture in the template's logo slot; the voice is the face its display
+ * layers now have, found by building the template plainly and comparing the
+ * layers it sets in `DISPLAY_VOICE` with the graphic's, id by id (the ids are
+ * stable). Null for a graphic with no template, or one drawn as the recipe
+ * draws it.
+ */
+export function lookOf(m: Motion): Look | null {
+  const r = m.recipe;
+  if (!r || !META[r.id] || !RECIPES[r.id]) return null;
+  const look: Look = {};
+  const logo = m.layers.find((l) => l.id === `${r.id}-logo` && l.kind === 'image');
+  if (logo && logo.kind === 'image' && META[r.id].logo && logoOk(logo.src)) look.logo = logo.src;
+  let plain: Motion | null = null;
+  try {
+    plain = buildMotion({ id: m.id, recipe: r.id, fields: r.fields, lang: m.lang, format: m.format, palette: m.palette, seconds: m.seconds, now: 0 });
+  } catch {
+    plain = null;
+  }
+  const mine = new Map(m.layers.map((l) => [l.id, l]));
+  for (const l of plain?.layers ?? []) {
+    if (!voiced(l) || l.voice !== DISPLAY_VOICE) continue;
+    const now = mine.get(l.id);
+    if (now && voiced(now) && now.voice !== DISPLAY_VOICE) {
+      look.voice = now.voice;
+      break;
+    }
+  }
+  return look.voice || look.logo ? look : null;
 }
 
 /** What to call a graphic before the person names it: its first line of words, else the template's name. */
@@ -113,7 +220,9 @@ export function buildMotion(o: BuildOptions): Motion {
   const seconds = Math.min(LIMITS.seconds, Math.max(LIMITS.minSeconds, Number.isFinite(o.seconds) ? (o.seconds as number) : meta.seconds));
   const fields = resolveFields(o.recipe, o.fields, o.lang);
   const kit = makeKit({ recipe: o.recipe, lang: o.lang, format: o.format, palette, seconds, fields });
-  const layers = recipe ? recipe.build(kit) : [];
+  const built = recipe ? recipe.build(kit) : [];
+  // With no look this is the recipe's own list, untouched: a graphic with no brand builds as it always did.
+  const layers = o.look ? styled(kit, built, o.look) : built;
   const backdrop = recipe && recipe.backdrop !== undefined ? recipe.backdrop : meta.overlay ? null : 'bg';
   const made = readMotion({
     id: o.id, title: titleFor(o.recipe, fields), request: o.request ?? '', lang: o.lang, format: o.format, fps: 30, seconds,
