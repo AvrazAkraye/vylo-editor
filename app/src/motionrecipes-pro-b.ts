@@ -6,7 +6,7 @@ import { contrast, luminance, mixColors } from './motionmath';
 import { inDone, outStart, stillTime, unitsOf } from './motionanim';
 import { safeArea } from './motiondirection';
 import { digitsFor, formatNumber, toArabicDigits } from './motionfonts';
-import { itemsOf, numberOf, type Item } from './motionrecipes-data';
+import { clipToLines, itemsOf, numberOf, WRAPPED_LABEL, type Item } from './motionrecipes-data';
 import { raceData, raceWindow } from './motioncharts';
 
 /**
@@ -931,7 +931,7 @@ function priceCard(c: Kit): Layer[] {
 function progressStats(c: Kit): Layer[] {
   const b = beatOf(c);
   const M = sideOf(c);
-  const items = itemsOf(c.fields.items ?? '', META['progress-stats'].fields[1].max, sampleOf(c, 'items'));
+  const items = itemsOf(c.fields.items ?? '', META['progress-stats'].fields[1].max, sampleOf(c, 'items'), WRAPPED_LABEL);
   const n = items.length;
   const cols = c.landscape ? n : c.portrait ? (n <= 3 ? 1 : 2) : n <= 3 ? n : 2;
   const rows = Math.ceil(n / cols);
@@ -967,9 +967,13 @@ function progressStats(c: Kit): Layer[] {
       in: c.enter('draw', { d: b.s(1.4) }), out: c.leave('draw', { d: b.exit }),
     }));
     if (it.label) {
+      // Room is kept for two lines of label (`labelRoom`); a longer one keeps the words that fit and an ellipsis, rather
+      // than the 24 characters a chart keeps ("Attendance across the te").
+      const labelMax = Math.min(cellW * 0.9, D * 1.6);
+      const set = wrapped(it.label, labelSize, labelMax);
       layers.push(c.text(`label-${i + 1}`, {
-        text: it.label, voice: 'sans', ...sizeFit(wrapped(it.label, labelSize, Math.min(cellW * 0.9, D * 1.6))), weight: 600, color: 'muted', align: 'center',
-        lead: 1.25, max: Math.min(cellW * 0.9, D * 1.6),
+        text: clipToLines(it.label, set.size, labelMax, 2), voice: 'sans', ...sizeFit(set), weight: 600, color: 'muted', align: 'center',
+        lead: 1.25, max: labelMax,
         pin: 'tc', x, y: cy + D / 2 + 3, start: at + b.s(0.3), end: c.seconds,
         in: c.enter('rise', { d: b.s(T.enter), amount: 0.5 }), out: c.leave('fade', { d: b.exit }),
       }));
@@ -1070,7 +1074,7 @@ const SAMPLES: Readonly<Record<ProBId, Record<Lang, Record<string, string>>>> = 
       periods: '2019, 2020, 2021, 2022, 2023, 2024', unit: 't',
     },
     ar: {
-      title: 'الفاكهة المبيعة كل عام',
+      title: 'مبيعات الفاكهة سنوياً',
       items: 'التفاح: 40, 55, 72, 90, 112, 126\nالبرتقال: 28, 44, 70, 95, 128, 160\nالعنب: 52, 60, 64, 69, 73, 78\nالتين: 15, 30, 48, 66, 85, 108\nالكمثرى: 22, 31, 40, 52, 61, 70\nالليمون: 10, 18, 35, 49, 58, 86',
       periods: '2019, 2020, 2021, 2022, 2023, 2024', unit: 'طن',
     },
@@ -1087,7 +1091,7 @@ const SAMPLES: Readonly<Record<ProBId, Record<Lang, Record<string, string>>>> = 
   },
   timeline: {
     en: { title: 'Our story', items: '2016: Founded in one small room\n2018: Our first hundred customers\n2021: A team of twenty\n2024: Open in three new cities' },
-    ar: { title: 'قصتنا', items: '2016: البداية في غرفة صغيرة\n2018: أول مئة عميل\n2021: فريق من عشرين شخصاً\n2024: افتتاح في ثلاث مدن جديدة' },
+    ar: { title: 'قصتنا', items: '2016: البداية في غرفة صغيرة\n2018: أول مئة عميل\n2021: فريق من عشرين شخصاً\n2024: افتتاح فروع في ثلاث مدن جديدة' },
     ckb: { title: 'چیرۆکی ئێمە', items: '2016: دەستپێک لە ژوورێکی بچووک\n2018: یەکەم سەد کڕیارمان\n2021: تیمێکی بیست کەسی\n2024: کرانەوە لە سێ شاری نوێ' },
     kmr: { title: 'چیرۆکا مە', items: '2016: دەستپێک د ژوورەکا بچووک دا\n2018: ئێکەمین سەد کڕیارێن مە\n2021: تیمەکێ بیست کەسی\n2024: ڤەبوون ل سێ باژێرێن نوو' },
   },
@@ -1099,13 +1103,13 @@ const SAMPLES: Readonly<Record<ProBId, Record<Lang, Record<string, string>>>> = 
   },
   'price-card': {
     en: { plan: 'Pro', price: '$19/month', features: 'Unlimited projects\nExport in full HD\nPriority support', button: 'Start free trial' },
-    ar: { plan: 'احترافي', price: '19$/شهرياً', features: 'مشاريع غير محدودة\nتصدير بدقة عالية\nدعم ذو أولوية', button: 'ابدأ التجربة المجانية' },
+    ar: { plan: 'احترافي', price: '19$/شهر', features: 'مشاريع غير محدودة\nتصدير بدقة عالية\nأولوية في الدعم الفني', button: 'ابدأ التجربة المجانية' },
     ckb: { plan: 'پرۆ', price: '19$/مانگانە', features: 'پرۆژەی بێسنوور\nهەناردەکردن بە کوالیتی بەرز\nپشتگیریی لەپێشینە', button: 'تاقیکردنەوەی بێبەرامبەر' },
     kmr: { plan: 'پرۆ', price: '19$/هەیڤانە', features: 'پرۆژێن بێ سنوور\nهەناردەکرن ب کوالیتییا بلند\nپشتەڤانییا ب پێشینە', button: 'تاقیکرنا بێ بەرامبەر' },
   },
   'progress-stats': {
     en: { title: 'This term at a glance', items: 'Attendance: 92%\nHomework done: 78%\nExams passed: 85%\nProjects: 64%' },
-    ar: { title: 'هذا الفصل في لمحة', items: 'الحضور: 92%\nالواجبات المنجزة: 78%\nالنجاح في الامتحانات: 85%\nالمشاريع: 64%' },
+    ar: { title: 'لمحة عن هذا الفصل', items: 'الحضور: 92%\nالواجبات المنجزة: 78%\nالنجاح في الامتحانات: 85%\nالمشاريع: 64%' },
     ckb: { title: 'ئەم وەرزە بە کورتی', items: 'ئامادەبوون: 92%\nئەرکی تەواوکراو: 78%\nدەرچوون لە تاقیکردنەوە: 85%\nپرۆژەکان: 64%' },
     kmr: { title: 'ئەڤ وەرزە ب کورتی', items: 'ئامادەبوون: 92%\nئەرکێن ب دوماهی هاتین: 78%\nدەرباسبوون د ئەزموونان دا: 85%\nپرۆژە: 64%' },
   },

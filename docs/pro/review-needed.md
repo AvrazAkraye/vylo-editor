@@ -380,3 +380,23 @@ need a native speaker before a release. The parity test (`test/i18n.test.mjs`) h
 ## Integration: SAFETY storage sentence (brand kit)
 
 The sentence about the brand kit (`vylo-motion-brand`) in `SAFETY.ckb.md` and `SAFETY.kmr.md` is best effort: "کیتی براند / کیتا براندی" for "brand kit", and the rest. Arabic and English are the reference.
+
+## R5 Content review: Sorani and Badini points to check
+
+Review R5 (`docs/pro/review-content.md`) read the Pro pass's Arabic closely and fixed 28 values. It did not change any
+Sorani or Badini string: the points below are where the same English source produced a mistake in Arabic, or where
+something looked odd on screen, and a native speaker should decide. Nothing here is a confirmed error.
+
+| Where | English | Sorani (ckb) now | Badini (kmr) now | Why it is worth a look |
+|---|---|---|---|---|
+| Price card sample (`motionrecipes-pro-b.ts`) | `$19/month` | `19$/مانگانە` | `19$/هەیڤانە` | The slash already says "per"; the Arabic `19$/شهرياً` ("per monthly") was changed to `19$/شهر`. Perhaps `19$/مانگ` and `19$/هەیڤ`? |
+| Kinetic type sample (`motionrecipes-titles.ts`) | Start small, dream big | `بچووک دەست پێبکە، گەورە خەون ببینە` | `ب بچویکی دەست پێبکە، خەونێن مەزن ببینە` | The Sorani puts the adjectives before the verbs, like the English; the Badini says "with smallness … great dreams". Is the Sorani natural? The highlighted word (`گەورە`) must stay a word of the title. |
+| Countdown sample (`motionrecipes-overlays.ts`) | GO | `دەست پێبکە` | `دەست پێ بکە` | The same verb written joined in one and apart in the other: right for each dialect's spelling? A shorter word (one line) would also sit better in the ring. |
+| Export (`i18n.ts`) | Where is it going? | `بۆ کوێ دەچێت؟` | `دێ بۆ کیرێ چیت؟` | In Arabic, "where is it going" read as a question about a person travelling; it now asks where the file will be published. Does the Kurdish read as "which platform is this for"? |
+| Check (`i18n.ts`) | {count} separate texts are on screen at once; fewer read faster. | `… کەمتر خێراتر دەخوێندرێتەوە.` | `… کێمتر زووتر دهێنە خواندن.` | The Arabic "fewer read faster" was a calque ("the fewer the texts, the faster they are read" now). The Kurdish follows the English word for word. |
+| Scenes (`i18n.ts`) | Whip pan | `سووڕانی خێرا` | `زڤڕینا لەز` | A whip pan is a quick turn of the camera. The Arabic `انعطافة` (a bend in a road) was wrong; is "fast turning" right here, or is there a camera term? |
+| Panel (`i18n.ts`) | Flicker (the grain's) | `لەرزین` | `لەرزین` | `لەرزین` is trembling or shaking; this slider is how fast film grain flickers. The Arabic `الارتعاش` (trembling) became `الوميض` (flicker). |
+| Templates (`i18n.ts`) | Kicker tag | `تاگی نووسینی بچووک` | `ئێتیکەتا ناڤێ بچووک` | It is the small tag above the name. "Tag of the small writing / of the small name": clear enough? |
+| Templates (`i18n.ts`) | Price period | `ماوەی نرخ` | `ماوەیا بهایی` | The layer holds "/month". The Arabic "duration of the price" was odd and became "payment period" (`فترة الدفع`). |
+| Templates (`i18n.ts`) | Chat conversation | `گفتوگۆی نامە` | `ئاخفتنا نامەیان` | Fine in meaning; is it the natural name for a text-message conversation? |
+| Icon words (`motionrecipes-data.ts`) | village, volunteer | `گوند`, `خۆبەخش` (added) | (the same words are matched) | Added so "villages" gets a place pin and "volunteers" people, as in English and Arabic. Is `گوند` used in both dialects, and is there a Badini word for volunteer to add? |

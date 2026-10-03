@@ -311,12 +311,41 @@ function wrap(text: string, size: number, m: Measure, room: number, most: number
   return kept;
 }
 
-/** `words` broken into exactly `n` lines whose widest is as narrow as it can be: a headline set as a shape, not a full line and a straggler. */
-function balancedInto(words: string[], n: number, w: (s: string) => number): string[] {
+/**
+ * Little words a line should not end on — an article, a preposition, a
+ * conjunction, in the four languages — because the reader is left hanging at
+ * the line's end: "Your / studio, in / your pocket".
+ */
+const WEAK_END: ReadonlySet<string> = new Set([
+  'a', 'an', 'the', 'in', 'of', 'to', 'on', 'at', 'by', 'for', 'and', 'or', 'with', 'from', 'into', 'your', 'our', 'my', '&',
+  '\u0648', '\u0641\u064A', '\u0645\u0646', '\u0639\u0644\u0649', '\u0625\u0644\u0649', '\u0627\u0644\u0649', '\u0639\u0646', '\u0645\u0639',
+  '\u0644\u06D5', '\u0628\u06C6', '\u0628\u06D5', '\u0644\u06D5\u06AF\u06D5\u06B5', '\u062F', '\u0644', '\u0628', '\u0698', '\u0648\u06D5\u06A9',
+]);
+/** Whether a line ends on one of the `WEAK_END` words. */
+const endsWeak = (line: string) => WEAK_END.has((line.split(' ').pop() ?? '').toLowerCase().replace(/[^\p{L}&]/gu, ''));
+
+/**
+ * `words` broken into exactly `n` lines whose widest is as narrow as it can
+ * be: a headline set as a shape, not a full line and a straggler. A line that
+ * ends on a little word (`WEAK_END`) counts as 15% wider, so it is chosen only
+ * when every other break is clearly worse; between breaks whose widest line is
+ * the same, the one with fewer such endings wins (a short line "to the" is
+ * never the widest, so the 15% alone would not keep it away); and with `room`,
+ * a break that keeps every line inside it always beats one that does not, so
+ * none of this makes a headline run out of its room.
+ */
+function balancedInto(words: string[], n: number, w: (s: string) => number, room = Infinity): string[] {
   const N = words.length;
   if (n <= 1 || N <= 1) return [words.join(' ')];
-  const width = (i: number, j: number) => w(words.slice(i, j).join(' '));
+  const width = (i: number, j: number) => {
+    const line = words.slice(i, j).join(' ');
+    const raw = w(line);
+    const over = raw > room * 1.001 ? 1e6 : 0;
+    return (j < N && endsWeak(line) ? raw * 1.15 : raw) + over;
+  };
+  const weakAt = (i: number, j: number) => (j < N && endsWeak(words.slice(i, j).join(' ')) ? 1 : 0);
   const best: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(N + 1).fill(Infinity));
+  const weak: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(N + 1).fill(0));
   const from: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(N + 1).fill(0));
   best[0][0] = 0;
   for (let k = 1; k <= n; k++) {
@@ -324,8 +353,10 @@ function balancedInto(words: string[], n: number, w: (s: string) => number): str
       for (let i = k - 1; i < j; i++) {
         if (best[k - 1][i] === Infinity) continue;
         const cost = Math.max(best[k - 1][i], width(i, j));
-        if (cost < best[k][j] - 1e-9) {
+        const count = weak[k - 1][i] + weakAt(i, j);
+        if (cost < best[k][j] - 1e-9 || (cost <= best[k][j] + 1e-9 && count < weak[k][j])) {
           best[k][j] = cost;
+          weak[k][j] = count;
           from[k][j] = i;
         }
       }
@@ -365,7 +396,7 @@ function setBlock(raw: string, o: { size: number; min: number; room: number; lin
     const words = last ? chopped(words0, size, o.m, o.room) : words0;
     const w = (s: string) => lineWidth(s, size, o.m);
     const count = greedy(words, size, o.m, o.room).length;
-    const lines = count <= 1 ? [words.join(' ')] : balancedInto(words, count, w);
+    const lines = count <= 1 ? [words.join(' ')] : balancedInto(words, count, w, o.room);
     const widest = Math.max(...lines.map(w));
     if ((count <= o.lines && widest <= o.room * 1.001) || last) {
       return { text: lines.join('\n'), size, lines: lines.length, width: Math.min(o.room, widest) };
@@ -382,7 +413,7 @@ function twoLines(text: string, size: number, m: Measure, room: number): string 
   const words = wordsOf(text);
   const one = words.join(' ');
   if (words.length < 2 || lineWidth(one, size, m) <= room) return one;
-  return balancedInto(words, 2, (s) => lineWidth(s, size, m)).join('\n');
+  return balancedInto(words, 2, (s) => lineWidth(s, size, m), room).join('\n');
 }
 
 // ── shared looks ──────────────────────────────────────────────────────────
@@ -679,7 +710,9 @@ function kickerName(c: Kit): Layer[] {
   const k = clockOf(c);
   const g = glassOf(c);
   const m = marginOf(c);
-  const z = c.portrait ? { name: 6.4, role: 3.1, kick: 2.3 } : c.landscape ? { name: 6, role: 2.9, kick: 2.1 } : { name: 6.2, role: 3, kick: 2.2 };
+  // The tag's capitals no smaller than the direction's label size (2.2u, motiondirection.ts) and a little over it: at 2.1u
+  // on the wide frame "GUEST" was the smallest type of the eight lower thirds.
+  const z = c.portrait ? { name: 6.4, role: 3.1, kick: 2.5 } : c.landscape ? { name: 6, role: 2.9, kick: 2.3 } : { name: 6.2, role: 3, kick: 2.4 };
   const bottom = bottomOf(c);
   const name = c.fields.name ?? '';
   const role = c.fields.role ?? '';
@@ -736,10 +769,13 @@ function kickerName(c: Kit): Layer[] {
       in: c.enter('mask', { by: 'line', d: k.d(0.6) }), out: c.leave('mask', { by: 'line', d: k.d(0.3) }),
     }));
   }
-  layers.push(c.shape('underline', {
-    name: 'Underline', pin: 'bs', x: m + padS, y: -r3(lineBottom), w: r3(clamp(nameW, z.name * 1.5, inner)), h: lineH, radius: 0, fill: 'accent',
-    start: k.at(0.55), end: k.until(0.16), in: c.enter('grow', { dir: 'start', d: k.d(0.55), ease: 'cubic-out' }), out: c.leave('grow', { dir: 'start', d: k.d(0.26) }),
-  }));
+  // The underline is the name's, as long as it: with the name cleared it would be an accent stroke under nothing.
+  if (name) {
+    layers.push(c.shape('underline', {
+      name: 'Underline', pin: 'bs', x: m + padS, y: -r3(lineBottom), w: r3(clamp(nameW, z.name * 1.5, inner)), h: lineH, radius: 0, fill: 'accent',
+      start: k.at(0.55), end: k.until(0.16), in: c.enter('grow', { dir: 'start', d: k.d(0.55), ease: 'cubic-out' }), out: c.leave('grow', { dir: 'start', d: k.d(0.26) }),
+    }));
+  }
   if (roleLines) {
     layers.push(c.text('role', {
       name: 'Role', text: roleText, pin: 'bs', x: m + padS, y: -r3(roleBottom), size: z.role, weight: 500, voice: 'sans', color: 'muted',
@@ -904,19 +940,19 @@ export function notesOf(raw: unknown): Note[] {
  */
 const ICON_WORDS: readonly (readonly [IconId, RegExp])[] = [
   ['truck', /\bship(ped|ping|s)?\b|\bdeliver|\bpackage|\bparcel|\bcourier|شحن|توصيل|طرد|گەیاندن|نێردرا|پاکەت|پاکێت|هنارتن/i],
-  ['chat', /\bmessage|\bchat|\brepl(y|ied|ies)\b|\bdm\b|\btext(s|ed)?\b|رسال|محادث|نامە|پەیام/i],
+  ['chat', /\bmessage|\bchat|\brepl(y|ied|ies)\b|\bdm\b|\btext(s|ed)?\b|رسال|رسائل|محادث|دردش|نامە|پەیام/i],
   ['mail', /\be-?mail|\binbox|بريد|ئیمەیل/i],
-  ['money', /\bpa(y|id|yment|yments)\b|\bmoney|\btransfer|\binvoice|\brefund|[$€£]|دفع|مبلغ|حوالة|پارە/i],
+  ['money', /\bpa(y|id|yment|yments)\b|\bmoney|\btransfer|\binvoice|\brefund|[$€£]|دفع|مدفوع|مبلغ|حوالة|تحويل|فاتورة|استرداد|پارە/i],
   ['cart', /\border|\bcart\b|\bbought\b|\bpurchase|\bsale\b|طلب|شراء|داواکاری|داخوازی|کڕین/i],
   ['calendar', /\bmeet|\bevent|\bcalendar|\btomorrow|\bappointment|\bbooking|اجتماع|موعد|حجز|کۆبوونەوە|ژڤان/i],
-  ['clock', /\bremind|\bminutes?\b|\bhours?\b|\bsoon\b|\blater\b|\btimer\b|تذكير|دقيق|ساعة|بیرخستنەوە|بیرئینان|خولەک/i],
-  ['heart', /\blike[sd]?\b|\blove[sd]?\b|إعجاب|أحب|لایک|خۆشەویست/i],
-  ['users', /\bfollow|\bfriend|\bjoined\b|\binvite|متابع|انضم|دعوة|فۆڵۆ|هاوڕێ|هەڤاڵ/i],
+  ['clock', /\bremind|\bminutes?\b|\bhours?\b|\bsoon\b|\blater\b|\btimer\b|تذكير|دقيقة|دقائق|دقيقتين|ساعة|ساعات|ساعتين|قريبا|لاحقا|بیرخستنەوە|بیرئینان|خولەک/i],
+  ['heart', /\blike[sd]?\b|\blove[sd]?\b|إعجاب|اعجاب|أعجب|اعجب|أحب|لایک|خۆشەویست/i],
+  ['users', /\bfollow|\bfriend|\bjoined\b|\binvite|متابع|انضم|دعوة|دعاك|(?:^|[\s\u060C])(?:ال)?صديق|أصدقاء|اصدقاء|فۆڵۆ|هاوڕێ|هەڤاڵ/i],
   ['star', /\breview|\brating|\bstars?\b|تقييم|مراجعة|هەڵسەنگاندن/i],
-  ['trophy', /\bw(in|ins|on)\b|\baward|\bwinner|فوز|جائزة|براوە|خەڵات/i],
+  ['trophy', /\bw(in|ins|on)\b|\baward|\bwinner|فوز|فاز|فزت|الفائز|جائزة|جايزة|براوە|خەڵات/i],
   ['gift', /\bgift|\breward|هدية|مكافأة|دیاری/i],
   ['phone', /\bcall(s|ed|ing)?\b|\bmissed\b|مكالمة|اتصال|پەیوەندی|تەلەفۆن/i],
-  ['check', /\bdone\b|\bcomplete|\bapproved\b|\bsuccess|\bconfirmed\b|\bverified\b|اكتمل|تمت الموافقة|تەواو|پەسەند/i],
+  ['check', /\bdone\b|\bcomplete|\bapproved\b|\bsuccess|\bconfirmed\b|\bverified\b|اكتمل|موافقة|بنجاح|تأكيد|تاكيد|تەواو|پەسەند/i],
 ];
 const ICON_DEFAULT: readonly IconId[] = ['bolt', 'sparkle', 'star'];
 
@@ -1481,8 +1517,11 @@ function device(c: Kit): Layer[] {
   const S = c.seconds;
   const m = marginOf(c);
   const phone = !c.landscape;
-  const W = c.landscape ? 96 : c.portrait ? 50 : c.feed ? 42 : 38;
-  const H = c.landscape ? 62 : r3(W * 2.05);
+  // The browser window leaves the headline about 66u on the wide frame: "Your studio, / in your pocket" on two lines at
+  // the design's size. At 96u wide it left 58u, and the headline broke into three ragged ones ("Your / studio, in / your
+  // pocket"), a preposition hanging at a line's end.
+  const W = c.landscape ? 88 : c.portrait ? 50 : c.feed ? 42 : 38;
+  const H = c.landscape ? 57 : r3(W * 2.05);
   const cx = r3(c.landscape ? c.u.w / 2 - 8 - W / 2 : c.portrait ? 0 : c.u.w / 2 - m - 1 - W / 2);
   const cy = r3(c.portrait ? c.u.h / 2 - 14 - H / 2 : c.landscape ? 1 : 0);
   const beside = !c.portrait;
@@ -1519,8 +1558,12 @@ function device(c: Kit): Layer[] {
   const glass: Paint = { kind: 'linear', angle: c.rtl ? 60 : 120, stops: [{ at: 0, color: 'accent' }, { at: 1, color: 'accent2' }] };
   const word = c.fields.screen ?? '';
   const wordM: Measure = { voice: 'bold', weight: 800 };
-  const wordSize = r3(Math.min(screen.w * (phone ? 0.2 : 0.13), screen.h * 0.3));
-  const wordFit = clip(word, wordSize, wordM, screen.w * 0.8 / 0.7);
+  // The word on the screen is usually a product's name, sometimes two or three words ("Noor Studio Pro"): it is set a
+  // little smaller, then on two lines on a phone's tall screen, before it is cut ("Noor…" said less than the person wrote).
+  const wordMax = r3(screen.w * 0.8);
+  const wordSet = setBlock(word, { size: r3(Math.min(screen.w * (phone ? 0.2 : 0.13), screen.h * 0.3)), min: r3(Math.min(screen.w * (phone ? 0.2 : 0.13), screen.h * 0.3) * 0.62), room: wordMax, lines: phone ? 2 : 1, m: wordM });
+  const wordSize = wordSet.size;
+  const wordFit = wordSet.lines <= (phone ? 2 : 1) ? wordSet.text : clip(word, wordSize, wordM, wordMax / 0.7);
   const deviceIn = k.at(0.1);
   const lit = k.at(0.8);
 
@@ -1592,7 +1635,7 @@ function device(c: Kit): Layer[] {
   if (wordFit) {
     layers.push(c.text('screen-word', {
       name: 'Word on the screen', text: wordFit, pin: 'mc', x: cx, y: r3(screen.y), size: wordSize, weight: 800, voice: 'bold', color: inkOn(c, glass),
-      align: 'center', lead: 1.2, max: r3(screen.w * 0.8), fit: true, start: k.at(1.1), end: S,
+      align: 'center', lead: ARABIC_CHAR.test(wordFit) ? 1.3 : 1.08, max: wordMax, fit: true, start: k.at(1.1), end: S,
       in: c.enter('pop', { ease: E.pop, d: k.d(0.55) }), out: rise.out,
     }));
   }
@@ -1626,7 +1669,7 @@ const NOTE_SAMPLES: Record<Lang, string> = {
 /** The conversation in each language; also what a list with nothing in it falls back to. */
 const CHAT_SAMPLES: Record<Lang, string> = {
   en: 'Lana: Are you coming to the launch tonight?\nMe: Wouldn\'t miss it! What time?\nLana: Doors at 7, the show at 8\nMe: Perfect, see you there',
-  ar: 'لانا: هل ستأتي إلى حفل الإطلاق الليلة؟\nأنا: لن أفوّته! متى يبدأ؟\nلانا: الأبواب في السابعة والعرض في الثامنة\nأنا: رائع، أراك هناك',
+  ar: 'لانا: هل ستأتي إلى حفل الإطلاق الليلة؟\nأنا: لن أفوّته! متى يبدأ؟\nلانا: تُفتح الأبواب في السابعة ويبدأ العرض في الثامنة\nأنا: رائع، أراك هناك',
   ckb: 'لانا: ئەمشەو دێیت بۆ ئاهەنگی ناساندنەکە؟\nمن: بە هیچ شێوەیەک لەدەستی نادەم! کەی دەست پێدەکات؟\nلانا: دەرگاکان کاتژمێر 7 و نمایشەکە کاتژمێر 8\nمن: نایابە، لەوێ دەتبینم',
   kmr: 'لانا: ئەڤشەڤ دێ هێیە ئاهەنگا ناساندنێ؟\nئەز: ب چ ڕەنگان ژ دەست نادەم! کەنگی دەست پێدکەت؟\nلانا: دەرگەه دەمژمێر 7 و نمایش دەمژمێر 8\nئەز: زۆر باشە، ل وێرێ دێ تە بینم',
 };
@@ -1646,7 +1689,7 @@ export const PRO_A_RECIPES: Readonly<Record<(typeof PRO_A_IDS)[number], Recipe>>
     build: softPill,
     sample: {
       en: { name: 'Shilan Omar', role: 'Host, The Morning Table' },
-      ar: { name: 'شيلان عمر', role: 'مقدّمة برنامج طاولة الصباح' },
+      ar: { name: 'شيلان عمر', role: 'مقدّمة برنامج «طاولة الصباح»' },
       ckb: { name: 'شیلان عومەر', role: 'پێشکەشکاری مێزی بەیانی' },
       kmr: { name: 'شیلان عومەر', role: 'پێشکێشکارا مێزا سپێدێ' },
     },

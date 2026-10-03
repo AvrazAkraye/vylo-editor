@@ -75,7 +75,11 @@ console.log('the original eighteen with no brand');
   // written here in the same commit, saying why. Moved by W2-4 (template polish, docs/pro/w2-polish.md): the data
   // templates keep their words inside the title-safe area (8.9u from the wide frame's sides, out of a portrait frame's
   // bottom 30.3u), and the lower third, handle, logo reveal and intro sweep their light while landing, gone by the still.
-  const PINNED = '14aa64183f9446ebfa8083a451941754800579a2f2fb101ae4aa27c3fb1e7336';
+  // Moved by R5 (content review, docs/pro/review-content.md): the split reveal's lower panel is the second accent (it was
+  // the accent at 55%, a muddy tone) and its tall frame sets the title larger; kinetic type opens its lines when a comma
+  // above would touch the highlight (the English sample in the tall shapes); and the countdown's last word fits inside its
+  // ring in Arabic script. The other fifteen build exactly as before.
+  const PINNED = '129b725ea7902055d9086baf918d8c9c0adedbd76c0c4e070a8e8b7cb1c32c1a';
   const h = createHash('sha256');
   for (const id of CORE_RECIPE_IDS) for (const lang of LANGUAGES) for (const format of FORMAT_IDS) {
     h.update(J(buildMotion({ id: 'x', recipe: id, lang, format, now: 1 })));
