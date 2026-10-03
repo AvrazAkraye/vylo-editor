@@ -92,11 +92,15 @@ const CHANNELS = 2;
 
 // ── the bed ───────────────────────────────────────────────────────────────
 
+/** Seconds a bed cut short is faded over at its new end: long enough not to click, too short to hear as a fade. */
+const CUT_FADE = 0.01;
+
 /**
  * A bed as the encoder takes it: two channels, new arrays (the caller's are
  * never changed), every sample finite and inside [-1, 1], and — given
- * `seconds` — exactly `round(seconds × rate)` samples long. Null for a bed
- * with no Float32Array channel or a rate that is not between 3 and 384 kHz.
+ * `seconds` — exactly `round(seconds × rate)` samples long; one cut short is
+ * faded out over its last 10 ms (`CUT_FADE`). Null for a bed with no
+ * Float32Array channel or a rate that is not between 3 and 384 kHz.
  */
 export function fitBed(bed: SoundBed | null | undefined, seconds?: number): SoundBed | null {
   const rate = bed?.sampleRate;
@@ -115,10 +119,19 @@ export function fitBed(bed: SoundBed | null | undefined, seconds?: number): Soun
       // NaN is silence; an infinity, or anything past full scale, is full scale.
       out[i] = Number.isNaN(v) ? 0 : Math.max(-1, Math.min(1, v));
     }
+    // Cut short, the sound would stop on whatever sample the cut fell on: a
+    // click. A film is a whole number of frames, so a graphic 4.39 s long at
+    // 24 a second is 4.375 s of film, and its bed loses its last 15 ms — in
+    // the middle of the bed's own fade-out. The new end is faded instead.
+    if (src.length > length) {
+      const fade = Math.min(length, Math.round(CUT_FADE * rate));
+      for (let i = 0; i < fade; i++) out[length - 1 - i] *= 0.5 - 0.5 * Math.cos((Math.PI * i) / fade);
+    }
     return out;
   });
   return { channels, sampleRate: rate };
 }
+
 
 // ── resampling ────────────────────────────────────────────────────────────
 
@@ -537,15 +550,29 @@ async function measureDelay(config: AacEncoderConfig, signal?: AbortSignal): Pro
 
 /** AAC frames decoded with this window's `AudioDecoder`: the first channel, every sample it gave, in order. */
 async function decode(asc: Uint8Array, frames: AacFrame[], config: AacEncoderConfig, signal?: AbortSignal): Promise<Float32Array> {
+  return (await decodePlanes(asc, frames, config.sampleRate, 1, config.numberOfChannels, signal))[0];
+}
+
+/**
+ * AAC frames decoded with this window's `AudioDecoder`: the first `planes`
+ * channels of a stream of `channels`, every sample it gave, in order.
+ */
+async function decodePlanes(
+  asc: Uint8Array, frames: AacFrame[], sampleRate: number, planes: number, channels: number, signal?: AbortSignal,
+): Promise<Float32Array[]> {
   if (signal?.aborted) throw aborted();
-  const parts: Float32Array[] = [];
+  const parts: Float32Array[][] = [];
   let failure = null as unknown;
   const decoder = new AudioDecoder({
     output: (d) => {
       try {
-        const plane = new Float32Array(d.numberOfFrames);
-        d.copyTo(plane, { planeIndex: 0, format: 'f32-planar' });
-        parts.push(plane);
+        const got: Float32Array[] = [];
+        for (let c = 0; c < planes; c++) {
+          const plane = new Float32Array(d.numberOfFrames);
+          d.copyTo(plane, { planeIndex: c, format: 'f32-planar' });
+          got.push(plane);
+        }
+        parts.push(got);
       } catch (e) {
         failure ??= e;
       } finally {
@@ -555,22 +582,56 @@ async function decode(asc: Uint8Array, frames: AacFrame[], config: AacEncoderCon
     error: (e) => { failure ??= e; },
   });
   try {
-    decoder.configure({ codec: AAC_CODEC, sampleRate: config.sampleRate, numberOfChannels: config.numberOfChannels, description: asc });
-    for (const f of frames) decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: f.timestamp, duration: f.duration, data: f.data }));
+    decoder.configure({ codec: AAC_CODEC, sampleRate, numberOfChannels: channels, description: asc });
+    for (const f of frames) {
+      if (signal?.aborted) throw aborted();
+      decoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: f.timestamp, duration: f.duration, data: f.data }));
+    }
     await decoder.flush();
     if (failure !== null) throw failure;
   } finally {
     if (decoder.state !== 'closed') decoder.close();
   }
-  let size = 0;
-  for (const p of parts) size += p.length;
-  const out = new Float32Array(size);
-  let at = 0;
-  for (const p of parts) {
-    out.set(p, at);
-    at += p.length;
+  return Array.from({ length: planes }, (_, c) => {
+    let size = 0;
+    for (const p of parts) size += p[c].length;
+    const out = new Float32Array(size);
+    let at = 0;
+    for (const p of parts) {
+      out.set(p[c], at);
+      at += p[c].length;
+    }
+    return out;
+  });
+}
+
+/**
+ * The sound a player hears from `track`: its frames decoded by this
+ * window's own `AudioDecoder`, the priming skipped and the padding left off,
+ * exactly as the film's edit list plays it — every channel, `totalSamples`
+ * long (shorter only if the decoder gave less). Null where there is no
+ * decoder, or it refuses the stream or fails: nothing could be checked.
+ * Cancel is an `AbortError`.
+ *
+ * What it is for: an AAC encoder does not give back the wave it was given.
+ * Its quantisation noise rides on the peaks, so the decoded sound can crest
+ * above anything in the bed — by up to 1.9 dB, measured on the app's
+ * templates through WebKit's encoder at 128 kbit/s (the R2 review, 2026-10-03)
+ * — and a bed held at −2.5 dBTP came out at −0.6 dBTP. Only the decoded
+ * sound can say where the film's peaks are (`motionencode.ts` checks them).
+ */
+export async function decodeAac(track: AacTrack, signal?: AbortSignal): Promise<Float32Array[] | null> {
+  if (signal?.aborted) throw aborted();
+  if (typeof AudioDecoder === 'undefined' || typeof EncodedAudioChunk === 'undefined') return null;
+  if (!track?.frames?.length) return null;
+  try {
+    const all = await decodePlanes(track.asc, track.frames, track.sampleRate, track.channels, track.channels, signal);
+    const from = Math.max(0, Math.round(track.delaySamples));
+    return all.map((c) => c.slice(Math.min(from, c.length), Math.min(c.length, from + Math.max(0, track.totalSamples))));
+  } catch (e) {
+    if (isAbort(e) || signal?.aborted) throw aborted();
+    return null;
   }
-  return out;
 }
 
 // ── encoding a bed ────────────────────────────────────────────────────────

@@ -448,8 +448,8 @@ uninstall();
   const code = readFileSync(new URL('../src/motionencode.ts', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('motionencode.ts makes no media element and touches no DOM beyond its canvas',
     !/createElement|HTMLMediaElement|HTMLVideoElement|HTMLAudioElement|\bAudio\(|document\.|window\./.test(code));
-  ok('and imports only this repository\'s own: the MP4 writer, the AAC encoder, the sound bed\'s type',
-    same([...code.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]), ['./motionmp4', './motionmp4', './motionaudioenc', './motionaudioenc', './motionsound']));
+  ok('and imports only this repository\'s own: the MP4 writer, the AAC encoder (and decoder), the true-peak meter and its ceiling, the sound bed\'s type',
+    same([...code.matchAll(/from\s+'([^']+)'/g)].map((m) => m[1]), ['./motionmp4', './motionmp4', './motionaudioenc', './motionaudioenc', './audiocore', './loudness', './motionsound']));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

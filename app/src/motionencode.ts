@@ -49,7 +49,9 @@
  * (`motionaudioenc.ts`) before the first frame is drawn, then written as the
  * file's second track. Sound is never the reason an export fails: when this
  * window has no AAC encoder, or encoding fails, the film is made without it
- * and the result says `audio: 'dropped'` so the panel can say so. Cancel
+ * and the result says `audio: 'dropped'` so the panel can say so. The
+ * encoded sound is decoded once to check its true peak against −1.5 dBTP:
+ * AAC lifts peaks (see `encodeSound`). Cancel
  * during the sound is Cancel. The result is the file's bytes, as before,
  * carrying `audio` (`'kept'`, `'dropped'`, or `'none'` when none was given)
  * and `painted` (the frames actually drawn) beside them.
@@ -73,8 +75,10 @@
 
 import { Mp4Writer, annexBToAvcc } from './motionmp4';
 import type { Mp4Sample } from './motionmp4';
-import { encodeAac, fitBed } from './motionaudioenc';
+import { decodeAac, encodeAac, fitBed } from './motionaudioenc';
 import type { AacTrack } from './motionaudioenc';
+import { dbToGain, gainToDb, truePeakOf } from './audiocore';
+import { DELIVERY_CEILING_DB } from './loudness';
 import type { SoundBed } from './motionsound';
 
 // ── choosing the encoder ──────────────────────────────────────────────────
@@ -276,17 +280,56 @@ const YIELD_MS = 50;
 const clock = () => (typeof performance !== 'undefined' && typeof performance.now === 'function' ? performance.now() : Date.now());
 
 /**
+ * The ceiling a film's sound is held under as a player decodes it, in dBTP:
+ * `loudness.ts`'s delivery ceiling, the number the sound's promise names.
+ */
+const SOUND_CEILING_DB = DELIVERY_CEILING_DB;
+/**
+ * A track is corrected when its decoded peak is within this of the ceiling or
+ * over it: another decoder (ffmpeg's, AVFoundation's) reads the same stream a
+ * few hundredths of a decibel differently.
+ */
+const SOUND_HEADROOM_DB = 0.1;
+/**
+ * How far under the ceiling a correction aims: the codec's overshoot moves a
+ * little when the level does, and the next measurement must land under.
+ */
+const SOUND_MARGIN_DB = 0.3;
+/** Encodes after the first, at most, to bring the decoded peaks under the ceiling. */
+const SOUND_RETRIES = 2;
+
+/**
  * The sound of a film `seconds` long as AAC, or null when it cannot be made
  * (a bed with nothing usable in it, no AAC encoder, the encoder failing):
  * then the film is made without it. Cancel is the one failure passed on.
+ *
+ * The bed arrives with its true peak under the ceiling, but AAC does not give
+ * back the wave it was given: its noise rides on the peaks, and the decoded
+ * sound crested up to 1.9 dB above the bed in WebKit (a bed at −2.5 dBTP
+ * played at −0.6; measured over every template, the R2 review). So the track
+ * is decoded with this window's own decoder, as a player will, and when its
+ * true peak is over the ceiling, or within `SOUND_HEADROOM_DB` of it, the bed
+ * is turned down by the difference and `SOUND_MARGIN_DB` more and encoded
+ * again — at most twice; the louder beds lose a few tenths of a decibel.
+ * Where nothing can decode it, the track is kept as encoded.
  */
 async function encodeSound(
   bed: SoundBed, seconds: number, signal: AbortSignal | undefined, onSound: EncodeOptions['onSound'],
 ): Promise<AacTrack | null> {
-  const fitted = fitBed(bed, seconds);
+  let fitted = fitBed(bed, seconds);
   if (!fitted) return null;
   try {
-    return await encodeAac(fitted, { signal, onProgress: onSound });
+    let track = await encodeAac(fitted, { signal, onProgress: onSound });
+    for (let pass = 0; pass < SOUND_RETRIES; pass++) {
+      const heard = await decodeAac(track, signal);
+      if (!heard) break;
+      const peak = gainToDb(truePeakOf(heard));
+      if (!(peak > SOUND_CEILING_DB - SOUND_HEADROOM_DB)) break;
+      const gain = dbToGain(SOUND_CEILING_DB - SOUND_MARGIN_DB - peak);
+      fitted = { sampleRate: fitted.sampleRate, channels: fitted.channels.map((c) => c.map((v) => v * gain)) };
+      track = await encodeAac(fitted, { signal });
+    }
+    return track;
   } catch (e) {
     if (signal?.aborted || (e as { name?: unknown })?.name === 'AbortError') throw aborted();
     return null;
