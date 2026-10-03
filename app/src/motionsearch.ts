@@ -142,6 +142,16 @@ const MARKS = /[\u0300-\u036f\u0610-\u061a\u064b-\u065f\u0670\u06d6-\u06dc\u06df
 /** Tatweel, and the invisible joiners and direction marks a word can carry. */
 const INVISIBLE = /[\u0640\u061c\u200b-\u200f\u2066-\u2069\u202a-\u202e\ufeff]/g;
 
+/**
+ * What was typed, as text: a string, or a finite number written out; anything
+ * else is nothing. `String(x)` would run an object's own `toString` — which may
+ * throw, as a Proxy, a revoked one or an object without a prototype does — and
+ * write an array of a billion holes out as a string four billion commas long.
+ */
+function wordsOf(x: unknown): string {
+  return typeof x === 'string' ? x : typeof x === 'number' && Number.isFinite(x) ? String(x) : '';
+}
+
 /** One letter for each family of forms: after decomposition the hamza and madda are marks, so أ إ آ are already ا. */
 const SAME_LETTER: Readonly<Record<string, string>> = {
   '\u0671': '\u0627', // alef wasla to alef
@@ -159,7 +169,7 @@ const SAME_LETTER: Readonly<Record<string, string>> = {
  * Eastern Arabic and Persian digits as 0-9, invisible characters removed.
  */
 export function foldSearch(text: string): string {
-  return String(text ?? '')
+  return wordsOf(text)
     .slice(0, 4000)
     .normalize('NFKD')
     .replace(MARKS, '')
@@ -283,7 +293,7 @@ function hitOf(e: Entry, q: string): number {
  */
 export function searchRecipes(query: string, lang: Lang): RecipeId[] {
   const index = indexOf(lang);
-  const typed = searchWords(String(query ?? '').slice(0, 400));
+  const typed = searchWords(wordsOf(query).slice(0, 400));
   const asked = [...new Set(typed)].slice(0, MOST_WORDS);
   if (!asked.length) return index.map((e) => e.id);
   const hits = asked.map((q) => index.map((e) => hitOf(e, q)));
@@ -307,12 +317,33 @@ export function searchRecipes(query: string, lang: Lang): RecipeId[] {
  */
 export function recentRecipes(motions: ReadonlyArray<Pick<Motion, 'recipe' | 'updated'>>, most = 4): RecipeId[] {
   const out: RecipeId[] = [];
-  const order = motions
-    .map((m, i) => ({ id: m?.recipe?.id, updated: Number.isFinite(m?.updated) ? m.updated : 0, i }))
-    .sort((a, b) => b.updated - a.updated || a.i - b.i);
-  for (const m of order) {
-    if (out.length >= Math.max(0, most)) break;
-    if (m.id && META[m.id] && !out.includes(m.id)) out.push(m.id);
+  const room = typeof most === 'number' && most >= 0 ? Math.min(most, GALLERY_ORDER.length) : 0;
+  // Read like everything else from the store: at most `RECENT_SCAN` graphics looked at, one at a time (a sparse
+  // list of four billion holes was four billion steps of `map`), and a template only when it is one of `META`'s own
+  // — `META['constructor']` is a function every object inherits, and `'__proto__'` an object.
+  const seen: { id: RecipeId; updated: number; i: number }[] = [];
+  try {
+    const n = Array.isArray(motions) ? Math.min(motions.length, RECENT_SCAN) : 0;
+    for (let i = 0; i < n; i++) {
+      try {
+        const m = motions[i];
+        const id = m?.recipe?.id;
+        if (typeof id !== 'string' || !Object.prototype.hasOwnProperty.call(META, id)) continue;
+        seen.push({ id, updated: typeof m.updated === 'number' && Number.isFinite(m.updated) ? m.updated : 0, i });
+      } catch {
+        /* a graphic that cannot be read has no template */
+      }
+    }
+  } catch {
+    return out;
+  }
+  seen.sort((a, b) => b.updated - a.updated || a.i - b.i);
+  for (const m of seen) {
+    if (out.length >= room) break;
+    if (!out.includes(m.id)) out.push(m.id);
   }
   return out;
 }
+
+/** Graphics `recentRecipes` looks at: far past any gallery of one person's own, short of what a list of a million could cost. */
+const RECENT_SCAN = 5000;

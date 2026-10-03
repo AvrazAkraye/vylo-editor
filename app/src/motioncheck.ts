@@ -1033,7 +1033,8 @@ function emptiness(s: Scene, out: Out): void {
   const seconds = s.doc.seconds;
   // A scene with nothing in it yet is one that has just been added: it is being built, not a mistake to report, and the repair
   // (trim the graphic) would delete it. A gap that lies wholly inside such a scene is left alone.
-  const building = (s.doc.scenes ?? []).filter((sc) => !spans.some((x) => x.from < sc.end - 1e-6 && x.to > sc.start + 1e-6));
+  const scenes = firstOf(s.doc.scenes).slice(0, LIMITS.scenes) as NonNullable<Motion['scenes']>;
+  const building = scenes.filter((sc) => sc && !spans.some((x) => x.from < sc.end - 1e-6 && x.to > sc.start + 1e-6));
   for (const g of gaps(spans, first, seconds)) {
     if (g.to - g.from < CHECK.empty) continue;
     if (building.some((sc) => g.from >= sc.start - 1e-6 && g.to <= sc.end + 1e-6)) continue;
@@ -1135,12 +1136,26 @@ function tidy(f: Finding): Finding {
  * cannot draw.
  */
 export function checkMotion(doc: Motion, o: CheckOptions = {}): Finding[] {
+  // The rules each catch their own failures; this catches what is left — a document whose fields throw when they
+  // are read (a Proxy, a getter) — so the chip by the stage can never take the studio down with it.
+  try {
+    return checkOf(doc, o);
+  } catch {
+    return [];
+  }
+}
+
+function checkOf(doc: Motion, o: CheckOptions): Finding[] {
   if (!doc || typeof doc !== 'object' || !Array.isArray(doc.layers)) return [];
   const ctx = o?.ctx ?? ownCtx();
   const size = FORMATS[doc.format] ?? FORMATS.landscape;
   const env = makeEnv(ctx ?? NO_CTX, doc, 0, size.width, size.height);
   const items: Item[] = [];
-  doc.layers.forEach((layer, i) => {
+  // At most the layers a graphic may have (`LIMITS.layers`), looked at one at a time: the check is handed the
+  // studio's graphic, which the reader has already held to that, and a list that is not one — four billion holes,
+  // or ten thousand layers that the pairwise rules would compare a hundred million times — is judged by its first.
+  const layers = firstOf(doc.layers).slice(0, LIMITS.layers) as Layer[];
+  layers.forEach((layer, i) => {
     if (!layer || typeof layer !== 'object') return;
     try {
       items.push(itemOf(env, ctx, layer, i));
@@ -1160,7 +1175,7 @@ export function checkMotion(doc: Motion, o: CheckOptions = {}): Finding[] {
       /* a rule that fails costs its own findings, never the others' */
     }
   }
-  const order = new Map(doc.layers.map((l, i) => [l?.id, i] as const));
+  const order = new Map(layers.map((l, i) => [l?.id, i] as const));
   return [...found.values()].sort((a, b) =>
     (a.severity === b.severity ? 0 : a.severity === 'warn' ? -1 : 1)
     || (a.layerId === undefined ? 1 : 0) - (b.layerId === undefined ? 1 : 0)
@@ -1228,20 +1243,40 @@ function better(before: readonly Finding[], after: readonly Finding[], f: Findin
  */
 export function autofix(doc: Motion, findings: readonly Finding[], ids?: readonly string[], o: CheckOptions = {}): Motion {
   if (!doc || typeof doc !== 'object') return doc;
-  const given = Array.isArray(findings) ? findings.filter((f): f is Finding => !!f && typeof f.id === 'string') : [];
-  const named = ids === undefined ? null : new Set(ids.filter((x) => typeof x === 'string'));
+  // What is needed of each finding handed in — its id, and what it is about — read once, in a try: a finding is
+  // the caller's, and one whose fields throw is one that is not there.
+  const given: { id: string; key: string }[] = [];
+  for (const f of firstOf(findings)) {
+    try {
+      const x = f as Finding;
+      if (x && typeof x === 'object' && typeof x.id === 'string') given.push({ id: x.id, key: keyOf(x) });
+    } catch {
+      /* not a finding */
+    }
+  }
+  const named = ids === undefined ? null : new Set(firstOf(ids).filter((x): x is string => typeof x === 'string'));
   const chosen = named ? given.filter((f) => named.has(f.id)) : given;
   // An id the caller has that the list does not: look for it in the graphic as it is now.
   const missing = named ? [...named].filter((id) => !given.some((f) => f.id === id)) : [];
-  const wanted = new Set(chosen.map(keyOf));
-  if (missing.length) for (const f of checkMotion(doc, o)) if (missing.includes(f.id)) wanted.add(keyOf(f));
+  const wanted = new Set(chosen.map((f) => f.key));
+  let checks = 0;
+  const check = (m: Motion): Finding[] => {
+    checks += 1;
+    return checkMotion(m, o);
+  };
+  if (missing.length) for (const f of check(doc)) if (missing.includes(f.id)) wanted.add(keyOf(f));
   if (!wanted.size) return doc;
   let cur = doc;
-  // Every repair kept removes a finding and adds none, so the loop ends on its own; the cap is a guard.
-  for (let round = 0; round < 64; round++) {
-    const now = checkMotion(cur, o);
+  // Every repair kept removes a finding and adds none, so the loop ends on its own; the caps are guards. The
+  // rounds bound how many repairs are kept, and `FIX_CHECKS` how many times the check runs to judge them: a
+  // round tries every repair still on offer, each judged by a whole check, so sixty layers that each offer one
+  // that does not help cost sixty checks a round, and without a ceiling on the total a graphic built to fail
+  // that way kept "Fix all" (and the chat's `check.fix`) busy for seconds (docs/pro/review-safety.md, R1-5).
+  for (let round = 0; round < 64 && checks < FIX_CHECKS; round++) {
+    const now = check(cur);
     let next: Motion | null = null;
     for (const f of now) {
+      if (checks >= FIX_CHECKS) break;
       if (!f.fix || !wanted.has(keyOf(f))) continue;
       let tried: Motion;
       try {
@@ -1249,7 +1284,7 @@ export function autofix(doc: Motion, findings: readonly Finding[], ids?: readonl
       } catch {
         continue;
       }
-      if (tried !== cur && better(now, checkMotion(tried, o), f)) {
+      if (tried !== cur && better(now, check(tried), f)) {
         next = tried;
         break;
       }
@@ -1258,4 +1293,38 @@ export function autofix(doc: Motion, findings: readonly Finding[], ids?: readonl
     cur = next;
   }
   return cur;
+}
+
+/**
+ * How many times one `autofix` may run the check, across all its rounds. A
+ * template's graphic needs a handful; the hostile corpus in
+ * test/pro-check.test.mjs, at most a few dozen. At about 15 ms a check of
+ * sixty layers, the ceiling is a few seconds for a graphic made to fail.
+ */
+const FIX_CHECKS = 160;
+
+/** Entries `autofix` reads from a list it is handed: past any check's own output, short of what a list of a million could cost. */
+const FIX_SCAN = 4096;
+
+/**
+ * The first `FIX_SCAN` entries of a list, one at a time: a sparse list of four
+ * billion holes was four billion steps of `filter` (about 50 seconds), and a
+ * Proxy that throws is no list.
+ */
+function firstOf(x: unknown): unknown[] {
+  const out: unknown[] = [];
+  try {
+    if (!Array.isArray(x)) return out;
+    const n = Math.min(x.length, FIX_SCAN);
+    for (let i = 0; i < n; i++) {
+      try {
+        out.push(x[i]);
+      } catch {
+        /* an entry that cannot be read is not there */
+      }
+    }
+  } catch {
+    /* no list */
+  }
+  return out;
 }

@@ -155,7 +155,9 @@ function levelOf(x: unknown): number {
   let n = numberOf(x);
   if (n === undefined) return DEFAULT_LEVEL;
   if (n > 1 && n <= 100) n /= 100;
-  return Math.round(clamp(n, 0, 1) * 100) / 100;
+  // `|| 0`: a level of -0 (or "-0", or -0.004) would otherwise be kept as -0, which reads back the same but is a
+  // number no slider writes and motionread.ts promises no field ever holds.
+  return Math.round(clamp(n, 0, 1) * 100) / 100 || 0;
 }
 
 /** A seed the composer takes: a whole number 0..2^31-2, as `normalSpec` in videosynth.ts keeps it. */

@@ -1899,14 +1899,26 @@ export function applyOps(m: Motion, ops: unknown, now: number = Date.now(), said
   } catch {
     /* no kit, the check's own measure */
   }
-  let list: unknown[] = [];
+  // The list is read one entry at a time, each in its own try, into a plain array: what came back may be a
+  // Proxy whose length or entries throw, or a sparse array whose holes `map` and `sort` would carry through as
+  // nothing at all (a hole read as an op threw here: docs/pro/review-safety.md, R1-1).
+  let count = 0;
+  const firstOps: unknown[] = [];
   try {
-    list = opList(ops);
+    const list = opList(ops);
+    count = Math.max(0, Math.floor(Number(list.length)) || 0);
+    for (let i = 0; i < Math.min(count, MAX_OPS); i++) {
+      try {
+        firstOps.push(list[i]);
+      } catch {
+        firstOps.push(undefined);
+      }
+    }
   } catch {
-    list = [];
+    count = firstOps.length;
   }
-  if (list.length > MAX_OPS) skipped.push({ code: 'too-many', count: list.length - MAX_OPS });
-  const read = list.slice(0, MAX_OPS).map((x) => {
+  if (count > MAX_OPS) skipped.push({ code: 'too-many', count: count - MAX_OPS });
+  const read = firstOps.map((x) => {
     try {
       return readOp(x);
     } catch {
