@@ -334,6 +334,10 @@ console.log('the person\'s layers in the scenes after the template');
   eq('the chat\'s brand.apply does the same', J({ ...viaChat, updated: 0 }), J({ ...branded, updated: 0 }));
   ok('new words after the brand keep its face and the person\'s layers', lookOf(setFields(branded, { title: 'Hi' }, NOW))?.voice === 'serif'
     && J(layer(setFields(branded, { title: 'Hi' }, NOW), 'mine')) === J(layer(bg, 'mine')));
+  // The brand sheet's own button calls applyBrand on the whole graphic: it must give the same as the chat's wrapper, not lay the title across the scenes.
+  const direct = applyBrand(bg, KIT, NOW);
+  eq('applyBrand on a graphic whose template owns a span: the same as through onTemplatePart', J({ ...direct, updated: 0 }), J({ ...branded, updated: 0 }));
+  ok('and the person\'s layers and the scenes are still there', J(layer(direct, 'mine')) === J(layer(bg, 'mine')) && direct.recipe?.until === 6 && J(direct.scenes) === J(bg.scenes));
   ok('onTemplatePart without a span is just the edit', onTemplatePart(big, (m) => setTitle(m, 'X', NOW)).title === 'X'
     && onTemplatePart(bg, (part) => part) === bg);
   const chatLayer = applyOps(bg, [{ op: 'layer', id: 'mine', set: { text: 'Hello' } }], NOW);

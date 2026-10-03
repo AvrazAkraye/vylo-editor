@@ -2,7 +2,7 @@ import type { Motion, Palette, RecipeId, Voice } from './motiontypes';
 import { LIMITS, TONES, VOICES } from './motiontypes';
 import { META, PALETTES, PALETTE_IDS, type BrandSlot, type PaletteId } from './motionrecipe';
 import { cleanText, readPalette } from './motionread';
-import { setLayer, setPalette } from './motionedit';
+import { onTemplatePart, setLayer, setPalette } from './motionedit';
 import { DISPLAY_VOICE, RECIPES, buildMotion, logoOk, type BuildOptions, type Look } from './motiontemplates';
 
 /**
@@ -259,6 +259,8 @@ const samePalette = (a: Palette, b: Palette) => TONES.every((t) => a[t] === b[t]
 export function applyBrand(doc: Motion, brand: BrandKit | null | undefined, now: number = Date.now()): Motion {
   const kit = brand ? readBrand(brand) : null;
   if (!kit) return doc;
+  // A template that owns only a span (scenes were added after it) is re-skinned for that span alone, and the person's scenes and layers stay.
+  if (doc.recipe?.until !== undefined) return onTemplatePart(doc, (part) => applyBrand(part, kit, now));
   const r = doc.recipe;
   if (r && META[r.id] && RECIPES[r.id]) {
     let fresh: Motion;

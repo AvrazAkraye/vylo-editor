@@ -137,10 +137,10 @@ templates), or the same object when nothing changed (no undo step).
 
 | edit | what it does to time and layers | template link |
 |---|---|---|
-| `addScene(doc, at)` | adds an empty scene after the one `at` is in; the graphic grows by 3 s (or what is left under 30 s). A layer starting at the cut or later moves later; one across the cut grows; at the end, a background (`backdrop` layer) that ran to the end runs on. It arrives with the graphic's most used transition, or a fade. | dropped |
+| `addScene(doc, at)` | adds an empty scene after the one `at` is in; the graphic grows by 3 s (or what is left under 30 s). A layer starting at the cut or later moves later; one across the cut grows; at the end, a background (`backdrop` layer) that ran to the end runs on. It arrives with the graphic's most used transition, or a fade. | kept when the cut is at or after the end of the template's part (it then owns only that part: `recipe.until`, `docs/pro/f1-until.md`); dropped inside it |
 | `splitSceneAt(doc, t)` | cuts the scene `t` is in at `t`; nothing moves; the second piece arrives by a cut, so the graphic looks the same until a transition is chosen. Both pieces must be at least 0.5 s. | kept |
 | `removeScene(doc, id)` | joins the scene to the one before (the first: to the one after); no layer moves or goes. One scene left is none. | kept |
-| `moveScene(doc, id, to)` | reorders; scenes keep their lengths and transitions and are laid back to back; a layer wholly inside a scene moves with it; a layer across a cut stays. The new first scene loses its transition. | dropped |
+| `moveScene(doc, id, to)` | reorders; scenes keep their lengths and transitions and are laid back to back; a layer wholly inside a scene moves with it; a layer across a cut stays. The new first scene loses its transition. | kept when the move is among the scenes after the template's part; dropped otherwise |
 | `setTransition(doc, id, spec)` | a kind, part of `{ kind, d, dir, ease }`, or `null`/`'cut'`. Another kind starts from its own length and curve and keeps the direction. | kept |
 | `renameScene(doc, id, name)` | one line, at most 60 characters | kept |
 
