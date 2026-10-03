@@ -8,7 +8,7 @@ needs a browser for. What is worth taking is **pure code and numbers**, the **qu
 
 A local clone to read (do not run anything in it):
 
-    HF=/private/tmp/claude-501/-Volumes-ExtremeSSD-apps-allserver-vylo/a2df21ed-bc8c-4660-933c-acf4dd7b6f5b/scratchpad/hyperframes
+    HF=<a local shallow clone of https://github.com/heygen-com/hyperframes (the study read commit 8c81efb, 2026-10-03)>
 
 Paths below are relative to `$HF`. This digest was written from four read-only studies; where a study
 and the code disagree, the code wins, and please say so in your report.
