@@ -8849,3 +8849,9 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   .mo-pop.ms-pop{ animation:none; }
 }
 /* pro:05 end */
+/* pro:04 start */
+/* Sound (MotionSoundPanel.tsx): one row of four segments; with music, the moods as chips under the control column
+   (the label column's width plus the row's gap), then the level, a slider row like any other. */
+.mo-sound{ display:flex; flex-direction:column; gap:var(--sp-2); }
+.mo-sound-moods{ margin:0; padding-inline-start:calc(var(--mo-label, 96px) + var(--sp-4)); }
+/* pro:04 end */

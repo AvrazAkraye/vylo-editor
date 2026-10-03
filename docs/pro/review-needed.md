@@ -68,3 +68,16 @@ transitions (push, clock wipe, blinds, pixelate, whip pan, light leak) are the l
 | No room for another scene: a graphic is at most {s} s long and has at most {n} scenes | شوێن بۆ دیمەنێکی تر نییە: گرافیک لە {s} چ درێژتر نابێت و لە {n} دیمەن زیاتری نابێت | جه بۆ دیمەنەکێ دی نینە: گرافیک ژ {s} چ درێژتر نابیت و ژ {n} دیمەنان پتر نابن |
 | A scene is cut at least {s} s from its ends, and a graphic has at most {n} scenes | دیمەن لانیکەم {s} چ دوور لە سەرەکانی دابەش دەکرێت، و گرافیک لە {n} دیمەن زیاتری نابێت | دیمەن ب کێمی {s} چ دویری سەرێن خۆ دهێتە پارچەکرن، و گرافیک ژ {n} دیمەنان پتر نابن |
 | Left and right arrows go from scene to transition to scene. Enter opens one. Alt with an arrow moves a scene earlier or later; Delete joins it with its neighbour; F2 renames it. | تیری چەپ و ڕاست لە دیمەنەوە بۆ گواستنەوە و بۆ دیمەن دەچن. ‏Enter یەکێکیان دەکاتەوە. ‏Alt لەگەڵ تیرێک دیمەنەکە دەباتە پێشتر یان دواتر؛ ‏Delete لەگەڵ دراوسێکەی یەکی دەخات؛ ‏F2 ناوەکەی دەگۆڕێت. | تیرێن چەپ و ڕاست ژ دیمەنەکێ دچنە ڤەگوهاستنێ و پاشان دیمەنێ. ‏Enter ئێکێ ڤەدکەت. ‏Alt دگەل تیرەکێ دیمەنی دبەتە بەرێ یان پاشتر؛ ‏Delete وی دگەل جیرانێ وی دکەتە ئێک؛ ‏F2 ناڤێ وی دگوهۆڕیت. |
+## 04 Sound (`MotionSoundPanel.tsx`)
+
+| English | ckb (Sorani) | kmr (Badini) |
+|---|---|---|
+| Effects | ئێفێکتەکان | ئێفێکت |
+| Both | هەردووکیان | هەردوو |
+| Level | ئاست | ئاست |
+| Sounds made from the animation: a whoosh for a slide, ticks for a counter | دەنگ لە جووڵەکەوە دروست دەکرێن: فشەیەک بۆ خلیسکان، تیکتیک بۆ ژمێرەر | دەنگ ژ لڤینێ دهێنە چێکرن: فشەک بۆ خشکاندنێ، تیکتیک بۆ ژمارتنێ |
+| Music composed for this graphic, on this computer | مۆسیقایەک بۆ ئەم گرافیکە، لەسەر ئەم کۆمپیوتەرە دادەنرێت | مۆسیقایەک بۆ ڤی گرافیکی، ل سەر ڤی کۆمپیوتەری دهێتە دانان |
+| Effects over music | ئێفێکت لەسەر مۆسیقا | ئێفێکت ل سەر مۆسیقایێ |
+
+"Effects" is the segment label (sound effects); "Both" means effects and music together; "Level" is how loud and how many.
+The onomatopoeia ("whoosh", "ticks") was rendered as فشە / تیکتیک: please check a speaker finds them natural.

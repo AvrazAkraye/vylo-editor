@@ -3138,6 +3138,13 @@ const ar: Dict = {
   'No room for another scene: a graphic is at most {s} s long and has at most {n} scenes': 'لا مكان لمشهد آخر: لا يزيد التصميم المتحرك على {s} ث ولا على {n} مشهداً',
   'A scene is cut at least {s} s from its ends, and a graphic has at most {n} scenes': 'يُقسم المشهد على بُعد {s} ث على الأقل من طرفيه، ولا يزيد التصميم المتحرك على {n} مشهداً',
   'Left and right arrows go from scene to transition to scene. Enter opens one. Alt with an arrow moves a scene earlier or later; Delete joins it with its neighbour; F2 renames it.': 'السهمان الأيسر والأيمن ينتقلان من مشهد إلى انتقال إلى مشهد. ‏Enter يفتح أحدها. ‏Alt مع سهم يقدّم المشهد أو يؤخّره؛ ‏Delete يدمجه مع جاره؛ ‏F2 يعيد تسميته.',
+  // Motion pro: 04 sound
+  'Effects': 'المؤثرات',
+  'Both': 'كلاهما',
+  'Level': 'المستوى',
+  'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'أصوات تُصنع من الحركة نفسها: صوت اندفاع للانزلاق، ونقرات للعدّاد',
+  'Music composed for this graphic, on this computer': 'موسيقى تُؤلَّف لهذا التصميم المتحرك على هذا الحاسوب',
+  'Effects over music': 'المؤثرات فوق الموسيقى',
 };
 
 const ckb: Dict = {
@@ -6255,6 +6262,13 @@ const ckb: Dict = {
   'No room for another scene: a graphic is at most {s} s long and has at most {n} scenes': 'شوێن بۆ دیمەنێکی تر نییە: گرافیک لە {s} چ درێژتر نابێت و لە {n} دیمەن زیاتری نابێت',
   'A scene is cut at least {s} s from its ends, and a graphic has at most {n} scenes': 'دیمەن لانیکەم {s} چ دوور لە سەرەکانی دابەش دەکرێت، و گرافیک لە {n} دیمەن زیاتری نابێت',
   'Left and right arrows go from scene to transition to scene. Enter opens one. Alt with an arrow moves a scene earlier or later; Delete joins it with its neighbour; F2 renames it.': 'تیری چەپ و ڕاست لە دیمەنەوە بۆ گواستنەوە و بۆ دیمەن دەچن. ‏Enter یەکێکیان دەکاتەوە. ‏Alt لەگەڵ تیرێک دیمەنەکە دەباتە پێشتر یان دواتر؛ ‏Delete لەگەڵ دراوسێکەی یەکی دەخات؛ ‏F2 ناوەکەی دەگۆڕێت.',
+  // Motion pro: 04 sound
+  'Effects': 'ئێفێکتەکان',
+  'Both': 'هەردووکیان',
+  'Level': 'ئاست',
+  'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'دەنگ لە جووڵەکەوە دروست دەکرێن: فشەیەک بۆ خلیسکان، تیکتیک بۆ ژمێرەر',
+  'Music composed for this graphic, on this computer': 'مۆسیقایەک بۆ ئەم گرافیکە، لەسەر ئەم کۆمپیوتەرە دادەنرێت',
+  'Effects over music': 'ئێفێکت لەسەر مۆسیقا',
 };
 
 const kmr: Dict = {
@@ -9370,6 +9384,13 @@ const kmr: Dict = {
   'No room for another scene: a graphic is at most {s} s long and has at most {n} scenes': 'جه بۆ دیمەنەکێ دی نینە: گرافیک ژ {s} چ درێژتر نابیت و ژ {n} دیمەنان پتر نابن',
   'A scene is cut at least {s} s from its ends, and a graphic has at most {n} scenes': 'دیمەن ب کێمی {s} چ دویری سەرێن خۆ دهێتە پارچەکرن، و گرافیک ژ {n} دیمەنان پتر نابن',
   'Left and right arrows go from scene to transition to scene. Enter opens one. Alt with an arrow moves a scene earlier or later; Delete joins it with its neighbour; F2 renames it.': 'تیرێن چەپ و ڕاست ژ دیمەنەکێ دچنە ڤەگوهاستنێ و پاشان دیمەنێ. ‏Enter ئێکێ ڤەدکەت. ‏Alt دگەل تیرەکێ دیمەنی دبەتە بەرێ یان پاشتر؛ ‏Delete وی دگەل جیرانێ وی دکەتە ئێک؛ ‏F2 ناڤێ وی دگوهۆڕیت.',
+  // Motion pro: 04 sound
+  'Effects': 'ئێفێکت',
+  'Both': 'هەردوو',
+  'Level': 'ئاست',
+  'Sounds made from the animation: a whoosh for a slide, ticks for a counter': 'دەنگ ژ لڤینێ دهێنە چێکرن: فشەک بۆ خشکاندنێ، تیکتیک بۆ ژمارتنێ',
+  'Music composed for this graphic, on this computer': 'مۆسیقایەک بۆ ڤی گرافیکی، ل سەر ڤی کۆمپیوتەری دهێتە دانان',
+  'Effects over music': 'ئێفێکت ل سەر مۆسیقایێ',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
