@@ -142,5 +142,19 @@ ok('and interleaving commands does not shift any state', (() => {
   return isRefused('git push') === true && isRefused('npm test') === false;
 })());
 
+
+// ── WhatsApp from one of several accounts is still never auto-approved ────
+// With two numbers connected the dialog's first line is "WhatsApp from <account> to …"; the rule once matched only
+// "WhatsApp to …", so at level `all` a message the agent wrote went out with no dialog (found 2026-10-04).
+{
+  const line = (account) => `WhatsApp${account ? ` from ${account}` : ''} to Rebaz (+9647501234567)\n\nThe build is green.`;
+  for (const level of ['edits', 'all']) {
+    ok(`level ${level}: one account, still asked`, decide(line(''), level).kind === 'ask');
+    ok(`level ${level}: two accounts, still asked`, decide(line('Personal'), level).kind === 'ask');
+  }
+  ok('an account named with spaces, digits and a dash is caught', isRefused(line('OTP line 2 - Erbil')));
+  ok('…and one named in Arabic, Sorani and Latin Kurdish', ['حسابي الشخصي', 'ژمارەی کار', 'hesabê min'].every((n) => isRefused(line(n))));
+  ok('a command that merely contains the words is not refused by this rule', refusedFor('echo "WhatsApp from me to you"') === null);
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
