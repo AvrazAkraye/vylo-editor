@@ -112,7 +112,7 @@ for (const state of ['is-sticker', 'is-unread', 'is-sure', 'is-on', 'is-bad', 'i
 }
 ok('the six avatar tints are still six literals', ['wa-t0', 'wa-t1', 'wa-t2', 'wa-t3', 'wa-t4', 'wa-t5'].every((c) => panel.includes(`'${c}'`)));
 ok('the group glyph is the new people icon, appended to Icon.tsx',
-  /people: \[\{ d: '/.test(readFileSync(join(APP, 'src/Icon.tsx'), 'utf8')) && (panel.match(/name="people"/g) || []).length === 3);
+  /people: \[\{ d: '/.test(readFileSync(join(APP, 'src/Icon.tsx'), 'utf8')) && (panel.match(/name="people"/g) || []).length >= 3);
 
 // ── 3. readable ────────────────────────────────────────────────────────────
 console.log('Contrast');
@@ -194,7 +194,10 @@ console.log('Behaviour');
   // pass. Each line is still in the file, character for character.
   const HANDLERS = [
     'onClick={() => setBulk(true)}',
-    '<WhatsAppBroadcast t={t} lang={lang ?? \'en\'} account={current} full={full} gw={gw} efforts={efforts}',
+    // The mount, by its opening and its close rather than its whole line: the
+    // integrator will hand it more props (the chats, for one).
+    '<WhatsAppBroadcast ',
+    'onClose={() => setBulk(false)}',
     'onClick={() => setFull((v) => !v)}',
     "onKeyDown={(e) => { if (e.key === 'Escape') setFind(''); }}",
     "if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); }",

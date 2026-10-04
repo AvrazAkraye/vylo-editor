@@ -115,7 +115,7 @@ sidebar's scrolling unless that wrapper gets the same treatment.
 ## Tests and gates
 
 - `app/test/wa-design.test.mjs`: **83 passed, 0 failed** — the block's rules (logical only, no `direction`, no hex, no
-  width over 248px outside the window), class parity both ways, 28 contrast pairs, reduced motion, 39 handler fingerprints,
+  width over 248px outside the window), class parity both ways, 28 contrast pairs, reduced motion, 40 handler fingerprints,
   and a `react-dom/server` render of the first-run form and the waiting list with every drawn class defined.
 - `npm test`: **15,846 passed, 0 failed** across 180 files. `npx tsc --noEmit`: clean. `npm run build`: built.
 - Performance: 511 conversations scrolled for 90 frames in headless Chrome — median 16.6ms, p95 17.7–18.6ms, max 18.7ms,
