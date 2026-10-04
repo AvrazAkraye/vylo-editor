@@ -16,8 +16,9 @@ import {
   CAP_WARN, DEFAULT_PACE, LIMITS, PACE_BOUNDS, type Campaign, type CampaignState, type Outcome, type Pace, type Problem,
   type Recipient, type RunEvent, type Standing,
 } from './whatsappbulktypes';
-import { Fill, Masked, num } from './WhatsAppPeople';
+import { Fill, Masked, columnsOf, num } from './WhatsAppPeople';
 import { AttachmentLine, Bubble, draftOf, type MessageWork } from './WhatsAppCompose';
+import { holesIn } from './WhatsAppReady';
 
 /**
  * Step 3 and after: Review & send, the live run, the report, the history and
@@ -94,6 +95,19 @@ export function applyEvent(l: Live, e: RunEvent): Live {
   return { ...l, wait: { until: e.until, why: e.why } };
 }
 
+/**
+ * The placeholders in a campaign's message that nothing fills: not `{name}`/`{first_name}`, not a column its people
+ * carry. Each would go out as nothing ("get  today").
+ *
+ * Step 2 refuses them, but a campaign can reach the review card without passing step 2 — the assistant's staged draft
+ * opens there, and so does a draft remembered at step 3 — and `validateCampaign` does not look for them. So the card
+ * lists them and `launch` refuses them, whoever calls it.
+ */
+export function blanksOf(c: Campaign): string[] {
+  const text = c.message && typeof c.message.text === 'string' ? c.message.text : '';
+  return holesIn(text, columnsOf(Array.isArray(c.recipients) ? c.recipients : []));
+}
+
 /** Why `launch` refused, as a word the review turns into a sentence. */
 export type LaunchRefusal = 'busy' | 'no-consent' | 'problems' | 'storage' | 'no-account' | 'other-account';
 
@@ -111,6 +125,7 @@ export async function launch(c: Campaign, account: Account | null, sentToday: nu
   if (account.id !== c.accountId) return 'other-account';
   if (c.consent !== true) return 'no-consent';
   if (validateCampaign(c, { sentToday }).length) return 'problems';
+  if (blanksOf(c).length) return 'problems';
   const now = Date.now();
   const ready: Campaign = { ...c, state: c.state === 'draft' ? 'ready' : c.state, staged: false, updated: now };
   const kept = await saveCampaign(ready).catch(() => false);
@@ -329,11 +344,12 @@ export function ReviewStep({ t, account, campaign, msg, sentToday, country, onPa
   const n = campaign.recipients.length;
   const pace = campaign.pace;
   const problems = useMemo(() => validateCampaign(campaign, { sentToday }), [campaign, sentToday]);
+  const blanks = useMemo(() => blanksOf(campaign), [campaign]);
   const first = campaign.recipients[0];
   const firstText = first ? renderMessage(draftOf(msg), first) : msg.text;
   const days = daysNeeded(n, pace, sentToday);
   const typedRight = !needsTyped(n) || typedOk(typed, n);
-  const canSend = problems.length === 0 && typedRight && !busy;
+  const canSend = problems.length === 0 && blanks.length === 0 && typedRight && !busy;
 
   async function send() {
     if (!canSend) return;
@@ -456,8 +472,13 @@ export function ReviewStep({ t, account, campaign, msg, sentToday, country, onPa
         </div>
       )}
 
-      {problems.length > 0 && (
+      {(problems.length > 0 || blanks.length > 0) && (
         <ul className="wa-bk-notes" aria-live="polite">
+          {blanks.map((v) => (
+            <li key={`blank-${v}`} className="is-block"><Icon name="warning" size={12} />
+              <span>{fill(t('{var} is not filled in, and the list has no column by that name. Fill it in or remove it.'), { var: `{${v}}` })}</span>
+            </li>
+          ))}
           {problems.map((p) => <li key={p.code} className="is-block"><Icon name="warning" size={12} /><span>{problemText(p, t)}</span></li>)}
         </ul>
       )}
