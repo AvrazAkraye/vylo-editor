@@ -97,10 +97,13 @@ export async function startMock(o = {}) {
     clear() { mock.rules = []; return mock; },
     /** How many messages one number got. */
     deliveriesTo(phone) { return mock.delivered.filter((d) => d.to === phone).length; },
-    /** Numbers that got more than one message — the list the engine must keep empty. */
+    /**
+     * Numbers that got the same kind of message more than once — the list the engine must keep empty. By kind, because
+     * a contact card or an audio file goes as the words and then the card: two messages, one each.
+     */
     twice() {
       const n = new Map();
-      for (const d of mock.delivered) n.set(d.to, (n.get(d.to) ?? 0) + 1);
+      for (const d of mock.delivered) n.set(`${d.to}|${d.kind}`, (n.get(`${d.to}|${d.kind}`) ?? 0) + 1);
       return [...n].filter(([, k]) => k > 1).map(([p]) => p);
     },
     /** The log of one endpoint. */

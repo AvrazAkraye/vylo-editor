@@ -257,6 +257,11 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
   let wake = new AbortController();
   let release: (() => void) | null = null;
   let active: Promise<Campaign> | null = null;
+  /**
+   * Set before `run()` is called, not when its promise is assigned: `run()` reaches its first await synchronously, and
+   * a stop that arrives there must find the runner running, not take the "not started" path and be overwritten.
+   */
+  let running = false;
 
   const snapshot = (): Campaign => ({ ...c, outcomes: { ...c.outcomes }, ...(c.notes ? { notes: [...c.notes] } : {}) });
   const emit = (e: RunEvent) => {
@@ -380,6 +385,7 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
       for (;;) {
         const a = await call(`/chat/whatsappNumbers/${inst}`, { numbers: batch }, base);
         const s = a.ok ? null : statusOf(a.error);
+        const unreadable = !a.ok && a.error instanceof SyntaxError;
         if (a.ok && Array.isArray(a.body)) {
           for (const p of batch) checked.add(p);
           rate = 0;
@@ -397,7 +403,7 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
         }
         // An answer this build cannot read, or a gateway without the endpoint: carry on without the check, and say so.
         // Nobody is skipped on a guess — a send to someone who is not on WhatsApp is refused by the gateway itself.
-        if (a.ok || (s !== null && s >= 400 && s < 500 && s !== 401 && s !== 403 && s !== 408 && s !== 429)) {
+        if (a.ok || unreadable || (s !== null && s >= 400 && s < 500 && s !== 401 && s !== 403 && s !== 408 && s !== 429)) {
           checking = false;
           note('number-check-unavailable');
           return 'ok';
@@ -573,7 +579,7 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
 
   return {
     start(): Promise<Campaign> {
-      if (active) return Promise.reject(new Error('This campaign is already being sent.'));
+      if (running || active) return Promise.reject(new Error('This campaign is already being sent.'));
       if (c.state === 'done' || c.state === 'stopped') return Promise.resolve(snapshot());
       if (keys.some((k) => locks.has(k))) return Promise.reject(new Error('A campaign is already being sent from this account.'));
       // The assistant can prepare a campaign but never send one: the person's press on Send clears `staged`.
@@ -582,6 +588,7 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
       if (problems.length) return Promise.reject(new Error(`This campaign cannot start: ${problems.map((x) => x.code).join(', ')}.`));
       for (const k of keys) locks.add(k);
       want = 'run';
+      running = true;
       active = run()
         .catch(async () => {
           // A fault in the runner itself. Whoever was mid-send may have been sent to.
@@ -594,17 +601,18 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
         .finally(() => {
           for (const k of keys) locks.delete(k);
           active = null;
+          running = false;
         });
       return active;
     },
     pause() {
-      if (active && want === 'run') { want = 'pause'; poke(); }
+      if (running && want === 'run') { want = 'pause'; poke(); }
     },
     resume() {
       if (want === 'pause') { want = 'run'; poke(); release?.(); }
     },
     stop() {
-      if (active) { want = 'stop'; poke(); release?.(); return; }
+      if (running) { want = 'stop'; poke(); release?.(); return; }
       // Not running: stopping ends the campaign where it stands.
       if (c.state === 'done' || c.state === 'stopped') return;
       c.state = 'stopped';
