@@ -106,6 +106,14 @@ function done<T>(req: IDBRequest<T>): Promise<T | null> {
   });
 }
 
+/**
+ * The writes the runner relies on — the campaign saved before a send, an opt-out, the day's count — ask for a commit
+ * that is on disk before it is reported done. A browser may otherwise report a commit as complete while it is still
+ * in a cache ("relaxed"), and a power cut then would leave a person `queued` who had been sent to. Where the option is
+ * not known it is ignored, which is no worse than before.
+ */
+const DURABLE: IDBTransactionOptions = { durability: 'strict' };
+
 /** A write, settled when its transaction commits: a quota error aborts the transaction after the request "succeeded". */
 function committed(tx: IDBTransaction): Promise<boolean> {
   return new Promise((resolve) => {
@@ -189,22 +197,21 @@ function readDraft(x: unknown, data?: unknown): Draft {
   };
 }
 
-function readOutcome(key: string, x: unknown): Outcome | null {
+/**
+ * A stored outcome, repaired, under every number it names (none when it names none). The key is what a runner looks a
+ * person up by and the `phone` field says the same; when a hand-edited record makes them differ, both numbers keep the
+ * standing — the reader's rule is to lean towards not sending.
+ */
+function readOutcome(key: string, x: unknown): Outcome[] {
   const o = obj(x);
-  if (!o) return null;
-  const phone = wirePhone(o.phone) || wirePhone(key);
-  if (!phone) return null;
+  if (!o) return [];
+  const phones = [...new Set([wirePhone(key), wirePhone(o.phone)].filter(Boolean))];
   const at = time(o.at);
   const why = word(o.why);
   const attempts = typeof o.attempts === 'number' && Number.isFinite(o.attempts) ? Math.min(99, Math.max(0, Math.floor(o.attempts))) : 0;
-  return {
-    phone,
-    // A standing this build does not know may mean the message went: never `queued`.
-    standing: STANDINGS.includes(o.standing as Standing) ? (o.standing as Standing) : 'unknown',
-    ...(at ? { at } : {}),
-    ...(why ? { why } : {}),
-    attempts,
-  };
+  // A standing this build does not know may mean the message went: never `queued`.
+  const standing: Standing = STANDINGS.includes(o.standing as Standing) ? (o.standing as Standing) : 'unknown';
+  return phones.map((phone) => ({ phone, standing, ...(at ? { at } : {}), ...(why ? { why } : {}), attempts }));
 }
 
 /**
@@ -217,12 +224,25 @@ export function readCampaign(x: unknown, payload?: unknown): Campaign | null {
   if (!o || !cid) return null;
   const p = obj(payload);
   const recipients = readRecipients(p && Array.isArray(p.recipients) ? p.recipients : o.recipients);
+  // The people's own outcomes always; the others (numbers no longer on the list) up to the ceiling — so junk can never
+  // push out the record of someone who was sent to. Two records for one number: the one that says something happened
+  // wins, so reading a record never puts anyone back in the queue.
+  const mine = new Set(recipients.map((r) => r.phone));
   const outcomes: Record<string, Outcome> = {};
-  let n = 0;
+  let others = 0;
   for (const [k, v] of Object.entries(obj(o.outcomes) ?? {})) {
-    if (n >= LIMITS.recipients) break;
-    const got = readOutcome(k, v);
-    if (got && !Object.prototype.hasOwnProperty.call(outcomes, got.phone)) { outcomes[got.phone] = got; n++; }
+    for (const got of readOutcome(k, v)) {
+      const was = Object.prototype.hasOwnProperty.call(outcomes, got.phone) ? outcomes[got.phone] : undefined;
+      if (was) {
+        if (was.standing === 'queued' && got.standing !== 'queued') outcomes[got.phone] = got;
+        continue;
+      }
+      if (!mine.has(got.phone)) {
+        if (others >= LIMITS.recipients) continue;
+        others++;
+      }
+      outcomes[got.phone] = got;
+    }
   }
   const started = time(o.started);
   const finished = time(o.finished);
@@ -313,6 +333,9 @@ export async function saveCampaign(c: Campaign): Promise<boolean> {
   const attachment = c.message?.attachment;
   const record = {
     ...c,
+    // A copy of the map now: storage clones the record only after the awaits below, and an outcome changed in the
+    // meantime must not be kept as if it had been saved here.
+    outcomes: { ...c.outcomes },
     recipients: [],
     message: { ...c.message, ...(attachment ? { attachment: { ...attachment, data: '' } } : {}) },
   };
@@ -322,7 +345,7 @@ export async function saveCampaign(c: Campaign): Promise<boolean> {
   const d = await db();
   if (!d) return false;
   try {
-    const tx = d.transaction(['campaigns', 'payloads'], 'readwrite');
+    const tx = d.transaction(['campaigns', 'payloads'], 'readwrite', DURABLE);
     const ok = committed(tx);
     const campaigns = tx.objectStore('campaigns');
     const payloads = tx.objectStore('payloads');
@@ -453,10 +476,11 @@ export async function doNotContact(): Promise<ReadonlySet<string>> {
 }
 
 /**
- * Put people on the do-not-contact list. `false` when not all of them could be kept: storage refused, or the list is at
- * `LIMITS.suppressed`. At the cap the list stops growing rather than forgetting anyone — dropping the oldest entry
- * would mean writing again to someone who asked us not to, which is the one thing this list exists to prevent. The
- * session honours every addition, kept or not.
+ * Put people on the do-not-contact list. `false` when storage refused; the session honours every addition, kept or not.
+ *
+ * There is no ceiling. `LIMITS.suppressed` once made the list stop growing at 20,000 — which kept everyone already on
+ * it, but left the next person who asked to stop on it only until the app was closed, and then wrote to them again.
+ * An opt-out is a few dozen bytes; forgetting one is the one thing this list exists to prevent.
  */
 export async function addSuppressed(phones: readonly string[]): Promise<boolean> {
   const want = [...new Set(phones.map(wirePhone).filter(Boolean))];
@@ -465,18 +489,17 @@ export async function addSuppressed(phones: readonly string[]): Promise<boolean>
   const have = await readSuppressed();
   if (!have) return false;
   const fresh = want.filter((p) => !have.has(p));
-  const take = fresh.slice(0, Math.max(0, LIMITS.suppressed - have.size));
-  if (!take.length) return fresh.length === 0;
+  if (!fresh.length) return true;
   const d = await db();
   if (!d) return false;
   try {
-    const tx = d.transaction('suppressed', 'readwrite');
+    const tx = d.transaction('suppressed', 'readwrite', DURABLE);
     const ok = committed(tx);
     const at = Date.now();
-    for (const p of take) tx.objectStore('suppressed').put({ phone: p, at });
+    for (const p of fresh) tx.objectStore('suppressed').put({ phone: p, at });
     if (!(await ok)) return false;
-    for (const p of take) have.add(p);
-    return take.length === fresh.length;
+    for (const p of fresh) have.add(p);
+    return true;
   } catch {
     return false;
   }
@@ -534,7 +557,7 @@ export async function countSent(accountId: string, at: number = Date.now(), n = 
   const d = await db();
   if (!d) return false;
   try {
-    const tx = d.transaction('sent', 'readwrite');
+    const tx = d.transaction('sent', 'readwrite', DURABLE);
     const ok = committed(tx);
     const store = tx.objectStore('sent');
     const get = store.get(key);

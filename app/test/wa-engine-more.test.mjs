@@ -398,10 +398,12 @@ console.log('do-not-contact');
   ok(`the list fills to ${LIMITS.suppressed.toLocaleString('en')}`, (await s.addSuppressed(fill)) === true && (await s.loadSuppressed()).size === LIMITS.suppressed);
   const ms = performance.now() - t;
   ok(`in under 1,500 ms × SLOW (${ms.toFixed(0)} ms)`, ms < 1500 * SLOW);
-  ok('at the cap a new number is refused (false)…', (await s.addSuppressed(['9649999999999'])) === false);
+  // Changed by the engine review: the list used to stop growing here, which kept the next opt-out only until a restart.
+  ok('at the old ceiling a new number is still kept (true): an opt-out is never refused for room…', (await s.addSuppressed(['9649999999999'])) === true);
   const after = await (await fresh('dnc-cap-restart')).loadSuppressed();
-  ok('…and nobody already on the list is forgotten to make room', after.size === LIMITS.suppressed && after.has('9640000000000') && after.has('9647501112233'));
-  ok('the refused number is still honoured in this session', (await s.doNotContact()).has('9649999999999'));
+  ok('…it is on the list after a restart, and nobody already on it was forgotten', after.size === LIMITS.suppressed + 1 && after.has('9649999999999')
+    && after.has('9640000000000') && after.has('9647501112233'));
+  ok('the new number is honoured in this session too', (await s.doNotContact()).has('9649999999999'));
   ok('someone already on the list is not "refused" at the cap', (await s.addSuppressed(['9640000000005'])) === true);
 }
 
