@@ -185,6 +185,11 @@ replaced). Measured here: 5,000 lines of text ~11 ms, 5,000 CSV rows ~9 ms, 5,00
   count, `warned` as a soft hint, `truncated`, and `hint: 'excel-rounded'`.
 - `whatsapptool.ts`'s `whatsapp_audience` should call `parseAudience` on the attached file locally and return counts,
   `problem`, and a few `maskPhone` examples — never `recipients` (non-negotiable 2).
+- **A file's bytes must arrive as a `Uint8Array`.** A base64 string, or the `number[]` a Tauri `invoke` can return, is
+  read as pasted text and finds nobody: wrap it (`new Uint8Array(arr)`, or decode the base64) before calling, and pass
+  `filename` so `.csv`/`.tsv`/`.vcf` are read as what they are.
+- `docs/wa/review-needed.md` did not exist on this branch and was created here with an `## audience` section; other
+  packages will create it too, so the merge is a union of sections, not an append to one file.
 - `docs/wa/review-needed.md` § audience: the Sorani and Badini country names for a native reader.
 
 ## Numbering plans: where I am sure and where I am not
