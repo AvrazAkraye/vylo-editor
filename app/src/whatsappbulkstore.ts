@@ -52,7 +52,14 @@ const STORES: Readonly<Record<string, string>> = {
 
 /** What the session already holds, cleared whenever the connection is (storage cleared, the profile replaced). */
 const written = new Map<string, { recipients: unknown; data: string }>();
+/** The do-not-contact list as storage holds it, once read; null until then (or when it cannot be). */
 let suppressedNow: Set<string> | null = null;
+/**
+ * People put on the list this session, whether or not storage took them. Kept apart from `suppressedNow` so that a
+ * list storage could not give us is never mistaken for the whole list: these are honoured, and still `doNotContact`
+ * refuses to answer until the stored list has been read.
+ */
+const suppressedHere = new Set<string>();
 /** Messages counted this session, by `account|day`, so a refused counter write still counts while the app is open. */
 const countedNow = new Map<string, number>();
 
@@ -284,8 +291,10 @@ export async function loadCampaigns(): Promise<Campaign[]> {
       const c = readCampaign(row, rid ? byId.get(rid) : undefined);
       if (!c) continue;
       out.push(c);
-      // What was just read is what storage holds: the next save of this campaign need not write its payload again.
-      if (byId.has(c.id)) written.set(c.id, { recipients: c.recipients, data: dataOf(c) });
+      // What was just read is what storage holds: a save of this copy need not write its payload again. Only when
+      // nothing is remembered yet — a runner sending this campaign holds its own copy, and the screen refreshing its
+      // list must not make that runner's next save rewrite the people and a 16 MB attachment.
+      if (byId.has(c.id) && !written.has(c.id)) written.set(c.id, { recipients: c.recipients, data: dataOf(c) });
     }
     return out.sort((a, b) => b.updated - a.updated);
   } catch {
@@ -431,42 +440,43 @@ async function readSuppressed(): Promise<Set<string> | null> {
   }
 }
 
-/** The do-not-contact list, as phones (a copy). Empty when storage cannot be read — for drawing; a runner uses `doNotContact`. */
+/** The do-not-contact list, as phones (a copy). What storage holds, if it can be read, and this session's additions — for drawing; a runner uses `doNotContact`. */
 export async function loadSuppressed(): Promise<Set<string>> {
-  return new Set((await readSuppressed()) ?? []);
+  return new Set([...((await readSuppressed()) ?? []), ...suppressedHere]);
 }
 
-/** The do-not-contact list for a run. Throws when it cannot be read: a runner that cannot read it must not send. */
+/** The do-not-contact list for a run. Throws when storage cannot give it: a runner that cannot read the list must not send. */
 export async function doNotContact(): Promise<ReadonlySet<string>> {
   const s = await readSuppressed();
   if (!s) throw new Error('The do-not-contact list could not be read.');
-  return new Set(s);
+  return new Set([...s, ...suppressedHere]);
 }
 
 /**
  * Put people on the do-not-contact list. `false` when not all of them could be kept: storage refused, or the list is at
  * `LIMITS.suppressed`. At the cap the list stops growing rather than forgetting anyone — dropping the oldest entry
  * would mean writing again to someone who asked us not to, which is the one thing this list exists to prevent. The
- * session honours an addition even when storage refused it.
+ * session honours every addition, kept or not.
  */
 export async function addSuppressed(phones: readonly string[]): Promise<boolean> {
   const want = [...new Set(phones.map(wirePhone).filter(Boolean))];
+  for (const p of want) suppressedHere.add(p);
   if (!want.length) return true;
   const have = await readSuppressed();
-  const mem = have ?? (suppressedNow = new Set());
-  const fresh = want.filter((p) => !mem.has(p));
-  const room = Math.max(0, LIMITS.suppressed - mem.size);
-  const take = fresh.slice(0, room);
-  for (const p of take) mem.add(p);
+  if (!have) return false;
+  const fresh = want.filter((p) => !have.has(p));
+  const take = fresh.slice(0, Math.max(0, LIMITS.suppressed - have.size));
   if (!take.length) return fresh.length === 0;
   const d = await db();
-  if (!d || !have) return false;
+  if (!d) return false;
   try {
     const tx = d.transaction('suppressed', 'readwrite');
     const ok = committed(tx);
     const at = Date.now();
     for (const p of take) tx.objectStore('suppressed').put({ phone: p, at });
-    return (await ok) && take.length === fresh.length;
+    if (!(await ok)) return false;
+    for (const p of take) have.add(p);
+    return take.length === fresh.length;
   } catch {
     return false;
   }
@@ -476,13 +486,15 @@ export async function addSuppressed(phones: readonly string[]): Promise<boolean>
 export async function removeSuppressed(phone: string): Promise<boolean> {
   const p = wirePhone(phone);
   if (!p) return false;
-  suppressedNow?.delete(p);
+  suppressedHere.delete(p);
   const d = await db();
   if (!d) return false;
   try {
     const tx = d.transaction('suppressed', 'readwrite');
     tx.objectStore('suppressed').delete(p);
-    return await committed(tx);
+    const ok = await committed(tx);
+    if (ok) suppressedNow?.delete(p);
+    return ok;
   } catch {
     return false;
   }
