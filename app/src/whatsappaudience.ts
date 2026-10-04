@@ -899,6 +899,11 @@ function delimiterOf(text: string, strict: boolean): string | null {
 
 /** Whether a cell holds a number this reads, for guessing columns. */
 const validIn = (cell: string, country: string): boolean => !!cell && 'phone' in normalise(cell, country);
+/** …and a mobile one, for choosing between a phone and a mobile column. */
+function mobileIn(cell: string, country: string): boolean {
+  const n = cell ? normalise(cell, country) : null;
+  return !!n && 'phone' in n && mobileShape(n.phone) === true;
+}
 
 /** The first valid number written anywhere in a cell (`Tel: 0750 123 4567`, `0750… / 0770…`). */
 function firstIn(cell: string, country: string): Norm | null {
@@ -947,9 +952,10 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
   }
   const kinds = columns.map((_, i) => (headerAt >= 0 ? kindOf((header[i] ?? '').trim()) : null));
 
-  // How many of the first rows hold a valid number, column by column.
+  // How many of the first rows hold a valid number, and a mobile, column by column.
   const sample = body.slice(0, 300);
   const valid = columns.map((_, i) => sample.reduce((s, r) => s + (validIn(r.cells[i] ?? '', country) ? 1 : 0), 0));
+  const mobiles = columns.map((_, i) => sample.reduce((s, r) => s + (mobileIn(r.cells[i] ?? '', country) ? 1 : 0), 0));
   const findColumn = (want: string | undefined): number => {
     if (typeof want !== 'string') return -2;
     const w = want.trim().toLowerCase();
@@ -958,14 +964,25 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
 
   if (headerAt < 0 && sample.length && valid.filter((v) => v * 2 >= sample.length).length > 1) return null;
 
-  let phoneAt = findColumn(o.phoneColumn);
+  const chosen = findColumn(o.phoneColumn);
+  let phoneAt = chosen;
   if (phoneAt < 0) {
     phoneAt = -1;
+    // A column whose header says phone wins when it holds any number at all — of several (`Phone`, `Mobile`), the one
+    // with the most mobiles, then the most numbers: WhatsApp is on the mobile. Otherwise the column with the most
+    // numbers. And when nothing in the first rows reads at all, still the column whose header says phone: its rows are
+    // reported one by one and the rest of the file is read, where another column would turn everyone away.
+    let best = [0, 0];
+    kinds.forEach((k, i) => {
+      if (k === 'phone' && valid[i] > 0 && (mobiles[i] > best[0] || (mobiles[i] === best[0] && valid[i] > best[1]))) { best = [mobiles[i], valid[i]]; phoneAt = i; }
+    });
     let most = 0;
-    // A column whose header says phone wins when it holds any number at all; otherwise the column with the most.
-    kinds.forEach((k, i) => { if (k === 'phone' && valid[i] > most) { most = valid[i]; phoneAt = i; } });
     if (phoneAt < 0) valid.forEach((v, i) => { if (v > most) { most = v; phoneAt = i; } });
+    if (phoneAt < 0) phoneAt = kinds.indexOf('phone');
   }
+  // The row's other phone columns, read when the chosen one is empty or wrong, or holds a landline beside a mobile.
+  // Not when the person chose the column: then it is that column.
+  const others = chosen >= 0 ? [] : kinds.flatMap((k, i) => (k === 'phone' && i !== phoneAt ? [i] : []));
   if (phoneAt < 0) {
     // Nothing reads as a number. In free text that means "not a table"; in a CSV, the rows are reported against the
     // column that looks most like numbers, so the person sees what was wrong with them.
@@ -1017,11 +1034,20 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
     return /^(name|first_name|phone)$/i.test(k) ? `${k} 2` : k;
   });
 
+  const readCell = (raw: string): Norm => {
+    const c = raw.trim();
+    const n = normalise(c, country);
+    return 'phone' in n || !c ? n : firstIn(c, country) ?? n;
+  };
   for (const r of body) {
     if (col.truncated) break;
     const cell = (r.cells[phoneAt] ?? '').trim();
-    let n: Norm = normalise(cell, country);
-    if (!('phone' in n) && cell) n = firstIn(cell, country) ?? n;
+    let n: Norm = readCell(cell);
+    for (const i of others) {
+      if ('phone' in n && mobileShape(n.phone) !== false) break;
+      const m = readCell(r.cells[i] ?? '');
+      if ('phone' in m && (!('phone' in n) || mobileShape(m.phone) !== false)) n = m;
+    }
     if (!('phone' in n)) {
       col.reject(r.line, cell || r.cells.map((c) => c.trim()).filter(Boolean).join(', '), n.why, n.hint);
       continue;
