@@ -6,7 +6,7 @@ import { readFileSync } from 'fs';
 import { isServerCommand, isUp, readOpenIn, readShow, SHOW_KEY, OPEN_CHOICES, OPEN_KEY, SERVER_QUIET_MS, SERVER_SETTLE_MS } from '../.test-build/devserver.js';
 import { binaryKind, KIND_LABEL, fullPath } from '../.test-build/filekind.js';
 import { runAgent } from '../.test-build/agent.js';
-import { detect, fitScale, normalise, readViewport, sizeOf, VIEWPORTS, VIEWPORT_KEY } from '../.test-build/browser.js';
+import { detect, fitScale, paneWidth, normalise, readViewport, sizeOf, VIEWPORTS, VIEWPORT_KEY } from '../.test-build/browser.js';
 import { DEFAULT, INITIAL_ON, dockOf, enabled, isOn, read as readLayout, reveal, toggle, write as writeLayout } from '../.test-build/modules.js';
 
 let pass = 0, fail = 0;
@@ -81,6 +81,12 @@ console.log('showing it inside the editor');
   ok('junk reads as fit', [null, undefined, 7, {}, 'watch', '__proto__', 'Phone'].every((x) => readViewport(x) === 'fit') && readViewport('phone') === 'phone' && VIEWPORT_KEY === 'vylo.browser.size.v1');
   const tab = sizeOf('tablet'), ph = sizeOf('phone');
   ok('a page is shown whole: scaled to the room, never enlarged, never below a quarter', fitScale(tab, { w: 440, h: 600 }) < 0.6 && fitScale(ph, { w: 2000, h: 2000 }) === 1 && fitScale(tab, { w: 10, h: 10 }) === 0.25);
+  ok('the pane widens to 440 in a wide window, but leaves the work 460 in a small one', paneWidth(1600, 300, 300) === 440 && paneWidth(1000, 300, 300) === 300 && paneWidth(1100, 294, 300) === 346);
+  ok('and only ever widens: a width the person dragged to is kept', paneWidth(1600, 300, 520) === 520 && paneWidth(700, 300, 520) === 520);
+  ok('an unknown window leaves the width alone', [NaN, Infinity, undefined].every((w) => paneWidth(w, 300, 300) === 300) && paneWidth(1600, NaN, 300) === 300);
+  let wide = true;
+  for (let i = 0; i < 2000; i++) { const cur = 180 + Math.random() * 380, w = paneWidth(Math.random() * 4000, Math.random() * 600, cur); if (!(w >= cur && w <= Math.max(cur, 440))) wide = false; }
+  ok('whatever the window, it never narrows and never passes 440 unless it already did', wide);
   ok('an unknown or nonsense room is no scaling', [null, undefined, { w: 0, h: 5 }, { w: NaN, h: NaN }, { w: -1, h: -1 }, { w: Infinity, h: 4 }].every((r) => { const s = fitScale(ph, r); return s === 1 || (s >= 0.25 && s <= 1); }) && fitScale(ph, null) === 1);
   let always = true;
   for (let i = 0; i < 2000; i++) { const s = fitScale(i % 2 ? tab : ph, { w: Math.random() * 3000 - 100, h: Math.random() * 3000 - 100 }, Math.random() * 100); if (!(s >= 0.25 && s <= 1)) always = false; }

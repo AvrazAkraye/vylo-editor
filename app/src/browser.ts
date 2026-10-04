@@ -611,6 +611,19 @@ export function sizeOf(v: Viewport): { w: number; h: number } | null {
 }
 
 /**
+ * How wide the sidebar that holds the pane becomes when a started app is shown in it.
+ *
+ * `want` (a phone is 390 wide), but never so wide that the work in the middle is left with less than `keep`
+ * pixels: in a small window the left sidebar and the rail already take a third of it. It only ever widens (a
+ * width the person dragged to is theirs), and a window whose size is unknown leaves it as it is.
+ */
+export function paneWidth(windowW: number, used: number, current: number, want = 440, keep = 460): number {
+  if (!Number.isFinite(windowW) || !Number.isFinite(used) || !Number.isFinite(current)) return current;
+  const target = Math.min(want, windowW - used - keep);
+  return target > current ? target : current;
+}
+
+/**
  * The scale at which a page of that size shows whole in the room the pane has.
  *
  * The page is laid out at its real size, so its media queries and `vh` units are the device's, and then drawn

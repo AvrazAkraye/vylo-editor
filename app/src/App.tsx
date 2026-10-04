@@ -187,7 +187,7 @@ import { choicesFor } from './modelchoice';
 import { OPEN_KEY, SHOW_KEY, readOpenIn, readShow, type OpenIn } from './devserver';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
-import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
+import { KEY as BROWSER_KEY, detect as detectUrls, paneWidth, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
 import { PushToTalk } from './PushToTalk';
 import { KEY as PTT_KEY, read as readPtt, write as writePtt, type Setting as PttSetting } from './ptt';
 import { SYSTEM as ASK_SYSTEM, ask as askMessage, parse as parseCommand, reason } from './command';
@@ -696,6 +696,7 @@ export function App() {
   // For `showInEditor`, which an agent turn calls long after the render that made it: the layout as it is now.
   const modulesRef = useRef(modules);
   modulesRef.current = modules;
+  const leftRef = useRef({ open: false, w: 0 });
   const [rightRail, setRightRail] = useState<ModuleId | null>(() => (localStorage.getItem('vylo.rrail') as ModuleId) || null);
   const [rightOpen, setRightOpen] = useState(() => localStorage.getItem('vylo.rropen') !== '0');
   const [rightW, setRightW] = useState(() => Number(localStorage.getItem('vylo.rrw')) || RIGHT_W);
@@ -705,6 +706,7 @@ export function App() {
   /** Right-click in the file tree. */
   const [fileMenu, setFileMenu] = useState<{ path: string; isDir: boolean; at: MenuPoint } | null>(null);
   const [railOpen, setRailOpen] = useState(() => localStorage.getItem('vylo.railopen') !== '0');
+  leftRef.current = { open: railOpen, w: sidebarW };
   // The line a search result asked for, cleared once the file is showing so
   // reopening the same file later does not jump again.
   const [jump, setJump] = useState<{ path: string; line: number } | null>(null);
@@ -3259,7 +3261,9 @@ export function App() {
     if (dockOf(layout, 'browser') === 'other') {
       setRightRail('browser');
       setRightOpen(true);
-      setRightW((w) => Math.min(SIDE_MAX, Math.max(w, BROWSER_W)));
+      // What the rail and the left sidebar already take, so the middle keeps room (browser.ts `paneWidth`).
+      const used = RAIL_W + (leftRef.current.open ? leftRef.current.w : 0) + 8;
+      setRightW((w) => Math.min(SIDE_MAX, paneWidth(window.innerWidth, used, w, BROWSER_W)));
     } else {
       setRail('browser');
       setRailOpen(true);
