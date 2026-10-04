@@ -75,8 +75,9 @@ A campaign is two records written in one transaction: a small one (everything bu
 `payloads` one written only when the people or the data are new (by identity) — the runner saves twice a message, and rewriting
 5,000 people and 16 MB each time would be gigabytes a day. Readers lean towards not sending: an unknown standing is `unknown`, an
 unknown state is `paused`, consent is only `=== true`, the opt-out line is on unless stored off. Caps: 60 campaigns and 40
-audiences (oldest go; never a running campaign, never the one being saved). **The do-not-contact list never forgets anyone:** at
-20,000 it stops growing (`addSuppressed` → `false`) instead of dropping the oldest. Counts are per account per local day, kept two
+audiences (oldest go; never a running campaign, never the one being saved). **The do-not-contact list never forgets anyone:** it
+has no ceiling (the engine review removed the 20,000 one, which kept the next opt-out only until a restart — see
+`docs/wa/review-engine.md`), and a reply that is a stop word is added by `addStopReplies`, which the panel calls. Counts are per account per local day, kept two
 weeks, and counted in memory too, so a refused write still counts while the app is open.
 
 ## The runner's state machine

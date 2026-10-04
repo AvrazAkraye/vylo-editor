@@ -182,6 +182,8 @@ function world(o = {}) {
     sleep: async (ms, signal) => {
       w.sleeps.push(ms);
       const cut = o.onSleep?.(ms, w);
+      // Something the test set going during this wait (a poll of the panel, say) finishes before the wait does.
+      if (w.pending) { await w.pending; w.pending = null; }
       if (cut || signal?.aborted) { w.t += 1000; return; }
       w.t += ms;
     },
@@ -750,11 +752,12 @@ console.log('6. stop words');
     let told = false;
     const w = world({
       suppressed: s.doNotContact,
-      onSleep: () => {
+      onSleep: (ms, me) => {
         if (!told && mock.delivered.length === 2) {
           told = true;
-          // The phone of the fourth person answers the second message with a STOP; the panel's next poll reads it.
-          void s.addStopReplies([{ id: 'm1', keyId: 'm1', jid: `${phoneOf(1253)}@s.whatsapp.net`, fromMe: false, at: 1, text: 'Stop please', kind: 'text', who: '', status: '', quoted: null }]);
+          // The phone of the fourth person answers the second message with a STOP; the panel's next poll reads it
+          // during the wait before the third message.
+          me.pending = s.addStopReplies([{ id: 'm1', keyId: 'm1', jid: `${phoneOf(1253)}@s.whatsapp.net`, fromMe: false, at: 1, text: 'Stop please', kind: 'text', who: '', status: '', quoted: null }]);
         }
         return false;
       },
