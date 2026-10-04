@@ -135,9 +135,11 @@ export function Holes({ text, columns }: { text: string; columns: readonly strin
       {parts.map((p, i) => {
         const m = /^\{([^{}|]+)(?:\|[^{}]*)?\}$/.exec(p);
         if (m && !PER_PERSON.includes(m[1].trim()) && !columns.includes(m[1].trim())) {
-          return <mark key={i} className="wa-bk-hole">{p}</mark>;
+          return <mark key={i} className="wa-bk-hole" dir="ltr">{p}</mark>;
         }
-        return m ? <span key={i} className="wa-bk-var">{p}</span> : p;
+        // `dir` isolates the placeholder (as the engine isolates the value it becomes): in Arabic or Kurdish words the
+        // punctuation and *bold* marks beside a Latin `{offer}` were otherwise drawn on the wrong side of it.
+        return m ? <span key={i} className="wa-bk-var" dir="ltr">{p}</span> : p;
       })}
     </>
   );

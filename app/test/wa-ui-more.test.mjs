@@ -151,7 +151,7 @@ console.log('Ready messages');
   const wide = draw(h(Rd.TemplatesDrawer, { ...base, full: true }));
   ok('categories as chips in a window, one pressed', count(wide, /class="wa-bk-chip[^"]*" aria-pressed="true"/g) === 1 && count(wide, /aria-pressed=/g) === 5);
   const holes = draw(h(Rd.Holes, { text: 'Hi {name}, {offer} in {city}', columns: ['city'] }));
-  ok('a blank is marked, a per-person detail is not', holes.includes('<mark class="wa-bk-hole">{offer}</mark>') && holes.includes('<span class="wa-bk-var">{name}</span>') && holes.includes('<span class="wa-bk-var">{city}</span>'));
+  ok('a blank is marked, a per-person detail is not', holes.includes('<mark class="wa-bk-hole" dir="ltr">{offer}</mark>') && holes.includes('<span class="wa-bk-var" dir="ltr">{name}</span>') && holes.includes('<span class="wa-bk-var" dir="ltr">{city}</span>'));
 }
 
 console.log('Review & send');

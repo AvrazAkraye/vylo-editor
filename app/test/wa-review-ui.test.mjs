@@ -227,6 +227,17 @@ console.log('The way back names what is there');
   ok('the window\'s way back uses it', /\{runLabel\(going, held, t\)\}/.test(broadcast));
 }
 
+// Found in the Arabic ready-message cards: a placeholder is Latin inside right-to-left words, and the punctuation and
+// WhatsApp's *bold* marks beside it were pulled into its run ("في , {business}: خصم * {discount}*"). Each placeholder is
+// isolated, as the engine isolates the value it becomes.
+console.log('A placeholder in right-to-left words keeps its place');
+{
+  const Rd = await imp('WhatsAppReady');
+  const html = draw(h(Rd.Holes, { text: 'خصم *{discount}* في {business}، مع {name}', columns: [] }));
+  ok('a blank is isolated, left to right', html.includes('<mark class="wa-bk-hole" dir="ltr">{discount}</mark>'), html);
+  ok('so is a placeholder the list fills', html.includes('<span class="wa-bk-var" dir="ltr">{name}</span>'), html);
+}
+
 // ── Words ───────────────────────────────────────────────────────────────────
 console.log('Words a shopkeeper reads');
 {
