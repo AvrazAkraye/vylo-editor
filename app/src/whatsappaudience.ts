@@ -894,7 +894,19 @@ function delimiterOf(text: string, strict: boolean): string | null {
     if (width < 2 || share < (strict ? 0.8 : 0.6)) continue;
     if (!best || share > best.share || (share === best.share && width > best.width)) best = { d, share, width };
   }
-  return best ? best.d : null;
+  if (best) return best.d;
+  // A file that says it is a CSV and whose rows are ragged (a notes column filled on some rows, a trailing comma
+  // dropped on others) is still a table: its header row's delimiter, when it has one. Without this it was read as
+  // free text and lost its header, its names and its columns.
+  if (strict) return null;
+  const head = sample.split(/\r?\n/, 50).find((l) => l.trim()) ?? '';
+  let most = 0;
+  let pick: string | null = null;
+  for (const d of [',', ';', '\t', '|']) {
+    const k = head.split(d).length - 1;
+    if (k > most) { most = k; pick = d; }
+  }
+  return pick;
 }
 
 /** Whether a cell holds a number this reads, for guessing columns. */
