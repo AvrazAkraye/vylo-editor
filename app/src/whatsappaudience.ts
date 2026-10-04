@@ -329,11 +329,14 @@ type Norm = { phone: string; via: Via } | Why;
 const SCIENTIFIC = /^[0-9]{1,20}(?:\.[0-9]{1,20})?[eE]\+?[0-9]{1,2}$/;
 const DOT_ZERO = /^[0-9]{6,20}\.0{1,6}$/;
 /**
- * Zeros a scientific number may need beyond the digits it shows. `9.6475012345E+11` (one) is a number Excel wrote with
- * every digit it had; `9.64751E+11` (six) is one Excel rounded for display, whose last digits are gone for good — and
- * rebuilding it would message whoever owns `964751000000`.
+ * Zeros a scientific number in text may need beyond the digits it shows: none. Excel writes a CSV as it displays the
+ * cells, and its General format shows a whole number of up to eleven digits in full, so a phone number in scientific
+ * form is one Excel *rounded* for display: `9.6475012346E+12` was 9647501234567, and its last two digits are gone.
+ * Rebuilding it with zeros would message whoever owns `9647501234600` (a written-in zero is the right digit one time
+ * in ten). Only a number written with every digit it has (`7.501234567E+09`) is read; the rest get the Excel hint.
+ * A workbook is different: its XML holds the whole stored double (`whatsappsheet.ts`), so it never comes here.
  */
-const MAX_PADDED = 2;
+const MAX_PADDED = 0;
 
 /** A number's digits and whether it was written international (`+`), or why it is not a number at all. */
 function phoneText(raw: string): { digits: string; plus: boolean } | Why {

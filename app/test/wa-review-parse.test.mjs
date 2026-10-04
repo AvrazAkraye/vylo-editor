@@ -309,8 +309,8 @@ console.log('2b. Headers in six languages, two phone columns, Excel\'s numbers')
   const sci = await parseAudience(enc('Name,Phone\nA,9.64750123456E+11\nB,7.5012345E+09\nC,9.647501234567E+12\nD,7.501234567E+09\nE,9.6475012346E+12\n'), { filename: 'x.csv' });
   eq('CSV scientific numbers: only the exact ones are read', sci.recipients.map((r) => [r.name, r.phone]), [['C', '9647501234567']]);
   ok('…D is C again (a duplicate, not a second person)', sci.duplicates === 1, sci.duplicates);
-  eq('…and every rounded one says so', sci.rejected.map((r) => [r.raw, r.hint ?? '']),
-    [['9.64750123456E+11', 'excel-rounded'], ['7.5012345E+09', 'excel-rounded'], ['9.6475012346E+12', 'excel-rounded']]);
+  eq('…every rounded one says so (A is exact, and simply one digit short)', sci.rejected.map((r) => [r.raw, r.why, r.hint ?? '']),
+    [['9.64750123456E+11', 'too-short', ''], ['7.5012345E+09', 'not-a-number', 'excel-rounded'], ['9.6475012346E+12', 'not-a-number', 'excel-rounded']]);
   eq('expandNumber still says how many zeros were written in', expandNumber('7.5012345E+09'), { digits: '7501234500', padded: 2 });
 }
 

@@ -197,8 +197,10 @@ function workbook(rows, o = {}) {
   eq('…and a lower-case e', normalisePhone('9.647501234567e+12', '964'), { phone: '9647501234567' });
   eq('…and Excel\'s dropped zero, in scientific form', normalisePhone('7.501234567E+09', '964'), { phone: '9647501234567' });
   eq('…and the .0 pandas writes', normalisePhone('9647501234567.0', '964'), { phone: '9647501234567' });
+  // (review-parse: a scientific number that needs a zero written in is one Excel rounded for display, refused before
+  // its length is looked at; it was `too-short` here.)
   eq('the brief\'s 12-digit examples are one digit short of an Iraqi mobile, and say so', [normalisePhone('9.6475012345E+11', '964'), normalisePhone('964750123456', '964')],
-    [{ why: 'too-short' }, { why: 'too-short' }]);
+    [{ why: 'not-a-number' }, { why: 'too-short' }]);
   eq('a number Excel rounded for display is refused, never rebuilt with zeros', normalisePhone('9.64751E+11', '964'), { why: 'not-a-number' });
 }
 {
