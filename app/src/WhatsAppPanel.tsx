@@ -1827,8 +1827,11 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
                     </span>
                     <span className="wa-line">
                       <span className="wa-last" dir="auto">
+                        {/* After "You:" the words are isolated, so each keeps
+                            its own direction: an English reply under the
+                            Sorani "You:" no longer puts its full stop first. */}
                         {c.lastFromMe && <em>{t('You:')}</em>}
-                        {c.last ? <Mark text={c.last} q={find} /> : (
+                        {c.last ? (c.lastFromMe ? <bdi><Mark text={c.last} q={find} /></bdi> : <Mark text={c.last} q={find} />) : (
                           <>
                             <Icon name={kindIcon(c.lastKind)} size={11} />
                             {kindLabel(c.lastKind, t)}
@@ -1865,7 +1868,9 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
                     <span className="wa-line">
                       <span className="wa-last" dir="auto">
                         {h.msg.fromMe && <em>{t('You:')}</em>}
-                        <Mark text={snippet(h.msg.text, find)} q={find} />
+                        {h.msg.fromMe
+                          ? <bdi><Mark text={snippet(h.msg.text, find)} q={find} /></bdi>
+                          : <Mark text={snippet(h.msg.text, find)} q={find} />}
                       </span>
                     </span>
                   </span>
