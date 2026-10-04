@@ -30,6 +30,9 @@ import {
   NOTE_LANG_KEY, SPOKEN, noteLang, readNoteLangs, withNoteLang, type SpokenLang, type VoiceLang,
 } from './whatsappvoice';
 import { dateText, timeText } from './fmt';
+import type { Target } from './generate';
+import type { EffortBook } from './effort';
+import { WhatsAppBroadcast } from './WhatsAppBroadcast';
 
 /**
  * WhatsApp, in the sidebar.
@@ -108,6 +111,9 @@ interface Props {
    * send. That is the same shape as every other way a file gets attached.
    */
   onSendToChat: (text: string, attached?: Attached[]) => void;
+  /** The model route and its effort book, for Broadcast's Write with AI (WhatsAppBroadcast.tsx). */
+  gw?: Target;
+  efforts?: EffortBook;
 }
 
 const EVERY_MS = 6000;
@@ -344,7 +350,7 @@ const loadDrafts = (id: string): Record<string, string> => {
   try { return readDrafts(localStorage.getItem(draftsKeyOf(id))); } catch { return {}; }
 };
 
-export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
+export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts }: Props) {
   /**
    * Every WhatsApp account connected here, and which one is shown — a
    * personal number, a business one, an OTP line. Each is a whole `Conn`
@@ -567,6 +573,8 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
 
   /** The whole window, rather than a 248px column. */
   const [full, setFull] = useState(false);
+  /** The Broadcast screens (WhatsAppBroadcast.tsx) are open instead of the chats. */
+  const [bulk, setBulk] = useState(false);
   useEffect(() => {
     if (!full) return;
     const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); setFull(false); } };
@@ -1617,6 +1625,11 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
         <div className="sb-head-bar">
           <span className="sb-sub">{t('Chats')}</span>
           {reloadButton()}
+          {/* The one door into bulk messaging: everything else lives behind it. */}
+          <button className="sb-act" onClick={() => setBulk(true)}
+                  title={t('Broadcast')} aria-label={t('Broadcast')}>
+            <Icon name="send" size={13} />
+          </button>
           <button className="sb-act" onClick={() => setFull((v) => !v)}
                   title={full ? t('Leave full screen') : t('Full screen')}
                   aria-label={full ? t('Leave full screen') : t('Full screen')}>
@@ -2025,6 +2038,16 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders }: Props) {
       </div>
     </div>
   );
+
+  /* Broadcast replaces the chats in a column and fills the window in full screen. */
+  if (bulk) {
+    return (
+      <div className={full ? 'wa-full' : undefined}>
+        <WhatsAppBroadcast t={t} lang={lang ?? 'en'} account={current} full={full} gw={gw} efforts={efforts}
+                           onProviders={onProviders} onClose={() => setBulk(false)} />
+      </div>
+    );
+  }
 
   /* A column: one view at a time, as it has always been. */
   if (!full) {

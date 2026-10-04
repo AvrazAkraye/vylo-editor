@@ -3381,6 +3381,8 @@ const ar: Dict = {
   'It plays once, from that second, over the scene.': 'يُعرض مرة واحدة، من تلك الثانية، فوق المشهد.',
   'Choose the graphic on top of this scene': 'اختر التصميم المتحرك فوق هذا المشهد',
   'Choose a graphic to put on top of this scene': 'اختر تصميماً متحركاً لتضعه فوق هذا المشهد',
+  // wa phase0: the door into Broadcast (WhatsAppPanel.tsx).
+  'Broadcast': 'رسالة جماعية',
 };
 
 const ckb: Dict = {
@@ -6741,6 +6743,8 @@ const ckb: Dict = {
   'It plays once, from that second, over the scene.': 'یەک جار پیشان دەدرێت، لەو چرکەیەوە، لەسەر دیمەنەکە.',
   'Choose the graphic on top of this scene': 'ئەو گرافیکە هەڵبژێرە کە لەسەر ئەم دیمەنەیە',
   'Choose a graphic to put on top of this scene': 'گرافیکێک هەڵبژێرە بۆ دانانی لەسەر ئەم دیمەنە',
+  // wa phase0: the door into Broadcast (WhatsAppPanel.tsx).
+  'Broadcast': 'ناردنی گشتی',
 };
 
 const kmr: Dict = {
@@ -10099,6 +10103,8 @@ const kmr: Dict = {
   'It plays once, from that second, over the scene.': 'ئێک جار دهێتە نیشاندان، ژ وێ چرکێ، ل سەر دیمەنی.',
   'Choose the graphic on top of this scene': 'وی گرافیکی هەلبژێرە یێ ل سەر ڤی دیمەنی',
   'Choose a graphic to put on top of this scene': 'گرافیکەکێ هەلبژێرە بۆ دانانێ ل سەر ڤی دیمەنی',
+  // wa phase0: the door into Broadcast (WhatsAppPanel.tsx).
+  'Broadcast': 'ناردنا گشتی',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
