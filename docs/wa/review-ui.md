@@ -107,7 +107,7 @@ proved with the WebKit host and is recorded above. Builder tests touched, intent
 `wa-ui-more.test.mjs` follow reworded strings / the `dir` on placeholders; one fixture in `wa-ui.test.mjs` now carries
 the column it names (the real parser never yields a header column nobody carries).
 
-Gates at the end: `npm test`, `npx tsc --noEmit`, `npm run build` — see the last commit's message.
+Gates at the end of the branch: `npm test` **21,476 passed, 0 failed** (182 files, no `* SLOW` rerun needed); `npx tsc --noEmit` clean; `npm run build` built.
 
 ## What remains, for the owner
 
