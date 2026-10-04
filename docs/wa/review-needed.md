@@ -133,11 +133,6 @@ the doubts below are Kurdish.
 | holiday-2 | kmr | خۆشتڤیێن هەوە | "Your loved ones". |
 | holiday-7 | kmr | ڕۆژا مامۆستایان | "Teachers' Day". |
 | holiday-9 | ckb / kmr | کریسمس | Christmas: is کریسمس the usual word, or جەژنی لەدایکبوونی مەسیح? |
-# Strings that need a native speaker
-
-Each package appends a section: the English, and the Sorani (ckb) and Badini (kmr) that were written best effort. Arabic is
-expected to be good.
-
 ## templates-b: the second half of the ready messages (`app/src/whatsapptemplates-b.ts`)
 
 These are whole messages sent under a business's name, so a wrong word is seen by every person on a list. The texts follow

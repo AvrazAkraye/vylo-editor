@@ -123,10 +123,6 @@ cart, order, delivery, payment, appointment, followup, review, survey, food, pro
   `PLACEHOLDER_TITLES[k][lang]`; the draft text from `fillTemplate(t, lang, values)`; `placeholdersIn(text)` less `name` to mark
   what is still blank. `t.kind === 'promo'` is the case the opt-out line exists for.
 - `whatsapptool.ts` / `whatsappwrite.ts` may offer `TEMPLATES` by id; nothing else needs wiring.
-# Ready messages
-
-<!-- templates-a writes the API and the first half above this line; the integrator joins the two sections. -->
-
 ## templates-b: the second half (`whatsapptemplates-b.ts`)
 
 ### What exists
