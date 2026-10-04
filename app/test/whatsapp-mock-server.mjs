@@ -73,8 +73,9 @@ const messageId = () => `3EB0${(++ids).toString(16).toUpperCase().padStart(12, '
  * `mock.when(rule)` programs an answer. A rule names an `endpoint` ('*' for any), optionally `nth` (the nth request
  * to that endpoint, 1-based) or `to` (a number), how many `times` it applies (1 with `nth`, else every time), and a
  * `reply`: `{ status, body }`, `'hang'` (never answers), `{ late: ms, status?, body? }` (answers after the client may
- * have given up), `'garbage'` (200 with a body that is not JSON) or `'drop'` (closes the socket). For a send,
- * `deliver` says whether the pretend phone still got it (default: yes for hang, late, garbage, drop and 2xx; no
+ * have given up), `'garbage'` (200 with a body that is not JSON), `'empty'` (201 with no body at all) or `'drop'`
+ * (closes the socket). For a send, `deliver` says whether the pretend phone still got it (default: yes for hang,
+ * late, garbage, empty, drop and 2xx; no
  * otherwise) — the "it went but the answer was lost" case is `{ reply: 'hang', deliver: true }`.
  */
 export async function startMock(o = {}) {
@@ -201,6 +202,8 @@ export async function startMock(o = {}) {
         if (reply === 'hang') return;
         if (reply === 'drop') { req.socket.destroy(); return; }
         if (reply === 'garbage') return answer(200, '<html>502 Bad Gateway</html>', 'text/html');
+        // A success with no body at all (a proxy that strips it): the client's JSON parse fails on nothing.
+        if (reply === 'empty') return answer(201, '', 'application/x-empty');
         if (reply.late !== undefined) {
           const t = setTimeout(() => {
             timers.delete(t);
