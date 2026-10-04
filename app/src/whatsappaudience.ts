@@ -1434,7 +1434,12 @@ export async function parseAudience(input: string | Uint8Array, o: ParseOptions 
         const sheet = await readSheet(input);
         const col = new Collector();
         const shape = readTable(sheet.rows.map((cells, i) => ({ line: i + 1, cells })), columns, country, col, false);
-        return finish(format, country, col, shape ?? NO_SHAPE, file, sheet.cut);
+        if (shape) return finish(format, country, col, shape, file, sheet.cut);
+        // Numbers in several columns and no header: a list laid out in a grid. Every row read as a line of text,
+        // `rows[i]` still being row i + 1, so a rejected number keeps its row.
+        const grid = new Collector();
+        const lines = sheet.rows.map((cells) => cells.join(', ')).join('\n');
+        return finish(format, country, grid, NO_SHAPE, file, readFree(lines, country, grid) || sheet.cut);
       }
       let bytes = input;
       if (bytes.length > MAX_INPUT) {

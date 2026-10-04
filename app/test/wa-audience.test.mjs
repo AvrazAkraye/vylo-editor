@@ -521,6 +521,9 @@ const cat = (...parts) => { const out = new Uint8Array(parts.reduce((s, p) => s 
   eq('xlsx: a namespace prefix (x:row, x:c) reads the same', prefixed, [['Phone'], ['0750 123 4567']]);
   const bytesOnly = await parseAudience(workbook([['Phone'], [{ n: '7701234567' }]]), {});
   eq('xlsx: told by its bytes even without a name', [bytesOnly.format, phones(bytesOnly)], ['xlsx', ['9647701234567']]);
+  const grid = await parseAudience(workbook([[{ n: '7501234567' }, { n: '7701234567' }], [{ n: '7801234567' }, '0790 123 45'], [{ n: '7511234567' }, { n: '7711234567' }]]), { filename: 'grid.xlsx' });
+  eq('xlsx: numbers in several columns and no header are a list: every one read, the bad one by its row', [grid.format, phones(grid), grid.rejected],
+    ['xlsx', ['9647501234567', '9647701234567', '9647801234567', '9647511234567', '9647711234567'], [{ line: 2, raw: '0790 123 45', why: 'too-short' }]]);
   const sheet = await readSheet(workbook([['a']]));
   eq('readSheet says whether a ceiling cut it', sheet, { rows: [['a']], cut: false });
   ok('SHEET_LIMITS: 10 MB a file, a cell ceiling', SHEET_LIMITS.file === 10 * 1024 * 1024 && SHEET_LIMITS.cells > 0);
