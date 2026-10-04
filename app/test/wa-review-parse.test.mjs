@@ -465,12 +465,12 @@ const xl = (bytes, name = 'list.xlsx', o = {}) => safe(name, bytes, { filename: 
     ['xl/worksheets/sheet1.xml', zeros.subarray(0, 0), { body: bombBody, claim: 1024 }]]);
   const honest = zipOf([['[Content_Types].xml', types], ['xl/workbook.xml', `<workbook xmlns="${NS}"/>`],
     ['xl/worksheets/sheet1.xml', zeros.subarray(0, 0), { body: bombBody, claim: zeros.length }]]);
-  const heap0 = process.memoryUsage().heapUsed;
+  const buf0 = process.memoryUsage().arrayBuffers; // a Uint8Array lives outside the JS heap
   const [lie, lieMs] = await timed(() => xl(lying));
   const [tru, truMs] = await timed(() => xl(honest));
   ok(`a zip bomb that lies about its size is refused at its first chunk (${lieMs.toFixed(0)} ms)`, lie && lie.problem === 'damaged' && lieMs < 500 * SLOW, lie && lie.problem);
   ok(`one that tells the truth is refused before inflating (${truMs.toFixed(0)} ms)`, tru && tru.problem === 'too-big' && truMs < 100 * SLOW, tru && tru.problem);
-  ok('…and neither held the inflated bytes', process.memoryUsage().heapUsed - heap0 < 64 * 1024 * 1024, process.memoryUsage().heapUsed - heap0);
+  ok('…and neither leaves inflated bytes behind (array-buffer memory)', process.memoryUsage().arrayBuffers - buf0 < 32 * 1024 * 1024, process.memoryUsage().arrayBuffers - buf0);
 
   const good = workbook([{ rows: [['Name', 'Phone'], ['Rebaz', { n: '7501234567' }]] }]);
   for (const cut of [10, 100, good.length >> 1, good.length - 30, good.length - 1]) {

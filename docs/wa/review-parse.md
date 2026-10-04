@@ -68,6 +68,9 @@ to the model; **Low** = an edge. Every fixed one has a failing test first; commi
   German number (the country-code reading wins); the `1:10-11` rule is wider than German mobiles (15/16/17).
 - **Chat exports and consent.** Reading every number in a group chat export is what the brief asks; those people
   did not agree to hear from the shop. The consent tick covers it; the People step could say "these came from a chat".
+- **A side effect of fix 5:** where a country's mobile shapes are unknown (US/Canada and most plans without a mobile
+  list), one line of space-separated bare numbers (`202 555 0123 202 555 0124`) is no longer split into two people;
+  it is reported as too long. Lists one per line or comma-separated are unaffected. Visible, and the safe direction.
 - **Free text in prose** still takes a bare number shaped like a home mobile (`my order is 7501234567`): the brief's
   rule. The field-word veto now catches the labelled cases.
 - Kept from the builder's list: workbook dates are serials in `vars`; only the first visible sheet is read (a list on
