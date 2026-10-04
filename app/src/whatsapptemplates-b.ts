@@ -173,7 +173,7 @@ export const TEMPLATES_B: readonly Template[] = [
       en: 'Hello {name}, this is a friendly reminder:\nInvoice {code} for {price}\nDue date: {date}\nIf you have already paid, please ignore this message, and thank you.\nAny questions? We are happy to help on {phone}.',
       ar: 'مرحباً {name}، هذا تذكير ودي:\nالفاتورة رقم {code} بقيمة {price}\nتاريخ الاستحقاق: {date}\nإن كنت قد سددتها، فتجاهل هذه الرسالة مع شكرنا لك.\nلأي استفسار، يسعدنا مساعدتك على {phone}.',
       ckb: 'سڵاو {name}، ئەمە بیرخستنەوەیەکی دۆستانەیە:\nپسوولەی ({code}) بە بڕی {price}\nدوا وادەی پارەدان: {date}\nئەگەر پێشتر پارەکەت داوە، ئەم نامەیە پشتگوێ بخە و سوپاست دەکەین.\nبۆ هەر پرسیارێک بە خۆشحاڵییەوە یارمەتیت دەدەین: {phone}',
-      kmr: 'سلاڤ {name}، ئەڤە بیرئینانەکا دۆستانەیە:\nپسوولا ({code}) ب بڕێ {price}\nدوماهیک دەمێ پارەدانێ: {date}\nئەگەر تە بەری نوکە پارە دابیت، گوه نەدە ڤێ نامێ و زۆر سوپاس.\nبۆ هەر پرسیارەکێ ب دلخۆشی ڤە هاریکاریا تە دکەین: {phone}',
+      kmr: 'سلاڤ {name}، ئەڤە بیرئینانەکا دۆستانەیە:\nپسوولا ({code}) ب بڕێ {price}\nدوماهیک دەمێ پارەدانێ: {date}\nئەگەر تە بەری نوکە پارە دابیت، گوه نەدە ڤێ نامێ و گەلەک سوپاس.\nبۆ هەر پرسیارەکێ ب دلخۆشی ڤە هاریکاریا تە دکەین: {phone}',
     },
   },
   {
@@ -183,7 +183,7 @@ export const TEMPLATES_B: readonly Template[] = [
     title: { en: 'Overdue invoice', ar: 'فاتورة متأخرة السداد', ckb: 'پسوولەی نەدراو', kmr: 'پسوولا نەدای' },
     text: {
       en: 'Hello {name},\nOur records show that invoice {code} for {price}, due on {date}, has not been paid yet.\nWe understand that things can be missed. Please arrange the payment at your earliest convenience, or call us on {phone} if you would like to talk it over.\nIf you have already paid, thank you, and please disregard this message.',
-      ar: 'مرحباً {name}،\nتُظهر سجلاتنا أن الفاتورة رقم {code} بقيمة {price}، المستحقة بتاريخ {date}، لم تُسدد بعد.\nنتفهم أن هذا قد يفوت أحياناً. نرجو منك ترتيب السداد في أقرب وقت يناسبك، أو الاتصال بنا على {phone} إن أردت أن نتحدث في الأمر.\nإن كنت قد سددتها، فشكراً لك، ونرجو تجاهل هذه الرسالة.',
+      ar: 'مرحباً {name}،\nتُظهر سجلاتنا أن الفاتورة رقم {code} بقيمة {price}، المستحقة بتاريخ {date}، لم تُسدد بعد.\nونتفهّم أن مثل هذه الأمور قد تفوت أحياناً. نرجو منك ترتيب السداد في أقرب وقت يناسبك، أو الاتصال بنا على {phone} إن أردت أن نتحدث في الأمر.\nإن كنت قد سددتها، فشكراً لك، ونرجو تجاهل هذه الرسالة.',
       ckb: 'سڵاو {name}،\nبەپێی تۆمارەکانمان، پسوولەی ({code}) بە بڕی {price} کە وادەکەی {date} بوو، هێشتا پارەکەی نەدراوە.\nتێدەگەین کە هەندێک جار شتەکان لەبیر دەچن. تکایە لە یەکەم دەرفەتدا پارەکە بدە، یان ئەگەر دەتەوێت قسەی لەسەر بکەین پەیوەندیمان پێوە بکە: {phone}\nئەگەر پێشتر پارەکەت داوە، سوپاس، و تکایە ئەم نامەیە پشتگوێ بخە.',
       kmr: 'سلاڤ {name}،\nل دویڤ تۆمارێن مە، پسوولا ({code}) ب بڕێ {price} یا دەمێ وێ {date} بوو، هێشتا پارەدانا وێ نەهاتییە کرن.\nئەم تێدگەهین کو هندەک جاران تشت ژ بیر دچن. هیڤییە د زووترین دەرفەت دا پارەی بدە، یان ئەگەر تە دڤێت پێکڤە باخڤین پەیوەندیێ دگەل مە بکە: {phone}\nئەگەر تە بەری نوکە پارە دابیت، سوپاس، و هیڤییە گوه نەدە ڤێ نامێ.',
     },
@@ -197,7 +197,7 @@ export const TEMPLATES_B: readonly Template[] = [
     title: { en: 'You left something behind', ar: 'نسيت شيئاً في سلتك', ckb: 'شتێکت لە سەبەتەکەتدا بەجێ هێشت', kmr: 'تە تشتەک د سەبەتێ دا هێلا' },
     text: {
       en: 'Hi {name}, you left something behind at {business} 🛒\n{product} is still in your cart.\nWhenever you are ready, you can finish your order here: {link}',
-      ar: 'مرحباً {name}، يبدو أنك نسيت شيئاً لدى {business} 🛒\n{product} ما زال في سلتك.\nمتى كنت جاهزاً، يمكنك إتمام طلبك من هنا: {link}',
+      ar: 'مرحباً {name}، يبدو أنك نسيت شيئاً لدى {business} 🛒\n{product} ما زال في سلتك.\nويمكنك إتمام طلبك من هنا متى شئت: {link}',
       ckb: 'سڵاو {name}، وا دیارە شتێکت لە {business} بەجێ هێشتووە 🛒\n{product} هێشتا لە سەبەتەکەتدایە.\nهەر کاتێک ئامادە بوویت، دەتوانیت لێرە داواکارییەکەت تەواو بکەیت: {link}',
       kmr: 'سلاڤ {name}، وەسا دیارە تە تشتەک ل {business} هێلایە 🛒\n{product} هێشتا د سەبەتا تە دایە.\nهەر دەمێ تو ئامادە بووی، تو دشێی ل ڤێرە داخوازیا خۆ تەمام بکەی: {link}',
     },
@@ -247,7 +247,7 @@ export const TEMPLATES_B: readonly Template[] = [
     title: { en: 'Welcome, new member', ar: 'أهلاً بالعضو الجديد', ckb: 'بەخێربێیت، ئەندامی نوێ', kmr: 'ب خێر بێی، ئەندامێ نوی' },
     text: {
       en: 'Welcome to the {business} family, {name}! 🎉\nAs a member, you will hear about new arrivals and member offers right here.\nWe are happy to have you with us.',
-      ar: 'أهلاً بك في عائلة {business} يا {name}! 🎉\nبصفتك عضواً، ستصلك هنا أخبار المنتجات الجديدة والعروض الخاصة بالأعضاء.\nسعداء بوجودك معنا.',
+      ar: 'أهلاً بك في عائلة {business} يا {name}! 🎉\nوبعد انضمامك إلينا، ستصلك هنا أخبار المنتجات الجديدة والعروض الخاصة بالأعضاء.\nسعداء بوجودك معنا.',
       ckb: 'بەخێربێیت بۆ خێزانی {business}، {name}! 🎉\nوەک ئەندامێک، هەواڵی بەرهەمە نوێیەکان و ئۆفەرەکانی ئەندامان لێرە پێت دەگات.\nخۆشحاڵین بە بوونت لەگەڵمان.',
       kmr: 'ب خێر بێی بۆ ناڤ مالباتا {business}، {name}! 🎉\nوەک ئەندامەک، نووچەیێن بەرهەمێن نوی و ئۆفەرێن ئەندامان دێ ل ڤێرە گەهنە تە.\nئەم دلخۆشین کو تو دگەل مەیی.',
     },
@@ -646,7 +646,7 @@ export const TEMPLATES_B: readonly Template[] = [
     title: { en: 'Ask for a review', ar: 'طلب تقييم', ckb: 'داوای هەڵسەنگاندن', kmr: 'داخوازا هەلسەنگاندنێ' },
     text: {
       en: 'Hi {name}, we hope you were happy with {service} at {business}.\nIf you have a moment, we would love a review from you: {link}\nThank you for your support! ⭐',
-      ar: 'مرحباً {name}، نأمل أن تكون راضياً عن {service} في {business}.\nإن كان لديك بعض الوقت، يسعدنا أن تكتب لنا تقييمك هنا: {link}\nشكراً لدعمك! ⭐',
+      ar: 'مرحباً {name}، نأمل أن تكون تجربتك مع {service} في {business} قد نالت رضاك.\nإن كان لديك بعض الوقت، يسعدنا أن تكتب لنا تقييمك هنا: {link}\nشكراً لدعمك! ⭐',
       ckb: 'سڵاو {name}، هیوادارین {service} لە {business} بە دڵت بووبێت.\nئەگەر کاتت هەیە، زۆر خۆشحاڵ دەبین هەڵسەنگاندنێکمان بۆ بنووسیت: {link}\nسوپاس بۆ پشتگیریت! ⭐',
       kmr: 'سلاڤ {name}، هیڤیدارین {service} ل {business} ب دلێ تە بوو بیت.\nئەگەر دەمێ تە هەبیت، ئەم دێ گەلەک دلخۆش بین ئەگەر تو هەلسەنگاندنەکێ بۆ مە بنڤیسی: {link}\nسوپاس بۆ پشتەڤانیا تە! ⭐',
     },
