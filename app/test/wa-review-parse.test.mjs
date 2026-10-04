@@ -248,6 +248,15 @@ console.log('1c. Things that look like phone numbers and are not');
     const one = await parseAudience(line);
     eq(`not a person: ${JSON.stringify(line)}`, phones(one), []);
   }
+  const order = await parseAudience('Order 7501234567');
+  eq('a list line whose number its label vetoes is reported, not silently dropped', [phones(order), order.rejected.map((r) => [r.raw, r.why])],
+    [[], [['7501234567', 'not-a-number']]]);
+  // Dinar and Lira are people's names as well as currencies; a phone number beside them is a phone number.
+  eq('"0750 123 4567 Dinar" is Dinar\'s number', (await parseAudience('0750 123 4567 Dinar')).recipients.map((r) => [r.phone, r.name]), [['9647501234567', 'Dinar']]);
+  eq('"Lîra: 0751 222 3344" is Lîra\'s', (await parseAudience('Lîra: 0751 222 3344')).recipients.map((r) => [r.phone, r.name]), [['9647512223344', 'Lîra']]);
+  eq('"Bill 0750 123 4567" is Bill\'s', (await parseAudience('Bill 0750 123 4567')).recipients.map((r) => r.name), ['Bill']);
+  eq('"Phone No: 0750 123 4567" is a phone', phones(await parseAudience('Phone No: 0750 123 4567')), ['9647501234567']);
+  eq('"Ref: +964 750 123 4567" (written with +) is a phone', phones(await parseAudience('Ref: +964 750 123 4567')), ['9647501234567']);
   // …and the formats a list really uses still read.
   for (const [line, want] of [['0750.123.4567', '9647501234567'], ['04.10.2026 0750 123 4567', '9647501234567'],
     ['07501234567 07701234567', '9647501234567,9647701234567'], ['Rebaz 0750 123 4567', '9647501234567']]) {

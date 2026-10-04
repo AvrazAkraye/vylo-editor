@@ -772,7 +772,7 @@ const LAST_WITH = wordSet('last family العائلة عائلة خێزان');
  * however much it looks like one (`Order 7501234567`, `رقم الطلب 07501234567`).
  */
 const FIELD_WORDS = wordSet(
-  'order orders invoice inv bill receipt ref reference account acct iban swift serial sn id ids tracking awb shipment parcel',
+  'order orders invoice inv receipt ref reference account acct iban swift serial sn id ids tracking awb shipment parcel',
   'total subtotal amount price cost qty quantity sum balance fee tax vat code pin otp barcode sku ean upc isbn imei model version ip date year postcode zip passport',
   'طلب فاتورة حساب مبلغ سعر مجموع رمز كود باركود تاريخ هوية وصل ايصال',
   'داواکاری پسوولە حیساب بڕ نرخ کۆی کۆد بەروار ناسنامە',
@@ -1182,15 +1182,17 @@ const isGap = (c: number): boolean => isSpace(c) || isInvisible(c) || c === 58 |
 const hasWord = (words: string[], set: Set<string>): boolean => words.some((w) => variants(w).some((v) => set.has(v)));
 
 /**
- * Whether the words beside a run say it is not a phone number: a field label before it (`Order`, `Invoice No:`,
- * `Account:`, `رقم الطلب`) unless a phone word stands with it (`Phone No`, `WhatsApp account`), a `$` or `#` right
- * before it, or a currency right after it (`12 500 000 IQD`). A bounded scan of a few words either side.
+ * Whether the words beside a run say it is not a phone number. `field`: a field label before it (`Order`,
+ * `Invoice No:`, `Account:`, `رقم الطلب`) with no phone word beside it (`Phone No`, `WhatsApp account` are phones), or
+ * a `$` or `#` right before it — only a number written with `+` survives that. `money`: a currency right after it
+ * (`12 500 000 IQD`) — only a number that says it is a phone survives, because Dinar and Lira are also people's names
+ * (`0750 123 4567 Dinar`). A bounded scan of a few words either side.
  */
-function labelledOther(line: string, s: Span): boolean {
+function labelledOther(line: string, s: Span): 'field' | 'money' | null {
   const stop = Math.max(0, s.start - 48);
   let i = s.start - 1;
   while (i >= stop && isGap(line.charCodeAt(i))) i--;
-  if (i >= stop && MONEY_MARKS.has(line.charCodeAt(i))) return true;
+  if (i >= stop && MONEY_MARKS.has(line.charCodeAt(i))) return 'field';
   const before: string[] = [];
   while (i >= stop && before.length < 3) {
     const e = i + 1;
@@ -1202,14 +1204,14 @@ function labelledOther(line: string, s: Span): boolean {
   if (before.length) {
     const words = before.flatMap(foldWords);
     const phone = words.some((w) => variants(w).some((v) => PHONE_WORDS.has(v) && !NUMBER_WORDS.has(v)));
-    if (!phone && hasWord(words, FIELD_WORDS)) return true;
+    if (!phone && hasWord(words, FIELD_WORDS)) return 'field';
   }
   let j = s.end;
   const end = Math.min(line.length, s.end + 24);
   while (j < end && isSpace(line.charCodeAt(j))) j++;
   const from = j;
   while (j < end && isWordChar(line.charCodeAt(j))) j++;
-  return j > from && hasWord(foldWords(line.slice(from, j)), CURRENCY_WORDS);
+  return j > from && hasWord(foldWords(line.slice(from, j)), CURRENCY_WORDS) ? 'money' : null;
 }
 
 /** How a number was found that the free-text reader trusts in a sentence: it says it is a phone number. */
@@ -1289,11 +1291,14 @@ function readFree(text: string, country: string, col: Collector): boolean {
     const line = lines[li].length > MAX_LINE ? lines[li].slice(0, MAX_LINE) : lines[li];
     const all = spansIn(line);
     const spans: Span[] = [];
+    const labelled = new Map<Span, 'field' | 'money'>();
     for (const s0 of all) {
       const s = s0.digits >= 7 ? afterDate(line, s0) : null;
       if (!s || s.digits < 7) continue;
       const text = line.slice(s.start, s.end);
-      if (isDate(text) || otherNumber(text) || labelledOther(line, s)) continue;
+      if (isDate(text) || otherNumber(text)) continue;
+      const other = labelledOther(line, s);
+      if (other) labelled.set(s, other);
       spans.push(s);
     }
     if (!spans.length) {
@@ -1330,6 +1335,14 @@ function readFree(text: string, country: string, col: Collector): boolean {
         for (const f of split.found) if (sure(f)) found.push(f); else bad.push({ text: f.text, why: 'too-long' });
         bad.push(...split.failed);
       } else bad.push({ text: raw, why: n.why, hint: n.hint });
+      // A number its label says is something else (an order, a price) is not taken; on a list line it is reported,
+      // so a real number behind an unlucky word is seen rather than silently lost.
+      const other = labelled.get(s);
+      if (other) {
+        const keep = found.filter((f) => (other === 'field' ? f.via === 'plus' : sure(f)));
+        if (keep.length < found.length) bad.push({ text: raw, why: 'not-a-number' });
+        found.splice(0, found.length, ...keep);
+      }
       for (const f of found) {
         if (!list && !sure(f)) continue;
         const person: Recipient = { phone: f.phone, vars: {} };
