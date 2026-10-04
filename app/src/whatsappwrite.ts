@@ -189,6 +189,8 @@ const SCHEMES = /(?:javascript|vbscript):\S*|\bfile:\/\/\S*|data:[a-z-]+\/\S*/gi
 const TAG = /<\/?[a-z!][^<>]{0,300}>/giu;
 /** A script or style element with what is inside it, within reason. An unclosed one loses its tag to `TAG`. */
 const SCRIPT = /<(script|style)\b[^<>]{0,300}>[\s\S]{0,2000}?<\/\1\s*>/giu;
+/** A code fence, with its language when one follows it on its own (```json⏎) — never the word glued after the backticks (```https://…). */
+const FENCE = /```(?:[a-z0-9_+-]*(?=\s|$))?/giu;
 /** A placeholder of any kind, for telling whether a message has words besides its placeholders. */
 const ANY_PLACEHOLDER = /\{[^{}\n]*\}/gu;
 
@@ -667,7 +669,7 @@ interface Found {
 
 /** A reply that is nothing but one JSON string, fenced or not. */
 function loneString(s: string): string | null {
-  const t = s.replace(/```[a-z]*\s*/giu, '').trim();
+  const t = s.replace(FENCE, '').trim();
   if (t.length < 2 || t[0] !== '"' || t[t.length - 1] !== '"') return null;
   const v = parsed(t);
   return typeof v === 'string' ? v : null;
@@ -766,11 +768,11 @@ function urlKey(u: string): string {
 
 /**
  * A number as written in the folded text (`shadowOf`): with thousands marks,
- * or with a decimal part — starting where no digit or mark is before it, so a
- * number is read whole, and a run of ten thousand digits is tried once rather
- * than from each of its digits.
+ * or with a decimal part — starting where no digit is before it, so a number
+ * is read whole, and a run of ten thousand digits is tried once rather than
+ * from each of its digits. A comma before it is a sentence's ("Shoes,30%").
  */
-const NUM = '(?<![\\d.,])(?:\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:[.,]\\d+)?)';
+const NUM = '(?<!\\d)(?:\\d{1,3}(?:,\\d{3})+(?:\\.\\d+)?|\\d+(?:[.,]\\d+)?)';
 /** The words that make a number a thousand or a million times itself. */
 const THOUSANDS = ['k', 'thousand', 'ألف', 'آلاف', 'هەزار'];
 const MILLIONS = ['m', 'million', 'مليون', 'ملايين', 'ملیۆن', 'ملیون'];
@@ -785,7 +787,7 @@ const MONEY = new RegExp(`(?:${CURRENCY_BEFORE})\\s?(?:${NUM})(?:\\s?${SCALE})?|
 /** A percentage: a number with a percent after it, or (as Arabic and Sorani often write it) before it. */
 const PERCENT = new RegExp(`(?:${NUM})\\s?${PERCENT_WORDS}|(?:[%\\u{66A}]|${alternation(['لەسەدا', 'لە سەدا'])})\\s?(?:${NUM})`, 'giu');
 /** Something dialled: digits with the spaces, dashes, dots and brackets a number is written with — counted, and judged, by `phoneish`. */
-const PHONE = /\+?\d[\d \-().]{5,18}\d/gu;
+const PHONE = /(?<!\d)\+?\d[\d \-().]{5,40}\d/gu;
 /** A date written with digits, which `PHONE` would otherwise take for a number to call. */
 const DATE_LIKE = /^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}$/u;
 /** A number and the scale word after it, to read the person's figures by. */
@@ -890,7 +892,8 @@ function sourced(text: string, src: Sources): string {
   s = swap(s, MONEY, (found, written) => (knownFigure(found, src) ? shield(written) : '{price}'));
   s = swap(s, PHONE, (found, written) => {
     const digits = found.replace(/\D/gu, '');
-    if (digits.length < 7 || digits.length > 15 || DATE_LIKE.test(found)) return written;
+    // Past fifteen digits it is two numbers run together, or one nobody could dial: neither is the person's unless they wrote it.
+    if (digits.length < 7 || DATE_LIKE.test(found)) return written;
     const known = src.phones.some((p) => samePhone(p, digits)) || src.numbers.has(digits.replace(/^0+(?=\d)/u, ''));
     return known ? shield(written) : '{phone}';
   });
@@ -934,25 +937,43 @@ function contextOf(r: Asked): Context {
  * name the list knows by another (`ALIASES`) as the list's; the engine's
  * syntax kept only where the person's message uses it; anything else gone.
  */
-function placeheld(text: string, ctx: Context): string {
-  const s = text
+function placeOnce(text: string, ctx: Context): string {
+  return text
     .replace(/\{\{\s*([^{}\n]{1,60}?)\s*\}\}/gu, '{$1}')
-    .replace(/\[\[([^[\]\n]*)\]\]/gu, (m: string, inner: string) => (ctx.choices && inner.includes('|') ? m : inner.split('|')[0].trim()))
+    .replace(/\{([^{}\n]*)\}/gu, (m: string, inner: string) => {
+      if (ctx.keep.has(m)) return m;
+      // Words in braces, not a name: the words stay and the braces go, or the engine would read them as a variable and send a gap.
+      if (Array.from(inner).length > 40) return inner;
+      const bar = inner.indexOf('|');
+      const word = bar >= 0 ? inner.slice(0, bar) : inner;
+      const name = ctx.names.get(keyWord(word)) ?? keyOf(word);
+      if (!name) return '';
+      const fallback = bar >= 0 ? inner.slice(bar + 1).trim() : '';
+      return fallback && ctx.fallbacks.has(name) ? `{${name}|${fallback}}` : `{${name}}`;
+    })
+    // `[[a|b]]` holds no `[x]` of its own: at its first bracket the next is a bracket, at its second the bar is no name.
     .replace(/\[([^[\]\n]{1,40})\]/gu, (m: string, inner: string) => {
       const k = keyOf(inner);
       return k ? `{${k}}` : m;
-    });
-  return s.replace(/\{([^{}\n]*)\}/gu, (m: string, inner: string) => {
-    if (ctx.keep.has(m)) return m;
-    // Words in braces, not a name: the words stay and the braces go, or the engine would read them as a variable and send a gap.
-    if (Array.from(inner).length > 40) return inner;
-    const bar = inner.indexOf('|');
-    const word = bar >= 0 ? inner.slice(0, bar) : inner;
-    const name = ctx.names.get(keyWord(word)) ?? keyOf(word);
-    if (!name) return '';
-    const fallback = bar >= 0 ? inner.slice(bar + 1).trim() : '';
-    return fallback && ctx.fallbacks.has(name) ? `{${name}|${fallback}}` : `{${name}}`;
-  });
+    })
+    .replace(/\[\[([^[\]\n]*)\]\]/gu, (m: string, inner: string) => (ctx.choices && inner.includes('|') ? m : inner.split('|')[0].trim()));
+}
+
+/**
+ * A message's placeholders held to the list, until nothing changes: taking
+ * one thing out can make another — junk in braces gone from inside `[[ … ]]`
+ * leaves a choice the engine would read — so the passes run again until the
+ * message is as they leave it. Past eight rounds (brackets nested for the
+ * sake of it), what is left of the engine's choice syntax goes.
+ */
+function placeheld(text: string, ctx: Context): string {
+  let s = text;
+  for (let round = 0; round < 8; round += 1) {
+    const next = placeOnce(s, ctx);
+    if (next === s) return s;
+    s = next;
+  }
+  return ctx.choices ? s : s.replace(/\[\[|\]\]/gu, '');
 }
 
 /** Spaces as a message keeps them: one between words, none before a stop, no blank line twice. Line breaks stay. */
@@ -980,7 +1001,7 @@ function plain(raw: string): string {
     .replace(UNSEEN, ' ')
     .replace(HIDDEN, '')
     .replace(SELECTORS, '')
-    .replace(/```[a-z]*/giu, '')
+    .replace(FENCE, '')
     .replace(/^[ \t]*#{1,6}[ \t]+/gmu, '')
     .replace(/\*\*(?=\S)([^*\n]{1,300}?)\*\*/gu, '*$1*')
     .replace(/__(?=\S)([^_\n]{1,300}?)__/gu, '_$1_')
@@ -1016,7 +1037,7 @@ function saidOf(x: unknown): string {
     .replace(UNSEEN, ' ')
     .replace(HIDDEN, '')
     .replace(SELECTORS, '')
-    .replace(/```[a-z]*/giu, '')
+    .replace(FENCE, '')
     .replace(/^\s*#{1,6}\s+/u, '')
     .replace(/\*\*/gu, '')
     .replace(/\s+/gu, ' ')
