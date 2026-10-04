@@ -35,9 +35,9 @@
  * all of it without a file system, a store or a server.
  */
 
-import { parseAudience, makeAudience, maskPhone, excludeSuppressed, type ParseOptions } from './whatsappaudience';
+import { parseAudience, makeAudience, maskPhone, excludeSuppressed, headerKnown, type ParseOptions } from './whatsappaudience';
 import { estimateSeconds, newCampaign } from './whatsappcampaign';
-import { LIMITS, type Attachment, type AttachmentKind, type Audience, type Campaign, type Draft, type Lang, MESSAGE_LANGS } from './whatsappbulktypes';
+import { LIMITS, type Attachment, type AttachmentKind, type Audience, type Campaign, type Draft, type FileProblem, type Lang, MESSAGE_LANGS } from './whatsappbulktypes';
 import { fillTemplate, searchTemplates, templateById } from './whatsapptemplates';
 import { loadAudiences, loadSuppressed, saveAudience, saveCampaign } from './whatsappbulkstore';
 
@@ -147,6 +147,18 @@ const LIST_FILE = /\.(txt|csv|tsv|vcf|xlsx)$/i;
 const LIST_BYTES = 10 * 1024 * 1024;
 
 const str = (x: unknown, max: number): string => (typeof x === 'string' ? x.trim().slice(0, max) : '');
+
+/** Why a whole file could not be read, in a sentence the model can pass on (the reader's `problem` is a word). */
+function problemNote(p: FileProblem): string {
+  switch (p) {
+    case 'locked': return 'The file is password-protected, or is an old .xls. Ask the user to open it in Excel and save it again as a plain .xlsx with no password.';
+    case 'too-big': return 'The file is too big for a list (over 10 MB).';
+    case 'binary': return 'That file is not a list: it looks like a picture, a PDF or another kind of file.';
+    case 'not-a-sheet': return 'That file is not an Excel workbook this can read (a renamed file, or an .ods). Ask the user to save it as .xlsx or .csv.';
+    case 'empty': return 'The file is empty.';
+    default: return 'The file is damaged or cut short. Ask the user to save it again and try once more.';
+  }
+}
 const langOf = (x: unknown, fallback: Lang): Lang => (MESSAGE_LANGS as readonly unknown[]).includes(x) ? (x as Lang) : fallback;
 
 /** Base64 to bytes, without trusting its length. */
@@ -216,21 +228,30 @@ export async function runBulkTool(name: string, input: Record<string, unknown>, 
       }
       if (text === null || text === '') return fail('Give a file path or a few numbers.');
       const parsed = await parseAudience(text, opts);
+      if (parsed.problem) return ok({ audience: null, people: 0, problem: parsed.problem, note: `${problemNote(parsed.problem)} Nothing was saved.` });
+      // Every line that could not be read, not only the thousand the reader lists one by one.
+      const notRead = parsed.rejected.length + (parsed.rejectedMore ?? 0);
       const suppressed = await deps.loadSuppressed();
       const { kept, removed } = excludeSuppressed(parsed.recipients, suppressed);
       if (!kept.length) {
         return ok({
-          audience: null, people: 0, notRead: parsed.rejected.length, askedNotToBeMessaged: removed,
+          audience: null, people: 0, notRead, askedNotToBeMessaged: removed,
           note: 'No usable number was found. Nothing was saved.',
         });
       }
       const a = makeAudience({ ...parsed, recipients: kept }, str(input.name, 60) || fileName || 'List', now());
       if (!(await deps.saveAudience(a))) return fail('The list could not be saved on this machine.');
       return ok({
-        audience: a.id, name: a.name, people: kept.length, notRead: parsed.rejected.length, repeated: parsed.duplicates,
-        askedNotToBeMessaged: removed, columns: parsed.columns,
+        audience: a.id, name: a.name, people: kept.length, notRead, repeated: parsed.duplicates,
+        askedNotToBeMessaged: removed,
+        // A header row is the person's own labels and helps the model offer {City}; a first row that was taken for a
+        // header without saying so may be a customer, and is left out (non-negotiable 2).
+        ...(headerKnown(parsed.columns) ? { columns: parsed.columns } : {}),
+        ...(parsed.truncated ? { truncated: true } : {}),
         examples: kept.slice(0, 3).map((r) => maskPhone(r.phone)),
-        note: 'The list stays on this machine; you never see it. Use this audience id with whatsapp_campaign.',
+        note: (parsed.truncated
+          ? `Only part of the file was read: at most ${LIMITS.recipients.toLocaleString('en-US')} people fit in one list, and a very long file is cut. Tell the user. `
+          : '') + 'The list stays on this machine; you never see it. Use this audience id with whatsapp_campaign.',
       });
     }
 

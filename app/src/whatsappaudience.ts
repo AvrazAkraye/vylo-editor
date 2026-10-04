@@ -800,6 +800,18 @@ function kindOf(header: string): Kind | null {
   return name ? 'name' : null;
 }
 
+/**
+ * Whether a list's column names may be shown to someone who must not see the list — the assistant (docs/WA.md,
+ * non-negotiable 2). Spreadsheet letters (a file with no header) are nobody's data, and neither is a header row this
+ * recognised by its words. A first row taken for a header only because it held no valid number may be a person —
+ * their name, their email, a number with a typo — and is not to be repeated.
+ */
+export function headerKnown(columns: readonly string[]): boolean {
+  if (!Array.isArray(columns)) return false;
+  if (columns.every((c, i) => c === letter(i))) return true;
+  return columns.some((c) => typeof c === 'string' && kindOf(c.trim()) !== null);
+}
+
 // ── tables: csv, tsv, a pasted spreadsheet, a workbook ────────────────────
 
 interface Row { line: number; cells: string[] }
