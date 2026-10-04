@@ -310,6 +310,11 @@ console.log('2. who can start a run');
   ok('the assistant\'s tools cannot reach the runner or the screens',
     !/whatsappsend|WhatsAppRun|WhatsAppBroadcast/.test(src('whatsappbulktool.ts')) && !/whatsappsend|WhatsAppRun|WhatsAppBroadcast/.test(src('whatsapptool.ts')));
   ok('no screen writes `consent: true`', !/consent:\s*true/.test(b + run + src('WhatsAppPeople.tsx') + src('WhatsAppCompose.tsx')));
+  // The tick is for a list: going back to step 1 and loading another list must not keep it (there is no DOM runner
+  // in the repo, so this is held by reading — the people setter is the only way step 1 changes the list).
+  const setter = b.slice(b.indexOf('const setPeople = useCallback('), b.indexOf('const setPeople = useCallback(') + 200);
+  ok('changing the people clears the consent tick', /setPeopleState\(p\);\s*setConsent\(false\)/.test(setter), setter);
+  ok('…and step 1 changes them only through that setter', /onPeople=\{setPeople\}/.test(b) && (b.match(/setPeopleState\(/g) ?? []).length === 3);
 }
 {
   // The runner's own gate, whoever calls it.
