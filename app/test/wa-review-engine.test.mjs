@@ -656,6 +656,24 @@ console.log('5. messages');
   const sentCard = mock.of('sendContact')[0]?.body?.contact?.[0];
   ok('a contact card with line breaks in its fields goes out on one line each (no vCard injection)', sentCard && !/[\r\n]/.test(sentCard.fullName + sentCard.organization) && sentCard.wuid === '9647501112233', sentCard);
 }
+{
+  // The report a person opens in a spreadsheet: names and stored keys that are formulas arrive as text.
+  const c = campaign([{ phone: '9647501112233', name: '=HYPERLINK("http://x","y")', vars: {} }, { phone: '9647504445566', name: '@SUM(1)', vars: {} }]);
+  c.outcomes = { '+cmd|/C calc!A0': { phone: '+cmd|/C calc!A0', standing: 'sent', attempts: 1, why: '-2+3' } };
+  const csv = reportCsv(c);
+  ok('the CSV report neutralises formulas in names, keys and reasons', !/(^|,)"?[=+\-@]/m.test(csv.split('\r\n').slice(1).join('\r\n')), csv);
+}
+{
+  // Send a test to myself: refused before any request when there is nothing to send or nobody to send it to.
+  const { sendTest } = await import('../.test-build/whatsappsend.js');
+  reset();
+  const r = [await sendTest({ ...conn, key: '' }, '9647501112233', 'hi'), await sendTest(conn, '12', 'hi'), await sendTest(conn, '9647501112233', '   ')];
+  eq('no key, a number that is not one, an empty text: each refused by name', r, [{ failed: 'no-account' }, { failed: 'invalid-number' }, { failed: 'empty' }]);
+  ok('…and nothing reached the gateway', mock.log.length === 0);
+  mock.when({ endpoint: 'sendText', nth: 1, reply: { status: 503 }, deliver: true });
+  eq('a test answered 503 says so and is not tried again by itself', await sendTest(conn, '9647501112233', 'hi'), { failed: 'http-503' });
+  ok('…one request', mock.of('sendText').length === 1);
+}
 
 // ══ 6. stop words and the do-not-contact list ═══════════════════════════════════════════════════════════════════
 console.log('6. stop words');
@@ -723,6 +741,32 @@ console.log('6. stop words');
     await s.addStopReplies(Array.from({ length: 200 }, (_, i) => msg(`${phoneOf(1300 + i)}@s.whatsapp.net`, 'Thanks, see you')));
     ok('two hundred ordinary messages cost no storage at all', idb.txs.length === quiet);
   }
+  {
+    // End to end in one process: a STOP read by the panel mid-run is honoured by the runner before its next message.
+    const s = await freshStore();
+    reset();
+    const list = people(5, 1250);
+    const c = campaign(list, { id: 'stop-mid-run' });
+    let told = false;
+    const w = world({
+      suppressed: s.doNotContact,
+      onSleep: () => {
+        if (!told && mock.delivered.length === 2) {
+          told = true;
+          // The phone of the fourth person answers the second message with a STOP; the panel's next poll reads it.
+          void s.addStopReplies([{ id: 'm1', keyId: 'm1', jid: `${phoneOf(1253)}@s.whatsapp.net`, fromMe: false, at: 1, text: 'Stop please', kind: 'text', who: '', status: '', quoted: null }]);
+        }
+        return false;
+      },
+    });
+    const out = await w.run(c, { save: s.saveCampaign });
+    await tick();
+    ok('a STOP that arrives mid-run: that person is skipped (opted out) and never messaged', told && out.state === 'done'
+      && out.outcomes[phoneOf(1253)].standing === 'skipped-opted-out' && mock.deliveriesTo(phoneOf(1253)) === 0 && mock.delivered.length === 4, standings(out));
+  }
+  const b = src('WhatsAppBroadcast.tsx');
+  const load = b.slice(b.indexOf('// ── loading what is kept'), b.indexOf('// The working list is written'));
+  ok('opening Broadcast never starts anything: the loading code recovers and shows, it does not launch', load.length > 200 && !/launch\(|runCampaign|\.start\(/.test(load) && /recover\(stuck\)/.test(load));
   const panel = src('WhatsAppPanel.tsx');
   ok('the WhatsApp panel puts STOP replies on the list each time its messages refresh', /addStopReplies\(msgs\)/.test(panel) && /\[msgs\]/.test(panel.slice(panel.indexOf('addStopReplies(msgs)'), panel.indexOf('addStopReplies(msgs)') + 200)));
 }
