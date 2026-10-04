@@ -135,12 +135,15 @@ export function acceptsFile(name: string): boolean {
  *
  * Read from the recipients' `vars` rather than from the file's header row so a
  * list restored after a restart (which kept the people, not the file) still
- * offers `{city}`. The first few hundred are enough to see every column a file
- * has, and capped at what the reader keeps.
+ * offers `{city}`. Every person is read, not the first few hundred: the reader
+ * leaves an empty cell out of `vars`, so a column empty in its first rows would
+ * be missed — and step 2 and the review card treat a missing column as a blank.
+ * Five thousand small objects cost well under a millisecond. Capped at what the
+ * reader keeps.
  */
 export function columnsOf(recipients: readonly Recipient[]): string[] {
   const seen: string[] = [];
-  for (const r of recipients.slice(0, 300)) {
+  for (const r of recipients) {
     for (const k of Object.keys(r.vars ?? {})) {
       if (!seen.includes(k)) seen.push(k);
       if (seen.length >= LIMITS.columns) return seen;
@@ -574,7 +577,7 @@ export function AudienceStep({ t, lang, people, onPeople, country, onCountry, ch
               {sample.map((r) => (
                 <div className="wa-bk-tr" role="row" key={r.phone}>
                   <span role="cell"><Masked phone={r.phone} /></span>
-                  <span role="cell" dir="auto">{r.name || '—'}</span>
+                  <span role="cell" className="wa-bk-cellname"><bdi dir="auto">{r.name || '—'}</bdi></span>
                   {shownCols.map((c) => <span role="cell" key={c} dir="auto">{r.vars[c] || '—'}</span>)}
                 </div>
               ))}

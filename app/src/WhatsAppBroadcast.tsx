@@ -11,7 +11,7 @@ import {
   addSuppressed, deleteAudience, deleteCampaign, loadAudiences, loadCampaigns, loadSuppressed, removeSuppressed, saveAudience, saveCampaign, sentToday,
 } from './whatsappbulkstore';
 import {
-  DEFAULT_PACE, LIMITS, MESSAGE_LANGS, PACE_BOUNDS, type Attachment, type Campaign, type Pace,
+  DEFAULT_PACE, LIMITS, MESSAGE_LANGS, PACE_BOUNDS, type Attachment, type Campaign, type Pace, type Recipient,
 } from './whatsappbulktypes';
 import {
   AudienceStep, Fill, WORK_AUDIENCE_ID, columnsOf, forgetInput, num, peopleFromAudience, type People,
@@ -178,6 +178,54 @@ export function campaignName(people: People | null, text: string, fallback: stri
   return line ? (line.length > 48 ? `${line.slice(0, 47)}…` : line) : fallback;
 }
 
+/**
+ * What a consent tick and a typed count are given for: this broadcast, from this account, to exactly these people.
+ *
+ * The tick says "everyone on *this list* agreed". Held as a plain boolean it outlived the list it was given for: tick
+ * it for ten people, go back, read another list, and the box came back ticked. So the tick is kept as the key it was
+ * given under and counts only while the key still matches, and the review card is drawn per key, so a count typed for
+ * one list is never standing in the box for another. A hash of every number, in order, not a sample: one number
+ * changed is a different list.
+ */
+export function reviewKey(id: string, recipients: readonly Recipient[], accountId: string): string {
+  let h = 0x811c9dc5;
+  for (const r of recipients) {
+    const p = String(r.phone);
+    for (let i = 0; i < p.length; i++) { h ^= p.charCodeAt(i); h = Math.imul(h, 16777619); }
+    h ^= 0x2c; h = Math.imul(h, 16777619);
+  }
+  return `${id}|${accountId}|${recipients.length}|${(h >>> 0).toString(36)}`;
+}
+
+/**
+ * Give a new step or view the focus, and start it at its top.
+ *
+ * A plain `focus()` scrolls the box's top edge to the scroller's top edge — under the sticky header, in the column —
+ * so Next pressed at the bottom of a long step opened the next one scrolled down, its heading and tools hidden (seen
+ * in WebKit: 123 px, 229 px in Arabic). So the box is focused without scrolling, and the scroller it sits in (the
+ * sidebar in a column, the middle in a window) goes back to its top, where the stepper and the heading are.
+ */
+export function showTop(
+  el: HTMLElement | null | undefined,
+  styleOf: (e: HTMLElement) => { overflowY: string } = (e) => getComputedStyle(e),
+): void {
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (p.scrollHeight > p.clientHeight && /auto|scroll/.test(styleOf(p).overflowY)) { p.scrollTop = 0; return; }
+  }
+}
+
+/**
+ * The way back to a broadcast from History or the do-not-contact list, in a window: what is there. It said "Sending"
+ * for a broadcast that had stopped by itself and sent nothing.
+ */
+export function runLabel(going: boolean, held: { c: Campaign } | null, t: (s: string) => string): string {
+  if (going) return t('Sending');
+  if (held) return held.c.state === 'halted' ? t('Stopped by itself') : t('Paused');
+  return t('Broadcast');
+}
+
 /** The attachment, held for the life of the window (see the header). */
 let heldAttachment: Attachment | undefined;
 
@@ -200,10 +248,10 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   const [people, setPeopleState] = useState<People | null>(null);
   /** Set when the person changes the people, so the working list is written; a restore does not write. */
   const peopleDirty = useRef(false);
-  const [consent, setConsent] = useState(false);
-  // The tick says "everyone on this list agreed": a different list has not been ticked for, so it is ticked again.
-  const setPeople = useCallback((p: People | null) => { peopleDirty.current = true; setPeopleState(p); setConsent(false); }, []);
+  const setPeople = useCallback((p: People | null) => { peopleDirty.current = true; setPeopleState(p); }, []);
   const [suppressed, setSuppressed] = useState<ReadonlySet<string>>(new Set());
+  /** The review key the box was ticked under; '' when it is not ticked (see `reviewKey`). */
+  const [consentFor, setConsentFor] = useState('');
   const [view, setView] = useState<View>('steps');
   const [back, setBack] = useState<View>('steps');
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
@@ -217,6 +265,8 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   const run = useLive();
   const stepBox = useRef<HTMLDivElement>(null);
   const first = useRef(true);
+  const root = useRef<HTMLDivElement>(null);
+  const firstView = useRef(true);
 
   // ── loading what is kept ───────────────────────────────────────────────
   useEffect(() => {
@@ -280,8 +330,16 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   // A new step takes the focus, so a screen reader says where the person is.
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    stepBox.current?.focus();
+    showTop(stepBox.current);
   }, [work.step]);
+
+  // A new view takes the focus too. The button that led to it (History, See the report, Back, Send) is gone with the
+  // view it was on, and focus left on <body> is a keyboard user who is nowhere — and the drawers' Escape, which listens
+  // on the drawer, no longer reaches it either.
+  useEffect(() => {
+    if (firstView.current) { firstView.current = false; return; }
+    showTop(root.current?.querySelector<HTMLElement>('.wa-bk-stepbox, .wa-bk-run'));
+  }, [view]);
 
   // ── moving between screens ─────────────────────────────────────────────
   const msg: MessageWork = work;
@@ -296,7 +354,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
     });
     setPeopleState({ ...peopleFromAudience({ id: '', name: '', recipients: c.recipients, source: 'text', created: 0, updated: 0 }, suppressed), audienceId: c.audienceId });
     peopleDirty.current = true;
-    setConsent(false);
+    setConsentFor('');
     setView('steps');
   }
 
@@ -310,11 +368,14 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
     heldAttachment = undefined;
     setWork(blankWork(lang, { country: work.country, pace: work.pace, lang: work.lang, optOut: work.optOut, business: work.business }));
     setPeople(null);
-    setConsent(false);
+    setConsentFor('');
     setView('steps');
   }
 
   // ── the campaign on the review card ────────────────────────────────────
+  const reviewAt = useMemo(() => reviewKey(work.id, people?.recipients ?? [], account?.id ?? ''), [work.id, people, account]);
+  const consent = consentFor !== '' && consentFor === reviewAt;
+  const setConsent = (yes: boolean) => setConsentFor(yes ? reviewAt : '');
   const campaign = useMemo<Campaign>(() => ({
     ...newCampaign({
       id: work.id, name: campaignName(people, work.text, t('Broadcast')), accountId: account?.id ?? '',
@@ -329,7 +390,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
     if (why) return refusalText(why, t);
     // The draft became a campaign: a later edit must not overwrite it, and consent is for that one broadcast.
     patch({ id: freshId(), staged: false });
-    setConsent(false);
+    setConsentFor('');
     setHeld(null);
     setView('run');
     return '';
@@ -402,7 +463,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
         <b>{t('Broadcast')}</b>
         {account
           ? <small><i className={connReady(account) ? 'wa-bk-dot' : 'wa-bk-dot is-off'} aria-hidden="true" /><bdi>{account.name}</bdi></small>
-          : <small>{t('No WhatsApp account is connected.')}</small>}
+          : <small className="is-none">{t('No WhatsApp account is connected.')}</small>}
       </span>
       {going && view !== 'run' && (
         <button type="button" className="wa-bk-pill" onClick={() => setView('run')}>
@@ -468,7 +529,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
                      gw={gw} efforts={efforts} onProviders={onProviders} />
       )}
       {work.step === 3 && (
-        <ReviewStep t={t} account={account} campaign={campaign} msg={msg} sentToday={today} country={work.country}
+        <ReviewStep key={reviewAt} t={t} account={account} campaign={campaign} msg={msg} sentToday={today} country={work.country}
                     onPace={(pace) => patch({ pace })} onConsent={setConsent} onSend={send} />
       )}
     </div>
@@ -503,7 +564,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   let main;
   if (view === 'history') {
     main = (
-      <div className="wa-bk-stepbox"><HistoryView t={t} lang={lang} campaigns={campaigns}
+      <div className="wa-bk-stepbox" tabIndex={-1} aria-label={t('Past broadcasts')}><HistoryView t={t} lang={lang} campaigns={campaigns}
                    onOpen={(c) => (c.staged || c.state === 'draft' ? openOnReview(c) : openReport(c))}
                    onDuplicate={reuse}
                    onDelete={(c) => { void deleteCampaign(c.id).then(() => loadCampaigns()).then(setCampaigns).catch(() => undefined); }}
@@ -511,12 +572,12 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
     );
   } else if (view === 'report' && reportOf) {
     main = (
-      <div className="wa-bk-stepbox"><ReportView t={t} lang={lang} campaign={run && run.campaign.id === reportOf.id ? run.campaign : reportOf} msgs={msgs}
+      <div className="wa-bk-stepbox" tabIndex={-1} aria-label={t('Report')}><ReportView t={t} lang={lang} campaign={run && run.campaign.id === reportOf.id ? run.campaign : reportOf} msgs={msgs}
                   onAddSuppressed={addDnc} onDuplicate={() => reuse(reportOf)} onDoNotContact={() => void openDnc()} /></div>
     );
   } else if (view === 'dnc') {
     main = (
-      <div className="wa-bk-stepbox">
+      <div className="wa-bk-stepbox" tabIndex={-1} aria-label={t('Do-not-contact list')}>
         <DoNotContactView t={t} list={dnc} country={work.country} onAdd={(p) => addDnc([p])} onRemove={removeDnc} />
       </div>
     );
@@ -525,6 +586,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
     main = (
       <>
         <RunView t={t} campaign={shownCampaign} run={run} interrupted={!run && !!held?.interrupted}
+                 elsewhere={!!account && shownCampaign.accountId !== account.id}
                  onContinue={() => void cont(shownCampaign)} onReport={() => openReport(shownCampaign)}
                  onDone={() => { dismissRun(); setHeld(null); startOver(); }} />
         {runWhy && <p className="wa-why" role="alert">{runWhy}</p>}
@@ -540,7 +602,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
 
   if (!full) {
     return (
-      <div className="wa wa-bk">
+      <div ref={root} className="wa wa-bk">
         {head}
         {main}
       </div>
@@ -549,13 +611,13 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
 
   const inSteps = !sub && !runShown;
   return (
-    <div className="wa wa-bk is-full">
+    <div ref={root} className="wa wa-bk is-full">
       {head}
       <div className="wa-bk-body">
         <nav className="wa-bk-nav" aria-label={t('Steps')}>
           {inSteps ? stepper : (
             <button type="button" className="wa-bk-btn is-quiet" onClick={() => setView(going || held ? 'run' : 'steps')}>
-              <Icon name="chevron" size={12} turn={180} className="ic-dir" />{going || held ? t('Sending') : t('Broadcast')}
+              <Icon name="chevron" size={12} turn={180} className="ic-dir" />{runLabel(going, held, t)}
             </button>
           )}
         </nav>

@@ -16,8 +16,9 @@ import {
   CAP_WARN, DEFAULT_PACE, LIMITS, PACE_BOUNDS, type Campaign, type CampaignState, type Outcome, type Pace, type Problem,
   type Recipient, type RunEvent, type Standing,
 } from './whatsappbulktypes';
-import { Fill, Masked, num } from './WhatsAppPeople';
+import { Fill, Masked, columnsOf, num } from './WhatsAppPeople';
 import { AttachmentLine, Bubble, draftOf, type MessageWork } from './WhatsAppCompose';
+import { holesIn } from './WhatsAppReady';
 
 /**
  * Step 3 and after: Review & send, the live run, the report, the history and
@@ -94,6 +95,19 @@ export function applyEvent(l: Live, e: RunEvent): Live {
   return { ...l, wait: { until: e.until, why: e.why } };
 }
 
+/**
+ * The placeholders in a campaign's message that nothing fills: not `{name}`/`{first_name}`, not a column its people
+ * carry. Each would go out as nothing ("get  today").
+ *
+ * Step 2 refuses them, but a campaign can reach the review card without passing step 2 — the assistant's staged draft
+ * opens there, and so does a draft remembered at step 3 — and `validateCampaign` does not look for them. So the card
+ * lists them and `launch` refuses them, whoever calls it.
+ */
+export function blanksOf(c: Campaign): string[] {
+  const text = c.message && typeof c.message.text === 'string' ? c.message.text : '';
+  return holesIn(text, columnsOf(Array.isArray(c.recipients) ? c.recipients : []));
+}
+
 /** Why `launch` refused, as a word the review turns into a sentence. */
 export type LaunchRefusal = 'busy' | 'no-consent' | 'problems' | 'storage' | 'no-account' | 'other-account';
 
@@ -111,6 +125,7 @@ export async function launch(c: Campaign, account: Account | null, sentToday: nu
   if (account.id !== c.accountId) return 'other-account';
   if (c.consent !== true) return 'no-consent';
   if (validateCampaign(c, { sentToday }).length) return 'problems';
+  if (blanksOf(c).length) return 'problems';
   const now = Date.now();
   const ready: Campaign = { ...c, state: c.state === 'draft' ? 'ready' : c.state, staged: false, updated: now };
   const kept = await saveCampaign(ready).catch(() => false);
@@ -329,11 +344,12 @@ export function ReviewStep({ t, account, campaign, msg, sentToday, country, onPa
   const n = campaign.recipients.length;
   const pace = campaign.pace;
   const problems = useMemo(() => validateCampaign(campaign, { sentToday }), [campaign, sentToday]);
+  const blanks = useMemo(() => blanksOf(campaign), [campaign]);
   const first = campaign.recipients[0];
   const firstText = first ? renderMessage(draftOf(msg), first) : msg.text;
   const days = daysNeeded(n, pace, sentToday);
   const typedRight = !needsTyped(n) || typedOk(typed, n);
-  const canSend = problems.length === 0 && typedRight && !busy;
+  const canSend = problems.length === 0 && blanks.length === 0 && typedRight && !busy;
 
   async function send() {
     if (!canSend) return;
@@ -396,7 +412,7 @@ export function ReviewStep({ t, account, campaign, msg, sentToday, country, onPa
         <div className="wa-bk-rv">
           <dt>{t('Pace')}</dt>
           <dd>
-            <span className="wa-bk-line">{fill(t('About one message every {min}–{max} seconds, with a break every {batch}.'), { min: pace.minDelaySec, max: pace.maxDelaySec, batch: pace.batchSize })}</span>
+            <span className="wa-bk-line">{fill(t('About one message every {min}–{max} seconds, with a break after every {batch} messages.'), { min: pace.minDelaySec, max: pace.maxDelaySec, batch: pace.batchSize })}</span>
             <span className="wa-bk-line">{fill(t('Sending takes {time} in all.'), { time: durationText(estimateSeconds(n, pace), t) })}</span>
             <span className="wa-bk-line">{fill(t('{cap} a day at most.'), { cap: num(pace.dailyCap) })}</span>
             {days > 1 && (
@@ -456,8 +472,13 @@ export function ReviewStep({ t, account, campaign, msg, sentToday, country, onPa
         </div>
       )}
 
-      {problems.length > 0 && (
+      {(problems.length > 0 || blanks.length > 0) && (
         <ul className="wa-bk-notes" aria-live="polite">
+          {blanks.map((v) => (
+            <li key={`blank-${v}`} className="is-block"><Icon name="warning" size={12} />
+              <span>{fill(t('{var} is not filled in, and the list has no column by that name. Fill it in or remove it.'), { var: `{${v}}` })}</span>
+            </li>
+          ))}
           {problems.map((p) => <li key={p.code} className="is-block"><Icon name="warning" size={12} /><span>{problemText(p, t)}</span></li>)}
         </ul>
       )}
@@ -505,12 +526,14 @@ export interface RunProps {
   run: Live | null;
   /** The app quit or crashed while this was sending. */
   interrupted: boolean;
+  /** It sends from another of the person's accounts than the one Broadcast is showing (the header names that one). */
+  elsewhere?: boolean;
   onContinue: () => void;
   onReport: () => void;
   onDone: () => void;
 }
 
-export function RunView({ t, campaign, run, interrupted, onContinue, onReport, onDone }: RunProps) {
+export function RunView({ t, campaign, run, interrupted, elsewhere, onContinue, onReport, onDone }: RunProps) {
   const [now, setNow] = useState(() => Date.now());
   const [stopping, setStopping] = useState(false);
   const c = run ? run.campaign : campaign;
@@ -531,7 +554,7 @@ export function RunView({ t, campaign, run, interrupted, onContinue, onReport, o
   const pauseBtn = useRef<HTMLButtonElement>(null);
 
   return (
-    <section className="wa-bk-run" aria-label={t('Sending')}>
+    <section className="wa-bk-run" tabIndex={-1} aria-label={t('Sending')}>
       <div className="wa-bk-ring" style={{ ['--p' as string]: `${pct}` }} role="progressbar" aria-valuemin={0} aria-valuemax={100}
            aria-valuenow={pct} aria-label={t('Progress')}>
         <span className="wa-bk-ring-in">
@@ -562,6 +585,7 @@ export function RunView({ t, campaign, run, interrupted, onContinue, onReport, o
       {c.notes?.includes('number-check-unavailable') && (
         <p className="wa-bk-warn">{t('WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.')}</p>
       )}
+      {elsewhere && <p className="wa-bk-warn">{t('This broadcast sends from another of your WhatsApp accounts, not the one named above.')}</p>}
       {!going && c.state === 'halted' && <p className="wa-why" role="alert">{haltText(c.halted ?? '', t)}</p>}
       {run?.crash && <p className="wa-why" role="alert">{fill(t('Sending stopped because of an error: {why}'), { why: run.crash })}</p>}
       {counts.unknown > 0 && (
@@ -586,8 +610,10 @@ export function RunView({ t, campaign, run, interrupted, onContinue, onReport, o
             <Icon name="stop" size={13} />{stopping ? t('Press again to stop for good') : t('Stop')}
           </button>
         )}
+        {/* A halt's reason says to fix something first ("do not continue until it is linked again"); a blue Continue
+            under it said the opposite. After a quit nothing is wrong, and Continue is the thing to do. */}
         {!going && !ended && left > 0 && (
-          <button type="button" className="sb-cta-go wa-bk-go" onClick={onContinue}>
+          <button type="button" className={c.state === 'halted' ? 'wa-bk-btn' : 'sb-cta-go wa-bk-go'} onClick={onContinue}>
             <Icon name="play" size={13} />{fill(t('Continue with the {n} left'), { n: num(left) })}
           </button>
         )}
@@ -699,7 +725,7 @@ export function ReportView({ t, lang, campaign, msgs, onAddSuppressed, onDuplica
         </div>
       )}
       <div className="wa-bk-acts">
-        <button type="button" className="wa-bk-btn" onClick={() => void csv()}><Icon name="file" size={13} />{t('Download CSV')}</button>
+        <button type="button" className="wa-bk-btn" onClick={() => void csv()}><Icon name="file" size={13} />{t('Save as a spreadsheet (CSV)')}</button>
         <button type="button" className="wa-bk-btn" onClick={() => void stops()}><Icon name="shield" size={13} />{t('Add STOP replies to the do-not-contact list')}</button>
         <button type="button" className="wa-bk-btn is-quiet" onClick={onDoNotContact}>{t('Do-not-contact list')}</button>
         <button type="button" className="wa-bk-btn is-quiet" onClick={onDuplicate}>{t('Use again as a new broadcast')}</button>
@@ -723,7 +749,7 @@ export function ReportView({ t, lang, campaign, msgs, onAddSuppressed, onDuplica
             <div className="wa-bk-tr" role="row" key={r.phone}>
               {/* The report is the person's own record of who got what: numbers whole, here only. */}
               <span role="cell"><bdi dir="ltr" className="wa-bk-phone">+{r.phone}</bdi></span>
-              <span role="cell" dir="auto">{r.name || '—'}</span>
+              <span role="cell" className="wa-bk-cellname"><bdi dir="auto">{r.name || '—'}</bdi></span>
               <span role="cell" className={standingClass(o?.standing ?? 'queued')} title={o?.why ?? ''}>
                 {standingText(o?.standing ?? 'queued', t)}
               </span>
@@ -797,6 +823,25 @@ export function HistoryView({ t, lang, campaigns, onOpen, onDuplicate, onDelete,
 
 // ── the do-not-contact list ──────────────────────────────────────────────
 
+/** How many numbers of the do-not-contact list are drawn at once; the rest are found by searching. */
+export const DNC_SHOWN = 500;
+
+/**
+ * The numbers on the do-not-contact list that match what was typed, however it was typed: `0750 123 4567`, `+964 750…`,
+ * Arabic or Persian digits, or the last few digits. The list holds numbers with their country code and no leading
+ * zero, so a whole typed number loses its leading zeros. Nothing typed is everyone; letters alone match nobody.
+ */
+export function dncMatches(list: readonly string[], typed: string): string[] {
+  if (!typed.trim()) return [...list];
+  const digits = typed.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x6f0))
+    .replace(/\D/g, '');
+  if (!digits) return [];
+  // A whole number written the local way (0750…, 00964…) loses its leading zeros; a few last digits keep theirs.
+  const want = digits.length >= 7 ? digits.replace(/^0+/, '') : digits;
+  return list.filter((p) => p.includes(want));
+}
+
 export interface DoNotContactProps {
   t: (s: string) => string;
   list: readonly string[] | null;
@@ -808,7 +853,10 @@ export interface DoNotContactProps {
 export function DoNotContactView({ t, list, country, onAdd, onRemove }: DoNotContactProps) {
   const [typed, setTyped] = useState('');
   const [bad, setBad] = useState('');
+  const [find, setFind] = useState('');
   const ids = useId();
+  // Twenty thousand numbers are allowed; five hundred are drawn. The rest are a search away, and the screen says so.
+  const shown = useMemo(() => (list ? dncMatches(list, find) : null), [list, find]);
   async function add() {
     const n = normalisePhone(typed, country);
     if (!('phone' in n)) { setBad(t('That phone number could not be read.')); return; }
@@ -828,12 +876,15 @@ export function DoNotContactView({ t, list, country, onAdd, onRemove }: DoNotCon
         </button>
       </div>
       {bad && <p className="wa-why" role="alert">{bad}</p>}
-      {list === null ? <p className="wa-bk-empty">{t('Loading…')}</p>
+      {list === null || shown === null ? <p className="wa-bk-empty">{t('Loading…')}</p>
         : list.length === 0 ? <p className="wa-bk-empty">{t('Nobody is on the list.')}</p> : (
           <>
             <p className="wa-bk-line">{fill(list.length === 1 ? t('{n} person') : t('{n} people'), { n: num(list.length) })}</p>
+            <input className="wa-bk-input" type="search" dir="ltr" inputMode="tel" value={find} placeholder={t('Find a number')} aria-label={t('Find a number')}
+                   onChange={(e) => setFind(e.target.value)} />
+            {shown.length === 0 && <p className="wa-bk-empty">{t('Nobody here.')}</p>}
             <ul className="wa-bk-rows">
-              {list.slice(0, 500).map((p) => (
+              {shown.slice(0, DNC_SHOWN).map((p) => (
                 <li key={p} className="wa-bk-rowline">
                   <Masked phone={p} />
                   <button type="button" className="wa-bk-icon" onClick={() => void onRemove(p)}
@@ -843,6 +894,9 @@ export function DoNotContactView({ t, list, country, onAdd, onRemove }: DoNotCon
                 </li>
               ))}
             </ul>
+            {shown.length > DNC_SHOWN && (
+              <p className="wa-bk-quiet">{fill(t('The first {n} are shown. Search to find a number.'), { n: num(DNC_SHOWN) })}</p>
+            )}
           </>
         )}
     </section>

@@ -151,7 +151,7 @@ console.log('Ready messages');
   const wide = draw(h(Rd.TemplatesDrawer, { ...base, full: true }));
   ok('categories as chips in a window, one pressed', count(wide, /class="wa-bk-chip[^"]*" aria-pressed="true"/g) === 1 && count(wide, /aria-pressed=/g) === 5);
   const holes = draw(h(Rd.Holes, { text: 'Hi {name}, {offer} in {city}', columns: ['city'] }));
-  ok('a blank is marked, a per-person detail is not', holes.includes('<mark class="wa-bk-hole">{offer}</mark>') && holes.includes('<span class="wa-bk-var">{name}</span>') && holes.includes('<span class="wa-bk-var">{city}</span>'));
+  ok('a blank is marked, a per-person detail is not', holes.includes('<mark class="wa-bk-hole" dir="ltr">{offer}</mark>') && holes.includes('<span class="wa-bk-var" dir="ltr">{name}</span>') && holes.includes('<span class="wa-bk-var" dir="ltr">{city}</span>'));
 }
 
 console.log('Review & send');
@@ -162,7 +162,7 @@ console.log('Review & send');
   ok('and the card says why', off.includes('Tick the box to confirm everyone agreed to hear from you.'));
   ok('the consent tick is there and not ticked', /<input type="checkbox"\/><span>Everyone on this list agreed to hear from me\.<\/span>/.test(off));
   ok('the plain warning above the button', off.includes('WhatsApp can block numbers that message people who did not ask. Messages go slowly on purpose.'));
-  ok('the pace said plainly', off.includes('About one message every 12–30 seconds, with a break every 20.') && off.includes('200 a day at most.'));
+  ok('the pace said plainly', off.includes('About one message every 12–30 seconds, with a break after every 20 messages.') && off.includes('200 a day at most.'));
   ok('and how long it takes', /Sending takes about \d+ min in all\./.test(off));
   ok('the exact message of the first person, opt-out line included', off.includes('Exactly as Name0 will get it:') && off.includes('Hello Name0, see you in') && off.includes('Reply STOP'));
   ok('the people masked', off.includes('+964 750 *** ') && off.includes('and 7 more') && !off.includes('9647501000000'));
@@ -229,7 +229,7 @@ console.log('The report, history and the do-not-contact list');
   ok('every person a row', count(rep, /role="row"/g) === 7);
   ok('filters, one pressed', count(rep, /aria-pressed="true"/g) === 1 && count(rep, /aria-pressed=/g) === 5);
   ok('the uncertain ones explained', rep.includes('Messages that may or may not have been sent') && rep.includes('They are never sent again by themselves.'));
-  ok('CSV and the STOP replies are a press away', rep.includes('Download CSV') && rep.includes('Add STOP replies to the do-not-contact list'));
+  ok('CSV and the STOP replies are a press away', rep.includes('Save as a spreadsheet (CSV)') && rep.includes('Add STOP replies to the do-not-contact list'));
   const hist = draw(h(Run.HistoryView, { t: en, lang: 'en', campaigns: [campaign({ id: 'a', name: 'Old', updated: 5, state: 'done' }), campaign({ id: 'b', name: 'Staged one', staged: true, updated: 1 }), campaign({ id: 'r', name: 'Running', state: 'running', updated: 9 })], onOpen() {}, onDuplicate() {}, onDelete() {}, onDoNotContact() {} }));
   ok('the assistant\'s drafts first', hist.indexOf('Staged one') < hist.indexOf('Running') && hist.indexOf('Running') < hist.indexOf('Old'));
   ok('a running broadcast cannot be deleted', count(hist, />Delete</g) === 2);

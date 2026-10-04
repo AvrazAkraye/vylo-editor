@@ -551,3 +551,33 @@ Best effort; please check. The Arabic writes إكسل, XLS and XLSX (the catalog
 | That file is not an Excel workbook that can be read here. Save it as .xlsx or .csv. | ئەم فایلە پەڕاوێکی Excel نییە کە لێرە بخوێندرێتەوە. وەک .xlsx یان .csv پاشەکەوتی بکە. | ئەڤ فایلە نە پەرتووکا Excel ە کو ل ڤێرە بهێتە خواندن. وەک .xlsx یان .csv پاشەکەفت بکە. |
 | Only the first part of that file was read: it is longer than a list can be. | تەنها بەشی یەکەمی ئەم فایلە خوێندرایەوە: لەوە درێژترە کە لیستێک هەڵیبگرێت. | تنێ پشکا ئێکێ یا ڤی فایلی هاتە خواندن: ژ وێ درێژترە کو لیستەک هەلبگریت. |
 | Excel shortened this number. Format the column as Text and save the file again. | Excel ئەم ژمارەیەی کورت کردەوە. شێوازی ستوونەکە بکە بە «دەق» و دووبارە فایلەکە پاشەکەوت بکە. | Excel ئەڤ ژمارە کورت کر. شێوازێ ستوینێ بکە «دەق» و جارەکا دی فایلی پاشەکەفت بکە. |
+## review-ui — what the interface review added, renamed or found doubtful (`docs/wa/review-ui.md`)
+
+New sentences (best effort; ★ least sure):
+
+| English | Sorani (ckb) | Badini (kmr) |
+|---|---|---|
+| ★ This broadcast sends from another of your WhatsApp accounts, not the one named above. | ئەم ناردنە گشتییە لە هەژمارێکی تری واتسئاپی تۆوە دەنێردرێت، نەک ئەو هەژمارەی لە سەرەوە ناوی هاتووە. | ئەڤ ناردنا گشتی ژ هەژمارەکا دی یا واتسئاپا تە دهێتە هنارتن، نە ژ وێ هەژمارا ل سەری ناڤێ وێ هاتی. |
+| Find a number | ژمارەیەک بدۆزەرەوە | ل ژمارەکێ بگەڕە |
+| The first {n} are shown. Search to find a number. | تەنها یەکەم {n} پیشان دەدرێن. بگەڕێ بۆ ئەوەی ژمارەیەک بدۆزیتەوە. | بتنێ {n} یێن ئێکێ دهێنە نیشاندان. بگەڕە دا ژمارەکێ ببینی. |
+| 1 person has no name: their message will leave it out. | 1 کەس ناوی نییە: نامەکەی بەبێ ناو دەنێردرێت. | 1 کەسی ناڤ نینە: پەیاما وی دێ بێ ناڤ هێتە هنارتن. |
+| {n} people have no name: their message will leave it out. | {n} کەس ناویان نییە: نامەکانیان بەبێ ناو دەنێردرێن. | {n} کەسان ناڤ نینە: پەیامێن وان دێ بێ ناڤ هێنە هنارتن. |
+| ★ Save as a spreadsheet (CSV) | وەک خشتە پاشەکەوتی بکە (CSV) | وەک خشتە پاشەکەفت بکە (CSV) |
+
+Renamed in English only; the Sorani and Badini values were kept because they already said it:
+
+- *About one message every {min}–{max} seconds, with a break **after every {batch} messages**.* (was "with a break every
+  {batch}."; ckb `… دوای هەر {batch} نامە`, kmr `… پشتی هەر {batch} پەیامان` — please confirm they still read right).
+- *Save as a spreadsheet (CSV)* replaces *Download CSV* (`داگرتنی CSV` / `داگرتنا CSV` are gone): nothing downloads,
+  a save panel opens. Is `خشتە` the word a shopkeeper uses for an Excel sheet, or is `ئێکسڵ`/`جەدوەل` better?
+
+Seen in the app's own engine (WebKit), worth a native look:
+
+- **The file-type sentence** (`That kind of file is not a list. Use .txt, .csv, .tsv, .vcf or .xlsx.`): in Sorani and
+  Badini the extensions are joined by Arabic commas (`.txt، .csv، .tsv، .vcf یان .xlsx`), and the bidi algorithm draws
+  the whole run left to right inside the right-to-left sentence, so it reads in a jumbled order. Joining every pair with
+  `یان`, or putting the list after a colon at the end of the sentence, reads better.
+- **Saved lists** (`لیستە پاشەکەوتکراوەکان`): one 16-letter word; at 248 px it was broken in the middle until the tabs
+  became tiles. A shorter word (`لیستە پاشەکەوتەکان`?) would be safer anywhere space is tight.
+- **Show “typing…” before each message** (`”دەنووسێت…“` / `”دنڤیسیت…“`): the quotation marks are the English ones in
+  reverse and the closing mark can wrap away from the word at 248 px. Kurdish usage: `«دەنووسێت…»`?

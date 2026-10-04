@@ -3502,7 +3502,7 @@ const ar: Dict = {
   'Hello {name}, …': 'مرحباً {name}، …',
   'Insert a detail from the list': 'أدرج معلومة من القائمة',
   'Insert {var}': 'أدرج {var}',
-  '{n} of {max} characters': '{n} من {max} حرفاً',
+  '{n} of {max} characters': 'الأحرف: {n} من {max}',
   'Change the attachment': 'غيّر المرفق',
   'Remove the attachment': 'أزل المرفق',
   'Message language': 'لغة الرسالة',
@@ -3535,9 +3535,9 @@ const ar: Dict = {
   'No ready messages here yet.': 'لا توجد رسائل جاهزة هنا بعد.',
   'Use “{name}”': 'استخدم ”{name}“',
   'under a minute': 'أقل من دقيقة',
-  'about {m} min': 'نحو {m} دقيقة',
-  'about {h} h': 'نحو {h} ساعة',
-  'about {h} h {m} min': 'نحو {h} ساعة و{m} دقيقة',
+  'about {m} min': 'نحو {m} د',
+  'about {h} h': 'نحو {h} س',
+  'about {h} h {m} min': 'نحو {h} س و{m} د',
   'There is nobody to send to. Add people in step 1.': 'لا يوجد من تُرسل إليه. أضف أشخاصاً في الخطوة 1.',
   '{n} people is more than one broadcast can hold ({max}).': 'عدد الأشخاص ({n}) أكبر مما تتسع له رسالة جماعية واحدة ({max}).',
   'The message is empty. Write something or attach a file.': 'الرسالة فارغة. اكتب شيئاً أو أرفق ملفاً.',
@@ -3576,10 +3576,10 @@ const ar: Dict = {
   'and {n} more': 'و{n} غيرهم',
   'Exactly as {name} will get it:': 'تماماً كما سيستلمها {name}:',
   'Pace': 'الوتيرة',
-  'About one message every {min}–{max} seconds, with a break every {batch}.': 'رسالة واحدة تقريباً كل {min}–{max} ثانية، مع استراحة بعد كل {batch}.',
+  'About one message every {min}–{max} seconds, with a break after every {batch} messages.': 'رسالة واحدة تقريباً كل {min}–{max} ثانية، مع استراحة بعد كل {batch} من الرسائل.',
   'Sending takes {time} in all.': 'يستغرق الإرسال {time} إجمالاً.',
   '{cap} a day at most.': '{cap} في اليوم كحدّ أقصى.',
-  'At {cap} a day this takes {days} days. Keep the app open: it continues each day by itself.': 'بمعدل {cap} يومياً يستغرق هذا {days} أيام. أبقِ التطبيق مفتوحاً: سيتابع كل يوم تلقائياً.',
+  'At {cap} a day this takes {days} days. Keep the app open: it continues each day by itself.': 'بمعدل {cap} يومياً يستغرق هذا أياماً عددها {days}. أبقِ التطبيق مفتوحاً: سيتابع كل يوم تلقائياً.',
   'Hide the pace': 'إخفاء الوتيرة',
   'Change pace': 'تغيير الوتيرة',
   'Shortest wait between messages (seconds)': 'أقصر انتظار بين الرسائل (بالثواني)',
@@ -3624,7 +3624,7 @@ const ar: Dict = {
   'Report': 'التقرير',
   'Messages that may or may not have been sent': 'رسائل ربما أُرسلت وربما لا',
   'The app lost touch with WhatsApp at the moment these were sent, so it cannot tell whether they arrived. They are never sent again by themselves. Look at those chats on your phone and send by hand any that did not arrive.': 'فقد التطبيق الاتصال بواتساب لحظة إرسال هذه الرسائل، لذا لا يعرف إن كانت قد وصلت. لن تُعاد أبداً من تلقاء نفسها. افتح تلك المحادثات على هاتفك وأرسل يدوياً ما لم يصل منها.',
-  'Download CSV': 'تنزيل CSV',
+  'Save as a spreadsheet (CSV)': 'احفظه كجدول بيانات (CSV)',
   'Add STOP replies to the do-not-contact list': 'أضف ردود STOP إلى قائمة عدم الاتصال',
   'Do-not-contact list': 'قائمة عدم الاتصال',
   'Use again as a new broadcast': 'استخدمها مجدداً كرسالة جماعية جديدة',
@@ -3654,6 +3654,12 @@ const ar: Dict = {
     'قُرئ الجزء الأول فقط من هذا الملف: إنه أطول مما تتسع له القائمة.',
   'Excel shortened this number. Format the column as Text and save the file again.':
     'اختصر إكسل هذا الرقم. اجعل تنسيق العمود «نص» ثم احفظ الملف من جديد.',
+  // wa review-ui: what the interface review added or reworded (docs/wa/review-ui.md).
+  'This broadcast sends from another of your WhatsApp accounts, not the one named above.': 'هذه الرسالة الجماعية تُرسل من حساب واتساب آخر من حساباتك، لا من الحساب المذكور في الأعلى.',
+  'Find a number': 'ابحث عن رقم',
+  'The first {n} are shown. Search to find a number.': 'يظهر أول {n} فقط. ابحث لتجد رقماً بعينه.',
+  '1 person has no name: their message will leave it out.': 'شخص واحد بلا اسم: ستخلو رسالته من الاسم.',
+  '{n} people have no name: their message will leave it out.': '{n} من الأشخاص بلا اسم: ستخلو رسائلهم من الاسم.',
 };
 
 const ckb: Dict = {
@@ -7209,7 +7215,7 @@ const ckb: Dict = {
   'and {n} more': 'و {n}ی تر',
   'Exactly as {name} will get it:': 'ڕێک وەک ئەوەی {name} وەریدەگرێت:',
   'Pace': 'خێرایی',
-  'About one message every {min}–{max} seconds, with a break every {batch}.': 'نزیکەی یەک نامە هەر {min}–{max} چرکە جارێک، لەگەڵ پشوویەک دوای هەر {batch} نامە.',
+  'About one message every {min}–{max} seconds, with a break after every {batch} messages.': 'نزیکەی یەک نامە هەر {min}–{max} چرکە جارێک، لەگەڵ پشوویەک دوای هەر {batch} نامە.',
   'Sending takes {time} in all.': 'ناردن بە گشتی {time} دەخایەنێت.',
   '{cap} a day at most.': 'زۆرترین {cap} لە ڕۆژێکدا.',
   'At {cap} a day this takes {days} days. Keep the app open: it continues each day by itself.': 'بە ڕۆژانە {cap}، ئەمە {days} ڕۆژ دەخایەنێت. ئەپەکە کراوە بهێڵەوە: هەموو ڕۆژێک خۆی بەردەوام دەبێت.',
@@ -7257,7 +7263,7 @@ const ckb: Dict = {
   'Report': 'ڕاپۆرت',
   'Messages that may or may not have been sent': 'ئەو نامانەی لەوانەیە نێردرابن یان نا',
   'The app lost touch with WhatsApp at the moment these were sent, so it cannot tell whether they arrived. They are never sent again by themselves. Look at those chats on your phone and send by hand any that did not arrive.': 'ئەپەکە لە ساتی ناردنی ئەمانەدا پەیوەندی لەگەڵ واتسئاپ پچڕا، بۆیە نازانێت گەیشتوون یان نا. هەرگیز خۆیان دووبارە نانێردرێنەوە. ئەو گفتوگۆیانە لە مۆبایلەکەت ببینە و ئەوانەی نەگەیشتوون بە دەست بینێرە.',
-  'Download CSV': 'داگرتنی CSV',
+  'Save as a spreadsheet (CSV)': 'وەک خشتە پاشەکەوتی بکە (CSV)',
   'Add STOP replies to the do-not-contact list': 'وەڵامەکانی STOP بخە سەر لیستی پەیوەندی نەکردن',
   'Do-not-contact list': 'لیستی پەیوەندی نەکردن',
   'Use again as a new broadcast': 'دووبارە وەک ناردنێکی گشتی نوێ بەکاری بهێنەوە',
@@ -7287,6 +7293,12 @@ const ckb: Dict = {
     'تەنها بەشی یەکەمی ئەم فایلە خوێندرایەوە: لەوە درێژترە کە لیستێک هەڵیبگرێت.',
   'Excel shortened this number. Format the column as Text and save the file again.':
     'Excel ئەم ژمارەیەی کورت کردەوە. شێوازی ستوونەکە بکە بە «دەق» و دووبارە فایلەکە پاشەکەوت بکە.',
+  // wa review-ui: what the interface review added or reworded (docs/wa/review-ui.md).
+  'This broadcast sends from another of your WhatsApp accounts, not the one named above.': 'ئەم ناردنە گشتییە لە هەژمارێکی تری واتسئاپی تۆوە دەنێردرێت، نەک ئەو هەژمارەی لە سەرەوە ناوی هاتووە.',
+  'Find a number': 'ژمارەیەک بدۆزەرەوە',
+  'The first {n} are shown. Search to find a number.': 'تەنها یەکەم {n} پیشان دەدرێن. بگەڕێ بۆ ئەوەی ژمارەیەک بدۆزیتەوە.',
+  '1 person has no name: their message will leave it out.': '1 کەس ناوی نییە: نامەکەی بەبێ ناو دەنێردرێت.',
+  '{n} people have no name: their message will leave it out.': '{n} کەس ناویان نییە: نامەکانیان بەبێ ناو دەنێردرێن.',
 };
 
 const kmr: Dict = {
@@ -10840,7 +10852,7 @@ const kmr: Dict = {
   'and {n} more': 'و {n} یێن دی',
   'Exactly as {name} will get it:': 'ڕاست وەک {name} دێ وەرگریت:',
   'Pace': 'لەز',
-  'About one message every {min}–{max} seconds, with a break every {batch}.': 'نێزیکی ئێک پەیام هەر {min}–{max} چرکان جارەکێ، دگەل بێهنڤەدانەکێ پشتی هەر {batch} پەیامان.',
+  'About one message every {min}–{max} seconds, with a break after every {batch} messages.': 'نێزیکی ئێک پەیام هەر {min}–{max} چرکان جارەکێ، دگەل بێهنڤەدانەکێ پشتی هەر {batch} پەیامان.',
   'Sending takes {time} in all.': 'هنارتن ب گشتی {time} دخایینیت.',
   '{cap} a day at most.': 'زێدەترین {cap} د ڕۆژەکێ دا.',
   'At {cap} a day this takes {days} days. Keep the app open: it continues each day by itself.': 'ب ڕۆژانە {cap}، ئەڤە {days} ڕۆژان دخایینیت. ئەپێ ڤەکری بهێلە: هەمی ڕۆژان ب خۆ بەردەوام دبیت.',
@@ -10888,7 +10900,7 @@ const kmr: Dict = {
   'Report': 'ڕاپۆرت',
   'Messages that may or may not have been sent': 'ئەو پەیامێن بەلکی هاتبنە هنارتن یان نە',
   'The app lost touch with WhatsApp at the moment these were sent, so it cannot tell whether they arrived. They are never sent again by themselves. Look at those chats on your phone and send by hand any that did not arrive.': 'ئەپ د چرکا هنارتنا ڤان دا پەیوەندی دگەل واتسئاپێ ژێکڤەبوو، لەوما نزانیت گەهشتینە یان نە. چو جاران ب خۆ دووبارە ناهێنە هنارتن. وان گفتوگۆیان ل مۆبایلا خۆ ببینە و ئەوێن نەگەهشتین ب دەستێ خۆ بهنێرە.',
-  'Download CSV': 'داگرتنا CSV',
+  'Save as a spreadsheet (CSV)': 'وەک خشتە پاشەکەفت بکە (CSV)',
   'Add STOP replies to the do-not-contact list': 'بەرسڤێن STOP بێخە سەر لیستا پەیوەندی نەکرنێ',
   'Do-not-contact list': 'لیستا پەیوەندی نەکرنێ',
   'Use again as a new broadcast': 'دووبارە وەک ناردنەکا گشتی یا نوو بکاربینە',
@@ -10918,6 +10930,12 @@ const kmr: Dict = {
     'تنێ پشکا ئێکێ یا ڤی فایلی هاتە خواندن: ژ وێ درێژترە کو لیستەک هەلبگریت.',
   'Excel shortened this number. Format the column as Text and save the file again.':
     'Excel ئەڤ ژمارە کورت کر. شێوازێ ستوینێ بکە «دەق» و جارەکا دی فایلی پاشەکەفت بکە.',
+  // wa review-ui: what the interface review added or reworded (docs/wa/review-ui.md).
+  'This broadcast sends from another of your WhatsApp accounts, not the one named above.': 'ئەڤ ناردنا گشتی ژ هەژمارەکا دی یا واتسئاپا تە دهێتە هنارتن، نە ژ وێ هەژمارا ل سەری ناڤێ وێ هاتی.',
+  'Find a number': 'ل ژمارەکێ بگەڕە',
+  'The first {n} are shown. Search to find a number.': 'بتنێ {n} یێن ئێکێ دهێنە نیشاندان. بگەڕە دا ژمارەکێ ببینی.',
+  '1 person has no name: their message will leave it out.': '1 کەسی ناڤ نینە: پەیاما وی دێ بێ ناڤ هێتە هنارتن.',
+  '{n} people have no name: their message will leave it out.': '{n} کەسان ناڤ نینە: پەیامێن وان دێ بێ ناڤ هێنە هنارتن.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

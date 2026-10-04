@@ -9616,14 +9616,22 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
    the steps on the left, the step in a readable middle column, and who it goes to and how it will look on the right.
    Logical properties only, so all of it mirrors in Arabic and Kurdish. */
 .wa-bk{
-  /* The message preview's own colours, WhatsApp's: a paper wall and the green of an outgoing bubble. */
-  --wa-wall:#EFEAE2; --wa-out:#D9FDD3; --wa-ink:#111B21; --wa-meta:#667781;
+  /* The message preview's own colours, WhatsApp's: a paper wall and the green of an outgoing bubble. The two greys are
+     a step darker (light) and lighter (dark) than WhatsApp's own, which measure 3.9 and 2.6 to 1 where they sit here:
+     `--wa-caption` names the person over each bubble, `--wa-meta` is the bubble's clock. */
+  --wa-wall:#EFEAE2; --wa-out:#D9FDD3; --wa-ink:#111B21; --wa-meta:#54656F; --wa-caption:#54656F;
   position:relative; gap:0; min-block-size:100%;
 }
 @media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]) .wa-bk{ --wa-wall:#0B141A; --wa-out:#005C4B; --wa-ink:#E9EDEF; --wa-meta:#8696A0; }
+  :root:not([data-theme="light"]) .wa-bk{ --wa-wall:#0B141A; --wa-out:#005C4B; --wa-ink:#E9EDEF; --wa-meta:#A9CBC4; --wa-caption:#8696A0; }
 }
-:root[data-theme="dark"] .wa-bk{ --wa-wall:#0B141A; --wa-out:#005C4B; --wa-ink:#E9EDEF; --wa-meta:#8696A0; }
+:root[data-theme="dark"] .wa-bk{ --wa-wall:#0B141A; --wa-out:#005C4B; --wa-ink:#E9EDEF; --wa-meta:#A9CBC4; --wa-caption:#8696A0; }
+/* In the column the sidebar's scroller holds the broadcast in a plain <div>: both are made to fill the column's height,
+   so on a short step the Back/Next bar sits on the bottom edge rather than under the last field, half way up (seen in
+   WebKit at 248 x 760), and the header starts at the top edge. Long steps still scroll in the sidebar, the bar sticky. */
+.sb-panel:has(> div > .wa-bk:not(.is-full)){ display:flex; flex-direction:column; padding-block:0; }
+.sb-panel > div:has(> .wa-bk:not(.is-full)){ flex:1 0 auto; display:flex; flex-direction:column; }
+.wa-bk:not(.is-full){ flex:1 0 auto; }
 
 /* ── the header ── */
 .wa-bk-head{
@@ -9639,6 +9647,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   font-size:var(--fs-2); color:var(--mute); overflow:hidden; white-space:nowrap;
 }
 .wa-bk-title bdi{ overflow:hidden; text-overflow:ellipsis; }
+.wa-bk-title small.is-none{ white-space:normal; line-height:1.4; }
 .wa-bk-dot{ flex:none; inline-size:7px; block-size:7px; border-radius:50%; background:var(--ok); }
 .wa-bk-dot.is-off{ background:var(--mute); opacity:.6; }
 .wa-bk-icon{
@@ -9684,7 +9693,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 
 .wa-bk-stepbox{ padding-block:var(--sp-5) var(--sp-8); padding-inline:var(--sp-7); }
-.wa-bk-stepbox:focus{ outline:none; }
+.wa-bk-stepbox:focus, .wa-bk-run:focus{ outline:none; }
 .wa-bk-step{ display:flex; flex-direction:column; gap:var(--sp-6); min-inline-size:0; }
 .wa-bk-h{ margin:0; font-size:var(--fs-7); font-weight:650; color:var(--ink); line-height:1.3; letter-spacing:var(--track); }
 .wa-bk-sub{
@@ -9741,7 +9750,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-seg{ display:flex; flex-wrap:wrap; gap:2px; padding:2px; border-radius:var(--r-2); background:var(--panel-3); }
 .wa-bk-seg button{
   flex:1 1 auto; padding-block:var(--sp-2); padding-inline:var(--sp-4); border:0; border-radius:var(--r-1);
-  background:transparent; color:var(--mute); font:inherit; font-size:var(--fs-3); cursor:pointer; font-variant-numeric:tabular-nums;
+  background:transparent; color:var(--ink-2); font:inherit; font-size:var(--fs-3); cursor:pointer; font-variant-numeric:tabular-nums;
 }
 .wa-bk-seg button:hover{ color:var(--ink); }
 .wa-bk-seg button.on{ background:var(--panel); color:var(--ink); font-weight:600; box-shadow:var(--shadow); }
@@ -9777,7 +9786,9 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-mono{ font-family:var(--mono); font-size:var(--fs-1); color:var(--mute); }
 .wa-bk-phone{ font-family:var(--mono); font-size:var(--fs-2); font-variant-numeric:tabular-nums; white-space:nowrap; }
 .wa-bk-sr{ position:absolute; inline-size:1px; block-size:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
-.wa-bk-hole{ padding-inline:2px; border-radius:3px; background:var(--warn-wash); color:var(--warn); font-weight:600; }
+/* Out-ranks wa:design's `.wa mark` (the panel's search highlight, in the accent): a blank must not look like the
+   `{name}` the list fills. */
+.wa-bk mark.wa-bk-hole{ padding-inline:2px; border-radius:3px; background:var(--warn-wash); color:var(--warn); font-weight:600; }
 .wa-bk-var{ color:var(--brand); }
 .wa-bk-notes{ list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
 .wa-bk-notes li{
@@ -9788,7 +9799,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-notes .is-block{ background:var(--err-wash); color:var(--err); }
 .wa-bk-notes .is-warn{ background:var(--warn-wash); }
 .wa-bk-notes .is-warn svg{ color:var(--warn); }
-.wa-bk-notes .is-tip{ background:var(--panel-3); color:var(--mute); }
+.wa-bk-notes .is-tip{ background:var(--panel-3); color:var(--ink-2); }
 .wa-bk-count{ margin:0; margin-block-start:calc(var(--sp-4) * -1); font-size:var(--fs-1); color:var(--mute); text-align:end; font-variant-numeric:tabular-nums; }
 .wa-bk-count.is-over{ color:var(--err); font-weight:600; }
 
@@ -9800,7 +9811,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   background:var(--panel); color:var(--mute); font:inherit; font-size:var(--fs-3); cursor:pointer;
   transition:border-color .15s ease, background .15s ease, color .15s ease;
 }
-.wa-bk-tab span{ min-inline-size:0; line-height:1.2; overflow-wrap:anywhere; }
+.wa-bk-tab span{ min-inline-size:0; line-height:1.2; overflow-wrap:break-word; }
 .wa-bk-tab:hover{ color:var(--ink); border-color:var(--rule-2); }
 .wa-bk-tab.on{ border-color:var(--brand); background:var(--brand-wash); color:var(--brand); font-weight:600; }
 .wa-bk-way{ display:flex; flex-direction:column; gap:var(--sp-4); }
@@ -9822,10 +9833,13 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 .wa-bk-sum-big{ display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--sp-3); margin:0; font-size:var(--fs-5); color:var(--ink-2); }
 .wa-bk-sum-big b{ font-size:calc(var(--fs-8) * 1.35); font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
-.wa-bk-sum-more{ display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); margin:0; font-size:var(--fs-2); color:var(--mute); }
-.wa-bk-sum-more span + span::before{ content:'·'; margin-inline-end:var(--sp-3); }
+/* Each count its own pill: a dotted line wrapped with its separator at the start of the next line in the column. */
+.wa-bk-sum-more{ display:flex; flex-wrap:wrap; gap:var(--sp-2); margin:0; font-size:var(--fs-2); color:var(--ink-2); }
+.wa-bk-sum-more span{ padding-block:1px; padding-inline:var(--sp-3); border-radius:99px; background:var(--panel-3); }
 .wa-bk-tag{ padding-block:1px; padding-inline:var(--sp-3); border-radius:99px; background:var(--brand-wash); color:var(--brand); font-size:var(--fs-2); font-weight:600; }
 .wa-bk-details summary{ font-size:var(--fs-3); color:var(--brand); cursor:pointer; }
+/* 44 px in the column like every other target (it measured 24 in WebKit); padding, not flex, so the marker stays. */
+.wa-bk:not(.is-full) .wa-bk-details summary{ padding-block:calc((44px - 1.5em) / 2); line-height:1.5; }
 .wa-bk-rejects{ list-style:none; margin:0; margin-block-start:var(--sp-3); padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
 .wa-bk-rejects li{ display:grid; grid-template-columns:auto minmax(0, 1fr); gap:0 var(--sp-3); font-size:var(--fs-2); }
 .wa-bk-rejects li > :last-child{ grid-column:2; }
@@ -9839,6 +9853,10 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 .wa-bk-tr:first-child{ border-block-start:0; }
 .wa-bk-tr > span{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* A name keeps its own direction but not its own edge: the box shrinks to the name and sits at the cell's start, so a
+   list of Latin and Arabic-script names lines up on the panel's edge, and a long name ends in an ellipsis on its side. */
+.wa-bk-tr > .wa-bk-cellname{ display:flex; }
+.wa-bk-cellname bdi{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .wa-bk-th{ background:var(--panel-2); color:var(--mute); font-size:var(--fs-1); font-weight:600; letter-spacing:.05em; text-transform:uppercase; }
 .wa-bk-table > .wa-bk-quiet{ padding:var(--sp-3) var(--sp-4); border-block-start:1px solid var(--rule); }
 .wa-bk-save{ display:flex; flex-wrap:wrap; gap:var(--sp-3); }
@@ -9890,7 +9908,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-tpl:hover{ border-color:var(--rule-2); }
 .wa-bk-tpl-top{ display:flex; align-items:center; gap:var(--sp-2); inline-size:100%; font-size:var(--fs-2); color:var(--mute); }
 .wa-bk-tpl-cat{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.wa-bk-kind{ flex:none; margin-inline-start:auto; padding-inline:var(--sp-3); border-radius:99px; background:var(--panel-3); font-size:var(--fs-1); font-weight:600; }
+.wa-bk-kind{ flex:none; margin-inline-start:auto; padding-inline:var(--sp-3); border-radius:99px; background:var(--panel-3); color:var(--ink-2); font-size:var(--fs-1); font-weight:600; }
 .wa-bk-kind.is-promo{ background:var(--brand-wash); color:var(--brand); }
 .wa-bk-tpl-title{ font-size:var(--fs-4); font-weight:600; color:var(--ink); }
 .wa-bk-tpl-text{
@@ -9906,9 +9924,9 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   border-radius:var(--r-3); background:var(--wa-wall);
 }
 .wa-bk-wall.is-small{ padding-block:var(--sp-4); padding-inline:var(--sp-4); }
-.wa-bk-wall-note{ margin:0; font-size:var(--fs-2); color:var(--wa-meta); text-align:center; line-height:1.5; }
+.wa-bk-wall-note{ margin:0; font-size:var(--fs-2); color:var(--wa-caption); text-align:center; line-height:1.5; }
 .wa-bk-fig{ display:flex; flex-direction:column; gap:var(--sp-2); margin:0; }
-.wa-bk-fig figcaption{ align-self:flex-end; font-size:var(--fs-1); color:var(--wa-meta); }
+.wa-bk-fig figcaption{ align-self:flex-end; font-size:var(--fs-1); color:var(--wa-caption); }
 .wa-bk-bubble{
   position:relative; display:flex; flex-direction:column; gap:var(--sp-2); align-self:flex-end;
   max-inline-size:94%; min-inline-size:72px; padding-block:var(--sp-3) var(--sp-2); padding-inline:var(--sp-4);
@@ -10003,7 +10021,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 .wa-bk-feed-who{ flex:1; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--ink-2); }
 .wa-bk-st{
-  display:inline-block; padding-inline:var(--sp-3); border-radius:99px; background:var(--panel-3); color:var(--mute);
+  display:inline-block; padding-inline:var(--sp-3); border-radius:99px; background:var(--panel-3); color:var(--ink-2);
   font-size:var(--fs-1); font-weight:600; line-height:1.8; white-space:nowrap;
 }
 .wa-bk-st.is-sent{ background:var(--ok-wash); color:var(--ok); }
@@ -10030,6 +10048,9 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk:not(.is-full) .wa-bk-icon{ inline-size:44px; block-size:44px; }
 .wa-bk:not(.is-full) .wa-bk-file .wa-bk-icon{ inline-size:32px; block-size:32px; }
 .wa-bk:not(.is-full) .wa-bk-check{ min-block-size:44px; align-items:center; }
+/* The four ways in as tiles, icon over label: beside it, the label had 79 px and the Sorani "Saved lists" (one long
+   word) broke in the middle. */
+.wa-bk:not(.is-full) .wa-bk-tab{ flex-direction:column; gap:2px; text-align:center; }
 .wa-bk:not(.is-full) .wa-bk-field.is-inline{ grid-template-columns:minmax(0, 1fr); gap:var(--sp-2); }
 .wa-bk:not(.is-full) .wa-bk-steps li + li::before{ inline-size:var(--sp-3); }
 .wa-bk:not(.is-full) .wa-bk-stepb{ padding-inline:var(--sp-1) var(--sp-2); gap:var(--sp-2); }

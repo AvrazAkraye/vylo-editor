@@ -135,9 +135,11 @@ export function Holes({ text, columns }: { text: string; columns: readonly strin
       {parts.map((p, i) => {
         const m = /^\{([^{}|]+)(?:\|[^{}]*)?\}$/.exec(p);
         if (m && !PER_PERSON.includes(m[1].trim()) && !columns.includes(m[1].trim())) {
-          return <mark key={i} className="wa-bk-hole">{p}</mark>;
+          return <mark key={i} className="wa-bk-hole" dir="ltr">{p}</mark>;
         }
-        return m ? <span key={i} className="wa-bk-var">{p}</span> : p;
+        // `dir` isolates the placeholder (as the engine isolates the value it becomes): in Arabic or Kurdish words the
+        // punctuation and *bold* marks beside a Latin `{offer}` were otherwise drawn on the wrong side of it.
+        return m ? <span key={i} className="wa-bk-var" dir="ltr">{p}</span> : p;
       })}
     </>
   );
@@ -178,7 +180,9 @@ export function TemplatesDrawer({ t, lang, msgLang, full, business, onBusiness, 
     const filled = fillTemplate(chosen, msgLang, { ...values, business }).slice(0, LIMITS.messageChars);
     const empty = holesIn(filled, columns);
     return (
-      <Drawer title={chosen.title[lang] || chosen.title.en} onClose={onClose} closeLabel={t('Close')} wide={full}>
+      // A drawer of its own (the key), so it takes the focus as it opens: swapped inside the list's drawer, the pressed
+      // *Use this* went with the list and focus fell to <body>, where the drawer's Escape no longer heard it.
+      <Drawer key={`fill-${chosen.id}`} title={chosen.title[lang] || chosen.title.en} onClose={onClose} closeLabel={t('Close')} wide={full}>
         <button type="button" className="wa-bk-link" onClick={() => setChosen(null)}>
           <Icon name="chevron" size={11} turn={180} className="ic-dir" />
           {t('All ready messages')}
@@ -212,7 +216,7 @@ export function TemplatesDrawer({ t, lang, msgLang, full, business, onBusiness, 
   }
 
   return (
-    <Drawer title={t('Ready messages')} onClose={onClose} closeLabel={t('Close')} wide={full}>
+    <Drawer key="list" title={t('Ready messages')} onClose={onClose} closeLabel={t('Close')} wide={full}>
       <div className="wa-find wa-bk-find">
         <Icon name="search" size={12} />
         <input value={query} dir="auto" spellCheck={false} placeholder={t('Search ready messages')}

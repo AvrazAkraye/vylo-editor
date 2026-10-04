@@ -312,10 +312,11 @@ console.log('2. who can start a run');
   ok('the assistant\'s tools cannot reach the runner or the screens',
     !/whatsappsend|WhatsAppRun|WhatsAppBroadcast/.test(src('whatsappbulktool.ts')) && !/whatsappsend|WhatsAppRun|WhatsAppBroadcast/.test(src('whatsapptool.ts')));
   ok('no screen writes `consent: true`', !/consent:\s*true/.test(b + run + src('WhatsAppPeople.tsx') + src('WhatsAppCompose.tsx')));
-  // The tick is for a list: going back to step 1 and loading another list must not keep it (there is no DOM runner
-  // in the repo, so this is held by reading — the people setter is the only way step 1 changes the list).
-  const setter = b.slice(b.indexOf('const setPeople = useCallback('), b.indexOf('const setPeople = useCallback(') + 200);
-  ok('changing the people clears the consent tick', /setPeopleState\(p\);\s*setConsent\(false\)/.test(setter), setter);
+  // The tick is for one list: going back to step 1 and loading another must not keep it. The screens review made the
+  // tick belong to a key built from the draft, the exact people and the account (`reviewKey`), so a different list is a
+  // different key and the box is un-ticked; there is no DOM runner in the repo, so this is held by reading.
+  ok('the consent tick belongs to the review key (draft, exact people, account), not to the screen',
+    /export function reviewKey\(id: string, recipients: readonly Recipient\[\], accountId: string\)/.test(b) && /consentFor/.test(b) && /reviewKey\(work\.id, people\?\.recipients \?\? \[\], account\?\.id \?\? ''\)/.test(b));
   ok('…and step 1 changes them only through that setter', /onPeople=\{setPeople\}/.test(b) && (b.match(/setPeopleState\(/g) ?? []).length === 3);
 }
 {
