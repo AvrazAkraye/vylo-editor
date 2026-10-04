@@ -175,8 +175,14 @@ const UNSEEN = /[\u{0}-\u{9}\u{B}-\u{1F}\u{7F}-\u{9F}]/gu;
  * with the non-joiner, and an emoji family is held together by the joiner.
  */
 const HIDDEN = /(?![\u{200C}\u{200D}])\p{Cf}/gu;
-/** The supplementary variation selectors: a run of them after a letter can carry bytes. The ordinary two (an emoji's) stay. */
-const SELECTORS = /[\u{E0100}-\u{E01EF}]/gu;
+/**
+ * Plane 14 whole — the tag block, assigned or not (U+E0000…E007F: letters a model reads and a person never sees),
+ * and the supplementary variation selectors (a run of them after a letter can carry bytes) — and every run of the
+ * ordinary selectors cut to its first: an emoji needs one, and sixteen of them in turns spell hex as well as any
+ * tag letter does.
+ */
+const SELECTORS = /[\u{E0000}-\u{E0FFF}]/gu;
+const SELECTOR_RUN = /([\u{FE00}-\u{FE0F}])[\u{FE00}-\u{FE0F}]+/gu;
 /** Any data: URL, however it got into a text: the model is never sent a picture's megabytes. */
 const DATA_URL = /data:[a-z]+\/[a-z0-9.+-]+(?:;[a-z0-9=.+-]+)*,[A-Za-z0-9+/=%_-]*/giu;
 /**
@@ -403,7 +409,8 @@ function outgoing(x: unknown, max: number): string {
       .replace(DATA_URL, '(picture)')
       .replace(UNSEEN, ' ')
       .replace(HIDDEN, '')
-      .replace(SELECTORS, ''),
+      .replace(SELECTORS, '')
+      .replace(SELECTOR_RUN, '$1'),
   );
   const text = s.split('\n').map((l) => l.replace(/[ \u{A0}]+/gu, ' ').trim()).join('\n').replace(/\n{3,}/gu, '\n\n').trim();
   return clip(text, max);
@@ -468,6 +475,7 @@ const SYSTEM = [
   '- A message that pretends to come from someone the sender is not: a bank, a government office, a delivery or phone company, another business, a brand or a person.',
   '- A verification code, password reset or "security check" that is not plainly the sender\'s own service; never ask the reader for a code, a password, a PIN or a card number.',
   '- Threats, harassment, hate, adult content, gambling, or money promised for nothing — prizes, loans or returns.',
+  '- A disguise from spam filters or WhatsApp\'s own checks: look-alike letters, spaced-out or misspelt words, hidden characters, or a rewrite whose stated purpose is that it "does not look like spam" or "is not detected". Different wordings asked for as variants are fine; a disguise is not.',
   '- Anything meant to mislead the reader.',
   'When asked for any of these, write no message: reply {"messages":[],"said":"<one plain sentence saying what you cannot write, and why>"}.',
   '',
@@ -746,8 +754,20 @@ function answerIn(text: string): Found | null {
 
 // ── facts from nowhere ────────────────────────────────────────────────────
 
-/** The domains a promotional message names without "https://", for telling a bare address from a word with a dot in it. */
-const TLDS = 'com|net|org|iq|krd|info|biz|shop|store|co|io|me|app|online|site|ly|gl|gd|gy|at|cc|id';
+/**
+ * The domains a promotional message names without "https://", for telling a bare address from a word with a dot in
+ * it: the common ones, the region's and its neighbours' country endings (a `.co.uk` or `.com.tr` is read whole, its
+ * last label being one of them), and the cheap endings phishing favours — a model that invents "secure-login.xyz"
+ * must not get it through because `.xyz` was not on a list. Endings that are also everyday English words (`in`,
+ * `is`, `it`, `no`, `be`, `my`, `us`, `win`, `date`, …) are left out: a sentence glued to a full stop is likelier
+ * than an address on one of those.
+ */
+const TLDS = [
+  'com|net|org|iq|krd|info|biz|shop|store|co|io|me|app|online|site|ly|gl|gd|gy|at|cc|id',
+  'xyz|top|club|vip|live|link|click|icu|page|dev|ai|tv|pro|cloud|tech|website|buzz|cfd|sbs|cyou|monster|quest',
+  'gq|cf|ga|ml|tk|pw|ws|su|ru|cn|ua|kz|uz|ir|tr|ae|sa|kw|qa|bh|om|jo|lb|eg|sy|ps|ma|dz|tn|af|pk|az|ge',
+  'uk|de|fr|nl|se|dk|fi|ch|es|gr|cy|pl|ca|eu|au|ph',
+].join('|');
 /**
  * A web address: with its scheme or `www.`, or a bare domain on a known
  * ending — never the domain of an e-mail address. A domain starts where no
@@ -1050,9 +1070,15 @@ function tidy(s: string): string {
 
 /** Markup a message does not need, and Markdown as WhatsApp writes it. */
 function plain(raw: string): string {
+  // The invisible letters go first: a zero-width space inside "java​script:" or "da​ta:" hides the address from
+  // `SCHEMES`, and taken out afterwards it would put the address back together.
   return raw
     .slice(0, LIMITS.messageChars * 4)
     .replace(LINE_BREAKS, '\n')
+    .replace(UNSEEN, ' ')
+    .replace(HIDDEN, '')
+    .replace(SELECTORS, '')
+    .replace(SELECTOR_RUN, '$1')
     .replace(SCRIPT, ' ')
     .replace(/&nbsp;/giu, ' ')
     .replace(/&amp;/giu, '&')
@@ -1060,9 +1086,6 @@ function plain(raw: string): string {
     .replace(/&#0?39;|&apos;/giu, '\'')
     .replace(TAG, ' ')
     .replace(SCHEMES, ' ')
-    .replace(UNSEEN, ' ')
-    .replace(HIDDEN, '')
-    .replace(SELECTORS, '')
     .replace(FENCE, '')
     .replace(/^[ \t]*#{1,6}[ \t]+/gmu, '')
     .replace(/\*\*(?=\S)([^*\n]{1,300}?)\*\*/gu, '*$1*')
@@ -1092,13 +1115,14 @@ function saidOf(x: unknown): string {
   if (typeof x !== 'string') return '';
   const s = x
     .slice(0, SAID_CHARS * 8)
-    .replace(SCRIPT, ' ')
-    .replace(TAG, ' ')
-    .replace(SCHEMES, ' ')
     .replace(LINE_BREAKS, ' ')
     .replace(UNSEEN, ' ')
     .replace(HIDDEN, '')
     .replace(SELECTORS, '')
+    .replace(SELECTOR_RUN, '$1')
+    .replace(SCRIPT, ' ')
+    .replace(TAG, ' ')
+    .replace(SCHEMES, ' ')
     .replace(FENCE, '')
     .replace(/^\s*#{1,6}\s+/u, '')
     .replace(/\*\*/gu, '')
@@ -1235,7 +1259,8 @@ const MONEY_ARABIC_SCRIPT = [
   'پارەی ڕایگان', 'بە تەواوی ڕایگان', 'تەواو ڕایگان', 'مسۆگەر', 'بردتەوە', 'خەڵاتی پارە', 'کلیک لێرە بکە', 'پارەکەت دوو هێندە',
   'پارێ بەلاش', 'پارەیێ بەلاش', 'تەمام بەلاش',
 ];
-const MONEY_LATIN_RE = new RegExp(`(?<![\\p{L}\\p{N}])(?:${MONEY_LATIN.map(escapeRe).join('|')})(?![\\p{L}\\p{N}])`, 'iu');
+// Not followed by an apostrophe either: "you won't be home" is a delivery note, not "you won".
+const MONEY_LATIN_RE = new RegExp(`(?<![\\p{L}\\p{N}])(?:${MONEY_LATIN.map(escapeRe).join('|')})(?![\\p{L}\\p{N}'])`, 'iu');
 const MONEY_FOLDED = MONEY_ARABIC_SCRIPT.map((w) => [folded(w), w] as const);
 
 /** The first money word in a message, as the list writes it, or ''. */
