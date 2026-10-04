@@ -294,3 +294,53 @@ export interface Hint {
 }
 
 // wa:audience, wa:engine, wa:templates, wa:writer, wa:ui, wa:design — append below, under your own comment.
+
+// wa:audience
+//
+// Appended by interface merging, so the declarations above stay exactly as Phase 0 wrote them: TypeScript joins two
+// `interface Parsed` blocks in one module into one type. Every field here is optional, so anything built against the
+// Phase 0 shape still compiles and still means the same thing.
+
+/** A number that was taken but deserves a second look: it is not shaped like a mobile, and WhatsApp lives on mobiles. */
+export interface Warned {
+  /** 1-based, in the file as read. */
+  line: number;
+  /** The number as taken: digits, country code first. */
+  phone: string;
+  why: 'not-mobile';
+}
+
+/** Why a whole file could not be read, as a word the interface turns into a sentence. */
+export type FileProblem =
+  /** Larger than the reader will open (10 MB). */
+  | 'too-big'
+  /** Nothing in it, or nothing but blank lines. */
+  | 'empty'
+  /** Not text, not a spreadsheet, not a contacts file: a picture, a PDF, random bytes. */
+  | 'binary'
+  /** A spreadsheet whose archive is broken or cut short. */
+  | 'damaged'
+  /** A password-protected workbook, or the old `.xls` format (both are the same kind of container). */
+  | 'locked'
+  /** A zip that is not an Excel workbook, or a workbook with no sheet in it. */
+  | 'not-a-sheet'
+  /** This system's web view cannot inflate a compressed file. */
+  | 'cannot-inflate';
+
+export interface Parsed {
+  /** Reading stopped early — at `LIMITS.recipients` people, or at the reader's ceiling on lines — and the list is not the whole file. */
+  truncated?: boolean;
+  /** Numbers taken that do not look like mobiles. At most a thousand are listed. */
+  warned?: Warned[];
+  /** Rejected lines beyond the thousand that `rejected` lists. `rejected.length + (rejectedMore ?? 0)` is how many could not be read. */
+  rejectedMore?: number;
+  /** Set when the file as a whole could not be read; `recipients` is then empty. */
+  problem?: FileProblem;
+  /** The file's name, when it came from one (one line, capped). */
+  file?: string;
+}
+
+export interface Rejected {
+  /** `excel-rounded`: a number Excel wrote in short scientific form (`9.64751E+11`), whose last digits are gone for good. */
+  hint?: 'excel-rounded';
+}
