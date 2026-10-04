@@ -9528,6 +9528,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   position:sticky; inset-block-start:0; z-index:1; display:flex; align-items:center; gap:var(--sp-3);
   padding-block:var(--sp-3); padding-inline:var(--sp-7) var(--sp-3); border-block-end:1px solid var(--rule); background:inherit;
 }
+.wa-bk-drawer-x{ margin-inline-start:auto; }
 .wa-bk-drawer-head h3{ flex:1; min-inline-size:0; margin:0; font-size:var(--fs-6); font-weight:650; color:var(--ink); }
 .wa-bk-drawer-body{ display:flex; flex-direction:column; gap:var(--sp-5); padding-block:var(--sp-6) var(--sp-9); padding-inline:var(--sp-7); }
 
