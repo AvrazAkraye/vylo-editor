@@ -35,3 +35,8 @@ undo correctly without it.
 
 Three one-line entries for `'motion'` (`SCENE_HUE`, `SCENE_GROUP`, `SceneKindArt`), forced by `tsc` once `'motion'` is a
 `SceneKind`. Merge as a union with any other change to that file.
+
+## 5. From the review (`docs/vm/review-video.md`): wire `vm-review-video.test.mjs` (required)
+
+In `app/package.json` `test:4`, right after `node test/vm-video.test.mjs && `, add `node test/vm-review-video.test.mjs && `
+(the script becomes 1,387 characters). Until then the orphans gate fails with "test file on disk that no npm script runs".

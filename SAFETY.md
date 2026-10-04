@@ -966,6 +966,11 @@ resolution, bitrate and sound you last chose for a download are remembered in
 for, its layers and words, its colours, and any picture you added, kept as data
 — is in the webview's IndexedDB, in a database named `vylo-motion`, on this
 machine (`app/src/motionstore.ts`). Deleting one in the panel deletes it there.
+A graphic you put in a video is copied into that video, any picture in it
+included, and kept with it in `vylo-video`: deleting the graphic here does not
+delete that copy; deleting the video does, and so does taking the graphic out
+of every scene of the video, once the app has started again and that video is
+next saved.
 The brand kit — the name, account name, web address, logo, colours and headline
 face you set once so that new graphics start in them — is kept the same way, in
 its own database named `vylo-motion-brand`, on this machine; clearing it in the

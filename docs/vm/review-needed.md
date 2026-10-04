@@ -85,3 +85,12 @@ effort, to be read by a native speaker:
   Anthropic بخۆ هەلدگریت، وەکی پشکنینا پانێلا ڤیدیۆیێ (`app/src/motionresearch.ts`)، و ژ وێ یا تە نڤیسی تنێ چەند
   پەیڤێت گەڕیانێ هەلدگریت یێت مۆدێلی هەلبژارتین؛ گەڕیان ل دەڤ Anthropic دبیت، ئەوا پەڕە دبێژن د داخوازەکا دویماهیێ دا
   دزڤریتە مۆدێلی، و ناڤونیشانێت پەڕان ل بن بەرسڤێ دهێنە نیشاندان و دگەل گرافیکێ دهێنە پاراستن.
+## Review of package `video` (vm-r-video)
+
+### SAFETY, "Motion graphics are not one of them either" — one sentence added after "Deleting one in the panel deletes it there."
+
+English: *A graphic you put in a video is copied into that video, any picture in it included, and kept with it in `vylo-video`: deleting the graphic here does not delete that copy; deleting the video does, and so does taking the graphic out of every scene of the video, once the app has started again and that video is next saved.*
+
+| Sorani (ckb) | Badini (kmr) |
+|---|---|
+| گرافیکێک کە دەیخەیتە ناو ڤیدیۆیەکەوە کۆپی دەکرێتە ناو ئەو ڤیدیۆیە، هەر وێنەیەکی ناویشی لەگەڵدا، و لەگەڵیدا لە `vylo-video` دا هەڵدەگیرێت: سڕینەوەی گرافیکەکە لێرە ئەو کۆپییە ناسڕێتەوە؛ سڕینەوەی ڤیدیۆکە دەیسڕێتەوە، هەروەها لابردنی گرافیکەکە لە هەموو دیمەنەکانی ڤیدیۆکە، دوای ئەوەی ئەپەکە دووبارە دەست پێدەکاتەوە و ئەو ڤیدیۆیە جارێکی تر پاشەکەوت دەکرێت. | گرافیکەکا تو دکەیە د ناڤ ڤیدیۆیەکێ دا دهێتە کۆپیکرن بۆ وێ ڤیدیۆیێ، دگەل هەر وێنەیەکێ تێدا، و دگەل وێ د `vylo-video` دا دهێتە پاراستن: ژێبرنا گرافیکێ ل ڤێرێ وێ کۆپیێ ژێنابەت؛ ژێبرنا ڤیدیۆیێ وێ ژێدبەت، و هەروەسا لابرنا گرافیکێ ژ هەمی دیمەنێت ڤیدیۆیێ، پشتی ئەپ دیسا دەست پێ دکەت و ئەو ڤیدیۆ جارەکا دی دهێتە پاشەکەفتکرن. |

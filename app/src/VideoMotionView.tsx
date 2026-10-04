@@ -158,7 +158,7 @@ export function MotionOverlay({ scene, video }: { scene: Scene; video: Video }) 
   if (!over || !doc) return null;
   return (
     <AbsoluteFill>
-      <GraphicCanvas doc={doc} t={overTime(frame, fps, over.at, doc)} />
+      <GraphicCanvas doc={doc} t={overTime(frame, fps, over.at, doc, scene.seconds)} />
     </AbsoluteFill>
   );
 }
