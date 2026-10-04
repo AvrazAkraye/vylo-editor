@@ -69,8 +69,8 @@ Source: `app/src/i18n.ts`, the entries under `// vm video` in each dictionary.
 
 ### SAFETY, "Motion graphics are not one of them either" — one sentence added after "Deleting one in the panel deletes it there."
 
-English: *A graphic you put in a video is copied into that video, any picture in it included, and kept with it in `vylo-video`: deleting the graphic here does not delete that copy; deleting the video does, and so does taking the graphic out of every scene of the video, the next time the app starts.*
+English: *A graphic you put in a video is copied into that video, any picture in it included, and kept with it in `vylo-video`: deleting the graphic here does not delete that copy; deleting the video does, and so does taking the graphic out of every scene of the video, once the app has started again and that video is next saved.*
 
 | Sorani (ckb) | Badini (kmr) |
 |---|---|
-| گرافیکێک کە دەیخەیتە ناو ڤیدیۆیەکەوە کۆپی دەکرێتە ناو ئەو ڤیدیۆیە، هەر وێنەیەکی ناویشی لەگەڵدا، و لەگەڵیدا لە `vylo-video` دا هەڵدەگیرێت: سڕینەوەی گرافیکەکە لێرە ئەو کۆپییە ناسڕێتەوە؛ سڕینەوەی ڤیدیۆکە دەیسڕێتەوە، هەروەها لابردنی گرافیکەکە لە هەموو دیمەنەکانی ڤیدیۆکە، لە دەستپێکردنی داهاتووی ئەپەکەدا. | گرافیکەکا تو دکەیە د ناڤ ڤیدیۆیەکێ دا دهێتە کۆپیکرن بۆ وێ ڤیدیۆیێ، دگەل هەر وێنەیەکێ تێدا، و دگەل وێ د `vylo-video` دا دهێتە پاراستن: ژێبرنا گرافیکێ ل ڤێرێ وێ کۆپیێ ژێنابەت؛ ژێبرنا ڤیدیۆیێ وێ ژێدبەت، و هەروەسا لابرنا گرافیکێ ژ هەمی دیمەنێت ڤیدیۆیێ، د دەستپێکرنا بهێت یا ئەپی دا. |
+| گرافیکێک کە دەیخەیتە ناو ڤیدیۆیەکەوە کۆپی دەکرێتە ناو ئەو ڤیدیۆیە، هەر وێنەیەکی ناویشی لەگەڵدا، و لەگەڵیدا لە `vylo-video` دا هەڵدەگیرێت: سڕینەوەی گرافیکەکە لێرە ئەو کۆپییە ناسڕێتەوە؛ سڕینەوەی ڤیدیۆکە دەیسڕێتەوە، هەروەها لابردنی گرافیکەکە لە هەموو دیمەنەکانی ڤیدیۆکە، دوای ئەوەی ئەپەکە دووبارە دەست پێدەکاتەوە و ئەو ڤیدیۆیە جارێکی تر پاشەکەوت دەکرێت. | گرافیکەکا تو دکەیە د ناڤ ڤیدیۆیەکێ دا دهێتە کۆپیکرن بۆ وێ ڤیدیۆیێ، دگەل هەر وێنەیەکێ تێدا، و دگەل وێ د `vylo-video` دا دهێتە پاراستن: ژێبرنا گرافیکێ ل ڤێرێ وێ کۆپیێ ژێنابەت؛ ژێبرنا ڤیدیۆیێ وێ ژێدبەت، و هەروەسا لابرنا گرافیکێ ژ هەمی دیمەنێت ڤیدیۆیێ، پشتی ئەپ دیسا دەست پێ دکەت و ئەو ڤیدیۆ جارەکا دی دهێتە پاشەکەفتکرن. |
