@@ -513,13 +513,13 @@ is wrong wherever it appears. Keep every `{placeholder}` as it is and run `npm t
 
 | Word | One way (where) | The other way (where) |
 |---|---|---|
-| code — and its gender | کۆدا *{code}* (feminine: `code-1`, `code-2`, `code-3`) | کۆدێ تە / ڤی کۆدی (masculine: every `verify`, `cart-3`, `welcome-4`, `referral-2`) |
+| code — and its gender | کۆدا *{code}*، ب ڤێ کۆدێ (feminine: `code-1`, `code-2`, `code-3`) | کۆدێ تە / ڤی کۆدی (masculine: every `verify`, `cart-3`, `welcome-4`, `referral-2`) |
 | confirm | پشتڕاست (`appointment-2`, with ڕ) | پشتراست (seven times in `-b`, with ر) |
-| buy / customer | کڕین، کڕیار، بکڕە (`sale-1`, `code-2`, `followup-1`, `welcome-1`) | کریار (`loyalty-2` and the `loyalty` category title) |
+| buy / customer | کڕین، کڕیار، بکڕە (`sale-1`, `code-1`, `code-2`, `followup-1`, `loyalty-3`, `delivery-2`, `welcome-1`) | کریار (`loyalty-2` and the `loyalty` category title) |
 | invitation | ڤەخوەندن (the `event` category, `event-1/2`) | ڤەخواندن (`property-2` title) |
 | please | هیڤیە (`appointment-1`, `appointment-2`) | هیڤییە (eight times in `-b`) |
-| message | پەیام (`code-3`, `loyalty-2`, the interface) | نامە (`order-3`, `delivery-*`, `payment-*`, `course-*` …: ڤێ نامێ) |
-| "you are with us" | دگەل مەیی (`welcome-1/2/3`, `referral-1`) | دگەل مە یی (`loyalty-2`) |
+| message | پەیام (`code-3`, `restock-3`, `event-1/2`, `followup-2`, `loyalty-2`, the interface) | نامە / ڤێ نامێ (`followup-3`, `order-3/4`, `delivery-2/4`, `payment-2/3/4`, `welcome-1`, `course-1/3`, `health-1/2`, `verify-4`) |
+| "you are with us" | دگەل مەیی (`welcome-1/2/3`, `referral-1`) | دگەل مە یی (`loyalty-2`, `holiday-8`) |
 
 ### The Badini broadcast paragraph of `SAFETY.kmr.md` reads Sorani in places
 
