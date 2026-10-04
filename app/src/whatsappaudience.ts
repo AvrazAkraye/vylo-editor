@@ -786,6 +786,12 @@ const FIRST_ONLY = wordSet('firstname givenname forename vorname förnamn préno
 const LAST_ONLY = wordSet('surname lastname familyname nachname efternamn soyad soyadı soyisim پاشناو پاشناڤ paşnav کنیه الكنية اللقب خانوادگی');
 /** Words that say "first" or "last" when a name word stands beside them (`First name`, `اسم العائلة`, `ناوی یەکەم`). */
 const FIRST_WITH = wordSet('first given الأول اول یەکەم');
+/**
+ * Words that make a name column not the person's name: Outlook's "Middle Name", Google's "Additional Name", a CRM's
+ * "Company Name" beside its "Contact Name". (A file whose only words are a company's still has them read as names by
+ * the column-of-words rule below.)
+ */
+const NOT_PERSON_WITH = wordSet('middle additional company business organisation organization org firm shop store الأوسط شركة الشركة ناوەڕاست کۆمپانیا şirket firma');
 const LAST_WITH = wordSet('last family العائلة عائلة خێزان');
 
 /**
@@ -817,6 +823,7 @@ function kindOf(header: string): Kind | null {
   const has = (set: Set<string>): boolean => words.some((w) => variants(w).some((v) => set.has(v)));
   if (has(PHONE_WORDS)) return 'phone';
   const name = has(NAME_WORDS);
+  if (name && has(NOT_PERSON_WITH)) return null;
   if (has(LAST_ONLY) || (name && has(LAST_WITH))) return 'last';
   if (has(FIRST_ONLY) || (name && has(FIRST_WITH))) return 'first';
   return name ? 'name' : null;
@@ -1045,7 +1052,14 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
   let nameAt = findColumn(o.nameColumn);
   let lastAt = -1;
   if (nameAt === -2) {
-    nameAt = kinds.findIndex((k, i) => k === 'name' && i !== phoneAt);
+    // Of the columns that say name, the one with something in it: an empty "Display Name" is no name column.
+    nameAt = -1;
+    let filled = 0;
+    kinds.forEach((k, i) => {
+      if (k !== 'name' || i === phoneAt) return;
+      const f = sample.reduce((n, r) => n + ((r.cells[i] ?? '').trim() ? 1 : 0), 0);
+      if (f > filled) { filled = f; nameAt = i; }
+    });
     if (nameAt < 0) {
       nameAt = kinds.findIndex((k, i) => k === 'first' && i !== phoneAt);
       lastAt = kinds.findIndex((k, i) => k === 'last' && i !== phoneAt);

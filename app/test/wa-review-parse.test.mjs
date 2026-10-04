@@ -314,6 +314,16 @@ console.log('2b. Headers in six languages, two phone columns, Excel\'s numbers')
   ok('…nobody was rejected as empty', two.rejected.length === 0, two.rejected);
   const chosen = await parseAudience(enc('Name,Phone,Mobile\nAra,066 222 1234,0750 123 4567\nBroosk,,0751 222 3344\n'), { filename: 'two.csv', phoneColumn: 'Phone' });
   eq('…but a column the person chose is the column used', [phones(chosen), chosen.rejected.map((r) => r.line)], [['964662221234'], [3]]);
+  // The contact exports people really have: Outlook (First/Middle/Last, three phone columns) and Google.
+  const outlook = await parseAudience(enc('First Name,Middle Name,Last Name,Title,Business Phone,Home Phone,Mobile Phone,E-mail Address\n'
+    + 'Rebaz,,Ahmed,,066 222 1234,,0750 123 4567,rebaz@example.com\nLayla,,Karim,,,,0751 222 3344,\nDara,,,,066 222 9999,,,\n'), { filename: 'outlook.csv' });
+  eq('Outlook CSV: first and last names joined (not the empty Middle Name), the mobile used', outlook.recipients.map((r) => [r.phone, r.name ?? '']),
+    [['9647501234567', 'Rebaz Ahmed'], ['9647512223344', 'Layla Karim'], ['964662229999', 'Dara']]);
+  const google = await parseAudience(enc('Name,Given Name,Additional Name,Family Name,Phone 1 - Type,Phone 1 - Value,Phone 2 - Type,Phone 2 - Value\n'
+    + 'Rebaz Ahmed,Rebaz,,Ahmed,Mobile,+964 750 123 4567,Home,066 222 1234\nLayla,Layla,,,Mobile,0751 222 3344 ::: 0770 111 2233,,\n'), { filename: 'contacts.csv' });
+  eq('Google CSV: Name, and the first number of "a ::: b"', google.recipients.map((r) => [r.phone, r.name ?? '']), [['9647501234567', 'Rebaz Ahmed'], ['9647512223344', 'Layla']]);
+  const crm = await parseAudience(enc('Company Name,Contact Name,Display Name,Phone\nAcme Ltd,Rebaz Ahmed,,0750 123 4567\n'), { filename: 'crm.csv' });
+  eq('a CRM export: the contact\'s name, not the company\'s, and not an empty Display Name', crm.recipients.map((r) => r.name), ['Rebaz Ahmed']);
   // Excel's floats in a CSV: only a number written with every digit is a number.
   const sci = await parseAudience(enc('Name,Phone\nA,9.64750123456E+11\nB,7.5012345E+09\nC,9.647501234567E+12\nD,7.501234567E+09\nE,9.6475012346E+12\n'), { filename: 'x.csv' });
   eq('CSV scientific numbers: only the exact ones are read', sci.recipients.map((r) => [r.name, r.phone]), [['C', '9647501234567']]);
