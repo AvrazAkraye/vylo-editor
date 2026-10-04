@@ -619,7 +619,8 @@ console.log('the files around it');
   const dicts = ['ar', 'ckb', 'kmr'].map((l) => { const a = i18n.indexOf(`const ${l}: Dict = {`); return i18n.slice(a, i18n.indexOf('\n};', a)); });
   ok('every word this package shows is in Arabic, Sorani and Badini, after a // vm ask line at the end of each dictionary',
     dicts.every((d) => d.includes('// vm ask') && keys.every((k) => d.indexOf(`'${k}':`) > d.indexOf('// vm ask'))));
-  const root = (f) => readFileSync(new URL(`../../${f}`, import.meta.url), 'utf8');
+  // A Windows checkout turns the line ends into CRLF (core.autocrlf), and these checks are about the words, not the ends.
+  const root = (f) => readFileSync(new URL(`../../${f}`, import.meta.url), 'utf8').replace(/\r\n/g, '\n');
   const safety = ['SAFETY.md', 'SAFETY.ar.md', 'SAFETY.ckb.md', 'SAFETY.kmr.md'].map(root);
   ok('SAFETY in all four languages names the search\'s file once, in the Motion paragraph', safety.every((s) => s.split('`app/src/motionresearch.ts`').length === 2 && s.indexOf('`app/src/motionresearch.ts`') > s.indexOf('`app/src/motiontemplates.ts`')));
   ok('SAFETY.md says it as the plan does: the search is the model\'s, through the same route (the gateway, or a provider added on the Anthropic wire); the addresses shown and kept', /When you ask Motion for facts it does not have/.test(safety[0])
