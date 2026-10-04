@@ -106,11 +106,130 @@ console.log('Focus is never left on nothing');
   const run = draw(h(Run.RunView, { t: en, campaign: campaign({ state: 'paused' }), run: null, interrupted: true, onContinue() {}, onReport() {}, onDone() {} }));
   ok('and so can the run', /<section class="wa-bk-run" tabindex="-1"/.test(run), run.slice(0, 120));
   ok('a new view takes the focus, as a new step does',
-    /useEffect\(\(\) => \{\s*if \(firstView\.current\) \{ firstView\.current = false; return; \}\s*root\.current\?\.querySelector<HTMLElement>\('\.wa-bk-stepbox, \.wa-bk-run'\)\?\.focus\(\);\s*\}, \[view\]\);/.test(broadcast));
+    /useEffect\(\(\) => \{\s*if \(firstView\.current\) \{ firstView\.current = false; return; \}\s*showTop\(root\.current\?\.querySelector<HTMLElement>\('\.wa-bk-stepbox, \.wa-bk-run'\)\);\s*\}, \[view\]\);/.test(broadcast));
   ok('the root the shell looks in is both roots', (broadcast.match(/<div ref=\{root\} className="wa wa-bk/g) ?? []).length === 2);
   const ready = src('WhatsAppReady.tsx');
   ok('the fill form is a drawer of its own, so it takes the focus when it opens',
     /<Drawer key=\{`fill-\$\{chosen\.id\}`\}/.test(ready) && /<Drawer key="list"/.test(ready));
+}
+
+// Found in WebKit at 248 x 760: Next, pressed at the bottom of a long step 1, opened step 2 scrolled 123 px down (229
+// in Arabic) — focusing the new step scrolled its top to the sidebar's top edge, under the sticky header, so the
+// heading, the stepper and Ready messages / Write with AI were hidden and the person landed mid-step.
+console.log('A new step or view starts at its top');
+{
+  const scroller = { scrollHeight: 2000, clientHeight: 700, scrollTop: 340, parentElement: null, tag: 'scroller' };
+  const plain = { scrollHeight: 2000, clientHeight: 2000, scrollTop: 0, parentElement: scroller, tag: 'plain' };
+  let how = null;
+  const box = { focus: (o) => { how = o; }, parentElement: plain };
+  B.showTop(box, (el) => ({ overflowY: el.tag === 'scroller' ? 'auto' : 'visible' }));
+  ok('the new box takes the focus without the browser scrolling it under the header', how?.preventScroll === true, how);
+  ok('and the box\'s scroller goes back to its top', scroller.scrollTop === 0);
+  ok('nothing else is scrolled', plain.scrollTop === 0);
+  ok('nothing throws without a box', (() => { try { B.showTop(null); return true; } catch { return false; } })());
+  ok('the step and the view are both shown that way',
+    /showTop\(stepBox\.current\)/.test(broadcast) && /showTop\(root\.current\?\.querySelector<HTMLElement>\('\.wa-bk-stepbox, \.wa-bk-run'\)\)/.test(broadcast));
+}
+
+// Found: the variable chips offered `{phone}` (and `{name}` twice over) for a pasted list with a phone column: the
+// header's columns, not the values each person carries. `{phone}` then went out as nothing for everyone, with only a
+// warning on step 2, and the review card's blank check called it a column that does not exist.
+console.log('The chips and the blanks come from what each person carries');
+{
+  const C = await imp('WhatsAppCompose');
+  const ppl = {
+    recipients: list(4, { city: 'Erbil' }), source: 'csv', rejected: [], duplicates: 0, removed: 0,
+    columns: ['name', 'phone', 'city'], phoneColumn: 'phone', nameColumn: 'name',
+  };
+  const html = draw(h(C.ComposeStep, { t: en, lang: 'en', msg: MSG, onMsg() {}, people: ppl, country: '964', full: false, onProviders() {} }));
+  const chips = [...html.matchAll(/<bdi dir="ltr">\{(\w+)\}<\/bdi>/g)].map((m) => m[1]);
+  eq('the chips: the two per person, then the columns people carry', chips, ['name', 'first_name', 'city']);
+  const notes = C.messageNotes({ ...MSG, text: 'Call {phone} in {city}' }, ppl, en);
+  ok('a header column nobody carries is a blank on step 2, as on the card', notes.block.some((s) => s.includes('{phone}')), notes);
+  ok('a column people carry is not', !notes.block.some((s) => s.includes('{city}')));
+}
+
+// ── 4. The stylesheet, as WebKit drew it ───────────────────────────────────
+const css = readFileSync(join(APP, 'src/styles.css'), 'utf8').replace(/\r\n/g, '\n');
+const bulk = css.slice(css.indexOf('/* wa:bulk start */'), css.indexOf('/* wa:bulk end */')).replace(/\/\*[\s\S]*?\*\//g, '');
+/** The body of the rule whose selector list is exactly `sel`, in the bulk block. */
+const ruleOf = (sel) => {
+  for (const m of bulk.matchAll(/([^{}]+)\{([^{}]*)\}/g)) if (m[1].trim() === sel) return m[2];
+  return null;
+};
+const propOf = (body, prop) => (new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*([^;}]+)`).exec(body ?? '') ?? [])[1]?.trim() ?? null;
+console.log('The stylesheet, as WebKit drew it');
+{
+  // Found at 248 x 760: on a short step (People, empty) the Back/Next bar sat under the last field, half way up the
+  // column, with empty sidebar under it — the column was not bounded, because Broadcast is mounted in a plain <div>.
+  ok('in the column the sidebar\'s scroller is a column that Broadcast fills',
+    /display\s*:\s*flex/.test(ruleOf('.sb-panel:has(> div > .wa-bk:not(.is-full))') ?? '')
+      && /flex\s*:\s*1 0 auto/.test(ruleOf('.sb-panel > div:has(> .wa-bk:not(.is-full))') ?? '')
+      && /flex\s*:\s*1 0 auto/.test(ruleOf('.wa-bk:not(.is-full)') ?? ''));
+  ok('and the bar is pushed to its bottom edge', /margin-block-start\s*:\s*auto/.test(ruleOf('.wa-bk-bar') ?? ''));
+  // Found: `.wa mark` (wa:design, 0-1-1) out-ranked `.wa-bk-hole` (0-1-0), so a blank nobody fills was drawn in the
+  // accent, like the `{name}` the list fills — the one thing the colour was there to tell apart.
+  const hole = ruleOf('.wa-bk mark.wa-bk-hole');
+  ok('a blank is drawn by a rule that out-ranks the panel\'s `.wa mark`', hole !== null && /var\(--warn-wash\)/.test(hole) && /color\s*:\s*var\(--warn\)/.test(hole));
+  ok('and no weaker rule for it is left behind', ruleOf('.wa-bk-hole') === null);
+  // Found: the header of a broadcast with no account cut its sentence mid-word ("No WhatsApp account is co").
+  ok('the no-account line wraps instead of being cut', /white-space\s*:\s*normal/.test(ruleOf('.wa-bk-title small.is-none') ?? ''));
+  const head = draw(h(B.WhatsAppBroadcast, { t: en, lang: 'en', account: null, full: false, onProviders() {}, onClose() {} }));
+  ok('and the header marks it so', head.includes('<small class="is-none">No WhatsApp account is connected.</small>'));
+}
+
+// Found by measuring every text pair the block draws, the way wa-design.test.mjs measures its own: in the light theme
+// the quiet grey on `--panel-3` (a tip, a waiting/skipped pill, the report filters and the writer's count, a
+// template's kind) is 4.15:1, the person's name over each preview bubble and the wall's sentence are 3.88:1, and the
+// time on a preview bubble 4.19:1 (2.61:1 dark).
+console.log('Every text the block draws is readable, in both themes');
+{
+  const block = (open) => { const at = css.indexOf(open); return css.slice(at, css.indexOf('\n}', at)); };
+  const hexes = (text) => Object.fromEntries([...text.matchAll(/--([\w-]+):\s*(#[0-9A-Fa-f]{6})\b/g)].map((m) => [m[1], m[2]]));
+  const preview = { light: hexes(ruleOf('.wa-bk') ?? ''), dark: hexes(ruleOf(':root[data-theme="dark"] .wa-bk') ?? '') };
+  const base = { light: { ...hexes(block(':root{')), ...preview.light }, dark: { ...hexes(block(':root[data-theme="dark"]{')), ...preview.light, ...preview.dark } };
+  const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const colour = (expr, theme) => {
+    const v = /^var\(--([\w-]+)\)$/.exec(String(expr).trim());
+    if (!v || !base[theme][v[1]]) throw new Error(`cannot read ${expr}`);
+    return rgb(base[theme][v[1]]);
+  };
+  const lum = (c) => {
+    const l = c.map((x) => x / 255).map((x) => (x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * l[0] + 0.7152 * l[1] + 0.0722 * l[2];
+  };
+  const ratio = (a, b) => { const [p, q] = [lum(a), lum(b)].sort((m, n) => n - m); return (p + 0.05) / (q + 0.05); };
+  // [what, the rule that colours the text, the rule that paints what it sits on]
+  const PAIRS = [
+    ['a tip under the message', '.wa-bk-notes .is-tip', '.wa-bk-notes .is-tip'],
+    ['a waiting or skipped standing', '.wa-bk-st', '.wa-bk-st'],
+    ['a sent standing', '.wa-bk-st.is-sent', '.wa-bk-st.is-sent'],
+    ['a failed standing', '.wa-bk-st.is-failed', '.wa-bk-st.is-failed'],
+    ['an unsure standing', '.wa-bk-st.is-unknown', '.wa-bk-st.is-unknown'],
+    ['a filter or count not chosen', '.wa-bk-seg button', '.wa-bk-seg'],
+    ['a template\'s kind', '.wa-bk-kind', '.wa-bk-kind'],
+    ['a blank nobody fills', '.wa-bk mark.wa-bk-hole', '.wa-bk mark.wa-bk-hole'],
+    ['the name over a preview bubble', '.wa-bk-fig figcaption', '.wa-bk-wall'],
+    ['the sentence on an empty preview', '.wa-bk-wall-note', '.wa-bk-wall'],
+    ['the time on a preview bubble', '.wa-bk-bubble-meta', '.wa-bk-bubble'],
+    ['the words in a preview bubble', '.wa-bk-bubble', '.wa-bk-bubble'],
+    ['a chosen tab', '.wa-bk-tab.on', '.wa-bk-tab.on'],
+    ['a tab not chosen', '.wa-bk-tab', '.wa-bk-tab'],
+    ['a warning', '.wa-bk-warn', '.wa-bk-warn'],
+    ['a blocking note', '.wa-bk-notes .is-block', '.wa-bk-notes .is-block'],
+  ];
+  for (const theme of ['light', 'dark']) {
+    for (const [what, fgSel, bgSel] of PAIRS) {
+      let r = -1, detail = '';
+      try {
+        const fg = propOf(ruleOf(fgSel), 'color');
+        const bg = propOf(ruleOf(bgSel), 'background');
+        detail = `${fg} on ${bg}`;
+        r = ratio(colour(fg, theme), colour(bg, theme));
+      } catch (e) { detail += ` ${e.message}`; }
+      ok(`${theme}: ${what} ≥ 4.5:1`, r >= 4.5, `${detail} = ${r.toFixed(2)}`);
+    }
+  }
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

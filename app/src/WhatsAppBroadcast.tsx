@@ -197,6 +197,25 @@ export function reviewKey(id: string, recipients: readonly Recipient[], accountI
   return `${id}|${accountId}|${recipients.length}|${(h >>> 0).toString(36)}`;
 }
 
+/**
+ * Give a new step or view the focus, and start it at its top.
+ *
+ * A plain `focus()` scrolls the box's top edge to the scroller's top edge — under the sticky header, in the column —
+ * so Next pressed at the bottom of a long step opened the next one scrolled down, its heading and tools hidden (seen
+ * in WebKit: 123 px, 229 px in Arabic). So the box is focused without scrolling, and the scroller it sits in (the
+ * sidebar in a column, the middle in a window) goes back to its top, where the stepper and the heading are.
+ */
+export function showTop(
+  el: HTMLElement | null | undefined,
+  styleOf: (e: HTMLElement) => { overflowY: string } = (e) => getComputedStyle(e),
+): void {
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    if (p.scrollHeight > p.clientHeight && /auto|scroll/.test(styleOf(p).overflowY)) { p.scrollTop = 0; return; }
+  }
+}
+
 /** The attachment, held for the life of the window (see the header). */
 let heldAttachment: Attachment | undefined;
 
@@ -301,7 +320,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   // A new step takes the focus, so a screen reader says where the person is.
   useEffect(() => {
     if (first.current) { first.current = false; return; }
-    stepBox.current?.focus();
+    showTop(stepBox.current);
   }, [work.step]);
 
   // A new view takes the focus too. The button that led to it (History, See the report, Back, Send) is gone with the
@@ -309,7 +328,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   // on the drawer, no longer reaches it either.
   useEffect(() => {
     if (firstView.current) { firstView.current = false; return; }
-    root.current?.querySelector<HTMLElement>('.wa-bk-stepbox, .wa-bk-run')?.focus();
+    showTop(root.current?.querySelector<HTMLElement>('.wa-bk-stepbox, .wa-bk-run'));
   }, [view]);
 
   // ── moving between screens ─────────────────────────────────────────────
@@ -434,7 +453,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
         <b>{t('Broadcast')}</b>
         {account
           ? <small><i className={connReady(account) ? 'wa-bk-dot' : 'wa-bk-dot is-off'} aria-hidden="true" /><bdi>{account.name}</bdi></small>
-          : <small>{t('No WhatsApp account is connected.')}</small>}
+          : <small className="is-none">{t('No WhatsApp account is connected.')}</small>}
       </span>
       {going && view !== 'run' && (
         <button type="button" className="wa-bk-pill" onClick={() => setView('run')}>

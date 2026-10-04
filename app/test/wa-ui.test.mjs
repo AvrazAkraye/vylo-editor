@@ -447,7 +447,8 @@ async function main() {
   console.log('What blocks a step');
   {
     const msg = { text: '', lang: 'en', optOut: true, optOutText: '', templateId: '', business: '' };
-    const ppl = (n, removed = 0, columns = []) => ({ recipients: Array.from({ length: n }, (_, i) => R(`9647500000${i}`, `N${i}`)), source: 'text', rejected: [], duplicates: 0, removed, columns, phoneColumn: null, nameColumn: null });
+    // A column is one the people carry (wa-review-ui: the header's phone column is carried by nobody).
+    const ppl = (n, removed = 0, columns = []) => ({ recipients: Array.from({ length: n }, (_, i) => R(`9647500000${i}`, `N${i}`, Object.fromEntries(columns.map((c) => [c, 'x'])))), source: 'text', rejected: [], duplicates: 0, removed, columns, phoneColumn: null, nameColumn: null });
     eq('no people', B.blockerOf(1, null, msg, t), 'Add at least one person.');
     eq('everyone on the do-not-contact list', B.blockerOf(1, ppl(0, 4), msg, t), 'Everyone on this list asked not to be messaged.');
     eq('people: step 1 can go on', B.blockerOf(1, ppl(3), msg, t), '');

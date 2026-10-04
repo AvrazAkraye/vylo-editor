@@ -14,7 +14,7 @@ import {
   LIMITS, MESSAGE_LANGS, type Attachment, type AttachmentKind, type Draft, type Hint, type Recipient, type Template, type Tone,
   type WriteAction,
 } from './whatsappbulktypes';
-import { Fill, num, type People } from './WhatsAppPeople';
+import { Fill, columnsOf, num, type People } from './WhatsAppPeople';
 import { Drawer, Holes, PER_PERSON, TemplatesDrawer, holesIn } from './WhatsAppReady';
 
 /**
@@ -510,9 +510,20 @@ export interface ComposeProps {
 
 type Tool = '' | 'templates' | 'writer' | 'attach';
 
+/**
+ * The columns a message may use: the ones each person carries a value for (`vars`), which is what the engine fills.
+ *
+ * Not the file's header: its phone and name columns are read into the number and the name and carried as neither,
+ * so a `{phone}` chip from the header went out as nothing for everyone. The same reading as the review card's
+ * (`blanksOf`), so step 2 and step 3 never disagree about a blank.
+ */
+function carried(people: People | null): string[] {
+  return people ? columnsOf(people.recipients) : [];
+}
+
 /** The sentences about a message that are worth saying, and whether any blocks the step. */
 export function messageNotes(msg: MessageWork, people: People | null, t: (s: string) => string): { block: string[]; warn: string[]; tips: string[] } {
-  const columns = people?.columns ?? [];
+  const columns = carried(people);
   const block: string[] = [];
   for (const v of holesIn(msg.text, columns)) {
     block.push(fill(t('{var} is not filled in, and the list has no column by that name. Fill it in or remove it.'), { var: `{${v}}` }));
@@ -535,7 +546,7 @@ export function ComposeStep({ t, lang, msg, onMsg, people, country, full, gw, ef
   const area = useRef<HTMLTextAreaElement>(null);
   const caret = useRef<number | null>(null);
   const ids = useId();
-  const columns = people?.columns ?? [];
+  const columns = useMemo(() => carried(people), [people]);
   const chips = chipsFor(columns);
   const notes = useMemo(() => messageNotes(msg, people, t), [msg, people, t]);
 
