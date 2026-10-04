@@ -178,7 +178,9 @@ export function TemplatesDrawer({ t, lang, msgLang, full, business, onBusiness, 
     const filled = fillTemplate(chosen, msgLang, { ...values, business }).slice(0, LIMITS.messageChars);
     const empty = holesIn(filled, columns);
     return (
-      <Drawer title={chosen.title[lang] || chosen.title.en} onClose={onClose} closeLabel={t('Close')} wide={full}>
+      // A drawer of its own (the key), so it takes the focus as it opens: swapped inside the list's drawer, the pressed
+      // *Use this* went with the list and focus fell to <body>, where the drawer's Escape no longer heard it.
+      <Drawer key={`fill-${chosen.id}`} title={chosen.title[lang] || chosen.title.en} onClose={onClose} closeLabel={t('Close')} wide={full}>
         <button type="button" className="wa-bk-link" onClick={() => setChosen(null)}>
           <Icon name="chevron" size={11} turn={180} className="ic-dir" />
           {t('All ready messages')}
@@ -212,7 +214,7 @@ export function TemplatesDrawer({ t, lang, msgLang, full, business, onBusiness, 
   }
 
   return (
-    <Drawer title={t('Ready messages')} onClose={onClose} closeLabel={t('Close')} wide={full}>
+    <Drawer key="list" title={t('Ready messages')} onClose={onClose} closeLabel={t('Close')} wide={full}>
       <div className="wa-find wa-bk-find">
         <Icon name="search" size={12} />
         <input value={query} dir="auto" spellCheck={false} placeholder={t('Search ready messages')}

@@ -94,5 +94,24 @@ console.log('Blanks nothing fills block Send on the review card, and in launch')
   ok('and no runner was made', F.runs.length === before);
 }
 
+// ── 3. Focus is never left on nothing ──────────────────────────────────────
+// Found in WebKit (document.activeElement after each move): pressing History, See the report, Back from a sub-view or
+// Send removes the button that was pressed, and focus fell to <body> — a keyboard user was nowhere, and the panel's
+// own keys stopped reaching the screen. In Ready messages, *Use this* swapped the list for the fill form inside the
+// same drawer: focus fell to <body>, so Escape (handled on the drawer) no longer closed it.
+console.log('Focus is never left on nothing');
+{
+  ok('every view the shell shows can take the focus (the steps, history, report, do-not-contact)',
+    (broadcast.match(/<div className="wa-bk-stepbox"[^>]*tabIndex=\{-1\}/g) ?? []).length >= 4, (broadcast.match(/<div className="wa-bk-stepbox"[^>]*>/g) ?? []));
+  const run = draw(h(Run.RunView, { t: en, campaign: campaign({ state: 'paused' }), run: null, interrupted: true, onContinue() {}, onReport() {}, onDone() {} }));
+  ok('and so can the run', /<section class="wa-bk-run" tabindex="-1"/.test(run), run.slice(0, 120));
+  ok('a new view takes the focus, as a new step does',
+    /useEffect\(\(\) => \{\s*if \(firstView\.current\) \{ firstView\.current = false; return; \}\s*root\.current\?\.querySelector<HTMLElement>\('\.wa-bk-stepbox, \.wa-bk-run'\)\?\.focus\(\);\s*\}, \[view\]\);/.test(broadcast));
+  ok('the root the shell looks in is both roots', (broadcast.match(/<div ref=\{root\} className="wa wa-bk/g) ?? []).length === 2);
+  const ready = src('WhatsAppReady.tsx');
+  ok('the fill form is a drawer of its own, so it takes the focus when it opens',
+    /<Drawer key=\{`fill-\$\{chosen\.id\}`\}/.test(ready) && /<Drawer key="list"/.test(ready));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

@@ -552,7 +552,7 @@ export function RunView({ t, campaign, run, interrupted, onContinue, onReport, o
   const pauseBtn = useRef<HTMLButtonElement>(null);
 
   return (
-    <section className="wa-bk-run" aria-label={t('Sending')}>
+    <section className="wa-bk-run" tabIndex={-1} aria-label={t('Sending')}>
       <div className="wa-bk-ring" style={{ ['--p' as string]: `${pct}` }} role="progressbar" aria-valuemin={0} aria-valuemax={100}
            aria-valuenow={pct} aria-label={t('Progress')}>
         <span className="wa-bk-ring-in">

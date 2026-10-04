@@ -9684,7 +9684,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 
 .wa-bk-stepbox{ padding-block:var(--sp-5) var(--sp-8); padding-inline:var(--sp-7); }
-.wa-bk-stepbox:focus{ outline:none; }
+.wa-bk-stepbox:focus, .wa-bk-run:focus{ outline:none; }
 .wa-bk-step{ display:flex; flex-direction:column; gap:var(--sp-6); min-inline-size:0; }
 .wa-bk-h{ margin:0; font-size:var(--fs-7); font-weight:650; color:var(--ink); line-height:1.3; letter-spacing:var(--track); }
 .wa-bk-sub{

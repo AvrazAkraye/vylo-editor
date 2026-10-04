@@ -236,6 +236,8 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   const run = useLive();
   const stepBox = useRef<HTMLDivElement>(null);
   const first = useRef(true);
+  const root = useRef<HTMLDivElement>(null);
+  const firstView = useRef(true);
 
   // ── loading what is kept ───────────────────────────────────────────────
   useEffect(() => {
@@ -301,6 +303,14 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
     if (first.current) { first.current = false; return; }
     stepBox.current?.focus();
   }, [work.step]);
+
+  // A new view takes the focus too. The button that led to it (History, See the report, Back, Send) is gone with the
+  // view it was on, and focus left on <body> is a keyboard user who is nowhere — and the drawers' Escape, which listens
+  // on the drawer, no longer reaches it either.
+  useEffect(() => {
+    if (firstView.current) { firstView.current = false; return; }
+    root.current?.querySelector<HTMLElement>('.wa-bk-stepbox, .wa-bk-run')?.focus();
+  }, [view]);
 
   // ── moving between screens ─────────────────────────────────────────────
   const msg: MessageWork = work;
@@ -525,7 +535,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   let main;
   if (view === 'history') {
     main = (
-      <div className="wa-bk-stepbox"><HistoryView t={t} lang={lang} campaigns={campaigns}
+      <div className="wa-bk-stepbox" tabIndex={-1} aria-label={t('Past broadcasts')}><HistoryView t={t} lang={lang} campaigns={campaigns}
                    onOpen={(c) => (c.staged || c.state === 'draft' ? openOnReview(c) : openReport(c))}
                    onDuplicate={reuse}
                    onDelete={(c) => { void deleteCampaign(c.id).then(() => loadCampaigns()).then(setCampaigns).catch(() => undefined); }}
@@ -533,12 +543,12 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
     );
   } else if (view === 'report' && reportOf) {
     main = (
-      <div className="wa-bk-stepbox"><ReportView t={t} lang={lang} campaign={run && run.campaign.id === reportOf.id ? run.campaign : reportOf} msgs={msgs}
+      <div className="wa-bk-stepbox" tabIndex={-1} aria-label={t('Report')}><ReportView t={t} lang={lang} campaign={run && run.campaign.id === reportOf.id ? run.campaign : reportOf} msgs={msgs}
                   onAddSuppressed={addDnc} onDuplicate={() => reuse(reportOf)} onDoNotContact={() => void openDnc()} /></div>
     );
   } else if (view === 'dnc') {
     main = (
-      <div className="wa-bk-stepbox">
+      <div className="wa-bk-stepbox" tabIndex={-1} aria-label={t('Do-not-contact list')}>
         <DoNotContactView t={t} list={dnc} country={work.country} onAdd={(p) => addDnc([p])} onRemove={removeDnc} />
       </div>
     );
@@ -562,7 +572,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
 
   if (!full) {
     return (
-      <div className="wa wa-bk">
+      <div ref={root} className="wa wa-bk">
         {head}
         {main}
       </div>
@@ -571,7 +581,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
 
   const inSteps = !sub && !runShown;
   return (
-    <div className="wa wa-bk is-full">
+    <div ref={root} className="wa wa-bk is-full">
       {head}
       <div className="wa-bk-body">
         <nav className="wa-bk-nav" aria-label={t('Steps')}>
