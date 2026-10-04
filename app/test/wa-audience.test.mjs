@@ -157,8 +157,9 @@ function workbook(rows, o = {}) {
   eq('Italy keeps the 0 of a landline', normalisePhone('06 1234 5678', '39'), { phone: '390612345678' });
   eq('Russia dials 8 at home', normalisePhone('8 916 123-45-67', '7'), { phone: '79161234567' });
   eq('Hungary dials 06 at home', normalisePhone('06 30 123 4567', '36'), { phone: '36301234567' });
-  eq('North America: 1 at home, 011 abroad', [normalisePhone('1 (555) 123-4567', '1'), normalisePhone('011 964 750 123 4567', '1')],
-    [{ phone: '15551234567' }, { phone: '9647501234567' }]);
+  // (review-parse: was `1 (555) 123-4567`, whose exchange 123 no North American number has; NXX starts 2-9.)
+  eq('North America: 1 at home, 011 abroad', [normalisePhone('1 (202) 555-0123', '1'), normalisePhone('011 964 750 123 4567', '1')],
+    [{ phone: '12025550123' }, { phone: '9647501234567' }]);
   eq('a country option written +964 or 00964 is 964', [normalisePhone('0750 123 4567', '+964'), normalisePhone('0750 123 4567', '00964')],
     [{ phone: '9647501234567' }, { phone: '9647501234567' }]);
   eq('an Iraqi landline (Erbil) is a number', normalisePhone('066 225 1234', '964'), { phone: '964662251234' });

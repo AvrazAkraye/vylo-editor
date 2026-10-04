@@ -89,6 +89,11 @@ interface Plan {
   trunk: string[];
   /** How a mobile number starts, where that is known well enough to warn about a number that is not one. */
   mobile: string[];
+  /**
+   * A shape every national number has, beyond its length, where the plan has one: North America's area code and
+   * exchange never start with 0 or 1, and no +7 number starts with 0, 1, 2 or 5. A number that fails it is nobody's.
+   */
+  shape?: RegExp;
 }
 
 /**
@@ -96,14 +101,14 @@ interface Plan {
  * for every other number (`'7:10 1:8 8-9'`: Iraqi numbers starting with 7 have ten digits, with 1 eight, the rest eight
  * or nine). `trunk` and `mobile` are comma-separated.
  */
-function plan(code: string, lens: string, trunk = '0', mobile = ''): Plan {
+function plan(code: string, lens: string, trunk = '0', mobile = '', shape?: RegExp): Plan {
   const rules = lens.split(' ').map((spec): Rule => {
     const colon = spec.indexOf(':');
     const [min, max = min] = spec.slice(colon + 1).split('-').map(Number);
     return { prefix: colon < 0 ? '' : spec.slice(0, colon), min, max };
   });
   if (rules[rules.length - 1].prefix !== '') rules.push({ prefix: '', min: 4, max: 15 - code.length });
-  return { code, rules, trunk: trunk ? trunk.split(',') : [], mobile: mobile ? mobile.split(',') : [] };
+  return { code, rules, trunk: trunk ? trunk.split(',') : [], mobile: mobile ? mobile.split(',') : [], shape };
 }
 
 /**
@@ -113,8 +118,9 @@ function plan(code: string, lens: string, trunk = '0', mobile = ''): Plan {
  * freephone 800) are left out on purpose: nobody's customer is on WhatsApp through Inmarsat.
  */
 const PLAN_LIST: Plan[] = [
-  // Zone 1: the North American plan (US, Canada, much of the Caribbean): ten digits; "1" is dialled before them at home.
-  plan('1', '10', '1'),
+  // Zone 1: the North American plan (US, Canada, much of the Caribbean): ten digits, NXX NXX XXXX — an area code and an
+  // exchange never start with 0 or 1 — and "1" is dialled before them at home.
+  plan('1', '10', '1', '', /^[2-9][0-9]{2}[2-9]/),
   // Zone 2: Africa.
   plan('20', '1:10 8-9', '0', '10,11,12,15'),
   plan('211', '9'), plan('212', '9', '0', '6,7'), plan('213', '8-9', '0', '5,6,7'), plan('216', '8', '', '2,4,5,9'),
@@ -154,8 +160,9 @@ const PLAN_LIST: Plan[] = [
   plan('677', '5-7', ''), plan('678', '5-7', ''), plan('679', '7', ''), plan('680', '7', ''), plan('681', '6', ''),
   plan('682', '5', ''), plan('683', '4', ''), plan('685', '5-7', ''), plan('686', '5-8', ''), plan('687', '6', ''),
   plan('688', '5-6', ''), plan('689', '6-8', ''), plan('690', '4-5', ''), plan('691', '7', ''), plan('692', '7', ''),
-  // Zone 7: Russia and Kazakhstan share it; "8" is dialled before a national number.
-  plan('7', '10', '8'),
+  // Zone 7: Russia and Kazakhstan share it; "8" is dialled before a national number. Russia's numbers start 3, 4, 8
+  // (landlines) or 9 (mobiles); Kazakhstan's 7 (landlines 71x/72x, mobiles 70x, 747, 75x, 76x, 77x) and 6 (reserved).
+  plan('7', '10', '8', '9,70,74,75,76,77', /^[346789]/),
   // Zone 8: East Asia.
   plan('81', '9-10', '0', '70,80,90'), plan('82', '8-10', '0', '10'), plan('84', '9-10'), plan('850', '8-10', ''),
   plan('852', '8', ''), plan('853', '8', ''), plan('855', '8-9'), plan('856', '8-10'), plan('86', '1:10-11 9-11', '0', '13,14,15,16,17,18,19'),
@@ -163,7 +170,10 @@ const PLAN_LIST: Plan[] = [
   // Zone 9: Turkey, South Asia, the Middle East — this app's people, so the most exact. Iraqi mobiles are 7 and nine
   // more digits; a Baghdad landline is 1 and seven; other governorates two-digit area codes and six or seven.
   plan('90', '10', '0', '5'), plan('91', '10', '0', '6,7,8,9'), plan('92', '3:10 9-10', '0', '3'), plan('93', '9', '0', '7'),
-  plan('94', '9', '0', '7'), plan('95', '7-10', '0', '9'), plan('960', '7', ''), plan('961', '7-8'),
+  plan('94', '9', '0', '7'), plan('95', '7-10', '0', '9'), plan('960', '7', ''),
+  // Lebanon: mobiles are 3 and six digits (written 03) or 70, 71, 76, 78, 79, 81 and six (written without the 0);
+  // landlines a one-digit area code and six (Beirut 01).
+  plan('961', '7-8', '0', '3,70,71,76,78,79,81'),
   plan('962', '7:9 8', '0', '7'), plan('963', '9:9 8-9', '0', '9'), plan('964', '7:10 1:8 8-9', '0', '74,75,76,77,78,79'),
   plan('965', '8', '', '4,5,6,9'), plan('966', '5:9 8-10', '0', '5'), plan('967', '7:9 7-8', '0', '7'),
   plan('968', '8', '', '7,9'), plan('970', '5:9 8-9', '0', '5'), plan('971', '5:9 8-9', '0', '5'), plan('972', '5:9 8-9', '0', '5'),
@@ -193,7 +203,23 @@ export function countryOf(phone: string): string {
 
 function lengthWhy(p: Plan, nsn: string): InvalidWhy | null {
   const r = p.rules.find((x) => nsn.startsWith(x.prefix)) ?? p.rules[p.rules.length - 1];
-  return nsn.length < r.min ? 'too-short' : nsn.length > r.max ? 'too-long' : null;
+  if (nsn.length < r.min) return 'too-short';
+  if (nsn.length > r.max) return 'too-long';
+  return p.shape && !p.shape.test(nsn) ? 'not-a-number' : null;
+}
+
+/**
+ * Whether bare digits are more likely the home country's own number with one digit too many than another country's
+ * number written without its `+`: they start the way a home number of a known shape starts (a mobile prefix, or a
+ * prefix with a length of its own) and are at most one digit longer than that number can be. `75012345678` in an
+ * Iraqi list is an Iraqi mobile with its zero gone and a slip of the finger; read as +7 501… it would message a
+ * stranger in another country. Refused as too long, the person sees the line and fixes it.
+ */
+function homeTypo(home: Plan, digits: string): boolean {
+  const known = home.rules.some((x) => x.prefix !== '' && digits.startsWith(x.prefix)) || home.mobile.some((m) => digits.startsWith(m));
+  if (!known) return false;
+  const r = home.rules.find((x) => digits.startsWith(x.prefix)) ?? home.rules[home.rules.length - 1];
+  return digits.length <= r.max + 1;
 }
 
 /** Whether a number is shaped like a mobile in its country: `null` where this does not know the country's mobiles. */
@@ -372,6 +398,7 @@ const FOREIGN_MIN = 11;
  *   4. A national number without its trunk (`750 123 4567`: what Excel leaves when it drops the zero) gets the country.
  *   5. Bare digits too long to be national here but a valid number of another country with its code in front
  *      (`447911123456` in an Iraqi list) are that number: lists exported from WhatsApp tools are written exactly so.
+ *      Not when they look like a home number with one digit too many (`homeTypo`): that is a typo, not a foreigner.
  *   6. Otherwise the most telling reason: the trunk reading's, else the country-code reading's, else the national one's.
  */
 function normalise(raw: string, country: string): Norm {
@@ -405,7 +432,7 @@ function normalise(raw: string, country: string): Norm {
     const why = lengthWhy(home, digits);
     if (!why) return { phone: home.code + digits, via: 'bare' };
     first ??= why;
-    if (digits.length >= FOREIGN_MIN) {
+    if (digits.length >= FOREIGN_MIN && !homeTypo(home, digits)) {
       const f = international(digits, 'foreign');
       if ('phone' in f) return f;
     }
