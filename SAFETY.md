@@ -41,6 +41,8 @@ and pressing it goes straight back to this setting. Everything it approves is
 written into the transcript, marked as such, so what happened while you were
 not reading is something you can read afterwards.
 
+The approval dialog also has **Accept all**. It answers like the third choice, but only for the rest of the run it was pressed in, and never for anything on the list below. The same marker shows while it lasts, and pressing the marker ends it at once.
+
 **The model gains nothing.** `apply_write`, the Rust `run_command` and every
 `pty_*` command stay absent from the tool schema, exactly as before
 (`app/test/modes.test.mjs`). Auto-approve answers the dialog; it does not go

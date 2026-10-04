@@ -181,6 +181,7 @@ import { callerFor } from './whatsappwire';
 import { accountFor as waAccountFor, isWhatsAppTool as isWaTool, runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
 import { bulkDepsFor, type FileRead } from './whatsappbulktool';
 import { claimBroadcastDrop } from './WhatsAppPeople';
+import { choicesFor } from './modelchoice';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
 import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
@@ -597,6 +598,14 @@ export function App() {
   // Commands the user chose to stop being asked about. Session-only and matched
   // exactly: "always allow npm test" should not quietly also allow "npm test && rm -rf".
   const trusted = useRef(new Set<string>());
+  /**
+   * "Accept all" in the approval dialog: the rest of this run is answered as level `all` would answer it, and
+   * only this run. A ref so the running turn sees it at once (the callback below was handed to the agent when
+   * the turn began), and state so the status bar can say so and offer to stop. The refuse-list is still
+   * worked out first, so what cannot be undone still asks.
+   */
+  const acceptAll = useRef(false);
+  const [acceptAllRun, setAcceptAllRun] = useState(false);
   // Files this session actually wrote, so the commit bar offers exactly those
   // rather than whatever else is dirty in the tree.
   const [written, setWritten] = useState<string[]>([]);
@@ -3227,7 +3236,7 @@ export function App() {
     // still passes through here, is still recorded, and still runs down the
     // same path — so turning the mode off leaves nothing behind.
     const unattendedTool = unattended && req.kind === 'mcp';
-    const call = decideAuto(req.command, auto);
+    const call = decideAuto(req.command, acceptAll.current && !unattended ? 'all' : auto);
     if (call.kind === 'run' && !unattendedTool) {
       push({ kind: 'result', text: `${t('Ran without asking')} — ${req.command}` });
       return Promise.resolve('pipe');
@@ -3238,7 +3247,7 @@ export function App() {
     const sayWhy = unattendedTool
       ? t('an unattended run may not use MCP tools')
       : call.kind === 'ask' && call.why ? t(call.why) : null;
-    if (autoOn(auto) && sayWhy) {
+    if ((autoOn(auto) || acceptAll.current) && sayWhy) {
       push({ kind: 'result', text: `${t('Asking anyway, because')} ${sayWhy} — ${req.command}` });
     }
     setAskRun(req);
@@ -4271,6 +4280,9 @@ export function App() {
         return { ok: false, error };
       }
     } finally {
+      // "Accept all" lasts for the run it was pressed in.
+      acceptAll.current = false;
+      setAcceptAllRun(false);
       abort.current = null;
       openLine.current = null;
       // Before `setBusy`, which lands a task later: the tick must not see an
@@ -4513,6 +4525,7 @@ export function App() {
             {shown === 'motion' && (
               <Suspense fallback={<div className="panel-load">{t('Opening…')}</div>}>
                 <MotionPanel t={t} lang={lang} gw={wired} efforts={efforts}
+                      models={choicesFor(choice.provider === BUILT_IN, MODELS, (id) => allows(plan, id), providers.find((p) => p.id === choice.provider)?.models ?? [])}
                       onProviders={() => { setSettingsAt('account'); setShowSettings(true); }}
                       onError={(m) => push({ kind: 'error', text: m })} />
               </Suspense>
@@ -5676,6 +5689,18 @@ export function App() {
                   {t('Run in terminal')}
                 </button>
               )}
+              {/* Not offered for anything the refuse-list caught, for the reason "Always allow this" is not, nor when
+                  the level already answers everything. It is a person answering a dialog they are reading, for this
+                  run only; the status bar says so while it lasts and one press turns it off. */}
+              {!refusedFor(askRun.command) && auto !== 'all' && !acceptAllRun && (
+                <button className="ghost keep" title={t('Run this and everything else in this run without asking, except what cannot be undone.')}
+                        onClick={() => {
+                          acceptAll.current = true;
+                          setAcceptAllRun(true);
+                          push({ kind: 'result', text: t('Accepting everything else in this run, except what cannot be undone') });
+                          decide.current?.('pipe');
+                        }}>{t('Accept all')}</button>
+              )}
               <button className="approve" onClick={() => decide.current?.('pipe')}>{t('Run')}</button>
             </div>
           </div>
@@ -6172,11 +6197,15 @@ export function App() {
             A mode that relaxes the rule the app rests on must not be something
             you can forget is running — the whole point is that nothing else
             will stop and tell you. */}
-        {autoOn(auto) && (
-          <button className="st-auto" onClick={() => { setSettingsAt('approval'); setShowSettings(true); }}
-                  title={t(LEVEL_LABEL[auto])}>
+        {(autoOn(auto) || acceptAllRun) && (
+          <button className="st-auto" onClick={() => {
+                    // "Accept all" ends here at once; the level is a setting, so it goes to the setting.
+                    if (acceptAllRun && !autoOn(auto)) { acceptAll.current = false; setAcceptAllRun(false); return; }
+                    setSettingsAt('approval'); setShowSettings(true);
+                  }}
+                  title={autoOn(auto) ? t(LEVEL_LABEL[auto]) : t('Click to be asked again')}>
             <Icon name="bolt" size={12} />
-            {t(auto === 'all' ? 'Running without asking' : 'Applying without asking')}
+            {t(auto === 'all' || !autoOn(auto) ? 'Running without asking' : 'Applying without asking')}
           </button>
         )}
         <span className="sp" />

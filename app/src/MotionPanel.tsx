@@ -6,6 +6,7 @@ import { fill, type Lang } from './i18n';
 import { armed } from './providers';
 import type { Target } from './generate';
 import type { EffortBook } from './effort';
+import { MODEL_KEY, routeFor, readPick, type ModelChoice } from './modelchoice';
 import { dateText, locale } from './fmt';
 import type { Format, Motion, RecipeId } from './motiontypes';
 import { TABS, type Change, type OnEdit, type Tab } from './motionui';
@@ -97,6 +98,8 @@ export interface MotionProps {
    */
   gw: Target;
   efforts: EffortBook;
+  /** The models the request form offers (modelchoice.ts); fewer than two and the form shows no Model choice. */
+  models?: readonly ModelChoice[];
   onProviders: () => void;
   onError: (message: string) => void;
 }
@@ -141,6 +144,13 @@ let selected: string | null = null;
 let autoplay: string | null = null;
 
 const draft: Draft = freshDraft();
+/** The model picked on the request form ('' is Auto, the composer's); remembered between sessions, checked against the menu on use. */
+let modelPick = '';
+try { modelPick = localStorage.getItem(MODEL_KEY) ?? ''; } catch { /* private mode */ }
+function setModelPick(id: string) {
+  modelPick = id;
+  try { localStorage.setItem(MODEL_KEY, id); } catch { /* private mode */ }
+}
 /** Draws the request form again from `draft`, after something other than typing filled it. */
 let formNonce = 0;
 
@@ -734,7 +744,7 @@ function Examples({ t, id }: { t: T; id: string }) {
 
 // ── the panel ─────────────────────────────────────────────────────────────
 
-export function MotionPanel({ t, lang, gw, efforts, onProviders, onError }: MotionProps) {
+export function MotionPanel({ t, lang, gw, efforts, models, onProviders, onError }: MotionProps) {
   useWatch();
   const fullBox = useRef<HTMLDivElement>(null);
   const bodyBox = useRef<HTMLDivElement>(null);
@@ -810,7 +820,7 @@ export function MotionPanel({ t, lang, gw, efforts, onProviders, onError }: Moti
     }
     openGraphic(holder.id);
     const asked = { ...d };
-    startPlan(holder, planRequestOf(d, doc ? doc.lang : lang), gw, efforts, (e) => {
+    startPlan(holder, planRequestOf(d, doc ? doc.lang : lang), routeFor(gw, models, modelPick), efforts, (e) => {
       // The words go back into the box, unless something new has been written there since.
       if (!draft.request.trim()) Object.assign(draft, { request: asked.request, format: asked.format, seconds: asked.seconds, palette: asked.palette });
       draft.error = e === null ? null : errorText(e, t, t('make the graphic'), hostOf(gw.baseUrl));
@@ -835,7 +845,7 @@ export function MotionPanel({ t, lang, gw, efforts, onProviders, onError }: Moti
 
   const send = (text: string) => {
     if (!open || !ready) return;
-    startRefine(open, text, gw, efforts, {
+    startRefine(open, text, routeFor(gw, models, modelPick), efforts, {
       moved: t('The graphic changed while the model was answering, so nothing was applied. Send the message again.'),
       failed: (e) => errorText(e, t, t('answer your message'), hostOf(gw.baseUrl)),
     });
@@ -981,7 +991,7 @@ export function MotionPanel({ t, lang, gw, efforts, onProviders, onError }: Moti
     <div className="mo" ref={bodyBox} tabIndex={-1}>
       {unkept && <p className="vid-warn">{t('Graphics cannot be kept on this machine right now. Export before you close the app.')}</p>}
       {view || (
-        <Form key={formNonce} t={t} lang={lang} ready={ready} inFull={isFull} motions={motions}
+        <Form key={formNonce} t={t} lang={lang} ready={ready} inFull={isFull} motions={motions} models={models} gw={gw}
               onMake={(d) => makeFrom(d)} onTemplate={startTemplate} onRemove={(m) => void remove(m)} onProviders={onProviders} />
       )}
     </div>
@@ -1054,9 +1064,12 @@ export function MotionPanel({ t, lang, gw, efforts, onProviders, onError }: Moti
 
 // ── asking for a graphic ──────────────────────────────────────────────────
 
-function Form({ t, lang, ready, inFull, motions, onMake, onTemplate, onRemove, onProviders }: {
+function Form({ t, lang, ready, inFull, motions, models, gw, onMake, onTemplate, onRemove, onProviders }: {
   t: T;
   lang: Lang;
+  models?: readonly ModelChoice[];
+  /** The composer's route: what Auto means. */
+  gw: Target;
   ready: boolean;
   inFull: boolean;
   motions: Motion[];
@@ -1070,6 +1083,7 @@ function Form({ t, lang, ready, inFull, motions, onMake, onTemplate, onRemove, o
   const [seconds, setSeconds] = useDraft('seconds');
   const [palette, setPalette] = useDraft('palette');
   const [error, setError] = useDraft('error');
+  const [model, setModel] = useState(() => readPick(modelPick, models));
   const can = canMake({ request }, ready);
 
   const go = () => {
@@ -1156,6 +1170,21 @@ function Form({ t, lang, ready, inFull, motions, onMake, onTemplate, onRemove, o
             </span>
           </span>
         </div>
+
+        {models && models.length > 1 && (
+          <div className="vid-group">
+            <label className="vid-group-label" htmlFor="mo-model">{t('Model')}</label>
+            <span className="mo-form-pal">
+              <select id="mo-model" value={model}
+                      onChange={(e) => { const id = readPick(e.target.value, models); setModel(id); setModelPick(id); }}>
+                <option value="">{t('Auto')} — {models.find((m) => m.id === gw.model)?.label ?? gw.model}</option>
+                {models.map((m) => (
+                  <option key={m.id} value={m.id} disabled={!m.ok}>{m.ok ? m.label : `${m.label} — ${t('not on your plan')}`}</option>
+                ))}
+              </select>
+            </span>
+          </div>
+        )}
 
         {error && (
           <p className="mo-form-error" role="alert">

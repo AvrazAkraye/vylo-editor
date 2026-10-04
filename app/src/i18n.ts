@@ -3660,6 +3660,11 @@ const ar: Dict = {
   'The first {n} are shown. Search to find a number.': 'يظهر أول {n} فقط. ابحث لتجد رقماً بعينه.',
   '1 person has no name: their message will leave it out.': 'شخص واحد بلا اسم: ستخلو رسالته من الاسم.',
   '{n} people have no name: their message will leave it out.': '{n} من الأشخاص بلا اسم: ستخلو رسائلهم من الاسم.',
+  // accept all + model (App.tsx approval dialog, status bar; MotionPanel.tsx request form).
+  'Accept all': 'قبول الكل',
+  'Run this and everything else in this run without asking, except what cannot be undone.': 'نفّذ هذا وكل ما يليه في هذا التشغيل دون سؤال، عدا ما لا يمكن التراجع عنه.',
+  'Accepting everything else in this run, except what cannot be undone': 'قبول كل ما يلي في هذا التشغيل، عدا ما لا يمكن التراجع عنه',
+  'Click to be asked again': 'اضغط ليُطلب رأيك من جديد',
 };
 
 const ckb: Dict = {
@@ -7299,6 +7304,11 @@ const ckb: Dict = {
   'The first {n} are shown. Search to find a number.': 'تەنها یەکەم {n} پیشان دەدرێن. بگەڕێ بۆ ئەوەی ژمارەیەک بدۆزیتەوە.',
   '1 person has no name: their message will leave it out.': '1 کەس ناوی نییە: نامەکەی بەبێ ناو دەنێردرێت.',
   '{n} people have no name: their message will leave it out.': '{n} کەس ناویان نییە: نامەکانیان بەبێ ناو دەنێردرێن.',
+  // accept all + model (App.tsx approval dialog, status bar; MotionPanel.tsx request form).
+  'Accept all': 'قبوڵکردنی هەموو',
+  'Run this and everything else in this run without asking, except what cannot be undone.': 'ئەمە و هەموو ئەوانی تر لەم ڕاکردنەدا بەبێ پرسیار جێبەجێ بکە، جگە لەوانەی ناگەڕێنرێنەوە.',
+  'Accepting everything else in this run, except what cannot be undone': 'هەموو ئەوانی تر لەم ڕاکردنەدا قبوڵ دەکرێن، جگە لەوانەی ناگەڕێنرێنەوە',
+  'Click to be asked again': 'کلیک بکە تا دیسان پرسیارت لێ بکرێت',
 };
 
 const kmr: Dict = {
@@ -10936,6 +10946,11 @@ const kmr: Dict = {
   'The first {n} are shown. Search to find a number.': 'بتنێ {n} یێن ئێکێ دهێنە نیشاندان. بگەڕە دا ژمارەکێ ببینی.',
   '1 person has no name: their message will leave it out.': '1 کەسی ناڤ نینە: پەیاما وی دێ بێ ناڤ هێتە هنارتن.',
   '{n} people have no name: their message will leave it out.': '{n} کەسان ناڤ نینە: پەیامێن وان دێ بێ ناڤ هێنە هنارتن.',
+  // accept all + model (App.tsx approval dialog, status bar; MotionPanel.tsx request form).
+  'Accept all': 'قبوڵکرنا هەمیان',
+  'Run this and everything else in this run without asking, except what cannot be undone.': 'ئەڤە و هەمی یێن دی د ڤێ ڕاکرنێ دا بێ پرسیار بکە، ژبلی وان یێن نەهێنە ڤەگەڕاندن.',
+  'Accepting everything else in this run, except what cannot be undone': 'هەمی یێن دی د ڤێ ڕاکرنێ دا دهێنە قبوڵکرن، ژبلی وان یێن نەهێنە ڤەگەڕاندن',
+  'Click to be asked again': 'کلیک بکە دا دیسا ژ تە بهێتە پرسین',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
