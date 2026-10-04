@@ -528,5 +528,24 @@ console.log('the library: blanks that could leak');
   ok('every message stays under 700 characters filled with 120-character values in every blank', each((t, l) => fillTemplate(t, l, Object.fromEntries(t.vars.map((v) => [v, 'x'.repeat(120)]))).length > 700 + 120 * t.vars.length && `${t.id}/${l}`).length === 0);
 }
 
+// ── what SAFETY promises about this part, against the code ───────────────────
+console.log('the documents');
+{
+  const safety = read('SAFETY.md');
+  const para = safety.slice(safety.indexOf('**Messaging many people'), safety.indexOf('**A voice note'));
+  ok('SAFETY: the audience tool gives the model counts and three masked examples (and the test above holds that nothing else goes)', /`whatsapp_audience` gives the model counts and three masked examples/.test(para));
+  ok('SAFETY: lists live in IndexedDB vylo-whatsapp-bulk, as the store names it', para.includes('`vylo-whatsapp-bulk`') && /const DB = 'vylo-whatsapp-bulk'/.test(read('app/src/whatsappbulkstore.ts')));
+  ok('SAFETY: stop-word replies are added by a press on the report, which is what the code does (nothing adds them by itself)',
+    /one press adds everyone who replied with a stop word/.test(para) && !/addSuppressed/.test(read('app/src/whatsappsend.ts')) && /Add STOP replies to the do-not-contact list/.test(read('app/src/WhatsAppRun.tsx')));
+  ok('SAFETY: Write with AI sends the brief, the message being changed and the business name', /sends the model your brief, the message you asked it to change and your business name, and nothing else/.test(para));
+  ok('SAFETY: a model-written send is asked at every level (the first section holds it from any account)', /it is asked at every auto-approve level/.test(safety));
+  const ids = (f) => [...new Set([...read(f).matchAll(/`([^`\n]+)`/g)].map((m) => m[1]))].sort().join('\n');
+  ok('the four SAFETY files still name the same identifiers', ['SAFETY.ar.md', 'SAFETY.ckb.md', 'SAFETY.kmr.md'].every((f) => ids(f) === ids('SAFETY.md')));
+  const stopLine = { 'SAFETY.ar.md': 'تضيف ضغطة واحدة', 'SAFETY.ckb.md': 'بە یەک داگرتن', 'SAFETY.kmr.md': 'ب ئێک گڤاشتنێ' };
+  ok('and all four say the stop-word replies are added by a press', Object.entries(stopLine).every(([f, w]) => read(f).includes(w)));
+  const tool = read('app/src/whatsappbulktool.ts') + read('app/src/whatsapptool.ts');
+  ok('no comment still says an unattended routine can read WhatsApp or prepare a draft', !/unattended routine can prepare/.test(tool) && !/It can read, and it can draft/.test(tool));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

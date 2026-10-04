@@ -18,7 +18,9 @@
  * room. That is the definition, not an edge case.
  *
  * The consequence is deliberate: an unattended routine cannot send WhatsApp.
- * It can read, and it can draft, and then it waits for somebody.
+ * It runs in Ask mode (agents.ts `modeFor`), which is offered no WhatsApp tool
+ * at all — not even these reads — so it can write a draft in its answer, and
+ * then it waits for somebody.
  *
  * ## Reading is not
  *
