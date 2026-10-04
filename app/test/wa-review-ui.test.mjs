@@ -216,6 +216,29 @@ console.log('Names in the tables line up on the panel\'s edge');
     /display\s*:\s*flex/.test(ruleOf('.wa-bk-tr > .wa-bk-cellname')) && /text-overflow\s*:\s*ellipsis/.test(ruleOf('.wa-bk-cellname bdi')));
 }
 
+// ── Words ───────────────────────────────────────────────────────────────────
+console.log('Words a shopkeeper reads');
+{
+  const ar = translator('ar');
+  const C = await imp('WhatsAppCompose');
+  // "with a break every 20." — every 20 what? (The Sorani and Badini already said "messages"; English and Arabic did not.)
+  const card = review(campaign({ consent: true }));
+  ok('the pace says what the break comes after', card.includes('About one message every 12–30 seconds, with a break after every 20 messages.'), card.slice(card.indexOf('Pace'), card.indexOf('Pace') + 300));
+  ok('and so does the Arabic', ar('About one message every {min}–{max} seconds, with a break after every {batch} messages.').includes('بعد كل {batch} من الرسائل'));
+  // "10 people have no first_name" — a placeholder's spelling in a sentence, said twice when both name chips are used.
+  const nameless = { recipients: [R('9647500000001', ''), R('9647500000002', ''), R('9647500000003', 'Ali')], source: 'text', rejected: [], duplicates: 0, removed: 0, columns: [], phoneColumn: null, nameColumn: null };
+  const w = C.messageNotes({ ...MSG, text: 'Hi {first_name}, dear {name}' }, nameless, en).warn;
+  eq('people without a name are said once, in words', w, ['2 people have no name: their message will leave it out.']);
+  eq('one person, in the singular', C.messageNotes({ ...MSG, text: 'Hi {name}' }, { ...nameless, recipients: nameless.recipients.slice(1) }, en).warn, ['1 person has no name: their message will leave it out.']);
+  // "Download CSV": nothing downloads (a save panel opens) and CSV means nothing to most people who keep a shop.
+  const rpt = draw(h(Run.ReportView, { t: en, lang: 'en', campaign: campaign({ state: 'done' }), onAddSuppressed: async () => {}, onDuplicate() {}, onDoNotContact() {} }));
+  ok('the report is saved, as a spreadsheet', rpt.includes('Save as a spreadsheet (CSV)') && !rpt.includes('Download CSV'));
+  // Arabic counted nouns: "{days} أيام" is wrong for 2 and for 11 and up, "{h} ساعة" for 2 to 10, "{max} حرفاً" for 3,800.
+  ok('Arabic durations are written the way the English abbreviates them', ['about {h} h {m} min', 'about {h} h', 'about {m} min'].every((k) => !/ساعة|دقيقة/.test(ar(k))), ['about {h} h {m} min', 'about {h} h', 'about {m} min'].map(ar));
+  ok('Arabic days are counted without a plural that is wrong for most numbers', ar('At {cap} a day this takes {days} days. Keep the app open: it continues each day by itself.').includes('أياماً عددها {days}'));
+  ok('Arabic characters are a label, not a counted noun', ar('{n} of {max} characters').startsWith('الأحرف:'));
+}
+
 // ── 4. The stylesheet, as WebKit drew it ───────────────────────────────────
 console.log('The stylesheet, as WebKit drew it');
 {

@@ -530,8 +530,20 @@ export function messageNotes(msg: MessageWork, people: People | null, t: (s: str
   }
   const warn: string[] = [];
   if (people && people.recipients.length) {
+    let named = false;
     for (const m of missingVars(draftOf(msg), people.recipients)) {
-      if (m.missing <= 0 || (!columns.includes(m.name) && !PER_PERSON.includes(m.name))) continue;
+      const perPerson = PER_PERSON.includes(m.name);
+      if (m.missing <= 0 || (!columns.includes(m.name) && !perPerson)) continue;
+      if (perPerson) {
+        // `{name}` and `{first_name}` are both the person's name: said once, in words, not in a placeholder's spelling
+        // ("10 people have no first_name").
+        if (!named) {
+          warn.push(m.missing === 1 ? t('1 person has no name: their message will leave it out.')
+            : fill(t('{n} people have no name: their message will leave it out.'), { n: num(m.missing) }));
+        }
+        named = true;
+        continue;
+      }
       warn.push(m.missing === 1
         ? fill(t('1 person has no {var}: their message will leave it out.'), { var: m.name })
         : fill(t('{n} people have no {var}: their message will leave it out.'), { n: num(m.missing), var: m.name }));

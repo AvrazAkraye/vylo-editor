@@ -412,7 +412,7 @@ export function ReviewStep({ t, account, campaign, msg, sentToday, country, onPa
         <div className="wa-bk-rv">
           <dt>{t('Pace')}</dt>
           <dd>
-            <span className="wa-bk-line">{fill(t('About one message every {min}–{max} seconds, with a break every {batch}.'), { min: pace.minDelaySec, max: pace.maxDelaySec, batch: pace.batchSize })}</span>
+            <span className="wa-bk-line">{fill(t('About one message every {min}–{max} seconds, with a break after every {batch} messages.'), { min: pace.minDelaySec, max: pace.maxDelaySec, batch: pace.batchSize })}</span>
             <span className="wa-bk-line">{fill(t('Sending takes {time} in all.'), { time: durationText(estimateSeconds(n, pace), t) })}</span>
             <span className="wa-bk-line">{fill(t('{cap} a day at most.'), { cap: num(pace.dailyCap) })}</span>
             {days > 1 && (
@@ -724,7 +724,7 @@ export function ReportView({ t, lang, campaign, msgs, onAddSuppressed, onDuplica
         </div>
       )}
       <div className="wa-bk-acts">
-        <button type="button" className="wa-bk-btn" onClick={() => void csv()}><Icon name="file" size={13} />{t('Download CSV')}</button>
+        <button type="button" className="wa-bk-btn" onClick={() => void csv()}><Icon name="file" size={13} />{t('Save as a spreadsheet (CSV)')}</button>
         <button type="button" className="wa-bk-btn" onClick={() => void stops()}><Icon name="shield" size={13} />{t('Add STOP replies to the do-not-contact list')}</button>
         <button type="button" className="wa-bk-btn is-quiet" onClick={onDoNotContact}>{t('Do-not-contact list')}</button>
         <button type="button" className="wa-bk-btn is-quiet" onClick={onDuplicate}>{t('Use again as a new broadcast')}</button>
