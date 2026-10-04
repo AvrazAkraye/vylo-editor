@@ -76,7 +76,7 @@ console.log('A tick and a typed count belong to one broadcast, to one list');
   const big = list(5000);
   const t0 = performance.now();
   for (let i = 0; i < 20; i++) B.reviewKey('c1', big, 'main');
-  ok('keying five thousand people is cheap (20 times under 200 ms)', performance.now() - t0 < 200 * (process.env.CI ? 4 : 1), performance.now() - t0);
+  ok('* SLOW keying five thousand people 20 times stays under 200 ms', performance.now() - t0 < 200 * (process.env.CI ? 4 : 1), performance.now() - t0);
   ok('the shell keeps the tick as the key it was given for, not as a boolean',
     /const \[consentFor, setConsentFor\] = useState/.test(broadcast) && /const consent = consentFor !== '' && consentFor === reviewAt;/.test(broadcast));
   ok('the review card is drawn per broadcast and list, so a typed count never carries over', /<ReviewStep key=\{reviewAt\}/.test(broadcast));
@@ -155,6 +155,14 @@ console.log('The chips and the blanks come from what each person carries');
   const notes = C.messageNotes({ ...MSG, text: 'Call {phone} in {city}' }, ppl, en);
   ok('a header column nobody carries is a blank on step 2, as on the card', notes.block.some((s) => s.includes('{phone}')), notes);
   ok('a column people carry is not', !notes.block.some((s) => s.includes('{city}')));
+  // The reader leaves an empty cell out of `vars`: a city column empty for the first few hundred rows is still a column.
+  const late = [...list(400), R('9647709999999', 'Late', { city: 'Zakho' })];
+  ok('a column only later rows carry is still offered and is not a blank', P.columnsOf(late).includes('city')
+    && Run.blanksOf(campaign({ recipients: late, message: { text: 'Hi {name} in {city}', lang: 'en', optOut: true } })).length === 0);
+  const huge = Array.from({ length: 5000 }, (_, i) => R(`9647${String(500000000 + i)}`, `N${i}`, { city: 'Erbil', shop: 'A', tier: 'Gold' }));
+  const t0 = performance.now();
+  for (let i = 0; i < 30; i++) P.columnsOf(huge);
+  ok('* SLOW reading the columns of 5,000 people 30 times stays under 150 ms', performance.now() - t0 < 150 * (process.env.CI ? 4 : 1), performance.now() - t0);
 }
 
 // Found with 20,000 numbers in WebKit: the do-not-contact list drew the first 500 (in 331 ms) under "20,001 people",
