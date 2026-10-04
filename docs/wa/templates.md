@@ -104,6 +104,8 @@ cart, order, delivery, payment, appointment, followup, review, survey, food, pro
 - `event-2` (workshop) has no fee line, to stay within six blanks; the sender adds a price to `{service}` or the text.
 - The multi-word fallback (most words found) when no message has every word.
 - `settings` is the one icon of the brief's list no category uses; no two categories share one.
+- "Optional business sign-off" on the greetings means the person deletes the `{business}` line in the compose box if they
+  want none; `fillTemplate` never drops text, so an unfilled `{business}` stays visible for the screen to flag.
 
 ### Open problems
 
