@@ -1,3 +1,4 @@
+import { readOpenIn, type OpenIn } from './devserver';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
@@ -91,6 +92,9 @@ interface Props {
   // ── Editor ──
   autocomplete: boolean;
   onAutocomplete: (v: boolean) => void;
+  /** Where the address of an app the agent started opens (devserver.ts). */
+  devOpen: OpenIn;
+  onDevOpen: (v: OpenIn) => void;
   /** Push-to-talk: the switch, the key, and the codes seen going down this session. */
   ptt: PttSetting;
   onPtt: (v: PttSetting) => void;
@@ -478,6 +482,18 @@ function Control({ row, ...p }: ControlProps) {
                   onChange={(e) => p.onAutocomplete(e.target.value === 'on')}>
             <option value="on">{t('On — suggest as I type, Tab to accept')}</option>
             <option value="off">{t('Off')}</option>
+          </select>
+        </Row>
+      );
+
+    case 'devOpen':
+      return (
+        <Row label={label} hint={hint}>
+          <select className="set-sel" value={p.devOpen} aria-label={label}
+                  onChange={(e) => p.onDevOpen(readOpenIn(e.target.value))}>
+            <option value="chrome">{t('Open it in Chrome')}</option>
+            <option value="default">{t('Open it in my default browser')}</option>
+            <option value="off">{t('Do not open it')}</option>
           </select>
         </Row>
       );

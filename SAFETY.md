@@ -788,6 +788,16 @@ folder, and trusting `npm test` does not also trust `npm test && rm -rf ~`
 **"Run in terminal"** puts the same, already-approved string on a surface you
 can watch and interrupt. It is not a second decision.
 
+**A server the agent starts.** `npm start`, `npm run dev`, `expo start` and the like never end, so when the approved
+command is one of a short list of them (`app/src/devserver.ts`) it runs in the terminal instead of a pipe, where you
+can watch and stop it, and the agent is told as soon as the server prints its address. The app then opens that
+address in Chrome, in your default browser, or nowhere — Settings → Editor, Chrome by default — with `open_local`
+(`app/src-tauri/src/devenv.rs`), which refuses everything that is not an `http` or `https` address on this machine
+(`localhost`, `127.0.0.1`, `[::1]`, `0.0.0.0`): not another host, not one with a sign-in in it, not any other
+scheme. It is one more command the model cannot call: it is not in the tool schema. The same file reads your login
+shell's `PATH` once at launch, because an app opened from the Dock starts with an almost empty one and `npm` is not
+found; `run_command` then runs with that `PATH`. Nothing else changes about what a command may do.
+
 **MCP tool calls go through the same dialog.** `.vylo/mcp.json` lives in the
 project, so it arrives with the project, and a repository you cloned can name
 any command it likes — which is why reading that file starts nothing. A server

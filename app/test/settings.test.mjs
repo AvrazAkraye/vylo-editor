@@ -45,6 +45,7 @@ const find = (groups, id) => ids(groups).includes(id);
     theme: 'appearance',           // match system / light / dark
     language: 'appearance',
     inlineCompletion: 'editor',
+    devOpen: 'editor',             // where an app the agent starts opens (Chrome by default)
     notifyWhen: 'notifications',   // when the agent needs me / for everything
     notifySound: 'notifications',
     globalShortcut: 'shortcuts',   // with its "press a combination" capture

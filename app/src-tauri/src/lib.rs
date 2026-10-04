@@ -35,6 +35,7 @@
 mod mac;
 mod capture;
 mod checkpoint;
+mod devenv;
 mod drafts;
 mod history;
 mod index;
@@ -935,6 +936,9 @@ fn run_command(root: String, command: String, timeout_secs: Option<u64>) -> Resu
     #[cfg(not(windows))]
     let mut child = Command::new("sh")
         .args(["-c", &command])
+        // The PATH the person's own terminal has (devenv.rs): a program started from the Dock gets the bare
+        // system one, in which `npm` and `python3` from Homebrew or nvm are "command not found".
+        .env("PATH", devenv::command_path())
         .current_dir(&dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -2072,6 +2076,8 @@ pub fn run() {
             if let Some(w) = app.get_webview_window("main") {
                 mac::hide_window_buttons(&w);
             }
+            // The person's shell PATH, worked out in the background so the first command is not kept waiting.
+            devenv::warm();
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -2080,7 +2086,7 @@ pub fn run() {
             apply_write, read_for_editor, git_state, run_command, git_create_branch, git_commit,
             create_file, create_dir, rename_path, delete_path,
             git_status, git_file_head, git_diffstat,
-            git_remote, git_push, git_pull, git_fetch, open_url,
+            git_remote, git_push, git_pull, git_fetch, open_url, devenv::open_local,
             checkpoint_save, checkpoint_list, checkpoint_restore, checkpoint_redo, find_symbol,
             list_symbols, symbols_in_text,
             mac::hide_traffic_lights,

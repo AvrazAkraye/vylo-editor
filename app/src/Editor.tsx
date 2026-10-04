@@ -29,6 +29,8 @@ import {
   pendingEdit, setPendingEdit, type Gateway,
 } from './inline';
 import { Icon } from './Icon';
+import { binaryKind, fullPath, KIND_LABEL } from './filekind';
+import { IS_MAC } from './platform';
 import { setStaged, stagedPreview, type Staged } from './staged';
 import { kindOf, loadGrammars } from './highlight';
 
@@ -192,12 +194,16 @@ interface Props {
    * App — so this hands over the name and nothing else.
    */
   onDefinition: (name: string) => void;
+  /** Hand a file that is not text to the chat, by its full path (a PDF the agent can read). */
+  onAttach?: (fullPath: string) => void;
 }
 
 export function Editor({
   root, path, visible, dark, line, complete, edit, staged, recover, t, grow = 1,
-  onReady, onDirty, onSaved, onError, onDefinition,
+  onReady, onDirty, onSaved, onError, onDefinition, onAttach,
 }: Props) {
+  /** A PDF, a picture, an archive: not text, so nothing is read and nothing is reported as an error (filekind.ts). */
+  const bin = binaryKind(path);
   /** The ⌘K bar: where it sits, what was selected, and what came back. */
   const [ask, setAsk] = useState<{ from: number; to: number; top: number } | null>(null);
   const [instruction, setInstruction] = useState('');
@@ -370,7 +376,10 @@ export function Editor({
     const v = new EditorView({ state: EditorState.create({ doc: '', extensions }), parent: el });
     view.current = v;
 
-    void invoke<{ text: string; truncated: boolean; bytes: number }>('read_for_editor', { root, path })
+    if (bin) {
+      // Nothing to read, and nothing to type into: the pane shows a card instead.
+      v.dispatch({ effects: readOnlyC.current.reconfigure(EditorState.readOnly.of(true)) });
+    } else void invoke<{ text: string; truncated: boolean; bytes: number }>('read_for_editor', { root, path })
       .then(async ({ text, truncated, bytes }) => {
         if (disposed) return;
         if (truncated) {
@@ -434,6 +443,7 @@ export function Editor({
         v.focus();
       },
       reload: async () => {
+        if (bin) return; // a file that is not text has nothing to reload
         // Same tolerant read as the initial load, or reloading a large file
         // after a checkpoint restore would fail where opening it worked.
         const { text } = await invoke<{ text: string }>('read_for_editor', { root, path });
@@ -555,7 +565,27 @@ export function Editor({
 
   return (
     <div className="ed-wrap" style={{ display: visible ? 'flex' : 'none', flexGrow: grow }}>
-      <div className="ed" ref={host} />
+      <div className="ed" ref={host} style={bin ? { display: 'none' } : undefined} />
+
+      {bin && (
+        <div className="ed-binary" role="note">
+          <Icon name={bin === 'image' ? 'image' : 'file'} size={30} />
+          <b dir="auto">{path.split(/[\\/]/).pop()}</b>
+          <span>{T(KIND_LABEL[bin])}</span>
+          <p>{T('This is not text, so the editor does not open it.')}</p>
+          <div className="ed-binary-acts">
+            {onAttach && (
+              <button type="button" className="sb-cta-go" onClick={() => onAttach(fullPath(root, path))}>
+                <Icon name="attach" size={12} />{T('Attach to the chat')}
+              </button>
+            )}
+            <button type="button" className="ghost"
+                    onClick={() => void invoke('reveal_path', { path: fullPath(root, path) }).catch((e) => cb.current.onError(String(e)))}>
+              {T(IS_MAC ? 'Show in Finder' : 'Show in Explorer')}
+            </button>
+          </div>
+        </div>
+      )}
 
       {partial && (
         <div className="staged-bar stale">

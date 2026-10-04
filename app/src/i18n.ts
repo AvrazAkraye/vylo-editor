@@ -3665,6 +3665,25 @@ const ar: Dict = {
   'Run this and everything else in this run without asking, except what cannot be undone.': 'نفّذ هذا وكل ما يليه في هذا التشغيل دون سؤال، عدا ما لا يمكن التراجع عنه.',
   'Accepting everything else in this run, except what cannot be undone': 'قبول كل ما يلي في هذا التشغيل، عدا ما لا يمكن التراجع عنه',
   'Click to be asked again': 'اضغط ليُطلب رأيك من جديد',
+  // binary-file card (Editor.tsx, filekind.ts).
+  'PDF document': 'مستند PDF',
+  'Audio file': 'ملف صوتي',
+  'Video file': 'ملف فيديو',
+  'Archive': 'أرشيف',
+  'Office document': 'مستند أوفيس',
+  'Font file': 'ملف خط',
+  'Binary file': 'ملف ثنائي',
+  'This is not text, so the editor does not open it.': 'هذا ليس نصاً، لذا لا يفتحه المحرر.',
+  'Attach to the chat': 'أرفقه بالمحادثة',
+  // run-the-app (devserver.ts, App.tsx).
+  'When the agent starts the app': 'عندما يشغّل الوكيل التطبيق',
+  'A server the agent starts runs in the terminal, and its address opens in a browser for you. Only addresses on this machine are ever opened.': 'الخادم الذي يشغّله الوكيل يعمل في الطرفية، ويُفتح عنوانه في متصفح لأجلك. لا يُفتح إلا العناوين الموجودة على هذا الجهاز.',
+  'Open it in Chrome': 'افتحه في Chrome',
+  'Open it in my default browser': 'افتحه في متصفحي الافتراضي',
+  'Do not open it': 'لا تفتحه',
+  'Opened in Chrome:': 'فُتح في Chrome:',
+  'Opened in your browser:': 'فُتح في متصفحك:',
+  'open the app in a browser': 'فتح التطبيق في متصفح',
 };
 
 const ckb: Dict = {
@@ -7309,6 +7328,25 @@ const ckb: Dict = {
   'Run this and everything else in this run without asking, except what cannot be undone.': 'ئەمە و هەموو ئەوانی تر لەم ڕاکردنەدا بەبێ پرسیار جێبەجێ بکە، جگە لەوانەی ناگەڕێنرێنەوە.',
   'Accepting everything else in this run, except what cannot be undone': 'هەموو ئەوانی تر لەم ڕاکردنەدا قبوڵ دەکرێن، جگە لەوانەی ناگەڕێنرێنەوە',
   'Click to be asked again': 'کلیک بکە تا دیسان پرسیارت لێ بکرێت',
+  // binary-file card (Editor.tsx, filekind.ts).
+  'PDF document': 'بەڵگەنامەی PDF',
+  'Audio file': 'پەڕگەی دەنگ',
+  'Video file': 'پەڕگەی ڤیدیۆ',
+  'Archive': 'ئەرشیف',
+  'Office document': 'بەڵگەنامەی ئۆفیس',
+  'Font file': 'پەڕگەی فۆنت',
+  'Binary file': 'پەڕگەی دووانەیی',
+  'This is not text, so the editor does not open it.': 'ئەمە دەق نییە، بۆیە دەستکار نایکاتەوە.',
+  'Attach to the chat': 'بیلکێنە بە گفتوگۆکەوە',
+  // run-the-app (devserver.ts, App.tsx).
+  'When the agent starts the app': 'کاتێک نوێنەر بەرنامەکە دەخاتە کار',
+  'A server the agent starts runs in the terminal, and its address opens in a browser for you. Only addresses on this machine are ever opened.': 'ئەو سێرڤەرەی نوێنەر دەیخاتە کار لە تێرمیناڵ کار دەکات، و ناونیشانەکەی لە وێبگەڕێک بۆ تۆ دەکرێتەوە. تەنها ئەو ناونیشانانە دەکرێنەوە کە لەسەر ئەم ئامێرەن.',
+  'Open it in Chrome': 'لە Chrome بیکەرەوە',
+  'Open it in my default browser': 'لە وێبگەڕی ئاسایی من بیکەرەوە',
+  'Do not open it': 'مەیکەرەوە',
+  'Opened in Chrome:': 'لە Chrome کرایەوە:',
+  'Opened in your browser:': 'لە وێبگەڕەکەت کرایەوە:',
+  'open the app in a browser': 'کردنەوەی بەرنامەکە لە وێبگەڕێک',
 };
 
 const kmr: Dict = {
@@ -10951,6 +10989,25 @@ const kmr: Dict = {
   'Run this and everything else in this run without asking, except what cannot be undone.': 'ئەڤە و هەمی یێن دی د ڤێ ڕاکرنێ دا بێ پرسیار بکە، ژبلی وان یێن نەهێنە ڤەگەڕاندن.',
   'Accepting everything else in this run, except what cannot be undone': 'هەمی یێن دی د ڤێ ڕاکرنێ دا دهێنە قبوڵکرن، ژبلی وان یێن نەهێنە ڤەگەڕاندن',
   'Click to be asked again': 'کلیک بکە دا دیسا ژ تە بهێتە پرسین',
+  // binary-file card (Editor.tsx, filekind.ts).
+  'PDF document': 'بەڵگەنامەیا PDF',
+  'Audio file': 'پەڕگەیێ دەنگی',
+  'Video file': 'پەڕگەیێ ڤیدیۆ',
+  'Archive': 'ئەرشیڤ',
+  'Office document': 'بەڵگەنامەیا ئۆفیس',
+  'Font file': 'پەڕگەیێ فۆنت',
+  'Binary file': 'پەڕگەیێ دووانەیی',
+  'This is not text, so the editor does not open it.': 'ئەڤە نڤیس نینە، لەورا دەستکار ڤەناکەت.',
+  'Attach to the chat': 'ل گفتوگۆیێ بلکێنە',
+  // run-the-app (devserver.ts, App.tsx).
+  'When the agent starts the app': 'دەمێ ئەجێنت ئەپی دەست پێ دکەت',
+  'A server the agent starts runs in the terminal, and its address opens in a browser for you. Only addresses on this machine are ever opened.': 'ئەو سێرڤەرێ ئەجێنت دەست پێ دکەت د تێرمیناڵێ دا کار دکەت، و ناڤنیشانا وی د وێبگەڕەکێ دا بۆ تە دهێتە ڤەکرن. تەنێ ئەو ناڤنیشان دهێنە ڤەکرن یێن ل سەر ڤی ئامیری.',
+  'Open it in Chrome': 'ل Chrome ڤەکە',
+  'Open it in my default browser': 'ل وێبگەڕا من یا ئاسایی ڤەکە',
+  'Do not open it': 'ڤەنەکە',
+  'Opened in Chrome:': 'ل Chrome هاتە ڤەکرن:',
+  'Opened in your browser:': 'ل وێبگەڕا تە هاتە ڤەکرن:',
+  'open the app in a browser': 'ڤەکرنا ئەپی د وێبگەڕەکێ دا',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

@@ -1,3 +1,4 @@
+import { isServerCommand } from './devserver';
 import { invoke } from '@tauri-apps/api/core';
 import type { Pending } from './pending';
 import { appendFact, MEMORY_FILE } from './memory';
@@ -320,7 +321,17 @@ export interface CommandRequest {
  */
 export type RunChoice = 'no' | 'pipe' | 'terminal';
 export type AskToRun = (req: CommandRequest) => Promise<RunChoice>;
-export interface CommandResult { code: number | null; output: string; truncated: boolean }
+export interface CommandResult {
+  code: number | null;
+  output: string;
+  truncated: boolean;
+  /** A server: the command is still going in the user's terminal (devserver.ts). `code` is null. */
+  running?: boolean;
+  /** The first local address it printed. */
+  url?: string;
+  /** Which browser the app opened that address in, when it did. */
+  opened?: 'chrome' | 'default';
+}
 
 /**
  * A tool this module does not implement.
@@ -364,16 +375,30 @@ async function runTool(
       // This awaits a human. The loop is genuinely suspended here rather than
       // returning "pending" and ending the turn -- keeping the turn intact is
       // what lets the model act on the output in the same breath.
-      const decision = await ask({ command, reason: String(call.input.reason ?? '') });
+      let decision = await ask({ command, reason: String(call.input.reason ?? '') });
       if (decision === 'no') {
         return { content: 'The user declined to run that command.', isError: false };
       }
+
+      // A server never exits: in a pipe it is killed after two minutes with its page never opened. The same
+      // approved string runs in the terminal instead, where it can be watched and stopped (devserver.ts).
+      if (decision === 'pipe' && runInTerminal && isServerCommand(command)) decision = 'terminal';
 
       if (decision === 'terminal') {
         if (!runInTerminal) {
           return { content: 'Running in a terminal is unavailable here.', isError: true };
         }
         const t = await runInTerminal(command);
+        if (t.running) {
+          const where = t.opened === 'chrome' ? " and the app opened it in the user's Chrome" : t.opened ? " and the app opened it in the user's browser" : '';
+          const parts = [
+            `still running — it is a server, and it keeps going in the user's terminal${t.url ? `, serving at ${t.url}${where}` : ''}.`,
+            'Do not start it again and do not try to open a browser yourself.',
+          ];
+          parts.push(t.output.trim() ? `output so far:\n${t.output}` : '(no output yet)');
+          if (t.truncated) parts.push('(output was truncated)');
+          return { content: parts.join('\n\n'), isError: false };
+        }
         const parts = [`exit code: ${t.code ?? 'unknown'} (run in the user's terminal)`];
         parts.push(t.output.trim() ? `output:\n${t.output}` : '(no output)');
         if (t.truncated) parts.push('(output was truncated)');

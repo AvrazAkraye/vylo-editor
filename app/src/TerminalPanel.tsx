@@ -1,3 +1,5 @@
+import { detect as detectUrls } from './browser';
+import { isServerCommand, SERVER_QUIET_MS, SERVER_SETTLE_MS } from './devserver';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TerminalView, type TermHandle } from './TerminalView';
@@ -97,7 +99,15 @@ interface Tab {
 }
 
 /** What a command pane reports back to the agent once it finishes. */
-export interface CommandResult { code: number | null; output: string; truncated: boolean }
+export interface CommandResult {
+  code: number | null;
+  output: string;
+  truncated: boolean;
+  /** A dev server answered early: it is still going in this pane and `code` is null (devserver.ts). */
+  running?: boolean;
+  /** The first local address it printed. */
+  url?: string;
+}
 
 interface Props {
   root: string;
@@ -588,14 +598,45 @@ export function TerminalPanel({
   const runs = useRef(new Map<string, {
     buffer: string[];
     settle: (r: CommandResult) => void;
+    /** A dev server (devserver.ts): it never finishes, so the agent is told when its address appears, or after a while. */
+    server?: boolean;
+    /** The agent has been answered while the command goes on. */
+    early?: boolean;
+    timer?: number;
   }>());
+
+  /** Answer the agent now, with what the command has printed, and leave the command running. */
+  function settleEarly(id: string) {
+    const run = runs.current.get(id);
+    if (!run || run.early) return;
+    run.early = true;
+    window.clearTimeout(run.timer);
+    const { text, truncated } = readable(run.buffer.join(''));
+    const url = detectUrls(text)[0];
+    run.settle({ code: null, output: text, truncated, running: true, ...(url ? { url } : {}) });
+  }
+
+  /** Called with each chunk a command pane prints: the first local address starts the short wait before answering. */
+  function sawOutput(id: string, chunk: string) {
+    const run = runs.current.get(id);
+    if (!run) return;
+    run.buffer.push(chunk);
+    if (!run.server || run.early || run.timer !== undefined) return;
+    if (detectUrls(run.buffer.join('')).length) {
+      run.timer = window.setTimeout(() => settleEarly(id), SERVER_SETTLE_MS);
+    }
+  }
 
   useEffect(() => {
     live.current.expose(() => handles.current.get(live.current.active)?.text(200) ?? '');
     live.current.exposeRun((command) => new Promise<CommandResult>((settle) => {
       const next = newTab(Math.max(0, ...tabsRef.current.map((x) => x.n)) + 1);
       next.command = command;
-      runs.current.set(next.id, { buffer: [], settle });
+      const server = isServerCommand(command);
+      const entry: { buffer: string[]; settle: (r: CommandResult) => void; server?: boolean; early?: boolean; timer?: number } = { buffer: [], settle, server };
+      runs.current.set(next.id, entry);
+      // A server that prints no address at all still must not hold the agent for ever.
+      if (server) entry.timer = window.setTimeout(() => settleEarly(next.id), SERVER_QUIET_MS);
       setTabs((p) => [...p, next]);
       setActive(next.id);
     }));
@@ -2342,7 +2383,7 @@ export function TerminalPanel({
                 onReady={(h) => { if (h) handles.current.set(tab.id, h); else handles.current.delete(tab.id); }}
                 command={tab.command}
                 onExit={(code) => exited(tab, code)}
-                onData={tab.command ? (chunk) => runs.current.get(tab.id)?.buffer.push(chunk) : undefined}
+                onData={tab.command ? (chunk) => sawOutput(tab.id, chunk) : undefined}
                 onError={onError}
               />
 

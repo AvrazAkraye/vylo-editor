@@ -10176,3 +10176,13 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 .vm-over-at{ max-inline-size:16em; }
 /* vm:video end */
+
+/* wa:run start */
+/* binary-file card: a tab for a PDF or a picture (Editor.tsx, filekind.ts) */
+.ed-binary{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; padding:32px 20px; text-align:center; color:var(--mute); }
+.ed-binary svg{ color:var(--brand); margin-block-end:6px; }
+.ed-binary b{ color:var(--ink); font-size:var(--fs-6); font-weight:600; word-break:break-word; max-inline-size:min(520px,100%); }
+.ed-binary span{ font-size:var(--fs-4); }
+.ed-binary p{ margin:4px 0 10px; font-size:var(--fs-4); max-inline-size:360px; }
+.ed-binary-acts{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+/* wa:run end */

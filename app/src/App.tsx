@@ -182,6 +182,7 @@ import { accountFor as waAccountFor, isWhatsAppTool as isWaTool, runWhatsAppTool
 import { bulkDepsFor, type FileRead } from './whatsappbulktool';
 import { claimBroadcastDrop } from './WhatsAppPeople';
 import { choicesFor } from './modelchoice';
+import { OPEN_KEY, readOpenIn, type OpenIn } from './devserver';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
 import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
@@ -818,6 +819,12 @@ export function App() {
   }
 
   const [autocomplete, setAutocomplete] = useState(() => localStorage.getItem('vylo.autocomplete') !== '0');
+  /** Where an app the agent starts opens its address (devserver.ts). */
+  const [devOpen, setDevOpen] = useState<OpenIn>(() => readOpenIn(localStorage.getItem(OPEN_KEY)));
+  useEffect(() => { try { localStorage.setItem(OPEN_KEY, devOpen); } catch { /* private mode */ } }, [devOpen]);
+  // Read by `runPane`, which an agent turn holds for minutes: the choice as it is when the server prints its address.
+  const devOpenRef = useRef(devOpen);
+  devOpenRef.current = devOpen;
   const [acStatus, setAcStatus] = useState<CompleteStatus>('idle');
   // The mention being typed. Derived from the caret, never stored alongside the
   // text -- see mentions.ts for why.
@@ -3187,17 +3194,43 @@ export function App() {
     const choice = await askToRun({ command: reply.text, reason: reason(question) });
     if (choice === 'no') return null;
     if (!termRun.current) return t('Open the terminal first.');
-    try { await termRun.current(reply.text); }
+    try { await runPane(reply.text); }
     catch (e) { return explain(e, `${t('run')} ${reply.text}`); }
     return null;
+  }
+
+  /**
+   * Run a command in the terminal and, when it turns out to be a dev server, open the address it printed.
+   *
+   * The pane answers early for a server (TerminalPanel `settleEarly`), so this returns while the server goes on.
+   * Opening is the person's choice (Settings → Editor → "Open a started app in") and only ever reaches
+   * an address on this machine: `open_local` refuses anything else and the reader here sends only what the pane detected.
+   */
+  async function runPane(command: string): Promise<CommandResult> {
+    if (!termRun.current) throw new Error(t('Open the terminal first.'));
+    setShowTerm(true);
+    const result = await termRun.current(command);
+    if (!result.running || !result.url) return result;
+    const url = result.url;
+    // Remembered either way: the in-app browser's list of recent addresses is useful even when nothing was opened.
+    setBrowser((b) => ({ url, recent: recentUrl(b.recent, url) }));
+    const choice = devOpenRef.current;
+    if (choice === 'off') return result;
+    try {
+      const opened = await invoke<'chrome' | 'default'>('open_local', { url, browser: choice });
+      push({ kind: 'result', text: `${opened === 'chrome' ? t('Opened in Chrome:') : t('Opened in your browser:')} ${url}` });
+      return { ...result, opened };
+    } catch (e) {
+      push({ kind: 'error', text: explain(e, t('open the app in a browser')) });
+      return result;
+    }
   }
 
   async function runStep(command: string) {
     const choice = await askToRun({ command, reason: t('A step from the to-do list.') });
     if (choice === 'no') return;
     if (!termRun.current) { setShowTerm(true); push({ kind: 'result', text: t('Open the terminal first.') }); return; }
-    setShowTerm(true);
-    try { await termRun.current(command); }
+    try { await runPane(command); }
     catch (e) { push({ kind: 'error', text: explain(e, `${t('run')} ${command}`) }); }
   }
 
@@ -4172,11 +4205,7 @@ export function App() {
             bulk: bulkDepsFor(acc.value.id, lang, (path) => invoke<FileRead>('read_any_file', { path })),
           });
         },
-        runInTerminal: (command) => {
-          if (!termRun.current) throw new Error(t('Open the terminal first.'));
-          setShowTerm(true);
-          return termRun.current(command);
-        },
+        runInTerminal: (command) => runPane(command),
         environment,
         memory: mate
           ? `${memoryPrompt(memory)}\n\n${mate.brief}`.trim()
@@ -5100,6 +5129,8 @@ export function App() {
           onLang={setLang}
           autocomplete={autocomplete}
           onAutocomplete={setAutocomplete}
+          devOpen={devOpen}
+          onDevOpen={setDevOpen}
           notify={notifyPrefs}
           onNotify={setNotifyTo}
           summon={summon}
@@ -5501,6 +5532,9 @@ export function App() {
                     setWritten((prev) => [...new Set([...prev, path])]);
                   }}
                   onError={(m) => push({ kind: 'error', text: m })}
+                  onAttach={(full) => void attachAnyPath(full)
+                    .then((a) => setShots((prev) => [...prev, a]))
+                    .catch((e: unknown) => push({ kind: 'error', text: explain(e, t('attach that file')) }))}
                   grow={at >= 0 ? shares(panes, edWeights)[at] * panes.length : 1}
                 />
                 </Fragment>

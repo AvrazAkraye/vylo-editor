@@ -125,7 +125,7 @@ export const CATEGORIES: readonly Category[] = [
 export type SettingId =
   | 'gateway' | 'apiKey' | 'signedIn' | 'signOut' | 'plan' | 'providers'
   | 'theme' | 'language'
-  | 'inlineCompletion'
+  | 'inlineCompletion' | 'devOpen'
   | 'notifyWhen' | 'notifySound'
   | 'globalShortcut' | 'pushToTalk' | 'keyMap'
   | 'autoApprove'
@@ -209,6 +209,12 @@ export const SETTINGS: readonly Setting[] = [
   {
     id: 'inlineCompletion', category: 'editor', label: 'Inline completion',
     keywords: ['autocomplete', 'suggestions', 'ghost text', 'tab', 'as i type', 'copilot', 'complete'],
+  },
+
+  {
+    id: 'devOpen', category: 'editor', label: 'When the agent starts the app',
+    hint: 'A server the agent starts runs in the terminal, and its address opens in a browser for you. Only addresses on this machine are ever opened.',
+    keywords: ['browser', 'chrome', 'open', 'localhost', 'dev server', 'run the app', 'preview', 'link', 'safari', 'npm start', 'automatically'],
   },
 
   // ── Notifications ──
