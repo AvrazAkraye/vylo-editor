@@ -15,7 +15,7 @@ the thirteen categories of the brief, each in English, Arabic, Sorani (`ckb`) an
 | `delivery` | on its way, delivered, missed delivery, rescheduled | service |
 | `payment` | invoice, payment received, friendly reminder, overdue invoice | service |
 | `cart` | left something behind, still thinking it over, finish with a code | promo |
-| `welcome` | new customer, new member, thanks for subscribing, welcome gift | greeting |
+| `welcome` | new customer, new member, thanks for subscribing (greeting); welcome gift (promo) | greeting / promo |
 | `course` | registration open (promo); class reminder, certificate ready, exam time (service) | promo / service |
 | `health` | appointment reminder, check-up due, follow-up visit, results ready to collect | service |
 | `property` | new listing, viewing invitation, price update, for rent | promo |
@@ -25,7 +25,7 @@ the thirteen categories of the brief, each in English, Arabic, Sorani (`ckb`) an
 | `survey` | how did we do, short questionnaire, ask for a review | service |
 | `referral` | bring a friend, share your code, introduce someone | promo |
 
-32 service, 16 promo, 4 greeting. Ids run `order-1` … `referral-3`, contiguous per category. Tags are lowercase English words
+32 service, 17 promo, 3 greeting. Ids run `order-1` … `referral-3`, contiguous per category. Tags are lowercase English words
 (`restaurant`, `clinic`, `real-estate`, `otp`, …) so the search finds a template by the kind of business in any interface
 language. Placeholders used: `name business code phone product price time address hours date link offer service place
 old_price` (not `discount`, `points`, `days`).
@@ -40,8 +40,13 @@ old_price` (not `discount`, `points`, `days`).
   `{order}`; the text around it ("Your order number: {code}", "invoice {code}") says what it is.
 - **`survey` is `service`**: it goes to people who have just been customers and sells nothing. `course` splits: the
   registration advert is `promo`, the reminders, the certificate and the exam are `service`.
+- **`welcome-4` (the welcome gift) is `promo`, not `greeting`.** It carries `{offer}` and `{code}`: a coupon is a promotion,
+  and a `greeting` would go out without the opt-out line (WA.md rule 3). The other three welcomes are greetings, and the
+  test holds that a greeting offers nothing.
 - **Every `verify` text carries `{code}`**, including the sign-in alert and the password change, which the brief listed
-  without one: the test the brief asks for requires it, and an alert with a code to confirm is the common real form.
+  without one: the test the brief asks for requires it, and an alert with a code to confirm is the common real form. The
+  do-not-share sentence is never under an "if" ("if it was not you, do not share…" would read as if sharing were fine
+  otherwise); the test holds that too.
 - **No emoji in `verify`, `notice`, `payment` or `health`** (the brief asked it for the first two; an emoji next to an amount
   owed or a clinic visit reads wrong). Bold (`*…*`) is used four times, on the headline of an advert.
 - **"Happy hour"** is the English title only; Arabic says ساعات العروض and Kurdish says "offer hours", since the English phrase
@@ -50,19 +55,19 @@ old_price` (not `discount`, `points`, `days`).
 
 ### Tests
 
-`app/test/wa-templates-b.test.mjs`, in `npm run test:5`: **3,838 checks**, all on `TEMPLATES_B` (search and filling are the API's
+`app/test/wa-templates-b.test.mjs`, in `npm run test:5`: **3,850 checks**, all on `TEMPLATES_B` (search and filling are the API's
 and tested by `templates-a` over the merged list). Per template and language: the four titles and texts present and trimmed;
 `vars` known, unrepeated, in English order and equal to the set each language uses; braces balance; ≤ 700 characters (at most a
 tenth over 400; in fact none); no `http`; **no digit of any script and no `%`**, no English number words; no promise words
 (win, guaranteed, cure, …); ≤ 3 emoji and the same emoji in all four languages; bold marks pair; no Latin letters, Latin
 comma or question mark in the right-to-left texts; no Kurdish letters in Arabic and no ي ك ة ى or harakat in Kurdish; Sorani
 and Badini are different texts. Per kind: every `verify` has `{code}` and the do-not-share sentence word for word in four
-languages and no emoji; payment texts never threaten and do not shout; clinic texts never diagnose or frighten; promos carry
+languages, never under an "if", and no emoji; a greeting offers nothing; payment texts never threaten and do not shout; clinic texts never diagnose or frighten; promos carry
 no opt-out line and no false pressure; a cart has no deadline. A snapshot of the 52 ids; a fill with 120-character values
 (the column limit) stays under 3,800 characters; a fuzz shows a value holding braces, bidi marks or emoji never becomes a
-new placeholder. Ten hand-made mutants (an Arabic ي in Sorani, a Persian ک in Arabic, a missing `{price}`, a dropped
+new placeholder. Twelve mutants, run by hand and not kept in the repository (an Arabic ي in Sorani, a Persian ک in Arabic, a missing `{price}`, a dropped
 do-not-share sentence, Latin in Arabic, a different emoji, an Arabic-Indic digit, an emoji in a code, a frightening word in a
-clinic text, a Latin comma) each fail the test.
+clinic text, a Latin comma, the welcome gift as a greeting, a conditional do-not-share) each fail the test.
 
 ### Open problems
 

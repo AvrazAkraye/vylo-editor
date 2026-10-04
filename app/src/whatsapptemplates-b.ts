@@ -13,7 +13,9 @@ import type { Template } from './whatsappbulktypes';
  *   placeholder the sender fills (or a column of their file fills per person). The texts carry no
  *   digits at all, so a template can never promise a number the sender did not type; a test holds it.
  * - **Service messages are plain and exact** (`order`, `delivery`, `payment`, `verify`, `notice`,
- *   `health`, `survey`, the course reminders): who, what, when, what to do next. No emoji in a code,
+ *   `health`, `survey`, the course reminders): who, what, when, what to do next. A welcome is a
+ *   `greeting`, except the one that carries a coupon (`welcome-4`): that is a `promo`, so it gets the
+ *   opt-out line like every other offer. No emoji in a code,
  *   a notice, a payment or a clinic's message: they are read as official, and a smiley next to an
  *   amount owed reads as a joke. Payment reminders are polite and assume good faith ("if you have
  *   already paid, thank you"); nothing threatens. Clinic messages never diagnose, never hint at what
@@ -263,7 +265,7 @@ export const TEMPLATES_B: readonly Template[] = [
     },
   },
   {
-    id: 'welcome-4', category: 'welcome', kind: 'greeting',
+    id: 'welcome-4', category: 'welcome', kind: 'promo',
     vars: ['business', 'name', 'offer', 'code'],
     tags: ['online', 'shop', 'gift', 'discount'],
     title: { en: 'Welcome gift', ar: 'هدية الترحيب', ckb: 'دیاریی بەخێرهاتن', kmr: 'دیاریا ب خێرهاتنێ' },
@@ -519,10 +521,10 @@ export const TEMPLATES_B: readonly Template[] = [
     tags: ['login', 'security', 'alert'],
     title: { en: 'New sign-in alert', ar: 'تنبيه تسجيل دخول جديد', ckb: 'ئاگاداری چوونەژوورەوەی نوێ', kmr: 'ئاگەهداریا کەڤتنا ژوورێ یا نوی' },
     text: {
-      en: 'A new sign-in to your {business} account was requested on {date} at {time}.\nTo confirm it was you, enter the code {code}.\nIf it was not you, do not share this code with anyone and change your password.',
-      ar: 'طُلب تسجيل دخول جديد إلى حسابك في {business} بتاريخ {date} الساعة {time}.\nلتأكيد أنك صاحب الطلب، أدخل الرمز {code}.\nإن لم تكن أنت، فلا تشارك هذا الرمز مع أي شخص وغيّر كلمة المرور.',
-      ckb: 'داوای چوونەژوورەوەیەکی نوێ بۆ هەژمارەکەت لە {business} کرا، ڕۆژی {date} کاتژمێر {time}.\nبۆ پشتڕاستکردنەوەی ئەوەی کە خۆت بوویت، کۆدی {code} بنووسە.\nئەگەر تۆ نەبوویت، ئەم کۆدە لەگەڵ هیچ کەسێک هاوبەش مەکە و وشەی تێپەڕەکەت بگۆڕە.',
-      kmr: 'داخوازەکا نوی بۆ کەڤتنا ژوورێ د هەژمارا تە دا ل {business} هاتە کرن، ڕۆژا {date} دەمژمێر {time}.\nبۆ پشتراستکرنێ کو ئەو تو بووی، کۆدێ {code} بنڤیسە.\nئەگەر نە تو بووی، ڤی کۆدی دگەل چ کەسێ پارڤە نەکە و پەیڤا بۆرینێ بگوهۆڕە.',
+      en: 'A new sign-in to your {business} account was requested on {date} at {time}.\nTo confirm it was you, enter the code {code}. Do not share this code with anyone.\nIf it was not you, change your password.',
+      ar: 'طُلب تسجيل دخول جديد إلى حسابك في {business} بتاريخ {date} الساعة {time}.\nلتأكيد أنك صاحب الطلب، أدخل الرمز {code}. لا تشارك هذا الرمز مع أي شخص.\nإن لم تكن أنت، فغيّر كلمة المرور.',
+      ckb: 'داوای چوونەژوورەوەیەکی نوێ بۆ هەژمارەکەت لە {business} کرا، ڕۆژی {date} کاتژمێر {time}.\nبۆ پشتڕاستکردنەوەی ئەوەی کە خۆت بوویت، کۆدی {code} بنووسە. ئەم کۆدە لەگەڵ هیچ کەسێک هاوبەش مەکە.\nئەگەر تۆ نەبوویت، وشەی تێپەڕەکەت بگۆڕە.',
+      kmr: 'داخوازەکا نوی بۆ کەڤتنا ژوورێ د هەژمارا تە دا ل {business} هاتە کرن، ڕۆژا {date} دەمژمێر {time}.\nبۆ پشتراستکرنێ کو ئەو تو بووی، کۆدێ {code} بنڤیسە. ڤی کۆدی دگەل چ کەسێ پارڤە نەکە.\nئەگەر نە تو بووی، پەیڤا بۆرینێ بگوهۆڕە.',
     },
   },
   {

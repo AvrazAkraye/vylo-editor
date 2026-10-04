@@ -46,11 +46,14 @@ const KNOWN = new Set([
 const MINE = ['order', 'delivery', 'payment', 'cart', 'welcome', 'course', 'health', 'property', 'food', 'verify', 'notice', 'survey', 'referral'];
 const THEIRS = ['sale', 'new', 'code', 'flash', 'restock', 'event', 'opening', 'appointment', 'followup', 'review', 'loyalty', 'birthday', 'holiday'];
 
-/** The kind each category's messages take (brief); `course` is a promotion when it advertises, a service when it reminds. */
+/**
+ * The kind each category's messages take (brief). `course` is a promotion when it advertises, a service when it reminds;
+ * `welcome` is a greeting unless it carries an offer, which makes it a promotion (the opt-out line, WA.md rule 3).
+ */
 const KIND = {
   order: ['service'], delivery: ['service'], payment: ['service'], verify: ['service'], notice: ['service'], health: ['service'],
-  survey: ['service'], cart: ['promo'], food: ['promo'], property: ['promo'], referral: ['promo'], welcome: ['greeting'],
-  course: ['promo', 'service'],
+  survey: ['service'], cart: ['promo'], food: ['promo'], property: ['promo'], referral: ['promo'],
+  welcome: ['greeting', 'promo'], course: ['promo', 'service'],
 };
 
 /**
@@ -242,6 +245,16 @@ for (const t of TEMPLATES_B) {
   }
   if (t.kind === 'greeting') {
     ok(`${id}: a greeting greets by name`, t.vars.includes('name'));
+    ok(`${id}: a greeting offers nothing (an offer makes it a promo, with the opt-out line)`, !['offer', 'code', 'price', 'discount', 'points'].some((v) => t.vars.includes(v)), t.vars);
+  }
+  if (t.category === 'verify') {
+    // "if it was not you, do not share…" would read as if sharing were fine otherwise; an "even if" after it is fine
+    ok(`${id}: "do not share" is never under an "if"`, LANGS.every((l) => {
+      const line = t.text[l].split('\n').find((x) => has(x, DO_NOT_SHARE[l])) ?? '';
+      const at = typeof DO_NOT_SHARE[l] === 'string' ? line.indexOf(DO_NOT_SHARE[l]) : line.search(DO_NOT_SHARE[l]);
+      const before = line.slice(0, Math.max(0, at)).split(/[.!؟?]/u).pop();
+      return at >= 0 && !/\bif\b|إن |إذا|ئەگەر/iu.test(before);
+    }));
   }
 }
 ok('payment has an invoice, a receipt, a reminder and an overdue notice',
