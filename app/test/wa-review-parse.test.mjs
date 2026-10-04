@@ -516,6 +516,16 @@ console.log('2e. Encodings');
   eq('Windows-1254 (Turkish Excel CSV)', t && t.recipients.map((r) => [r.phone, r.name]), [['905321234567', 'Şükrü Çağlayan'], ['905051234567', 'Gül Işık']]);
   const t2 = await safe('1254 under 964', legacy(tr.replace(/;0/g, ';+90 '), 'windows-1254'), { filename: 'tr.csv' });
   eq('…told apart from Arabic even with Iraq as the default country', t2 && t2.recipients.map((r) => r.name), ['Şükrü Çağlayan', 'Gül Işık']);
+  // UTF-8 with one stray byte (two files joined) is still UTF-8: every name must not turn to mojibake.
+  const rows = ['الاسم,الهاتف'];
+  for (let i = 0; i < 200; i++) rows.push(`أحمد كريم,07${String(500_000_000 + i).padStart(9, '0')}`);
+  const clean8 = enc(`${rows.join('\n')}\n`);
+  const stray = new Uint8Array(clean8.length + 1);
+  const at = clean8.indexOf(10, 40) + 1; // at the start of a row, so it breaks no character of its own
+  stray.set(clean8.subarray(0, at)); stray[at] = 0xff; stray.set(clean8.subarray(at), at + 1);
+  const st = await safe('stray byte', stray, { filename: 'stray.csv' });
+  eq('UTF-8 with one stray byte: the header and the names are still Arabic', st && [st.phoneColumn, st.recipients.length, st.recipients[0]?.name, st.recipients[199]?.name],
+    ['الهاتف', 200, 'أحمد كريم', 'أحمد كريم']);
   // Mojibake: UTF-8 Arabic that was once read as Windows-1252 and saved again. The names cannot be recovered; the numbers can.
   const moji = new TextDecoder('windows-1252').decode(enc('أحمد')) + ',07501234567\n';
   const m = await safe('mojibake', enc(`Name,Phone\n${moji}`), { filename: 'm.csv' });

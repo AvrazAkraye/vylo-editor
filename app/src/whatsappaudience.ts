@@ -290,7 +290,7 @@ function clean(raw: unknown, cap: number): string {
     const c = ch.codePointAt(0) ?? 0;
     if (isSpace(c)) { space = n > 0; continue; }
     if (c < 32 || (c >= 0x7f && c <= 0x9f) || (isInvisible(c) && c !== 0x200c && c !== 0x200d) || (c >= 0xd800 && c <= 0xdfff)
-      || (c >= 0xfff9 && c <= 0xfffb) || c === 0xfffe || c === 0xffff) continue;
+      || (c >= 0xfff9 && c <= 0xfffd) || c === 0xfffe || c === 0xffff) continue;
     if (n >= cap || (space && n + 1 >= cap)) break;
     if (space) { out += ' '; n++; space = false; }
     out += ch;
@@ -613,10 +613,32 @@ function decodeBytes(b: Uint8Array, country: string): string | null {
   } else {
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(body); } catch { /* not UTF-8: a legacy code page */ }
     if (text === null) {
-      try { text = new TextDecoder(legacyCodePage(body, country)).decode(body); } catch { text = new TextDecoder().decode(body); }
+      // UTF-8 with a stray byte or two (two files joined, a byte cut at an edit) is still UTF-8. Read as a legacy code
+      // page instead, every Arabic name and header in it came out as mojibake, and the messages would greet people so.
+      const loose = new TextDecoder('utf-8').decode(body);
+      if (mostlyUtf8(loose)) text = loose;
+      else {
+        try { text = new TextDecoder(legacyCodePage(body, country)).decode(body); } catch { text = loose; }
+      }
     }
   }
   return looksBinary(text) ? null : text;
+}
+
+/**
+ * Whether bytes that are not strictly UTF-8 are UTF-8 all the same: a loose decode where at least 95 in 100 of the
+ * characters past ASCII came out as characters, not replacement marks. Arabic or Turkish in a legacy code page
+ * decodes to almost nothing but replacement marks.
+ */
+function mostlyUtf8(loose: string): boolean {
+  let good = 0;
+  let bad = 0;
+  for (let i = 0; i < loose.length; i++) {
+    const c = loose.charCodeAt(i);
+    if (c < 0x80) continue;
+    if (c === 0xfffd) bad++; else good++;
+  }
+  return good > 0 && bad * 20 <= good;
 }
 
 /** Text with more than a sliver of control characters or replacement marks in its first 64 KB is not text. */
