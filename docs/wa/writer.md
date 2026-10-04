@@ -119,7 +119,10 @@ with no sentence, or messages that were all cleaned away (whatever `said` claims
   `k/thousand/ألف/هەزار/million/مليون/ملیۆن`) or **percentage** (`% ٪ percent بالمئة لەسەدا`, either side) that is not in
   the brief, the message or the business's name becomes `{link}`, `{phone}`, `{price}`, `{discount}`. Arabic-Indic and
   Persian digits are compared as digits; `25,000`, `25000`, `٢٥ ألف` are one figure; `0750…` and `+964 750…` one phone.
-  A page on the person's site they did not name is `{link}`. **Dates, times, counts and words are not checked** ("24/7",
+  A page on the person's site they did not name is `{link}`. A run of digits is read group by group: a date at its start
+  (`2026-10-04 10:00`), a bracket it opens and never closes (`(9 to 5)`) and a last group glued to the next word (`9am`,
+  `24/7`, `10:00`) are not part of the number; the longest stretch from its start that is the person's number is kept and
+  the rest is read again, so their number beside an invented one keeps theirs. **Dates, times, counts and words are not checked** ("24/7",
   "Friday", "3 days"): the prompt alone.
 - **`riskHints` money words are phrases**: "free money", "guaranteed", "risk-free", "100% free", "you (have) won", "cash
   prize", "make money fast", "earn money", "double your money", "act now", "click here", "lottery"; Arabic اربح, ربح
@@ -137,14 +140,15 @@ shorturl.at, rb.gy, t.ly, tiny.cc, s.id, v.gd) `{host}` · `long` (> 1000 charac
 
 ## Tests
 
-`app/test/wa-write.test.mjs`: **225 checks**, all passing; run by `npm run test:5`. The exact request for each of the five
+`app/test/wa-write.test.mjs`: **232 checks**, all passing; run by `npm run test:5`. The exact request for each of the five
 actions; every rule in the system prompt; clamping; the hostile brief's exact request and that its reply is read only as
 messages; nothing of a caller's object (recipients, phone, names, columns, audience, key, account, file) in the request
 text or in the wire body on either wire, effort `low`, `max_tokens` 4000, the key only in its header; the reader's shapes
 and junk (fenced, prose, nested, bare list, single string, cut off, curly quotes, raw newlines, trailing commas, binary
 junk, 100k brackets, a megabyte, 200 messages, duplicates, control/bidi/tag characters, scripts, data and javascript
 addresses, Markdown, length cap, script normalisation); placeholders (list, unknown, 22 aliases, the person's own,
-choices and fallbacks); facts (19 cases); refusals; stops before, during (a request that never answers), ignored, same
+choices and fallbacks); facts (26 cases, among them the person's number followed by hours, `24/7`, `10:00` or a bracket, a date and an hour,
+and their number beside an invented one); refusals; stops before, during (a request that never answers), ignored, same
 tick, after, with the person's own reason, and through the real `generate`; failures (429 and 401 through `explain`,
 EMPTY_BRIEF with no request, UNREADABLE); every hint code, clean text in four languages, false friends; a fuzz of 2,000
 replies and 1,000 briefs (also run with five other seeds at 3× before committing). Ceilings read `* SLOW`.
@@ -167,8 +171,7 @@ Gates on this branch: `npm test` (all lanes, orphans included), `npx tsc --noEmi
 - The facts check judges "from nowhere", not meaning: a brief with "30 thousand" lets a `30%` through; an invented
   "100% cotton" becomes "{discount} cotton". Dates and times are not checked.
 - `inScript` also respells an Arabic name inside a Kurdish message (ي→ی), as Motion does.
-- Two separate phone numbers written with only a space between them are read as one run; if only one is the person's,
-  both become `{phone}`.
+- Two invented phone numbers written with only a space between them become one `{phone}`.
 
 ## What the integrator mounts where
 

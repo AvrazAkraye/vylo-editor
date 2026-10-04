@@ -498,6 +498,12 @@ console.log('the reader: no fact from nowhere');
     ['the person\'s phone number, written another way, stays', 'Call +964 750 123 4567 or (0750) 123-4567', 'Call +964 750 123 4567 or (0750) 123-4567'],
     ['in Arabic digits too', 'اتصل على ٠٧٥٠ ١٢٣ ٤٥٦٧', 'اتصل على ٠٧٥٠ ١٢٣ ٤٥٦٧'],
     ['a phone number nobody gave is {phone}', 'Or WhatsApp us on 0770 999 8888 today', 'Or WhatsApp us on {phone} today'],
+    ['the person\'s number followed by hours stays: "9am" is not its last digit', 'Call 0750 123 4567 9am to 5pm', 'Call 0750 123 4567 9am to 5pm'],
+    ['… nor "24/7", nor "10:00"', 'Call 0750 123 4567 24/7 or 0750 123 4567 10:00-22:00', 'Call 0750 123 4567 24/7 or 0750 123 4567 10:00-22:00'],
+    ['… nor a bracket opened after it', 'Call 0750 123 4567 (9 to 5)', 'Call 0750 123 4567 (9 to 5)'],
+    ['a date followed by an hour is not a phone number', 'Open 2026-10-04 10:00 sharp', 'Open 2026-10-04 10:00 sharp'],
+    ['the person\'s number beside one nobody gave: theirs stays, the other is {phone}', 'Call 0750 123 4567 0770 999 8888', 'Call 0750 123 4567 {phone}'],
+    ['a number nobody gave, followed by hours: the number goes, the hours stay', 'Call 0770 999 8888 9am to 5pm', 'Call {phone} 9am to 5pm'],
     ['the person\'s percentage stays', 'Get 20% off, or 20 percent', 'Get 20% off, or 20 percent'],
     ['a percentage nobody gave is {discount}', 'Bags 50% off today', 'Bags {discount} off today'],
     ['… in Arabic, either side of the number', 'خصم ٣٥٪ على الحقائب و %٤٠ على الأحذية', 'خصم {discount} على الحقائب و {discount} على الأحذية'],
@@ -516,6 +522,8 @@ console.log('the reader: no fact from nowhere');
   }
   const withId = { ...r, brief: `${brief} Order: shop.example.com/item/12345678` };
   ok('the digits of an address the person gave are not then read as a phone number', one('Order: shop.example.com/item/12345678 today', withId) === 'Order: shop.example.com/item/12345678 today', one('Order: shop.example.com/item/12345678 today', withId));
+  const hours = { ...r, brief: 'Open 9am-5pm. Call 0750 123 4567 9am-5pm, or 0770 111 2222 0751 333 4444.' };
+  ok('a number the person wrote followed by hours, or beside another, is still theirs', one('Call +964 750 123 4567, 0770 111 2222 or 0751 333 4444', hours) === 'Call +964 750 123 4567, 0770 111 2222 or 0751 333 4444', one('Call +964 750 123 4567, 0770 111 2222 or 0751 333 4444', hours));
   ok('the message the person gave is a source too', one('Now 40% off', { action: 'improve', base: 'Now 40% off', brief: '', lang: 'en', tone: 'friendly', count: 1 }) === 'Now 40% off');
   ok('so is the business\'s name', one('Welcome to Pizza 4 You at pizza4you.com', { ...r, business: 'Pizza 4 You (pizza4you.com)' }) === 'Welcome to Pizza 4 You at pizza4you.com');
   const t = performance.now();

@@ -787,9 +787,54 @@ const MONEY = new RegExp(`(?:${CURRENCY_BEFORE})\\s?(?:${NUM})(?:\\s?${SCALE})?|
 /** A percentage: a number with a percent after it, or (as Arabic and Sorani often write it) before it. */
 const PERCENT = new RegExp(`(?:${NUM})\\s?${PERCENT_WORDS}|(?:[%\\u{66A}]|${alternation(['لەسەدا', 'لە سەدا'])})\\s?(?:${NUM})`, 'giu');
 /** Something dialled: digits with the spaces, dashes, dots and brackets a number is written with — counted, and judged, by `phoneish`. */
-const PHONE = /(?<!\d)\+?\d[\d \-().]{5,40}\d/gu;
-/** A date written with digits, which `PHONE` would otherwise take for a number to call. */
-const DATE_LIKE = /^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}$/u;
+const PHONE = /(?<!\d)\+?\d[\d \-()]{5,40}\d/gu;
+/** A run that starts with a date written with digits ("2026-10-04 10:00"): a date and an hour, not a number to call. */
+const DATE_START = /^\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}(?!\d)/u;
+
+/**
+ * The part of a phone-like run (`PHONE`) that is the number, given the
+ * character after the run: up to a bracket the run opens and never closes
+ * ("… 4567 (9 to 5)"), and without a last group glued to the word after it
+ * ("… 4567 9am", "… 4567 24/7", "… 4567 10:00") — that group is the word's.
+ * Null for a run that starts with a date.
+ */
+function phoneHead(found: string, next: string): string | null {
+  if (DATE_START.test(found)) return null;
+  let head = found;
+  const open = /\((?![^()]*\))/u.exec(head);
+  if (open && open.index > 0) head = head.slice(0, open.index);
+  // A full stop is a sentence's end, not a word's start: "Call 0750 123 4567." keeps its last group.
+  else if (/^[\p{L}:/%\u{66A}]/u.test(next)) {
+    const last = /[ \-()]+\d{1,4}$/u.exec(head);
+    if (last) head = head.slice(0, last.index);
+  }
+  return head.replace(/[ \-(]+$/u, '');
+}
+
+/** Where each group of digits in a run ends: a number is read group by group, never from the middle of one. */
+const groupEnds = (head: string) => [...head.matchAll(/\d+/gu)].map((m) => (m.index ?? 0) + m[0].length);
+
+/**
+ * The phone numbers the person wrote, as digits: every stretch of whole
+ * groups of 7 to 15 digits in each run, so two numbers written side by side
+ * ("0750 123 4567 0770 999 8888") are both theirs.
+ */
+function phonesIn(shadow: string): string[] {
+  const out: string[] = [];
+  for (const m of shadow.matchAll(PHONE)) {
+    const head = phoneHead(m[0], shadow.charAt((m.index ?? 0) + m[0].length));
+    const groups = head?.match(/\d+/gu) ?? [];
+    for (let i = 0; i < groups.length && i < 16; i += 1) {
+      let d = '';
+      for (let j = i; j < groups.length; j += 1) {
+        d += groups[j];
+        if (d.length > 15) break;
+        if (d.length >= 7) out.push(d);
+      }
+    }
+  }
+  return out;
+}
 /** A number and the scale word after it, to read the person's figures by. */
 const NUM_SCALED = new RegExp(`(${NUM})(?:\\s?(${SCALE}))?`, 'giu');
 const NUM_ONE = new RegExp(`(?:${NUM})`, 'u');
@@ -828,7 +873,7 @@ function sourcesOf(r: Asked): Sources {
   for (const m of shadow.matchAll(NUM_SCALED)) for (const k of numberKeys(m[1], m[2])) numbers.add(k);
   return {
     urls: (text.match(URL_RE) ?? []).map(urlKey),
-    phones: (shadow.match(PHONE) ?? []).map((p) => p.replace(/\D/gu, '')).filter((d) => d.length >= 7 && d.length <= 15),
+    phones: phonesIn(shadow),
     numbers,
   };
 }
@@ -852,20 +897,43 @@ const samePhone = (a: string, b: string) => a === b || (a.length >= 9 && b.lengt
  * its place, or null to keep what was written. Found in the folded copy, which
  * has the same length, and put back into the text as written.
  */
-function swap(s: string, re: RegExp, decide: (found: string, written: string) => string): string {
+function swap(s: string, re: RegExp, decide: (found: string, written: string, next: string) => string): string {
   const shadow = shadowOf(s);
   let out = '';
   let at = 0;
-  re.lastIndex = 0;
-  for (let m = re.exec(shadow); m; m = re.exec(shadow)) {
-    if (!m[0]) {
-      re.lastIndex += 1;
-      continue;
-    }
-    out += s.slice(at, m.index) + decide(m[0], s.slice(m.index, m.index + m[0].length));
-    at = m.index + m[0].length;
+  // Every match found before any is decided: a decision may run the same expression again on what it left (`phones`).
+  for (const m of [...shadow.matchAll(re)]) {
+    const i = m.index ?? 0;
+    if (!m[0] || i < at) continue;
+    out += s.slice(at, i) + decide(m[0], s.slice(i, i + m[0].length), shadow.charAt(i + m[0].length));
+    at = i + m[0].length;
   }
   return out + s.slice(at);
+}
+
+/**
+ * The phone numbers in a text held to the person's (`sourced`): in each run,
+ * the longest stretch of whole groups from its start that is a number they
+ * gave is kept, and what follows is read again — two numbers side by side are
+ * two numbers. A run with no number of theirs at its start is `{phone}` when
+ * it has seven digits or more; past fifteen it is numbers run together, or one
+ * nobody could dial, and either way not theirs.
+ */
+function phones(s: string, src: Sources, shield: (t: string) => string): string {
+  return swap(s, PHONE, (found, written, next) => {
+    const head = phoneHead(found, next);
+    if (head === null) return written;
+    const ends = groupEnds(head);
+    for (let k = ends.length - 1; k >= 0; k -= 1) {
+      const digits = head.slice(0, ends[k]).replace(/\D/gu, '');
+      if (digits.length < 7) break;
+      if (src.phones.some((p) => samePhone(p, digits)) || src.numbers.has(digits.replace(/^0+(?=\d)/u, ''))) {
+        return shield(written.slice(0, ends[k])) + phones(written.slice(ends[k]), src, shield);
+      }
+    }
+    const digits = head.replace(/\D/gu, '');
+    return (digits.length < 7 ? written.slice(0, head.length) : '{phone}') + phones(written.slice(head.length), src, shield);
+  });
 }
 
 /** Marks around a kept span while the later passes run, so a kept address's digits are not then read as a phone number. */
@@ -890,13 +958,7 @@ function sourced(text: string, src: Sources): string {
   });
   s = swap(s, PERCENT, (found, written) => (knownFigure(found, src) ? shield(written) : '{discount}'));
   s = swap(s, MONEY, (found, written) => (knownFigure(found, src) ? shield(written) : '{price}'));
-  s = swap(s, PHONE, (found, written) => {
-    const digits = found.replace(/\D/gu, '');
-    // Past fifteen digits it is two numbers run together, or one nobody could dial: neither is the person's unless they wrote it.
-    if (digits.length < 7 || DATE_LIKE.test(found)) return written;
-    const known = src.phones.some((p) => samePhone(p, digits)) || src.numbers.has(digits.replace(/^0+(?=\d)/u, ''));
-    return known ? shield(written) : '{phone}';
-  });
+  s = phones(s, src, shield);
   return s.replace(SHIELDED, (_, c: string) => kept[c.charCodeAt(0) - 0xE000] ?? '');
 }
 
