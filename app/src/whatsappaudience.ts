@@ -1703,7 +1703,9 @@ function readRecipient(x: unknown): Recipient | null {
       if (n >= LIMITS.columns) break;
       const key = clean(k.replace(/[{}|[\]]/g, ' '), MAX_KEY).trim();
       const val = clean(v, LIMITS.valueChars);
-      if (key && val && !(key in out.vars)) { out.vars[key] = val; n++; }
+      // Own keys only: `in` would find `constructor` and `toString` on every object and drop those columns, which the
+      // engine reads like any other (`{constructor}` is a column). `__proto__` cannot be a plain key at all.
+      if (key && val && key !== '__proto__' && !Object.prototype.hasOwnProperty.call(out.vars, key)) { out.vars[key] = val; n++; }
     }
   }
   return out;
