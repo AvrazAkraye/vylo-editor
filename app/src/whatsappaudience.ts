@@ -1454,6 +1454,8 @@ function readVcf(text: string, country: string, col: Collector): boolean {
   const cut = lines.length > MAX_LINES * 4;
   let card: Card | null = null;
   let depth = 0;
+  /** The card's last property was a 2.1 `AGENT:` with its value to follow: the next BEGIN is that card, inside. */
+  let agent = false;
   let logical = '';
   let logicalLine = 0;
 
@@ -1473,6 +1475,14 @@ function readVcf(text: string, country: string, col: Collector): boolean {
     if (dot >= 0) key = key.slice(dot + 1);
     const value = prop.slice(colon + 1);
     if (key === 'BEGIN' && /^\s*vcard\s*$/i.test(value)) {
+      // A BEGIN inside a card that is not an agent's is the next card: the one before lost its END (a cut or joined
+      // export). Without this, every card after a broken one was read as nested and passed over.
+      if (depth > 0 && !agent) {
+        if (card) finishCard(card, country, col);
+        card = null;
+        depth = 0;
+      }
+      agent = false;
       if (depth++ === 0) card = { line: at, fn: '', n: '', org: '', tels: [], labels: new Map() };
       return;
     }
@@ -1480,6 +1490,7 @@ function readVcf(text: string, country: string, col: Collector): boolean {
       if (depth > 0 && --depth === 0 && card) { finishCard(card, country, col); card = null; }
       return;
     }
+    if (depth === 1) agent = key === 'AGENT' && !value.trim();
     if (!card || depth !== 1) return;
     const types = new Set<string>();
     let encoding = '';
