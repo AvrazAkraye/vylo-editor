@@ -1178,14 +1178,16 @@ export const SOURCE_URL_MAX = 2048;
 export const SOURCE_TITLE_MAX = 80;
 
 /**
- * Letters that turn text around or hide in it — the bidirectional overrides,
- * isolates and marks, the zero-width space, the byte-order mark —
- * which the reader's control-character rule does not reach. In a link's title
- * they could make "moc.elpmaxe" read as another site's name. The zero-width
- * joiner and non-joiner stay: Sorani and Persian spell words with them.
+ * Letters that turn text around or hide in it — every format character: the
+ * bidirectional overrides, isolates and marks, the zero-width space, the
+ * byte-order mark, the soft hyphen, and the Unicode tag block, whose letters
+ * draw nothing at all — which the reader's control-character rule does not
+ * reach. In a link's title they could make "moc.elpmaxe" read as another
+ * site's name, or a title of nothing but tags look like no title. The
+ * zero-width joiner and non-joiner stay: Sorani and Persian spell words with them.
  */
-const INVISIBLE = /[\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
-const HAS_INVISIBLE = /[\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/;
+const INVISIBLE = /(?![\u200C\u200D])\p{Cf}/gu;
+const HAS_INVISIBLE = /(?![\u200C\u200D])\p{Cf}/u;
 
 /** A host no public page lives on: this machine, a private name, a bare IP address. */
 function privateHost(host: string): boolean {

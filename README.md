@@ -150,7 +150,7 @@ transitions; one row adds sound made on your device from the animation itself, w
 no download; and a brand kit keeps your name, colours and logo. Unlike Video, Motion uses no animation, rendering
 or encoding library: the easing, the canvas renderer and the MP4 writer are this
 repository's own code, it fetches nothing itself — when you ask it for facts it does not have, the
-model may search the web through the gateway, and the pages' addresses are shown and kept with the
+model may search the web through the same route, and the pages' addresses are shown and kept with the
 graphic — and it sends no telemetry. The model
 writes a description in a fixed vocabulary, and the app checks it; it never
 writes code.

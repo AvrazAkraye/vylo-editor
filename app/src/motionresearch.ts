@@ -132,10 +132,19 @@ function first(o: Rec, ...keys: string[]): unknown {
 /** Control characters: a space each, as a line break would be. */
 const UNSEEN = /[\u0000-\u001F\u007F-\u009F]/g;
 /**
- * The letters that turn text around or hide in it — direction overrides, isolates and marks, the zero-width
- * space, the byte-order mark — taken out (motionread.ts keeps the same list). The joiners stay: Sorani spells with them.
+ * The letters that turn text around or hide in it — every format character: direction overrides, isolates and
+ * marks, the zero-width space, the byte-order mark, the soft hyphen and word joiner that split "ig\u00ADnore" past
+ * `ordersIn`, and the Unicode tag block, whose letters spell words a model reads and a person never sees — taken
+ * out (motionread.ts keeps the same rule). The joiners stay: Sorani spells with them.
  */
-const HIDDEN = /[\u061C\u200B\u200E\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+const HIDDEN = /(?![\u200C\u200D])\p{Cf}/gu;
+/** Variation selectors: they only choose how a letter is drawn, and a run of them after an emoji can carry bytes. A fact needs none. */
+const SELECTORS = /[\uFE00-\uFE0F\u{E0100}-\u{E01EF}]/gu;
+/**
+ * An address written into a fact's words. The page a fact came from is its `url`; an address inside its words
+ * states no figure ("/2024/07/23/" is not a page saying 2024), and is no link either — it goes.
+ */
+const ADDRESS = /https?:\/\/\S*/gi;
 /** Angle brackets in all their widths: three together would close the fence the facts are sent in. */
 const ANGLES = /[<>\uFF1C\uFF1E\uFE64\uFE65]/g;
 
@@ -274,7 +283,8 @@ export function ordersIn(s: string): boolean {
 /**
  * A fact's words as the next model may read them, or '' when they may not:
  * a string (a number is written out), the first `FACT_SCAN` characters, HTML
- * tags and the common entities gone, control and invisible letters gone,
+ * tags and the common entities gone, control and invisible letters gone, any
+ * web address in the words gone (`ADDRESS`),
  * angle brackets written as ‹ ›, backticks as quotes, one line, at most
  * `FACT_CHARS` characters cut at a word. Braces — JSON in a fact — or an order
  * (`ordersIn`) drop the fact whole: half of an injection is still one.
@@ -286,6 +296,8 @@ export function cleanFact(x: unknown): string {
     .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, '\'')
     .replace(UNSEEN, ' ')
     .replace(HIDDEN, '')
+    .replace(SELECTORS, '')
+    .replace(ADDRESS, ' ')
     .replace(ANGLES, (c) => (c === '<' || c === '\uFF1C' || c === '\uFE64' ? '‹' : '›'))
     .replace(/`/g, '\'')
     .replace(/\s+/g, ' ')
