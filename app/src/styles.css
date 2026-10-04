@@ -9138,66 +9138,6 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 :root[dir="rtl"] .mb-preview-bar{ transform:scaleX(-1); }
 /* pro:r3 end */
 
-/* vm:ask start */
-/* Motion's Ask looks facts up on the web (MotionChat.tsx). The line under an answer says what was searched, or plainly why
-   nothing was; the pages the facts came from follow as links — the title, then the site, which is what a person checks
-   before pressing. Quiet: the answer is the point, the sources its footnote. */
-.mo-chat-web{
-  display:flex; align-items:flex-start; gap:var(--sp-2); margin:0; font-size:var(--fs-2); line-height:1.5; color:var(--ink-2);
-}
-.mo-chat-web svg{ flex:none; margin-block-start:3px; color:var(--brand); }
-.mo-chat-web.is-missed{ color:var(--mute); }
-.mo-chat-web.is-missed svg{ color:var(--warn); }
-.mo-chat-sources{
-  list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); min-inline-size:0;
-}
-.mo-chat-sources li{ min-inline-size:0; }
-.mo-chat-source{
-  display:inline-flex; align-items:center; gap:var(--sp-2); max-inline-size:100%; min-block-size:24px; padding:0;
-  border:0; background:none; font:inherit; font-size:var(--fs-2); color:var(--brand); cursor:pointer; text-align:start;
-}
-.mo-chat-source svg{ flex:none; }
-.mo-chat-source-title{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.mo-chat-source-site{ flex:none; color:var(--mute); }
-.mo-chat-source:hover .mo-chat-source-title{ text-decoration:underline; }
-.mo-chat-source:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; border-radius:var(--r-1); }
-.mo-chat-kept{
-  display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-3) var(--sp-4);
-  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel); font-size:var(--fs-2); color:var(--mute);
-}
-/* vm:ask end */
-/* vm:video start */
-/* Graphics from Motion in the Video storyboard (VideoMotionPicker.tsx): the list of saved graphics, each as itself
-   (Motion's own thumbnail) with its name and length; the row of a scene that is a graphic; "Graphic on top". */
-.vm-pick-title{ font-size:var(--fs-3); font-weight:600; color:var(--ink); }
-.vm-pick-list{
-  list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(124px, 1fr));
-  gap:var(--sp-2); max-block-size:340px; overflow-y:auto;
-}
-.vm-pick-one{
-  display:flex; flex-direction:column; align-items:stretch; gap:var(--sp-1); inline-size:100%; padding:var(--sp-1);
-  border:2px solid transparent; border-radius:var(--r-1); background:var(--panel-3); color:var(--ink);
-  text-align:start; cursor:pointer; transition:border-color .12s ease;
-}
-.vm-pick-one:hover{ border-color:var(--brand); }
-.vm-pick-one:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
-.vm-pick-one.on{ border-color:var(--brand); }
-.vm-pick-art{
-  display:flex; align-items:center; justify-content:center; block-size:72px; overflow:hidden; border-radius:var(--r-1);
-  /* A see-through graphic (a lower third) is drawn over a checked ground, as Motion's stage shows it. */
-  background:repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 12px 12px;
-}
-.vm-pick-art .mo-thumb{ max-inline-size:100%; max-block-size:100%; }
-.vm-pick-what{ display:flex; flex-direction:column; gap:1px; min-inline-size:0; padding-inline:2px; }
-.vm-pick-what b{ font-size:var(--fs-2); font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.vm-pick-what small{ font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
-.vm-row .vid-pic-what b{ overflow-wrap:anywhere; }
-.vm-over{
-  display:flex; flex-direction:column; gap:var(--sp-2); padding-block-start:var(--sp-3);
-  border-block-start:1px dashed var(--rule);
-}
-.vm-over-at{ max-inline-size:16em; }
-/* vm:video end */
 /* wa:bulk start */
 /* Broadcast (WhatsAppBroadcast.tsx and its steps): one message to many people, in three steps, then the run and its
    report. It speaks the panel's language — the same tokens, radii, hairlines and quiet uppercase sub-heads as
@@ -9298,7 +9238,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-msg{ min-block-size:150px; font-size:var(--fs-5); }
 .wa-bk-area.wa-bk-optline{ min-block-size:0; resize:none; font-size:var(--fs-3); }
 .wa-bk-select{ cursor:pointer; }
-.wa-bk-select.is-small{ inline-size:auto; flex:1; font-size:var(--fs-2); }
+.wa-bk-acts .wa-bk-select.is-small{ inline-size:auto; flex:1; font-size:var(--fs-2); }
 .wa-bk-num{ inline-size:6.5em; font-variant-numeric:tabular-nums; }
 .wa-bk-area::placeholder, .wa-bk-input::placeholder{ color:var(--mute); opacity:.7; }
 .wa-bk-area:hover, .wa-bk-input:hover, .wa-bk-select:hover{ border-color:var(--rule-2); }
@@ -9688,3 +9628,63 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   .wa-bk *{ transition:none; }
 }
 /* wa:bulk end */
+/* vm:ask start */
+/* Motion's Ask looks facts up on the web (MotionChat.tsx). The line under an answer says what was searched, or plainly why
+   nothing was; the pages the facts came from follow as links — the title, then the site, which is what a person checks
+   before pressing. Quiet: the answer is the point, the sources its footnote. */
+.mo-chat-web{
+  display:flex; align-items:flex-start; gap:var(--sp-2); margin:0; font-size:var(--fs-2); line-height:1.5; color:var(--ink-2);
+}
+.mo-chat-web svg{ flex:none; margin-block-start:3px; color:var(--brand); }
+.mo-chat-web.is-missed{ color:var(--mute); }
+.mo-chat-web.is-missed svg{ color:var(--warn); }
+.mo-chat-sources{
+  list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:var(--sp-1); min-inline-size:0;
+}
+.mo-chat-sources li{ min-inline-size:0; }
+.mo-chat-source{
+  display:inline-flex; align-items:center; gap:var(--sp-2); max-inline-size:100%; min-block-size:24px; padding:0;
+  border:0; background:none; font:inherit; font-size:var(--fs-2); color:var(--brand); cursor:pointer; text-align:start;
+}
+.mo-chat-source svg{ flex:none; }
+.mo-chat-source-title{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.mo-chat-source-site{ flex:none; color:var(--mute); }
+.mo-chat-source:hover .mo-chat-source-title{ text-decoration:underline; }
+.mo-chat-source:focus-visible{ outline:2px solid var(--brand); outline-offset:2px; border-radius:var(--r-1); }
+.mo-chat-kept{
+  display:flex; flex-direction:column; gap:var(--sp-2); padding:var(--sp-3) var(--sp-4);
+  border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel); font-size:var(--fs-2); color:var(--mute);
+}
+/* vm:ask end */
+/* vm:video start */
+/* Graphics from Motion in the Video storyboard (VideoMotionPicker.tsx): the list of saved graphics, each as itself
+   (Motion's own thumbnail) with its name and length; the row of a scene that is a graphic; "Graphic on top". */
+.vm-pick-title{ font-size:var(--fs-3); font-weight:600; color:var(--ink); }
+.vm-pick-list{
+  list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(124px, 1fr));
+  gap:var(--sp-2); max-block-size:340px; overflow-y:auto;
+}
+.vm-pick-one{
+  display:flex; flex-direction:column; align-items:stretch; gap:var(--sp-1); inline-size:100%; padding:var(--sp-1);
+  border:2px solid transparent; border-radius:var(--r-1); background:var(--panel-3); color:var(--ink);
+  text-align:start; cursor:pointer; transition:border-color .12s ease;
+}
+.vm-pick-one:hover{ border-color:var(--brand); }
+.vm-pick-one:focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
+.vm-pick-one.on{ border-color:var(--brand); }
+.vm-pick-art{
+  display:flex; align-items:center; justify-content:center; block-size:72px; overflow:hidden; border-radius:var(--r-1);
+  /* A see-through graphic (a lower third) is drawn over a checked ground, as Motion's stage shows it. */
+  background:repeating-conic-gradient(var(--panel-2) 0 25%, var(--panel) 0 50%) 0 0 / 12px 12px;
+}
+.vm-pick-art .mo-thumb{ max-inline-size:100%; max-block-size:100%; }
+.vm-pick-what{ display:flex; flex-direction:column; gap:1px; min-inline-size:0; padding-inline:2px; }
+.vm-pick-what b{ font-size:var(--fs-2); font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.vm-pick-what small{ font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+.vm-row .vid-pic-what b{ overflow-wrap:anywhere; }
+.vm-over{
+  display:flex; flex-direction:column; gap:var(--sp-2); padding-block-start:var(--sp-3);
+  border-block-start:1px dashed var(--rule);
+}
+.vm-over-at{ max-inline-size:16em; }
+/* vm:video end */
