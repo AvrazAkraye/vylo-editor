@@ -254,6 +254,10 @@ console.log('The stylesheet, as WebKit drew it');
   const hole = ruleOf('.wa-bk mark.wa-bk-hole');
   ok('a blank is drawn by a rule that out-ranks the panel\'s `.wa mark`', hole !== null && /var\(--warn-wash\)/.test(hole) && /color\s*:\s*var\(--warn\)/.test(hole));
   ok('and no weaker rule for it is left behind', ruleOf('.wa-bk-hole') === null);
+  // Found at 248 px: "2 couldn't be read · 1 repeated" wrapped with the separator starting the next line
+  // ("· 1 asked not to be messaged"). Each count is its own small pill, which wraps cleanly in any language.
+  ok('the read\'s counts are pills, not a dotted line that wraps badly',
+    ruleOf('.wa-bk-sum-more span + span::before') === null && /border-radius\s*:\s*99px/.test(ruleOf('.wa-bk-sum-more span') ?? ''));
   // Found: the header of a broadcast with no account cut its sentence mid-word ("No WhatsApp account is co").
   ok('the no-account line wraps instead of being cut', /white-space\s*:\s*normal/.test(ruleOf('.wa-bk-title small.is-none') ?? ''));
   const head = draw(h(B.WhatsAppBroadcast, { t: en, lang: 'en', account: null, full: false, onProviders() {}, onClose() {} }));

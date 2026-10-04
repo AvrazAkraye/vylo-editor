@@ -9833,8 +9833,9 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 .wa-bk-sum-big{ display:flex; flex-wrap:wrap; align-items:baseline; gap:var(--sp-3); margin:0; font-size:var(--fs-5); color:var(--ink-2); }
 .wa-bk-sum-big b{ font-size:calc(var(--fs-8) * 1.35); font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; letter-spacing:-.02em; }
-.wa-bk-sum-more{ display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-3); margin:0; font-size:var(--fs-2); color:var(--mute); }
-.wa-bk-sum-more span + span::before{ content:'·'; margin-inline-end:var(--sp-3); }
+/* Each count its own pill: a dotted line wrapped with its separator at the start of the next line in the column. */
+.wa-bk-sum-more{ display:flex; flex-wrap:wrap; gap:var(--sp-2); margin:0; font-size:var(--fs-2); color:var(--ink-2); }
+.wa-bk-sum-more span{ padding-block:1px; padding-inline:var(--sp-3); border-radius:99px; background:var(--panel-3); }
 .wa-bk-tag{ padding-block:1px; padding-inline:var(--sp-3); border-radius:99px; background:var(--brand-wash); color:var(--brand); font-size:var(--fs-2); font-weight:600; }
 .wa-bk-details summary{ font-size:var(--fs-3); color:var(--brand); cursor:pointer; }
 .wa-bk-rejects{ list-style:none; margin:0; margin-block-start:var(--sp-3); padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
