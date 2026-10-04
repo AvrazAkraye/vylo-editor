@@ -3,9 +3,10 @@
 // opened for the person. Pure parts are called; the rest (Editor, App, TerminalPanel, the Rust command) is held by
 // reading the source, since the repo has no DOM runner, and the Rust half by `cargo test` (devenv.rs).
 import { readFileSync } from 'fs';
-import { isServerCommand, readOpenIn, OPEN_CHOICES, OPEN_KEY, SERVER_QUIET_MS, SERVER_SETTLE_MS } from '../.test-build/devserver.js';
+import { isServerCommand, isUp, readOpenIn, OPEN_CHOICES, OPEN_KEY, SERVER_QUIET_MS, SERVER_SETTLE_MS } from '../.test-build/devserver.js';
 import { binaryKind, KIND_LABEL, fullPath } from '../.test-build/filekind.js';
 import { runAgent } from '../.test-build/agent.js';
+import { detect } from '../.test-build/browser.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -35,6 +36,22 @@ console.log('which commands are servers');
   const t0 = Date.now();
   for (let i = 0; i < 300; i++) isServerCommand(`cd a && ${'export A=b && '.repeat(40)}npm run dev ${'x '.repeat(500)}`);
   ok('a long command is cheap to classify', Date.now() - t0 < 1500 * SLOW, Date.now() - t0);
+}
+
+console.log('what a server prints');
+{
+  const out = {
+    vite: '\x1b[32m  VITE v5.0.0\x1b[39m  ready in 300 ms\n\n  \x1b[32m➜\x1b[39m  \x1b[1mLocal\x1b[22m:   \x1b[36mhttp://localhost:\x1b[1m5173\x1b[22m/\x1b[39m\n  ➜  Network: http://192.168.1.4:5173/',
+    cra: 'Compiled successfully!\n\n  Local:            http://localhost:3000\n  On Your Network:  http://192.168.1.4:3000',
+    expoWeb: 'Starting Metro Bundler\nWeb is waiting on http://localhost:8081\n› Metro waiting on exp://192.168.1.5:8081',
+    django: 'Starting development server at http://127.0.0.1:8000/',
+  };
+  ok('the address is the one on this machine, through the colour codes, never the network one', detect(out.vite)[0] === 'http://localhost:5173/' && detect(out.vite).length === 1);
+  ok('Create React App, Expo web and Django give theirs', detect(out.cra)[0] === 'http://localhost:3000/' && detect(out.expoWeb)[0] === 'http://localhost:8081/' && detect(out.django)[0] === 'http://127.0.0.1:8000/');
+  const expo = 'Starting Metro Bundler\n› Metro waiting on exp://192.168.1.5:8081\n› Scan the QR code above with Expo Go\n› Press w │ open web';
+  ok('Expo without the web target prints nothing a browser can open', detect(expo).length === 0);
+  ok('but it is known to be up, so the agent is not kept waiting', isUp(expo) && isUp('Metro waiting on exp://x') && isUp('› Press w │ open web'));
+  ok('npm\'s notices are neither an address nor "up"', detect('npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.0.0').length === 0 && !isUp('npm notice New major version') && !isUp(null) && !isUp(7));
 }
 
 console.log('where it opens');
@@ -105,6 +122,9 @@ console.log('the agent and a server');
   const d = await drive('npm run dev', 'pipe', { ...up, opened: undefined });
   ok('when nothing was opened the model is not told it was', /serving at/.test(d.text) && !/opened it/.test(d.text), d.text);
 
+  const g = await drive('npm start', 'pipe', { code: null, output: 'Metro waiting on exp://192.168.1.5:8081', truncated: false, running: true });
+  ok('a server with no address on this machine gets the web-target hint, and no second server', /expo start --web/.test(g.text) && /second server/.test(g.text) && /nothing was opened/.test(g.text), g.text);
+
   const e = await drive('npm run build', 'terminal', { code: 0, output: 'built', truncated: false });
   ok('a command that finishes is reported by its exit code, as before', /exit code: 0/.test(e.text) && !/still running/.test(e.text), e.text);
 
@@ -123,6 +143,11 @@ console.log('the pieces are wired');
   ok('a server answers the agent early, once', /function settleEarly/.test(term) && /if \(!run \|\| run\.early\) return/.test(term) && /SERVER_QUIET_MS/.test(term) && /SERVER_SETTLE_MS/.test(term));
   ok('a pane that finishes or closes after the early answer settles nothing new', /run\.settle\(\{ code, output: text, truncated \}\)/.test(term));
   ok('every terminal run goes through runPane', (app.match(/termRun\.current\(/g) ?? []).length === 1 && (app.match(/runPane\(/g) ?? []).length >= 4);
+  const pane = app.slice(app.indexOf('async function runPane'), app.indexOf('async function runStep'));
+  ok('a chat that never opened the terminal gets it mounted, shown and waited for, not an error', /setTermMounted\(true\)/.test(pane) && /setShowTerm\(true\)/.test(pane) && /for \(let i = 0; i < 100 && !termRun\.current; i\+\+\)/.test(pane) && pane.indexOf('setTermMounted(true)') < pane.indexOf("throw new Error(t('Open the terminal first.'))"));
+  ok('nobody checks for the pane before runPane does', !/if \(!termRun\.current\) return t\('Open the terminal first\.'\)/.test(app) && !/if \(!termRun\.current\) \{ setShowTerm/.test(app));
+  ok('open_local runs off the main thread', /async fn open_local/.test(env) && /spawn_blocking/.test(env));
+  ok('the lookup of the login PATH starts in the background at launch', /fn warm/.test(env) && /thread::spawn/.test(env));
   ok('only a server with an address is opened, and only through open_local', /if \(!result\.running \|\| !result\.url\) return result/.test(app) && /invoke<'chrome' \| 'default'>\('open_local'/.test(app));
   ok('"Do not open it" opens nothing, and the choice is read when the address appears', /choice === 'off'/.test(app) && /devOpenRef\.current/.test(app));
   ok('the setting is a control in Settings', /case 'devOpen'/.test(sp) && /OPEN_CHOICES|<option value="chrome">/.test(sp));

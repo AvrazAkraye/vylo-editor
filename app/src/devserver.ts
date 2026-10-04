@@ -52,6 +52,15 @@ function stripSetup(segment: string): string {
   return s;
 }
 
+/**
+ * Output that says a server is up although it printed no address on this machine. Expo's Metro, started without
+ * the web target, prints `exp://192.168…` and a list of keys (`Press w │ open web`) and nothing a browser can open;
+ * without this the agent would wait out the whole quiet period to learn that.
+ */
+export function isUp(text: string): boolean {
+  return typeof text === 'string' && /\bMetro waiting on\b|\bpress w\s*[│|]\s*open web\b/i.test(text);
+}
+
 /** Whether the command starts something that keeps running (a dev server), as opposed to something that ends. */
 export function isServerCommand(command: string): boolean {
   if (typeof command !== 'string' || !command.trim() || command.length > 4000) return false;

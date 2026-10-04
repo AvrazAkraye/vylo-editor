@@ -1,5 +1,5 @@
 import { detect as detectUrls } from './browser';
-import { isServerCommand, SERVER_QUIET_MS, SERVER_SETTLE_MS } from './devserver';
+import { isServerCommand, isUp, SERVER_QUIET_MS, SERVER_SETTLE_MS } from './devserver';
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { TerminalView, type TermHandle } from './TerminalView';
@@ -622,7 +622,8 @@ export function TerminalPanel({
     if (!run) return;
     run.buffer.push(chunk);
     if (!run.server || run.early || run.timer !== undefined) return;
-    if (detectUrls(run.buffer.join('')).length) {
+    const so_far = run.buffer.join('');
+    if (detectUrls(so_far).length || isUp(so_far)) {
       run.timer = window.setTimeout(() => settleEarly(id), SERVER_SETTLE_MS);
     }
   }

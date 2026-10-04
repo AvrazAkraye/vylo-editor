@@ -193,9 +193,16 @@ pub(crate) fn local_target(url: &str) -> Result<String, String> {
 /// Open an address on this machine in a browser: `"chrome"` for Google Chrome when it is installed, anything
 /// else (and Chrome when it is not there) for the default browser. Returns which one opened it.
 #[tauri::command]
-pub fn open_local(url: String, browser: String) -> Result<String, String> {
+pub async fn open_local(url: String, browser: String) -> Result<String, String> {
+    // `open -a` waits for the launch; off the main thread so a cold Chrome never freezes the window.
+    tauri::async_runtime::spawn_blocking(move || open_local_now(&url, &browser))
+        .await
+        .map_err(|e| format!("could not open that address: {e}"))?
+}
+
+fn open_local_now(url: &str, browser: &str) -> Result<String, String> {
     use std::process::Command;
-    let target = local_target(&url)?;
+    let target = local_target(url)?;
 
     #[cfg(target_os = "macos")]
     {
@@ -320,7 +327,7 @@ mod tests {
 
     #[test]
     fn open_local_refuses_before_it_opens_anything() {
-        assert!(open_local("https://example.com".into(), "chrome".into()).is_err());
-        assert!(open_local("http://localhost.evil.dev/".into(), "default".into()).is_err());
+        assert!(open_local_now("https://example.com", "chrome").is_err());
+        assert!(open_local_now("http://localhost.evil.dev/", "default").is_err());
     }
 }

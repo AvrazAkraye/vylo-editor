@@ -3193,7 +3193,6 @@ export function App() {
 
     const choice = await askToRun({ command: reply.text, reason: reason(question) });
     if (choice === 'no') return null;
-    if (!termRun.current) return t('Open the terminal first.');
     try { await runPane(reply.text); }
     catch (e) { return explain(e, `${t('run')} ${reply.text}`); }
     return null;
@@ -3207,7 +3206,14 @@ export function App() {
    * an address on this machine: `open_local` refuses anything else and the reader here sends only what the pane detected.
    */
   async function runPane(command: string): Promise<CommandResult> {
-    if (!termRun.current) throw new Error(t('Open the terminal first.'));
+    if (!termRun.current) {
+      // The terminal is mounted the first time it is shown, and its code loads on demand, so a chat that never
+      // opened it has no pane to run in yet. Show it and wait (at most five seconds) for it to say it is ready.
+      setTermMounted(true);
+      setShowTerm(true);
+      for (let i = 0; i < 100 && !termRun.current; i++) await new Promise((r) => setTimeout(r, 50));
+      if (!termRun.current) throw new Error(t('Open the terminal first.'));
+    }
     setShowTerm(true);
     const result = await termRun.current(command);
     if (!result.running || !result.url) return result;
@@ -3229,7 +3235,6 @@ export function App() {
   async function runStep(command: string) {
     const choice = await askToRun({ command, reason: t('A step from the to-do list.') });
     if (choice === 'no') return;
-    if (!termRun.current) { setShowTerm(true); push({ kind: 'result', text: t('Open the terminal first.') }); return; }
     try { await runPane(command); }
     catch (e) { push({ kind: 'error', text: explain(e, `${t('run')} ${command}`) }); }
   }

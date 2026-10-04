@@ -395,6 +395,12 @@ async function runTool(
             `still running — it is a server, and it keeps going in the user's terminal${t.url ? `, serving at ${t.url}${where}` : ''}.`,
             'Do not start it again and do not try to open a browser yourself.',
           ];
+          if (!t.url) {
+            parts.push(
+              'It printed no address on this machine, so nothing was opened. If the person wants it in a browser, say so — for an Expo '
+              + 'project that is the web target (`expo start --web`, which needs react-native-web) — instead of starting a second server.',
+            );
+          }
           parts.push(t.output.trim() ? `output so far:\n${t.output}` : '(no output yet)');
           if (t.truncated) parts.push('(output was truncated)');
           return { content: parts.join('\n\n'), isError: false };
