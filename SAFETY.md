@@ -378,7 +378,7 @@ handed over, `/message/sendText` when a message is sent, and `/message/sendMedia
 or `/message/sendWhatsAppAudio` when you attach a file to one — each under the
 instance name. A file you attach is read from disk by `read_any_file`, which is
 reached only from the file dialog you opened: the dialog is the approval, and
-nothing chooses a path on your behalf.
+nothing chooses a path on your behalf, with the one exception described below for the assistant's broadcast tools.
 The rule is the one `app/src/providers.ts` states — the key is sent only to the
 address it was entered beside, and every request is built from that address.
 
@@ -392,6 +392,8 @@ loop refuses any tool a turn did not offer, whatever the model asks for.
 *Send to chat* still does
 what it always did, for when you want to hand over one conversation rather than
 let it look.
+
+**Messaging many people is prepared by the assistant and sent only by you.** The WhatsApp panel's *Broadcast* sends one message at a time to a list you load — pasted, or from a txt, csv, tsv, vcf or xlsx file read on this machine, or from your chats. Nothing starts until you have read the exact message, the number of people and the pace, ticked that everyone on the list agreed to hear from you, and pressed Send. The assistant's tools `whatsapp_audience`, `whatsapp_campaign` and `whatsapp_templates` in `app/src/whatsappbulktool.ts` can only read a list and prepare a draft, and no tool, argument or setting starts a campaign. **The list never goes to the model**: `whatsapp_audience` gives the model counts and three masked examples, and Write with AI (`app/src/whatsappwrite.ts`) sends the model your brief, the message you asked it to change and your business name, and nothing else. Those two tools name a file by path and read it with `read_any_file`, but only a contact-list file or a picture, video, voice note or document, and the contents go to the campaign, not to the model; an attachment is named on the screen where you press Send. The sender (`app/src/whatsappsend.ts`) goes slowly on purpose — a random pause between messages, a longer one every batch, a daily cap — checks first with `/chat/whatsappNumbers` which numbers are on WhatsApp, sends with `/message/sendText`, `/message/sendMedia` or `/message/sendContact` through the same one function as everything else, saves its state before each message so that nobody is messaged twice, and stops by itself when the server refuses, the number is disconnected or messages keep failing. Lists, campaigns (with their attachments) and the do-not-contact list are kept on this machine, in IndexedDB `vylo-whatsapp-bulk`; a reply that is a stop word adds that person to the do-not-contact list, and later campaigns skip them. WhatsApp may block a number that messages people who did not ask; the product says so where you press Send.
 
 **A voice note can be transcribed, and only where you send it.** The model
 hears no audio: the model API takes none, and `dictate.ts` is the

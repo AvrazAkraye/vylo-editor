@@ -220,3 +220,10 @@ Not shown to anyone as written: these are words the app **looks for**, so a wron
 
 **Currency and scale words** the facts check reads (`CURRENCY_AFTER`, `THOUSANDS`, `MILLIONS`): دینار، دیناری، دۆلار، دۆلاری،
 هەزار، ملیۆن / ملیون; and `لەسەدا` / `لە سەدا` for "percent".
+
+## integrator: the bulk-messaging paragraph in SAFETY.ckb.md and SAFETY.kmr.md
+
+The whole paragraph that begins "ناردنی بۆ زۆر کەس لەلایەن یاریدەدەرەوە ئامادە دەکرێت" (Sorani) and "شاندنا بۆ گەلەک کەسان ژ لایێ هاریکار ڤە تێتە ئامادەکرن" (Badini),
+plus the clause added to the file-path sentence of the WhatsApp paragraph ("جگە لەو یەک بەدەرچوونەی…" / "ژبلی وێ یێ د خوارێ دا هاتی…"). It states the safety promises of Broadcast, so a
+native reader should check it says what the English says: a person presses Send, the list never goes to the model, the pace, the stop words, where the lists are kept. The Arabic was written with care.
+Words to check: "ناردنی گشتی / شاندنا گشتی" for *Broadcast*, "ڕەشنووس / ڕەشنڤیس" for *draft*, "پەیوەندیم پێوە مەکە / پەیوەندیێ ب من نەکە" for *do not contact me*.
