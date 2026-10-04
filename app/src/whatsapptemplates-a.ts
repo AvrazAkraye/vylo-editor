@@ -59,7 +59,7 @@ export const TEMPLATES_A: readonly Template[] = [
       kmr: lines(
         'سلاڤ {name} 🛍️',
         'داشکاندنا وەرزی ل {business} دەست پێکر: داشکاندنا *{discount}* ل سەر {product}.',
-        'هەتا {date} بەردەوامە، زوی وەرە دا باشترینان هەلبژێری.',
+        'هەتا {date} بەردەوامە، زوو وەرە دا باشترینان هەلبژێری.',
         '',
         'نوکە بکڕە: {link}',
       ),
@@ -1232,7 +1232,9 @@ export const TEMPLATES_A: readonly Template[] = [
   {
     id: 'birthday-1',
     category: 'birthday',
-    kind: 'greeting',
+    // A promotion, though it reads as a greeting: it carries an offer, and an offer goes with the opt-out line
+    // (docs/WA.md rule 3), as `welcome-4` does in the other half. birthday-2 is the greeting with nothing to sell.
+    kind: 'promo',
     title: { en: 'Birthday gift', ar: 'هدية عيد الميلاد', ckb: 'دیاری ڕۆژی لەدایکبوون', kmr: 'دیاریا ڕۆژبوونێ' },
     text: {
       en: lines(

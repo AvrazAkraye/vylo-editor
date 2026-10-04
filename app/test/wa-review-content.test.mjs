@@ -426,5 +426,107 @@ console.log('riskHints in four languages');
   ok('two hundred long messages are hinted in under 400 ms (it runs on each keystroke)', performance.now() - t0 < 400 * SLOW);
 }
 
+// ── the library, read as a liability ───────────────────────────────────────────
+const { fillTemplate, placeholdersIn, CATEGORIES } = await import('../.test-build/whatsapptemplates.js');
+const LANGS = ['en', 'ar', 'ckb', 'kmr'];
+const each = (fn) => TEMPLATES.flatMap((t) => LANGS.map((l) => fn(t, l, t.text[l]))).filter(Boolean);
+const bodyOf = (s) => s.replace(/\{[^{}]*\}/g, ' ');
+
+console.log('the library: the shape of it');
+{
+  ok('99 messages in 26 categories', TEMPLATES.length === 99 && new Set(TEMPLATES.map((t) => t.category)).size === 26 && CATEGORIES.length === 26, TEMPLATES.length);
+  ok('every message in all four languages', TEMPLATES.every((t) => LANGS.every((l) => typeof t.text[l] === 'string' && t.text[l].trim() && t.title[l]?.trim())));
+}
+
+console.log('the library: one-time codes');
+{
+  const verify = TEMPLATES.filter((t) => t.category === 'verify');
+  const NOT_SHARE = { en: 'Do not share this code with anyone', ar: 'لا تشارك هذا الرمز مع أي شخص', ckb: 'ئەم کۆدە لەگەڵ هیچ کەسێک هاوبەش مەکە', kmr: 'ڤی کۆدی دگەل چ کەسێ پارڤە نەکە' };
+  // Words that would make a code message ask for something back: reply, send, tell, write to us, call us.
+  const ASKS_BACK = {
+    en: /\b(reply|respond|send|text|tell|forward|message us|call)\b/i,
+    ar: /(ردّ|رد على|ردوا|أرسل|راسل|أخبر|اتصل|زوّد|زودنا)/,
+    ckb: /(وەڵام|بنێرە|بۆمان|پەیوەندی|پێمان بڵێ)/,
+    kmr: /(بەرسڤ|بهنێرە|بۆ مە|پەیوەندی|بێژە مە)/,
+  };
+  ok('there are five', verify.length === 5);
+  for (const t of verify) for (const l of LANGS) {
+    const s = t.text[l];
+    ok(`${t.id} ${l}: carries {code} and the do-not-share sentence`, s.includes('{code}') && s.includes(NOT_SHARE[l]), s);
+    ok(`${t.id} ${l}: no link, no address, no phone number to call`, !/\{(link|phone|address)\}/.test(s) && !/https?:|www\.|\.[a-z]{2,}\//i.test(s), s);
+    ok(`${t.id} ${l}: never asks for the code back — no reply, send, tell or call`, !ASKS_BACK[l].test(s.replace(NOT_SHARE[l], '')), s.match(ASKS_BACK[l])?.[0]);
+    ok(`${t.id} ${l}: no emoji, no bold, no exclamation`, !/\p{Extended_Pictographic}/u.test(s) && !/\*/.test(s) && !/!/.test(s), s);
+  }
+}
+
+console.log('the library: nothing a fraud could borrow, nothing a sender cannot honour');
+{
+  const PERSONAL = /\b(send|reply with|give|tell|share|confirm|type|enter|provide)\b[^.]{0,30}\b(password|passcode|pin|cvv|card number|iban|account number|bank details|login details)\b/i;
+  ok('no message asks anyone for a password, PIN, card or bank details', TEMPLATES.every((t) => !PERSONAL.test(t.text.en)), TEMPLATES.filter((t) => PERSONAL.test(t.text.en)).map((t) => t.id));
+  const CLOSING = { en: /(account|card|number|service)[^.]{0,40}\b(closed|suspended|blocked|locked|deactivated|terminated)\b/i, ar: /(إغلاق|إيقاف|تجميد|حظر|تعليق) (حساب|بطاق|خدم)/ };
+  ok('no message says an account or a card will be closed, blocked or suspended', TEMPLATES.every((t) => !CLOSING.en.test(t.text.en) && !CLOSING.ar.test(t.text.ar)));
+  const BANK = { en: /\b(bank|card|transfer|wire|iban|swift)\b/i, ar: /(بنك|مصرف|بطاقة|حوالة|تحويل)/, ckb: /(بانک|کارت|حەواڵە)/, kmr: /(بانک|کارت|حەواڵە)/ };
+  ok('no payment message names a bank, a card or a transfer in any language', TEMPLATES.filter((t) => t.category === 'payment').every((t) => LANGS.every((l) => !BANK[l].test(t.text[l]))));
+  const PROMISE = { en: /\b(guarantee\w*|risk-free|free money|winner|you('ve| have)? won|cure[sd]?|100%|only \w+ left|while stocks last|hurry|act now|don't miss|limited stock)\b/i, ar: /(مضمون|مجان|فزت|اربح|علاج|شفاء تام|أسرع|لا تفوّت|الكمية محدودة)/ };
+  ok('no guarantee, prize, cure or false scarcity, in English or Arabic', TEMPLATES.every((t) => !PROMISE.en.test(t.text.en) && !PROMISE.ar.test(t.text.ar)), TEMPLATES.filter((t) => PROMISE.en.test(t.text.en) || PROMISE.ar.test(t.text.ar)).map((t) => t.id));
+  ok('no number the sender did not type, in any script', each((t, l, s) => /[0-9٠-٩۰-۹%٪]/.test(bodyOf(s)) && `${t.id}/${l}`).length === 0);
+}
+
+console.log('the library: clinics and money owed');
+{
+  const FEAR = { en: /\b(diagnos\w*|disease|cancer|positive|negative|abnormal|serious|worr\w*|urgent\w*|immediately|risk|infection|treatment)\b/i, ar: /(تشخيص|مرض|سرطان|إيجابي|سلبي|خطير|عاجل|فوراً|قلق|عدوى|علاج)/ };
+  ok('no clinic message diagnoses, names a result or frightens', TEMPLATES.filter((t) => t.category === 'health').every((t) => !FEAR.en.test(t.text.en) && !FEAR.ar.test(t.text.ar)), TEMPLATES.filter((t) => t.category === 'health' && (FEAR.en.test(t.text.en) || FEAR.ar.test(t.text.ar))).map((t) => t.id));
+  const SHAME = { en: /\b(legal|court|lawyer|collection|debt|blacklist|final notice|penalt\w*|consequence\w*|immediately|must pay|failed to pay|failure to pay|overdue)\b/i, ar: /(قانوني|محكمة|محام|دين|غرامة|إنذار|فوراً|يجب عليك|عواقب|القائمة السوداء)/ };
+  const owed = TEMPLATES.filter((t) => ['payment-3', 'payment-4'].includes(t.id));
+  ok('a payment reminder never threatens, shames or hurries', owed.every((t) => !SHAME.en.test(t.text.en) && !SHAME.ar.test(t.text.ar)), owed.map((t) => t.text.en.match(SHAME.en)?.[0] ?? t.text.ar.match(SHAME.ar)?.[0]));
+  const PAID = { en: /already paid/, ar: /قد سددت/, ckb: /پێشتر پارەکەت داوە/, kmr: /بەری نوکە پارە دابیت/ };
+  ok('and assumes good faith in all four languages ("if you have already paid")', owed.every((t) => LANGS.every((l) => PAID[l].test(t.text[l]))));
+  ok('the overdue notice reads naturally in Arabic', !TEMPLATES.find((t) => t.id === 'payment-4').text.ar.includes('نتفهم أن هذا قد يفوت'));
+}
+
+console.log('the library: greetings, holidays, emoji');
+{
+  const OFFERS = ['offer', 'price', 'old_price', 'discount', 'code', 'points'];
+  ok('a greeting offers nothing: anything with an offer is a promotion and carries the opt-out line',
+    TEMPLATES.filter((t) => t.kind === 'greeting').every((t) => !t.vars.some((v) => OFFERS.includes(v))),
+    TEMPLATES.filter((t) => t.kind === 'greeting' && t.vars.some((v) => OFFERS.includes(v))).map((t) => t.id));
+  const holidays = TEMPLATES.filter((t) => t.category === 'holiday');
+  ok('no holiday greeting carries a date, a year or a month: Eid moves every year and Mother\'s Day is not one day everywhere',
+    holidays.every((t) => !t.vars.includes('date') && LANGS.every((l) => !/(January|February|March|April|June|July|August|September|October|November|December|آذار|مارس|نيسان|أيار|ئادار|نیسان|\\bMay \\d)/.test(t.text[l]))));
+  const newroz = templateById('holiday-4');
+  ok('Newroz is the new year in all four languages', /new year/i.test(newroz.text.en) && /العام الجديد/.test(newroz.text.ar) && /ساڵی نوێ/.test(newroz.text.ckb) && /سالا نوی/.test(newroz.text.kmr));
+  ok('Eid al-Fitr is "the Ramadan Eid" in Sorani and Badini, as people there say it', /جەژنی ڕەمەزان/.test(templateById('holiday-1').text.ckb) && /جەژنا ڕەمەزانێ/.test(templateById('holiday-1').text.kmr));
+  const DENY = /[\u{1F44D}\u{1F44C}\u{270C}\u{1F91E}\u{1F595}\u{1F64F}\u{1F37A}\u{1F37B}\u{1F377}\u{1F378}\u{1F379}\u{1F942}\u{1F437}\u{1F416}\u{1F953}\u{1F48B}\u{1F346}\u{1F351}\u{1F4B0}\u{1F4B8}\u{1F911}\u{1F3B0}\u{1F6A8}\u{2757}\u{203C}\u{26A0}\u{1F525}]/u;
+  ok('no hand gesture, alcohol, pork, kiss, money bag, siren or alarm emoji (the Newroz fire is the one fire)',
+    each((t, l, s) => DENY.test(t.id === 'holiday-4' ? s.replace(/\u{1F525}/gu, '') : s) && `${t.id}/${l}`).length === 0, each((t, l, s) => DENY.test(s) && `${t.id}/${l}`));
+}
+
+console.log('the library: letters of the right script');
+{
+  const LATIN = /[A-Za-z]/;
+  ok('Arabic, Sorani and Badini carry no Latin letter outside a placeholder', each((t, l, s) => l !== 'en' && LATIN.test(bodyOf(s)) && `${t.id}/${l}`).length === 0);
+  ok('Arabic carries no Kurdish or Persian letter (ی ک ە ێ ڕ ڵ ۆ ڤ)', TEMPLATES.every((t) => !/[یکەێڕڵۆڤ]/.test(t.text.ar + t.title.ar)));
+  ok('Sorani and Badini carry no Arabic yeh, kaf, ta marbuta or alef maqsura, and no harakat', TEMPLATES.every((t) => ['ckb', 'kmr'].every((l) => !/[يكةىً-ْ]/.test(t.text[l] + t.title[l]))));
+  ok('no Latin comma or question mark in a right-to-left text', each((t, l, s) => l !== 'en' && /[,?;]/.test(bodyOf(s)) && `${t.id}/${l}`).length === 0, each((t, l, s) => l !== 'en' && /[,?;]/.test(bodyOf(s)) && `${t.id}/${l}`));
+  ok('Badini has no Sorani ڵ, Sorani no Badini ڤ', TEMPLATES.every((t) => !/ڵ/.test(t.text.kmr + t.title.kmr) && !/ڤ/.test(t.text.ckb + t.title.ckb)));
+  const word = (re) => new RegExp(`(^|[\\s،.!؟:])${re}(?=[\\s،.!؟:]|$)`);
+  const SORANI_IN_BADINI = word('(زۆر|لە|ئێستا|ئەمڕۆ|هەموو|لەگەڵ|ئێمە|ئێوە|دەکەین|چۆن|زوی)');
+  const BADINI_IN_SORANI = word('(ل|ژ|دگەل|نوکە|ئەڤرۆ|هەمی|گەلەک|هوین|هەوە|دێ)');
+  ok('Badini uses no common Sorani word (زۆر، لە، ئێستا، ئەمڕۆ، هەموو، لەگەڵ…)', TEMPLATES.every((t) => !SORANI_IN_BADINI.test(t.text.kmr)), TEMPLATES.filter((t) => SORANI_IN_BADINI.test(t.text.kmr)).map((t) => `${t.id}:${t.text.kmr.match(SORANI_IN_BADINI)[2]}`));
+  ok('Sorani uses no common Badini word (ل، ژ، دگەل، نوکە، ئەڤرۆ، هەمی، گەلەک…)', TEMPLATES.every((t) => !BADINI_IN_SORANI.test(t.text.ckb)), TEMPLATES.filter((t) => BADINI_IN_SORANI.test(t.text.ckb)).map((t) => `${t.id}:${t.text.ckb.match(BADINI_IN_SORANI)[2]}`));
+  const GENDERED = /(كنت|تكون|بصفتك) (جاهزاً|راضياً|عضواً|راضية|جاهزة)/;
+  ok('Arabic never gives the reader a gender the list does not know (كنت جاهزاً، تكون راضياً، بصفتك عضواً)', TEMPLATES.every((t) => !GENDERED.test(t.text.ar)), TEMPLATES.filter((t) => GENDERED.test(t.text.ar)).map((t) => t.id));
+  ok('English: no double space, no space before punctuation, no straight quotes mixed with curly ones', each((t, l, s) => l === 'en' && (/ {2}| [,.!?:;]/.test(s) || (/'/.test(s) && /’/.test(s))) && t.id).length === 0);
+}
+
+console.log('the library: blanks that could leak');
+{
+  const full = (t) => Object.fromEntries(t.vars.filter((v) => v !== 'name').map((v) => [v, `<${v}>`]));
+  ok('filled with every blank, no message leaves a {…} but {name}', each((t, l) => placeholdersIn(fillTemplate(t, l, full(t))).some((v) => v !== 'name') && `${t.id}/${l}`).length === 0);
+  const promoCodes = TEMPLATES.filter((t) => t.kind === 'promo' && t.vars.includes('code'));
+  ok('a promotion with a code shows {code} until it is filled, so the screen can stop it', promoCodes.length > 0 && promoCodes.every((t) => fillTemplate(t, 'en', { business: 'S' }).includes('{code}')));
+  ok('every message stays under 700 characters filled with 120-character values in every blank', each((t, l) => fillTemplate(t, l, Object.fromEntries(t.vars.map((v) => [v, 'x'.repeat(120)]))).length > 700 + 120 * t.vars.length && `${t.id}/${l}`).length === 0);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

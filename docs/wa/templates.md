@@ -70,9 +70,9 @@ foldForSearch(text: unknown): string     // the text as search compares it
 | `followup` | 3 | service | after a purchase, after a visit, following up a quote |
 | `review` | 3 | service | ask for a review, rate your order, thanks for a review |
 | `loyalty` | 3 | service ×2, promo | points balance, members-only offer, points expiring |
-| `birthday` | 3 | greeting ×2, promo | birthday gift, birthday wishes, birthday-month treat |
+| `birthday` | 3 | promo ×2, greeting | birthday gift (a promo: it carries an offer), birthday wishes, birthday-month treat |
 | `holiday` | 9 | greeting | Eid al-Fitr, Eid al-Adha, Ramadan, Newroz, New Year, Mother's Day, Teachers' Day, thank you, Christmas |
-| **total** | **47** | 25 promo, 11 service, 11 greeting | shop, clothing, supermarket, online store, electronics, restaurant, cafe, salon, barber, clinic, school, training, real estate, services, exhibition |
+| **total** | **47** | 26 promo, 11 service, 10 greeting | shop, clothing, supermarket, online store, electronics, restaurant, cafe, salon, barber, clinic, school, training, real estate, services, exhibition |
 
 The order of `CATEGORIES`: sale, new, flash, code, holiday, event, opening, restock, loyalty, referral, birthday, welcome,
 cart, order, delivery, payment, appointment, followup, review, survey, food, property, course, health, notice, verify.
