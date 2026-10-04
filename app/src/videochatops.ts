@@ -1978,7 +1978,9 @@ export function applyOps(video: Video, ops: unknown, newId: () => string, said =
     ...(video.chat ?? []).filter((x) => x?.role === 'you').map((x) => str(x.text)),
     str(said),
     ...original.map((s) => {
-      const { seconds: _s, transition: _t, look: _l, art: _a, ...words } = fieldsOfScene(s) as Record<string, unknown>;
+      // Ids and timings are not figures: a held graphic's or a clip's id is twelve hex digits ("770055aabbcc" would
+      // make 770055 a number the person gave), and a graphic's start on top or a clip's start second are the app's.
+      const { seconds: _s, transition: _t, look: _l, art: _a, motion: _m, over: _o, clip: _c, from: _f, ...words } = fieldsOfScene(s) as Record<string, unknown>;
       return JSON.stringify(words);
     }),
   ].join('\n'));
