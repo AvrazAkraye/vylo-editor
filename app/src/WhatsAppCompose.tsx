@@ -630,8 +630,8 @@ export function ComposeStep({ t, lang, msg, onMsg, people, country, full, gw, ef
         </label>
         {msg.optOut && (
           <>
-            <input className="wa-bk-input" dir="auto" value={optLine} maxLength={200} aria-label={t('The opt-out line')}
-                   onChange={(e) => onMsg({ optOutText: e.target.value })} />
+            <textarea className="wa-bk-area wa-bk-optline" dir="auto" rows={2} value={optLine} maxLength={200} aria-label={t('The opt-out line')}
+                      onChange={(e) => onMsg({ optOutText: e.target.value.replace(/\n/g, ' ') })} />
             {msg.optOutText && msg.optOutText !== OPT_OUT[msg.lang] && (
               <button type="button" className="wa-bk-link" onClick={() => onMsg({ optOutText: '' })}>{t('Use the usual line')}</button>
             )}

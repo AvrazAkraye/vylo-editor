@@ -230,10 +230,11 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
       const all = await loadCampaigns().catch(() => [] as Campaign[]);
       if (!live) return;
       setCampaigns(all);
+      // A run this window holds is shown first: still sending, or ended by itself with a reason the person has not seen.
       const holding = liveRun();
-      if (holding && !holding.over) { setView('run'); return; }
+      if (holding) { setView('run'); return; }
       // A campaign stored as running that this window does not hold was interrupted: recover it before anything else.
-      const stuck = all.find((c) => interruptedOf(c, holding?.campaign ?? null));
+      const stuck = all.find((c) => interruptedOf(c, null));
       if (stuck) {
         const safe = recover(stuck);
         await saveCampaign(safe).catch(() => false);

@@ -9296,6 +9296,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 .wa-bk-area{ resize:vertical; min-block-size:96px; }
 .wa-bk-msg{ min-block-size:150px; font-size:var(--fs-5); }
+.wa-bk-area.wa-bk-optline{ min-block-size:0; resize:none; font-size:var(--fs-3); }
 .wa-bk-select{ cursor:pointer; }
 .wa-bk-select.is-small{ inline-size:auto; flex:1; font-size:var(--fs-2); }
 .wa-bk-num{ inline-size:6.5em; font-variant-numeric:tabular-nums; }
@@ -9349,6 +9350,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-acts{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-2); }
 .wa-bk-row{ display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); }
 .wa-bk-tools{ display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:var(--sp-3); }
+.wa-bk-tools .wa-bk-btn{ min-inline-size:0; padding-inline:var(--sp-3); white-space:normal; line-height:1.25; }
 .wa-bk :is(button, summary, [role="tab"]):focus-visible{ outline:2px solid var(--brand); outline-offset:1px; }
 .wa-bk .wa-why{ margin-inline:0; }
 
@@ -9391,7 +9393,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   background:var(--panel); color:var(--mute); font:inherit; font-size:var(--fs-3); cursor:pointer;
   transition:border-color .15s ease, background .15s ease, color .15s ease;
 }
-.wa-bk-tab span{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wa-bk-tab span{ min-inline-size:0; line-height:1.2; overflow-wrap:anywhere; }
 .wa-bk-tab:hover{ color:var(--ink); border-color:var(--rule-2); }
 .wa-bk-tab.on{ border-color:var(--brand); background:var(--brand-wash); color:var(--brand); font-weight:600; }
 .wa-bk-way{ display:flex; flex-direction:column; gap:var(--sp-4); }
@@ -9423,7 +9425,8 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-raw{ font-family:var(--mono); color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .wa-bk-table{ display:flex; flex-direction:column; border:1px solid var(--rule); border-radius:var(--r-2); overflow:hidden; }
 .wa-bk-tr{
-  display:grid; grid-auto-flow:column; grid-auto-columns:minmax(0, 1fr); gap:var(--sp-3);
+  /* The phone column is fixed so the header lines up with the rows: each row is its own grid. */
+  display:grid; grid-template-columns:118px; grid-auto-flow:column; grid-auto-columns:minmax(0, 1fr); gap:var(--sp-3);
   padding-block:var(--sp-3); padding-inline:var(--sp-4); border-block-start:1px solid var(--rule);
   font-size:var(--fs-2); color:var(--ink-2); align-items:center;
 }
@@ -9468,7 +9471,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-file .wa-bk-icon{ inline-size:24px; block-size:24px; }
 .wa-bk-optout{ display:flex; flex-direction:column; gap:var(--sp-3); padding-block:var(--sp-4); padding-inline:var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-3); background:var(--panel); }
 .wa-bk-paper{
-  padding-block:var(--sp-4); padding-inline:var(--sp-5); border-radius:var(--r-2); background:var(--panel-2);
+  padding-block:var(--sp-4); padding-inline:var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-2); background:var(--panel);
   font-size:var(--fs-4); line-height:1.55; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere;
 }
 .wa-bk-find{ margin:0; }
@@ -9608,7 +9611,9 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 .wa-bk-why{ margin:0; font-size:var(--fs-2); color:var(--ink-2); line-height:1.45; }
 .wa-bk-bar-row{ display:flex; align-items:center; gap:var(--sp-3); }
-.wa-bk-bar-row .wa-bk-go{ flex:1; }
+.wa-bk-bar-row > .wa-bk-btn{ flex:none; }
+/* The label may take two lines rather than push the button out of a 248 px column (Kurdish labels are long). */
+.wa-bk-bar-row .wa-bk-go{ flex:1; min-inline-size:0; white-space:normal; text-align:center; line-height:1.25; }
 
 /* ── 44 px targets in the column ── */
 .wa-bk:not(.is-full) :is(.wa-bk-btn, .wa-bk-tab, .wa-bk-chip, .wa-bk-stepb, .wa-bk-pill, .wa-bk-link, .wa-bk-go, .wa-bk-input, .wa-bk-select, .wa-bk-seg button){
@@ -9617,6 +9622,9 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk:not(.is-full) .wa-bk-icon{ inline-size:44px; block-size:44px; }
 .wa-bk:not(.is-full) .wa-bk-file .wa-bk-icon{ inline-size:32px; block-size:32px; }
 .wa-bk:not(.is-full) .wa-bk-check{ min-block-size:44px; align-items:center; }
+.wa-bk:not(.is-full) .wa-bk-field.is-inline{ grid-template-columns:minmax(0, 1fr); gap:var(--sp-2); }
+.wa-bk:not(.is-full) .wa-bk-steps li + li::before{ inline-size:var(--sp-3); }
+.wa-bk:not(.is-full) .wa-bk-stepb{ padding-inline:var(--sp-1) var(--sp-2); gap:var(--sp-2); }
 .wa-bk:not(.is-full) .wa-bk-check input{ margin-block-start:0; }
 /* A table four columns wide does not fit 248 px: phone and name, and the report's result under the number. */
 .wa-bk:not(.is-full) .wa-bk-tr > :nth-child(n+3){ display:none; }
