@@ -122,7 +122,9 @@ const PLAN_LIST: Plan[] = [
   // exchange never start with 0 or 1 — and "1" is dialled before them at home.
   plan('1', '10', '1', '', /^[2-9][0-9]{2}[2-9]/),
   // Zone 2: Africa.
-  plan('20', '1:10 8-9', '0', '10,11,12,15'),
+  // Egypt: mobiles 10, 11, 12, 15 and eight digits; landlines an area code and seven (Cairo 2, Alexandria 3, Banha
+  // 13 — a landline that starts with 1 too, so the mobile prefixes are named one by one).
+  plan('20', '10:10 11:10 12:10 15:10 8-9', '0', '10,11,12,15'),
   plan('211', '9'), plan('212', '9', '0', '6,7'), plan('213', '8-9', '0', '5,6,7'), plan('216', '8', '', '2,4,5,9'),
   plan('218', '8-9', '0', '9'), plan('220', '7', ''), plan('221', '9', ''), plan('222', '8', ''), plan('223', '8', ''),
   plan('224', '8-9', ''), plan('225', '8-10', ''), plan('226', '8', ''), plan('227', '8', ''), plan('228', '8', ''),
