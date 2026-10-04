@@ -35,6 +35,7 @@
  * of it without a server.
  */
 
+import { BULK_TOOLS, isBulkTool, runBulkTool, type BulkDeps } from './whatsappbulktool';
 import {
   accountNamed, activeOf, chatsFrom, inChat, isGroup, jidOf, messagesFrom, newest, phoneOf, ready, readyAccounts,
   type Account, type Accounts, type Chat, type Conn, type Msg,
@@ -98,7 +99,10 @@ export const WHATSAPP_TOOLS = [
   },
 ] as const;
 
-const NAMES: ReadonlySet<string> = new Set<string>(WHATSAPP_TOOLS.map((t) => t.name));
+/** Every tool this module offers: the one-to-one ones above and the bulk ones (whatsappbulktool.ts), which only prepare. */
+const ALL_TOOLS = [...WHATSAPP_TOOLS, ...BULK_TOOLS] as const;
+
+const NAMES: ReadonlySet<string> = new Set<string>(ALL_TOOLS.map((t) => t.name));
 
 export const isWhatsAppTool = (name: string): boolean => NAMES.has(name);
 
@@ -111,10 +115,10 @@ export const isWhatsAppTool = (name: string): boolean => NAMES.has(name);
  * nothing and the model says it plainly.
  */
 export function whatsAppToolsFor(from: Conn | Accounts): unknown[] {
-  if (!('list' in from)) return ready(from) ? [...WHATSAPP_TOOLS] : [];
+  if (!('list' in from)) return ready(from) ? [...ALL_TOOLS] : [];
   const usable = readyAccounts(from);
   if (!usable.length) return [];
-  if (usable.length === 1) return [...WHATSAPP_TOOLS];
+  if (usable.length === 1) return [...ALL_TOOLS];
   // Two or more numbers: each tool says which, by the names the person gave them. The model
   // only ever chooses among these — the address and the key stay with the account.
   const shown = activeOf(from);
@@ -125,7 +129,7 @@ export function whatsAppToolsFor(from: Conn | Accounts): unknown[] {
     description: `Which of the user's WhatsApp accounts: ${usable.map((a) => `"${a.name}"`).join(', ')}. `
       + `Leave it out for "${fallback.name}", the one open in the WhatsApp panel. Say which account you used.`,
   };
-  return WHATSAPP_TOOLS.map((tool) => ({
+  return ALL_TOOLS.map((tool) => ({
     ...tool,
     input_schema: { ...tool.input_schema, properties: { ...tool.input_schema.properties, account } },
   }));
@@ -266,6 +270,8 @@ export interface Deps {
   ask: Ask;
   /** The account's name, when the person has more than one: shown in the approval and the result. */
   account?: string;
+  /** What the bulk tools need (whatsappbulktool.ts); without it they say they are not available. */
+  bulk?: BulkDeps;
 }
 
 /** What `agent.ts` expects back from a tool. */
@@ -289,6 +295,11 @@ export async function runWhatsAppTool(
       + 'it is not something you can configure.');
   }
   const inst = encodeURIComponent(conn.instance);
+
+  // Preparing a bulk message sends nothing, so it does not ask; starting one is not a tool (whatsappbulktool.ts).
+  if (isBulkTool(name)) {
+    return deps.bulk ? runBulkTool(name, input, deps.bulk) : fail('Bulk messaging is not available here.');
+  }
 
   const fetchAll = async (): Promise<Msg[]> =>
     messagesFrom(await call(`/chat/findMessages/${inst}`, newest(PAGE)));

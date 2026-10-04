@@ -245,6 +245,11 @@ const CHAT_WHATSAPP_NOTE = [
   'and read conversations, and whatsapp_send to send a message. When the person',
   'asks you to send something on WhatsApp, find the conversation and send it —',
   'they are shown the exact recipient and text and approve it before it leaves.',
+  'To message MANY people ("send this to the numbers in contacts.csv"), never send',
+  'one by one: whatsapp_audience reads their file on this machine (you never see the',
+  'list), whatsapp_templates finds a ready message, and whatsapp_campaign prepares',
+  'the broadcast as a draft. You cannot send it: the person reviews it under',
+  'WhatsApp → Broadcast and presses Send. Say that it is prepared and waiting.',
 ].join('\n');
 
 /** The WhatsApp tools among a turn's extra tools: the only ones Chat mode is given. */

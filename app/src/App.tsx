@@ -179,6 +179,7 @@ import type { Dest } from './askroute';
 import { ACCOUNTS_KEY as WA_ACCOUNTS_KEY, KEY as WA_KEY, readAccounts as readWaAccounts } from './whatsapp';
 import { callerFor } from './whatsappwire';
 import { accountFor as waAccountFor, isWhatsAppTool as isWaTool, runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
+import { bulkDepsFor, type FileRead } from './whatsappbulktool';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
 import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
@@ -4157,6 +4158,7 @@ export function App() {
           const conn = { baseUrl: acc.value.baseUrl, instance: acc.value.instance, key: acc.value.key };
           return runWhatsAppTool(callToRun.name, callToRun.input, {
             conn, call: callerFor(conn), ask, ...(accounts.list.length > 1 ? { account: acc.value.name } : {}),
+            bulk: bulkDepsFor(acc.value.id, lang, (path) => invoke<FileRead>('read_any_file', { path })),
           });
         },
         runInTerminal: (command) => {

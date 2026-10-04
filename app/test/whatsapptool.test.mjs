@@ -76,7 +76,7 @@ function rig({ answer = 'pipe', rows = [], failWith = null } = {}) {
   ok('and nothing else is', !isWhatsAppTool('run_command') && !isWhatsAppTool('whatsapp'));
 
   ok('no tools without a connection', whatsAppToolsFor(NONE).length === 0);
-  ok('and three with one', whatsAppToolsFor(CONN).length === 3);
+  ok('and six with one: three for conversations, three that prepare a broadcast (whatsappbulktool.ts)', whatsAppToolsFor(CONN).length === 6);
   ok('a half-filled connection is not one',
      whatsAppToolsFor({ ...CONN, key: '' }).length === 0);
 }
@@ -346,7 +346,7 @@ function rig({ answer = 'pipe', rows = [], failWith = null } = {}) {
   ok('one account: the tools as before, no account field', whatsAppToolsFor({ list: [A], active: 'main' }).every((t) => !t.input_schema.properties.account));
   const tools = whatsAppToolsFor(both);
   ok('two accounts: every tool can say which, only among the person\'s own names',
-    tools.length === 3 && tools.every((t) => JSON.stringify(t.input_schema.properties.account.enum) === JSON.stringify(['Personal', 'OTP line'])), tools[0].input_schema);
+    tools.length === 6 && tools.every((t) => JSON.stringify(t.input_schema.properties.account.enum) === JSON.stringify(['Personal', 'OTP line'])), tools[0].input_schema);
   ok('…and the model is told which one it gets by default', /Leave it out for "Personal"/.test(tools[0].input_schema.properties.account.description));
   ok('the shared tool list is not changed by it', WHATSAPP_TOOLS.every((t) => !t.input_schema.properties.account));
   ok('no complete account, no tools', whatsAppToolsFor({ list: [{ ...A, key: '' }], active: 'main' }).length === 0 && whatsAppToolsFor({ list: [], active: '' }).length === 0);
