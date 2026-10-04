@@ -25,7 +25,7 @@ to rebuild it, or `scripts/notices.sh --check` to fail when it is out of date.
 The output is deterministic and carries no timestamp, so an unchanged
 dependency tree regenerates a byte-identical file.
 
-Generated for **Vylo Editor 0.133.0** (Rust crate `vylo-editor` 0.21.0).
+Generated for **Vylo Editor 0.133.1** (Rust crate `vylo-editor` 0.21.0).
 
 ## What is covered
 
