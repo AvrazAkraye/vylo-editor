@@ -258,6 +258,11 @@ console.log('The stylesheet, as WebKit drew it');
   // ("· 1 asked not to be messaged"). Each count is its own small pill, which wraps cleanly in any language.
   ok('the read\'s counts are pills, not a dotted line that wraps badly',
     ruleOf('.wa-bk-sum-more span + span::before') === null && /border-radius\s*:\s*99px/.test(ruleOf('.wa-bk-sum-more span') ?? ''));
+  // Found by measuring every word's line boxes in WebKit (four languages, 248 px): the Sorani "Saved lists" tab broke
+  // its one long word in two ("پاشەکەوتکراوەکا" / "ن") — an icon beside the label left it 79 px. In the column the
+  // icon sits over the label, and a word is broken only if it cannot fit a line at all.
+  ok('in the column a way-in tab is a tile, icon over label', /flex-direction\s*:\s*column/.test(ruleOf('.wa-bk:not(.is-full) .wa-bk-tab') ?? ''));
+  ok('and its label breaks between words, not inside one', /overflow-wrap\s*:\s*break-word/.test(ruleOf('.wa-bk-tab span') ?? ''));
   // Found: the header of a broadcast with no account cut its sentence mid-word ("No WhatsApp account is co").
   ok('the no-account line wraps instead of being cut', /white-space\s*:\s*normal/.test(ruleOf('.wa-bk-title small.is-none') ?? ''));
   const head = draw(h(B.WhatsAppBroadcast, { t: en, lang: 'en', account: null, full: false, onProviders() {}, onClose() {} }));

@@ -9811,7 +9811,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
   background:var(--panel); color:var(--mute); font:inherit; font-size:var(--fs-3); cursor:pointer;
   transition:border-color .15s ease, background .15s ease, color .15s ease;
 }
-.wa-bk-tab span{ min-inline-size:0; line-height:1.2; overflow-wrap:anywhere; }
+.wa-bk-tab span{ min-inline-size:0; line-height:1.2; overflow-wrap:break-word; }
 .wa-bk-tab:hover{ color:var(--ink); border-color:var(--rule-2); }
 .wa-bk-tab.on{ border-color:var(--brand); background:var(--brand-wash); color:var(--brand); font-weight:600; }
 .wa-bk-way{ display:flex; flex-direction:column; gap:var(--sp-4); }
@@ -10046,6 +10046,9 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk:not(.is-full) .wa-bk-icon{ inline-size:44px; block-size:44px; }
 .wa-bk:not(.is-full) .wa-bk-file .wa-bk-icon{ inline-size:32px; block-size:32px; }
 .wa-bk:not(.is-full) .wa-bk-check{ min-block-size:44px; align-items:center; }
+/* The four ways in as tiles, icon over label: beside it, the label had 79 px and the Sorani "Saved lists" (one long
+   word) broke in the middle. */
+.wa-bk:not(.is-full) .wa-bk-tab{ flex-direction:column; gap:2px; text-align:center; }
 .wa-bk:not(.is-full) .wa-bk-field.is-inline{ grid-template-columns:minmax(0, 1fr); gap:var(--sp-2); }
 .wa-bk:not(.is-full) .wa-bk-steps li + li::before{ inline-size:var(--sp-3); }
 .wa-bk:not(.is-full) .wa-bk-stepb{ padding-inline:var(--sp-1) var(--sp-2); gap:var(--sp-2); }
