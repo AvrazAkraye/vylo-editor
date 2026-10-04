@@ -103,8 +103,11 @@ export const RULES: readonly Rule[] = [
   // The string is the first line `whatsapptool.ts` writes for the dialog.
   // `test/whatsapptool.test.mjs` asserts the two still agree, because a rule
   // that matches a sentence another file builds is a rule that can be silently
-  // unhooked by editing that sentence.
-  { test: /^whatsapp to /, why: 'it sends a message to another person' },
+  // unhooked by editing that sentence. That happened once: with two numbers
+  // connected the line became "WhatsApp from <account> to …", the old
+  // `^whatsapp to ` missed it, and level `all` sent again without a dialog
+  // (`test/wa-review-content.test.mjs` asserts every account name is caught).
+  { test: /^whatsapp (?:from .+? )?to /, why: 'it sends a message to another person' },
 
   // Running as somebody else, or as something you have not read.
   { test: /\b(sudo|doas|su)\b/, why: 'it runs as another user' },
