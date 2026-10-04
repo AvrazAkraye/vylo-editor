@@ -300,6 +300,7 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
     let sinceBatch = 0;  // requests since the last batch pause
     let recheck = false; // look at the connection before the next send
     let checking = true; // the gateway can tell us who is on WhatsApp
+    let owed = 0;        // a 429 back-off a pause cut short: waited out in full after the resume, before anything is sent
     const checked = new Set<string>();
     let day = '';
     let mine = 0;        // requests this run counted today
@@ -343,12 +344,18 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
       return Math.round((pace.minDelaySec + x * (pace.maxDelaySec - pace.minDelaySec)) * 1000);
     };
 
-    /** A 429: wait longer each time, and stop asking after three in a row. */
+    /**
+     * A 429: wait longer each time, and stop asking after three in a row. A pause wakes the wait early; the back-off is
+     * still owed then, and the loop serves it again after the resume — pressing Pause and Resume is not a way past
+     * WhatsApp asking to slow down.
+     */
     const slowDown = async (): Promise<HaltWhy | null> => {
       rate++;
       note('rate-limited');
       if (rate >= RATE_STREAK) return 'rate-limited';
-      await nap(BACKOFF_MS * 2 ** (rate - 1), 'delay');
+      owed = BACKOFF_MS * 2 ** (rate - 1);
+      await nap(owed, 'delay');
+      if (want === 'run') owed = 0;
       return null;
     };
 
@@ -462,6 +469,12 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
       if (c.outcomes[p]?.standing !== 'queued') { i++; continue; }
       if (!(await gate())) return end('stopped');
 
+      if (owed) {
+        await nap(owed, 'delay');
+        if (want !== 'run') continue;
+        owed = 0;
+      }
+
       if (checking && !checked.has(p)) {
         const w = await check(order, i);
         if (w !== 'ok') return halt(w);
@@ -485,6 +498,8 @@ export function runCampaign(input: Campaign, deps: RunDeps): Runner {
 
       if (sinceBatch >= pace.batchSize) {
         await nap(pace.batchPauseSec * 1000, 'batch');
+        // A pause or a stop cut the break short: after a resume it is taken again, in full, like the delay.
+        if (want !== 'run') continue;
         sinceBatch = 0;
         recheck = true;
         continue;

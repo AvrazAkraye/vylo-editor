@@ -581,6 +581,13 @@ const STOP_WORDS = [
   'وەستان', 'وەستێنە', 'ڕاگرە', 'نامەوێت', 'لابدە', 'بوەستە',
   'ڕاوەستە', 'نەخوازم', 'بەس', 'بس',
   'dur', 'durdur', 'iptal', 'bes',
+  // How people write it in a sentence: with "me", with "your list", with "do not" (the engine review's misses).
+  'remove me from your list', 'remove me from the list', 'remove me from this list', 'take me off', 'take me off your list',
+  'take me off the list', 'take me off this list', 'dont message me', 'dont text me', 'dont contact me', 'dont send me',
+  'do not message me', 'do not text me', 'do not contact me', 'do not send me', 'stop contacting',
+  'لا ترسل', 'لا ترسلوا', 'لا ترسل لي', 'لا ترسلوا لي', 'لا تراسلني', 'لا أريد رسائل', 'توقفوا', 'أوقفوا', 'كفى', 'كفاية',
+  // Kurdish in Latin letters: Kurmanji (Badini) "stop", "stop it", "I do not want"; Sorani "stopping".
+  'raweste', 'rawestine', 'nexwazim', 'naxwazim', 'westan',
 ];
 
 /** Words of politeness that do not change what a short reply asks for. */
@@ -613,6 +620,21 @@ function fold(s: string): string {
 const STOPS = new Set(STOP_WORDS.map(fold));
 const FILLERS = FILLER_WORDS.map(fold).sort((a, b) => b.length - a.length);
 
+/**
+ * The words of politeness taken off the ends only, one at a time, until a stop phrase is left (or nothing is): so a
+ * phrase that has a filler inside it — "don't message me" — is still found in "please, don't message me".
+ */
+function trimFillers(f: string): string {
+  let s = f;
+  while (s && !STOPS.has(s)) {
+    const w = FILLERS.find((x) => s === x || s.startsWith(`${x} `) || s.endsWith(` ${x}`));
+    if (!w) break;
+    if (s === w) return '';
+    s = s.startsWith(`${w} `) ? s.slice(w.length + 1) : s.slice(0, s.length - w.length - 1);
+  }
+  return s;
+}
+
 /** Whether an incoming message is a request to stop. */
 export function isOptOut(text: string): boolean {
   if (typeof text !== 'string' || text.length > 200) return false;
@@ -620,11 +642,14 @@ export function isOptOut(text: string): boolean {
   // "S.T.O.P" and "s t o p": letters one at a time are one word.
   if (/^\p{L}( \p{L})+$/u.test(f)) f = f.replace(/ /g, '');
   if (!f || f.length > 60 || f.split(' ').length > 6) return false;
+  // "STOP STOP": a word said twice in a row is said once.
+  f = f.split(' ').filter((w, i, all) => w !== all[i - 1]).join(' ');
   if (STOPS.has(f)) return true;
   let rest = ` ${f} `;
   for (const w of FILLERS) rest = rest.split(` ${w} `).join(' ');
   rest = rest.replace(/\s+/g, ' ').trim();
-  return !!rest && STOPS.has(rest);
+  if (rest && STOPS.has(rest)) return true;
+  return STOPS.has(trimFillers(f));
 }
 
 /**

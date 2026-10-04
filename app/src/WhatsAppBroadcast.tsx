@@ -200,9 +200,10 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   const [people, setPeopleState] = useState<People | null>(null);
   /** Set when the person changes the people, so the working list is written; a restore does not write. */
   const peopleDirty = useRef(false);
-  const setPeople = useCallback((p: People | null) => { peopleDirty.current = true; setPeopleState(p); }, []);
-  const [suppressed, setSuppressed] = useState<ReadonlySet<string>>(new Set());
   const [consent, setConsent] = useState(false);
+  // The tick says "everyone on this list agreed": a different list has not been ticked for, so it is ticked again.
+  const setPeople = useCallback((p: People | null) => { peopleDirty.current = true; setPeopleState(p); setConsent(false); }, []);
+  const [suppressed, setSuppressed] = useState<ReadonlySet<string>>(new Set());
   const [view, setView] = useState<View>('steps');
   const [back, setBack] = useState<View>('steps');
   const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);

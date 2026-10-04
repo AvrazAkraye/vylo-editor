@@ -535,14 +535,13 @@ console.log('the documents');
   const para = safety.slice(safety.indexOf('**Messaging many people'), safety.indexOf('**A voice note'));
   ok('SAFETY: the audience tool gives the model counts and three masked examples (and the test above holds that nothing else goes)', /`whatsapp_audience` gives the model counts and three masked examples/.test(para));
   ok('SAFETY: lists live in IndexedDB vylo-whatsapp-bulk, as the store names it', para.includes('`vylo-whatsapp-bulk`') && /const DB = 'vylo-whatsapp-bulk'/.test(read('app/src/whatsappbulkstore.ts')));
-  ok('SAFETY: stop-word replies are added by a press on the report, which is what the code does (nothing adds them by itself)',
-    /one press adds everyone who replied with a stop word/.test(para) && !/addSuppressed/.test(read('app/src/whatsappsend.ts')) && /Add STOP replies to the do-not-contact list/.test(read('app/src/WhatsAppRun.tsx')));
+  ok('SAFETY: a stop-word reply is added by the panel while it is open (`addStopReplies`), which is what the code does',
+    /`addStopReplies`/.test(para) && /while the WhatsApp panel is open/.test(para) && /export (async )?function addStopReplies/.test(read('app/src/whatsappbulkstore.ts') + read('app/src/whatsappsend.ts') + read('app/src/WhatsAppBroadcast.tsx')));
   ok('SAFETY: Write with AI sends the brief, the message being changed and the business name', /sends the model your brief, the message you asked it to change and your business name, and nothing else/.test(para));
   ok('SAFETY: a model-written send is asked at every level (the first section holds it from any account)', /it is asked at every auto-approve level/.test(safety));
   const ids = (f) => [...new Set([...read(f).matchAll(/`([^`\n]+)`/g)].map((m) => m[1]))].sort().join('\n');
   ok('the four SAFETY files still name the same identifiers', ['SAFETY.ar.md', 'SAFETY.ckb.md', 'SAFETY.kmr.md'].every((f) => ids(f) === ids('SAFETY.md')));
-  const stopLine = { 'SAFETY.ar.md': 'تضيف ضغطة واحدة', 'SAFETY.ckb.md': 'بە یەک داگرتن', 'SAFETY.kmr.md': 'ب ئێک گڤاشتنێ' };
-  ok('and all four say the stop-word replies are added by a press', Object.entries(stopLine).every(([f, w]) => read(f).includes(w)));
+  ok('and all four name `addStopReplies` for it', ['SAFETY.ar.md', 'SAFETY.ckb.md', 'SAFETY.kmr.md'].every((f) => read(f).includes('`addStopReplies`')));
   const kmr = read('SAFETY.kmr.md');
   const kmrPara = kmr.slice(kmr.indexOf('**شاندنا بۆ گەلەک کەسان'), kmr.indexOf('**دەنگەک دشێت'));
   ok('the Badini broadcast paragraph is written without the Sorani letter ڵ (هەلمەت، بەلگەنامە)', kmrPara.length > 1000 && !kmrPara.includes('\u06B5'), (kmrPara.match(/\S*\u06B5\S*/g) || []).join(' '));

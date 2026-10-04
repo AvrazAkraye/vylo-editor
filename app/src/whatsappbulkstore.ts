@@ -1,10 +1,10 @@
-import { dayOf } from './whatsapp';
+import { dayOf, phoneOf, type Msg } from './whatsapp';
 import {
   LIMITS, MESSAGE_LANGS,
   type Attachment, type AttachmentKind, type Audience, type Campaign, type CampaignState, type ContactCard, type Draft,
   type Lang, type Outcome, type Recipient, type SourceFormat, type Standing,
 } from './whatsappbulktypes';
-import { clampPace, plainValue, wirePhone } from './whatsappcampaign';
+import { clampPace, isOptOut, optOutPhones, plainValue, wirePhone } from './whatsappcampaign';
 
 /**
  * What the broadcast feature keeps between sessions: audiences, campaigns, the do-not-contact list, and how many
@@ -62,6 +62,11 @@ let suppressedNow: Set<string> | null = null;
 const suppressedHere = new Set<string>();
 /** Messages counted this session, by `account|day`, so a refused counter write still counts while the app is open. */
 const countedNow = new Map<string, number>();
+/** Everyone the kept campaigns are for, once read; null until then, and again whenever a campaign's people change. */
+let peopleNow: Set<string> | null = null;
+/** Bumped with every such change, so a read that started before one is not kept as if it came after. */
+let peopleGen = 0;
+const peopleChanged = () => { peopleNow = null; peopleGen++; };
 
 let opening: Promise<IDBDatabase | null> | null = null;
 
@@ -69,6 +74,7 @@ function forget() {
   opening = null;
   written.clear();
   suppressedNow = null;
+  peopleChanged();
 }
 
 /** The database, opened once and kept; a refusal is not kept, so the next call tries again. */
@@ -105,6 +111,14 @@ function done<T>(req: IDBRequest<T>): Promise<T | null> {
     req.onerror = () => resolve(null);
   });
 }
+
+/**
+ * The writes the runner relies on — the campaign saved before a send, an opt-out, the day's count — ask for a commit
+ * that is on disk before it is reported done. A browser may otherwise report a commit as complete while it is still
+ * in a cache ("relaxed"), and a power cut then would leave a person `queued` who had been sent to. Where the option is
+ * not known it is ignored, which is no worse than before.
+ */
+const DURABLE: IDBTransactionOptions = { durability: 'strict' };
 
 /** A write, settled when its transaction commits: a quota error aborts the transaction after the request "succeeded". */
 function committed(tx: IDBTransaction): Promise<boolean> {
@@ -189,22 +203,21 @@ function readDraft(x: unknown, data?: unknown): Draft {
   };
 }
 
-function readOutcome(key: string, x: unknown): Outcome | null {
+/**
+ * A stored outcome, repaired, under every number it names (none when it names none). The key is what a runner looks a
+ * person up by and the `phone` field says the same; when a hand-edited record makes them differ, both numbers keep the
+ * standing — the reader's rule is to lean towards not sending.
+ */
+function readOutcome(key: string, x: unknown): Outcome[] {
   const o = obj(x);
-  if (!o) return null;
-  const phone = wirePhone(o.phone) || wirePhone(key);
-  if (!phone) return null;
+  if (!o) return [];
+  const phones = [...new Set([wirePhone(key), wirePhone(o.phone)].filter(Boolean))];
   const at = time(o.at);
   const why = word(o.why);
   const attempts = typeof o.attempts === 'number' && Number.isFinite(o.attempts) ? Math.min(99, Math.max(0, Math.floor(o.attempts))) : 0;
-  return {
-    phone,
-    // A standing this build does not know may mean the message went: never `queued`.
-    standing: STANDINGS.includes(o.standing as Standing) ? (o.standing as Standing) : 'unknown',
-    ...(at ? { at } : {}),
-    ...(why ? { why } : {}),
-    attempts,
-  };
+  // A standing this build does not know may mean the message went: never `queued`.
+  const standing: Standing = STANDINGS.includes(o.standing as Standing) ? (o.standing as Standing) : 'unknown';
+  return phones.map((phone) => ({ phone, standing, ...(at ? { at } : {}), ...(why ? { why } : {}), attempts }));
 }
 
 /**
@@ -217,12 +230,25 @@ export function readCampaign(x: unknown, payload?: unknown): Campaign | null {
   if (!o || !cid) return null;
   const p = obj(payload);
   const recipients = readRecipients(p && Array.isArray(p.recipients) ? p.recipients : o.recipients);
+  // The people's own outcomes always; the others (numbers no longer on the list) up to the ceiling — so junk can never
+  // push out the record of someone who was sent to. Two records for one number: the one that says something happened
+  // wins, so reading a record never puts anyone back in the queue.
+  const mine = new Set(recipients.map((r) => r.phone));
   const outcomes: Record<string, Outcome> = {};
-  let n = 0;
+  let others = 0;
   for (const [k, v] of Object.entries(obj(o.outcomes) ?? {})) {
-    if (n >= LIMITS.recipients) break;
-    const got = readOutcome(k, v);
-    if (got && !Object.prototype.hasOwnProperty.call(outcomes, got.phone)) { outcomes[got.phone] = got; n++; }
+    for (const got of readOutcome(k, v)) {
+      const was = Object.prototype.hasOwnProperty.call(outcomes, got.phone) ? outcomes[got.phone] : undefined;
+      if (was) {
+        if (was.standing === 'queued' && got.standing !== 'queued') outcomes[got.phone] = got;
+        continue;
+      }
+      if (!mine.has(got.phone)) {
+        if (others >= LIMITS.recipients) continue;
+        others++;
+      }
+      outcomes[got.phone] = got;
+    }
   }
   const started = time(o.started);
   const finished = time(o.finished);
@@ -313,6 +339,9 @@ export async function saveCampaign(c: Campaign): Promise<boolean> {
   const attachment = c.message?.attachment;
   const record = {
     ...c,
+    // A copy of the map now: storage clones the record only after the awaits below, and an outcome changed in the
+    // meantime must not be kept as if it had been saved here.
+    outcomes: { ...c.outcomes },
     recipients: [],
     message: { ...c.message, ...(attachment ? { attachment: { ...attachment, data: '' } } : {}) },
   };
@@ -322,7 +351,7 @@ export async function saveCampaign(c: Campaign): Promise<boolean> {
   const d = await db();
   if (!d) return false;
   try {
-    const tx = d.transaction(['campaigns', 'payloads'], 'readwrite');
+    const tx = d.transaction(['campaigns', 'payloads'], 'readwrite', DURABLE);
     const ok = committed(tx);
     const campaigns = tx.objectStore('campaigns');
     const payloads = tx.objectStore('payloads');
@@ -349,7 +378,10 @@ export async function saveCampaign(c: Campaign): Promise<boolean> {
       written.delete(c.id);
       return false;
     }
-    if (fresh) written.set(c.id, { recipients: c.recipients, data });
+    if (fresh) {
+      written.set(c.id, { recipients: c.recipients, data });
+      peopleChanged();
+    }
     return true;
   } catch {
     written.delete(c.id);
@@ -359,6 +391,7 @@ export async function saveCampaign(c: Campaign): Promise<boolean> {
 
 export async function deleteCampaign(id: string): Promise<void> {
   written.delete(id);
+  peopleChanged();
   const d = await db();
   if (!d) return;
   try {
@@ -453,10 +486,11 @@ export async function doNotContact(): Promise<ReadonlySet<string>> {
 }
 
 /**
- * Put people on the do-not-contact list. `false` when not all of them could be kept: storage refused, or the list is at
- * `LIMITS.suppressed`. At the cap the list stops growing rather than forgetting anyone — dropping the oldest entry
- * would mean writing again to someone who asked us not to, which is the one thing this list exists to prevent. The
- * session honours every addition, kept or not.
+ * Put people on the do-not-contact list. `false` when storage refused; the session honours every addition, kept or not.
+ *
+ * There is no ceiling. `LIMITS.suppressed` once made the list stop growing at 20,000 — which kept everyone already on
+ * it, but left the next person who asked to stop on it only until the app was closed, and then wrote to them again.
+ * An opt-out is a few dozen bytes; forgetting one is the one thing this list exists to prevent.
  */
 export async function addSuppressed(phones: readonly string[]): Promise<boolean> {
   const want = [...new Set(phones.map(wirePhone).filter(Boolean))];
@@ -465,21 +499,60 @@ export async function addSuppressed(phones: readonly string[]): Promise<boolean>
   const have = await readSuppressed();
   if (!have) return false;
   const fresh = want.filter((p) => !have.has(p));
-  const take = fresh.slice(0, Math.max(0, LIMITS.suppressed - have.size));
-  if (!take.length) return fresh.length === 0;
+  if (!fresh.length) return true;
   const d = await db();
   if (!d) return false;
   try {
-    const tx = d.transaction('suppressed', 'readwrite');
+    const tx = d.transaction('suppressed', 'readwrite', DURABLE);
     const ok = committed(tx);
     const at = Date.now();
-    for (const p of take) tx.objectStore('suppressed').put({ phone: p, at });
+    for (const p of fresh) tx.objectStore('suppressed').put({ phone: p, at });
     if (!(await ok)) return false;
-    for (const p of take) have.add(p);
-    return take.length === fresh.length;
+    for (const p of fresh) have.add(p);
+    return true;
   } catch {
     return false;
   }
+}
+
+/** Everyone any kept campaign is for — what a stop reply is checked against — or null when storage cannot say. */
+async function campaignPeople(): Promise<Set<string> | null> {
+  if (peopleNow) return peopleNow;
+  const gen = peopleGen;
+  const d = await db();
+  if (!d) return null;
+  try {
+    const tx = d.transaction(['campaigns', 'payloads'], 'readonly');
+    const [rows, pays] = await Promise.all([done(tx.objectStore('campaigns').getAll()), done(tx.objectStore('payloads').getAll())]);
+    if (!Array.isArray(rows) || !Array.isArray(pays)) return null;
+    const s = new Set<string>();
+    // The people live in `payloads`; a hand-made or older record may carry its own.
+    for (const x of [...rows, ...pays]) for (const r of list(obj(x)?.recipients)) { const p = wirePhone(obj(r)?.phone); if (p) s.add(p); }
+    if (gen === peopleGen) peopleNow = s;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A reply that is a stop word puts its sender on the do-not-contact list (docs/WA.md, the third non-negotiable): the
+ * WhatsApp panel calls this each time its messages refresh, and a running campaign reads the list again before every
+ * send. Only people a kept campaign is for (`optOutPhones`: not strangers, groups or ourselves). Cheap when there is
+ * nothing to do — a poll every few seconds reads storage only for a stop reply from someone not on the list yet, and
+ * then the campaigns' people once, until a campaign's people change. Returns the phones it added.
+ */
+export async function addStopReplies(msgs: readonly Msg[]): Promise<string[]> {
+  const asked = (Array.isArray(msgs) ? msgs : []).filter((m) => m && !m.fromMe && phoneOf(m.jid) && isOptOut(m.text));
+  if (!asked.length) return [];
+  const have = await loadSuppressed();
+  const fresh = asked.filter((m) => !have.has(phoneOf(m.jid)));
+  if (!fresh.length) return [];
+  const people = await campaignPeople();
+  if (!people) return [];
+  const add = optOutPhones(fresh, people);
+  if (add.length) await addSuppressed(add);
+  return add;
 }
 
 /** Take someone off the do-not-contact list (the person's own decision, from the screen that lists it). */
@@ -534,7 +607,7 @@ export async function countSent(accountId: string, at: number = Date.now(), n = 
   const d = await db();
   if (!d) return false;
   try {
-    const tx = d.transaction('sent', 'readwrite');
+    const tx = d.transaction('sent', 'readwrite', DURABLE);
     const ok = committed(tx);
     const store = tx.objectStore('sent');
     const get = store.get(key);
