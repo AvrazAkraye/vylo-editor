@@ -30,7 +30,8 @@ Pictures, in `/Volumes/ExtremeSSD/apps/vylo-wa-samples/review/ui/`:
 | `sheet-after-window-{en-light,ar-dark,ckb-light}.png` | all 29 scenes at 1100 × 760, after |
 | `sheet-after-kmr-endark.png` | Badini light and English dark |
 | `sheet-cohesion.png` | the chat panel (list, conversation, setup, error), Broadcast and Motion in one sidebar |
-| `before/`, `after/`, `probes/` | the single shots (`NN-scene-lang-theme-{col,full}.png`) |
+| `before/`, `after/`, `probes/` | the single shots (`NN-scene-lang-theme-{col,full}.png`); `before/` is the merged code as it came, `after/` the end of this branch |
+| `harness/` | the WKWebView host, the page and the job lists, to run it again (`README.txt`) |
 
 ## Findings
 
@@ -42,12 +43,12 @@ misled, lost, or cannot finish; **low** = looks wrong or reads wrong.
 | 1 | high | **The consent tick outlived its list.** Tick for 10 people, Back, read 3 others, Next, Next: the box was ticked and *Send to 3 people* was live (seen in WebKit; under 50 people no typed count stands in the way). A staged draft opened from its banner over the review card also kept the count typed for the other broadcast. | The tick is kept as the review key it was given under (draft, account, a hash of every number) and counts only while it matches; the card is drawn per key. `ebe75c4` |
 | 2 | high | **Blanks bypassed at step 3.** `{offer}` blocks step 2, but a draft that opens on the review card (the assistant's staged campaign, a draft remembered at step 3) never passed step 2, and `validateCampaign` has no blank check: Send was enabled. | `blanksOf(c)`: the card lists the blanks and disables Send; `launch` refuses them whoever calls it. `ebe75c4` |
 | 3 | medium | **Focus fell to `<body>`** after History, See the report, Back from a sub-view and Send (the pressed button goes with its view); in Ready messages *Use this* swapped the list for the fill form inside one drawer, so Escape (heard on the drawer) stopped closing it. | Every view box and the run take focus on a view change; the fill form is a drawer of its own (keyed). `1874fc9` |
-| 4 | medium | **Next landed mid-step.** Pressed at the bottom of a long step 1, it opened step 2 scrolled 123 px (229 in Arabic): the heading, stepper and Ready messages / Write with AI under the sticky header (`probes/v-step-next-*`, `pairs/30-*`). | `showTop`: focus without scrolling, the scroller back to its top. `74647d6` |
+| 4 | medium | **Next landed mid-step.** Pressed at the bottom of a long step 1, it opened step 2 scrolled 123 px (229 in Arabic): the heading, stepper and Ready messages / Write with AI under the sticky header (`pairs/30-*`: 129 px before, 0 after). | `showTop`: focus without scrolling, the scroller back to its top. `74647d6` |
 | 5 | medium | **The Back/Next bar floated half way up** a short step at 248 px, empty sidebar under it — Broadcast is mounted in a plain `<div>`, so the column was not bounded (`pairs/01-*`). | The sidebar's scroller and the mount fill the column (CSS in `wa:bulk`). `74647d6` |
-| 6 | medium | **`{phone}` offered as a chip** for any pasted list with a phone column: the header's columns, not what people carry. It went out as nothing for everyone with only a warning, and #2's check would have called it a missing column. | Chips and step 2's blanks read the columns people carry (`columnsOf`), as the card does. `74647d6` |
+| 6 | medium | **`{phone}` offered as a chip** for any pasted list with a phone column: the header's columns, not what people carry. It went out as nothing for everyone with only a warning, and #2's check would have called it a missing column. | Chips and step 2's blanks read the columns people carry (`columnsOf`), as the card does; `columnsOf` now reads every person, not the first 300 (the reader leaves empty cells out of `vars`, so a column empty in its first rows was missed). `74647d6`, `ace2f83` |
 | 7 | medium | **Do-not-contact at 20,000**: 500 drawn (331 ms) under "20,001 people", no way to reach the rest — a number someone asked to have removed could not be found. | Search (`0750…`, `+964…`, Arabic digits, last digits) and a line saying only 500 are shown. `f5894c8` |
 | 8 | medium | **"Do not continue until it is linked again"** over a blue *Continue* (halts: blocked/logged out, refused key, lost link, "wait an hour"). | A halt's Continue is an ordinary button; after a quit it stays the primary. `f5894c8` |
-| 9 | medium | **Close mid-run, switch account, reopen**: the run showed under the new account's name, nothing saying it sends from the first (WebKit, `probes/v-switch-acct-*`). | The run says so. `f5894c8` |
+| 9 | medium | **Close mid-run, switch account, reopen**: the run showed under the new account's name, nothing saying it sends from the first (`pairs/31-*`). | The run says so. `f5894c8` |
 | 10 | medium | **Wrong colour for blanks**: `wa:design`'s `.wa mark` (0-1-1) out-ranked `.wa-bk-hole` (0-1-0), so `{offer}` (must fill) was drawn in the accent like `{name}` (filled per person) (`pairs/11-*`). | `.wa-bk mark.wa-bk-hole`. `74647d6` |
 | 11 | low | **Contrast** (measured, both themes): `--mute` on `--panel-3` 4.15:1 (tips, waiting/skipped pills, report filters, the writer's count, a template's kind); the name over each preview bubble and the wall's sentence 3.88:1; the preview's clock 4.19 / 2.61:1. | All ≥ 4.5:1 (`--ink-2`, `--wa-caption`, darker/lighter `--wa-meta`); 32 pairs tested. `74647d6` |
 | 12 | low | **Sorani "Saved lists" broke mid-word** (`پاشەکەوتکراوەکا` / `ن`) — the only broken word in a scan of every word's line boxes, 16 screens × 4 languages. | The ways in are tiles in the column (icon over label); `break-word`. `135bd08` |
@@ -68,7 +69,7 @@ misled, lost, or cannot finish; **low** = looks wrong or reads wrong.
 - **Nothing threw.** 2 × 198 shots and ~120 probe pages: no React error, no page error, no horizontal scroll at 248 px.
 - **Keyboard**: the tabs move with arrows, mirrored in Arabic, Home/End; drawers take focus, trap Tab both ways, close on
   Escape and stop it there; every field and select has a name; every target in the column is 44 px (after #16).
-- **Scale**: typing in step 2 with 5,000 people: 23–26 ms a keystroke (13 ms at 128). A 12 MB picture attached in
+- **Scale**: typing in step 2 with 5,000 people: 23–27 ms a keystroke (13 ms at 128), the same after `columnsOf` reads everyone. A 12 MB picture attached in
   136 ms, typing unaffected. Reading a 5 MB paste (62,180 lines): 132 ms, "Only the first 5,000 were taken" said.
 - **Writer failures** read plainly (500, unreadable answer, refusal shown as said, Stop during a slow answer); no model
   route says "Add a model in Settings" with the button. A PDF dropped on the zone, or picked, is refused in a sentence.
@@ -98,7 +99,7 @@ misled, lost, or cannot finish; **low** = looks wrong or reads wrong.
 
 ## Tests
 
-`app/test/wa-review-ui.test.mjs` (last in `test:5`): **103 checks** — the review key, blanks on the card and in
+`app/test/wa-review-ui.test.mjs` (last in `test:5`): **105 checks** (two timings, named `* SLOW`) — the review key, blanks on the card and in
 `launch`, focus targets, `showTop`, carried columns, do-not-contact search, halt/elsewhere/way-back wording, name
 cells, placeholder isolation, the CSS rules behind #5 #10 #12 #15 #16 #17, 32 contrast pairs (light and dark), and the
 words. What only a real engine shows (scroll positions, focus after a click, broken words, Send hammered, timings) was
