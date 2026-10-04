@@ -115,6 +115,9 @@ const ICONS: Record<string, Stroke[]> = {
   // Research's originality check: a shield with a tick, for "checked", which
   // a magnifier (`search`) would not say.
   shield: [{ d: 'M12 3.5l7 2.6v5.4c0 4.3-2.9 7.6-7 9-4.1-1.4-7-4.7-7-9V6.1zM8.8 12.2l2.2 2.2 4.2-4.4' }],
+  // A WhatsApp group: two people, one behind the other. It was `memory` — a
+  // bookmark — which said "saved" beside a conversation that is a place.
+  people: [{ d: 'M9.2 11.4a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4zM3.8 19.5c.5-3.1 2.7-5 5.4-5s4.9 1.9 5.4 5M15.4 5.1a3.2 3.2 0 0 1 0 6.2M17 14.6c1.8.6 3 2.3 3.3 4.9' }],
 };
 
 export type IconName = keyof typeof ICONS;

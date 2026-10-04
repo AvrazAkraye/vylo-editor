@@ -307,6 +307,12 @@ function Ticks({ status, t }: { status: Status; t: (s: string) => string }) {
  * The accounts, as chips across the top of the panel: the one shown lit, the
  * others a click away, and a + to connect another. One account shows its
  * name, so it is always clear which number the chats are from.
+ *
+ * Each chip carries the account's initials in its own tint — the same hash the
+ * chat avatars use, so "Business" is the same colour every time — and the dot
+ * for whether it is set up sits on the corner of that circle, where a presence
+ * dot is read in every chat client. Add says so in a word as well as a +: an
+ * icon alone was the one control on the bar nobody could name.
  */
 function AccountBar({ t, accounts, shown, onPick, onAdd }: {
   t: (s: string) => string; accounts: Accounts; shown: string; onPick: (id: string) => void; onAdd: () => void;
@@ -317,16 +323,76 @@ function AccountBar({ t, accounts, shown, onPick, onAdd }: {
         <button key={a.id} type="button" role="tab" aria-selected={a.id === shown}
                 className={`wa-acct ${a.id === shown ? 'on' : ''} ${ready(a) ? '' : 'is-off'}`}
                 onClick={() => onPick(a.id)} title={`${a.name} — ${a.instance}`}>
-          <i aria-hidden="true" />
+          <span className={`wa-mark wa-acct-mark ${tintOf(a.id)}`} aria-hidden="true">
+            {initialsOf(a.name)}
+            <i />
+          </span>
           <bdi>{a.name}</bdi>
         </button>
       ))}
       <button type="button" className="wa-acct wa-acct-add" onClick={onAdd}
               title={t('Add a WhatsApp account')} aria-label={t('Add a WhatsApp account')}>
         <Icon name="plus" size={11} />
+        <span>{t('Add')}</span>
       </button>
     </div>
   );
+}
+
+/**
+ * Why the last request did not work, with the mark that says it is a problem.
+ *
+ * One shape for every place the panel reports one — the list, a conversation,
+ * the form, a file that would not attach — so the eye learns it once.
+ */
+function Why({ text }: { text: string }) {
+  return (
+    <p className="wa-why" role="alert">
+      <Icon name="warning" size={12} />
+      <span>{text}</span>
+    </p>
+  );
+}
+
+/**
+ * The chat list before the first answer has come back: rows in the shape of
+ * rows, rather than the sentence that says nothing has arrived — which is
+ * false for the second it takes the server to answer, and is the first thing
+ * a person sees.
+ */
+function Skeleton({ t }: { t: (s: string) => string }) {
+  return (
+    <div className="wa-skel" role="status" aria-label={t('Loading…')}>
+      {[0, 1, 2, 3, 4, 5].map((i) => (
+        <span key={i} className="wa-skel-row" aria-hidden="true">
+          <i />
+          <span><b /><em /></span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A place with nothing in it yet, or something wrong with it: a mark, one
+ * sentence, and the one thing worth doing about it. Never an illustration —
+ * the column is 248px wide and a picture there is a picture of nothing.
+ */
+function State({ icon, text, bad, children }: {
+  icon: 'chat' | 'search' | 'warning'; text: string; bad?: boolean; children?: React.ReactNode;
+}) {
+  return (
+    <div className={`wa-state${bad ? ' is-bad' : ''}`}>
+      <span className="wa-state-mark" aria-hidden="true"><Icon name={icon} size={18} /></span>
+      <p>{text}</p>
+      {children && <span className="wa-state-acts">{children}</span>}
+    </div>
+  );
+}
+
+/** The host of an address, for the account card: the part a person recognises. */
+function hostOf(url: string): string {
+  try { return new URL(url).host || url; } catch { return url; }
 }
 
 /**
@@ -1485,45 +1551,111 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
   }
 
   if (state !== 'live') {
+    /** The form is for an account already on this machine, rather than a new one. */
+    const saved = accounts.list.find((a) => a.id === form.id);
     return (
-      <div className="wa">
-        <div className="sb-sub">{accounts.list.some((a) => a.id === form.id) ? t('WhatsApp account') : accounts.list.length ? t('Add a WhatsApp account') : t('Connect WhatsApp')}</div>
+      <div className="wa wa-setup">
         {accounts.list.length > 0 && <AccountBar t={t} accounts={accounts} shown={form.id} onPick={switchTo} onAdd={addAccount} />}
         <div className="wa-form">
-          <label>{t('Name')}
-            <input dir="auto" value={form.name} spellCheck={false} maxLength={40}
-                   onChange={(e) => setForm({ ...form, name: e.target.value })}
-                   placeholder={t('Personal, Business, OTP…')} /></label>
-          <label>{t('Server')}
-            <input dir="ltr" value={form.baseUrl} spellCheck={false}
-                   onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
-                   placeholder={BLANK.baseUrl} /></label>
-          <label>{t('Instance')}
-            <input dir="ltr" value={form.instance} spellCheck={false}
-                   onChange={(e) => setForm({ ...form, instance: e.target.value })}
-                   placeholder="vylo-personal" /></label>
-          <label>{t('API key')}
-            <input value={form.key} type="password" spellCheck={false}
-                   onChange={(e) => setForm({ ...form, key: e.target.value })} /></label>
-          <button className="sb-cta-go" disabled={!ready(form) || state === 'checking'}
-                  onClick={() => void check(form)}>
-            {state === 'checking' ? t('Checking…') : t('Check and save')}
-          </button>
-          {why && <p className="wa-why">{why}</p>}
-          {(current && ready(current)) || accounts.list.some((a) => a.id === form.id) ? (
-            <div className="wa-acct-acts">
-              {current && ready(current) && (
-                <button type="button" className="ghost" onClick={() => { setForm(current); setWhy(''); setRemoving(false); setState('live'); }}>
-                  {t('Back to the chats')}
-                </button>
-              )}
-              {accounts.list.some((a) => a.id === form.id) && (
-                removing
-                  ? <button type="button" className="ghost wa-danger" onClick={() => removeAccount(form.id)}>{fill(t('Remove {name} from this machine'), { name: form.name })}</button>
-                  : <button type="button" className="ghost" onClick={() => setRemoving(true)}>{t('Remove this account')}</button>
-              )}
+          {/* Who this form is about, before any field. A saved account is a
+              card with its initials, its name and where it lives; a new one is
+              a sentence saying what the three fields below are for — the first
+              thing a person who has never linked a number needs to know. */}
+          {saved ? (
+            <div className="wa-who-card">
+              <span className={`wa-mark ${tintOf(saved.id)}`} aria-hidden="true">
+                {initialsOf(saved.name)}
+                <i className={ready(saved) ? 'is-on' : ''} />
+              </span>
+              <span className="wa-who-card-what">
+                <small>{t('WhatsApp account')}</small>
+                <b dir="auto">{saved.name}</b>
+                {/* Isolated rather than turned: an address reads left to right,
+                    and the line still sits on the panel's own leading edge. */}
+                <span><bdi>{saved.instance ? `${saved.instance} · ${hostOf(saved.baseUrl)}` : hostOf(saved.baseUrl)}</bdi></span>
+              </span>
             </div>
-          ) : null}
+          ) : (
+            <div className="wa-intro">
+              <span className="wa-intro-mark" aria-hidden="true"><Icon name="chat" size={18} /></span>
+              <h3>{accounts.list.length ? t('Add a WhatsApp account') : t('Connect WhatsApp')}</h3>
+              <p>{t('Link a number through your Evolution API server: its address, the instance name and the API key.')}</p>
+            </div>
+          )}
+          <section className="wa-card">
+            <label>{t('Name')}
+              <input dir="auto" value={form.name} spellCheck={false} maxLength={40}
+                     onChange={(e) => setForm({ ...form, name: e.target.value })}
+                     placeholder={t('Personal, Business, OTP…')} /></label>
+            <label>{t('Server')}
+              <input dir="ltr" value={form.baseUrl} spellCheck={false}
+                     onChange={(e) => setForm({ ...form, baseUrl: e.target.value })}
+                     placeholder={BLANK.baseUrl} /></label>
+            <label>{t('Instance')}
+              <input dir="ltr" value={form.instance} spellCheck={false}
+                     onChange={(e) => setForm({ ...form, instance: e.target.value })}
+                     placeholder="vylo-personal" /></label>
+            <label>{t('API key')}
+              <input value={form.key} type="password" spellCheck={false}
+                     onChange={(e) => setForm({ ...form, key: e.target.value })} /></label>
+            {/* Said here rather than in a manual, and under the key it is
+                about: the key can send messages as that number, so where it
+                goes is worth one sentence, right where it is typed. */}
+            <p className="wa-note">
+              <Icon name="shield" size={12} />
+              {t('The key is kept on this machine and sent only to the server above.')}
+            </p>
+            <button className="sb-cta-go" disabled={!ready(form) || state === 'checking'}
+                    onClick={() => void check(form)}>
+              {state === 'checking' ? t('Checking…') : t('Check and save')}
+            </button>
+            {why && <Why text={why} />}
+            {(current && ready(current)) || saved ? (
+              <div className="wa-acct-acts">
+                {current && ready(current) && (
+                  <button type="button" className="ghost" onClick={() => { setForm(current); setWhy(''); setRemoving(false); setState('live'); }}>
+                    <Icon name="chevron" size={11} turn={180} className="ic-dir" />
+                    {t('Back to the chats')}
+                  </button>
+                )}
+                {saved && (
+                  removing
+                    ? <button type="button" className="ghost wa-danger is-sure" onClick={() => removeAccount(form.id)}>{fill(t('Remove {name} from this machine'), { name: form.name })}</button>
+                    : <button type="button" className="ghost wa-danger" onClick={() => setRemoving(true)}>{t('Remove this account')}</button>
+                )}
+              </div>
+            ) : null}
+          </section>
+          {/* The other direction, and it is a separate section because it is a
+              separate thing: reading a message *aloud* uses the machine's own
+              voices and is configured nowhere, because there is nothing to
+              configure. Only a voice note that has to be **sent** needs an
+              endpoint, because it has to be bytes. A card of its own, so the
+              connection above and the two voice services below read as three
+              servers with three keys rather than one run of nine fields. */}
+          <section className="wa-card">
+            <h4 className="wa-sect"><Icon name="mic" size={12} />{t('Sending voice notes')}</h4>
+            <p className="wa-help">{t('Made by whichever provider you have added that can. Reading a message out loud uses your own machine and needs nothing here.')}</p>
+            <label>{t('Speech model')}
+              <input dir="ltr" value={speech.model} spellCheck={false}
+                     onChange={(e) => setSpeech({ ...speech, model: e.target.value })}
+                     placeholder={BLANK_SPEECH.model} /></label>
+            <label>{t('Speaking voice')}
+              <input dir="ltr" value={speech.voice} spellCheck={false}
+                     onChange={(e) => setSpeech({ ...speech, voice: e.target.value })}
+                     placeholder={BLANK_SPEECH.voice} /></label>
+            {/* Typed rather than a slider: the useful values are a handful of
+                steps and a slider in a 248px column cannot hit them. */}
+            <label>{t('Speed')}
+              <select value={String(speech.speed)}
+                      onChange={(e) => setSpeech({ ...speech, speed: Number(e.target.value) || 1 })}>
+                {['0.75', '1', '1.25', '1.5'].map((v) => (
+                  <option key={v} value={v}>{v === '1' ? t('Normal') : `${v}×`}</option>
+                ))}
+              </select>
+            </label>
+          </section>
+
           {/* ── reading voice notes ──────────────────────────────────────
               Its own section, because it is a different service with its own
               key, and because the panel is otherwise silent about why a voice
@@ -1532,83 +1664,53 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
               each have their own — and these conversations are in Kurdish.
               Leaving the key empty falls back to any OpenAI-shaped provider in
               Settings, which can do Arabic and English and not Kurdish. */}
-          {/* The other direction, and it is a separate section because it is a
-              separate thing: reading a message *aloud* uses the machine's own
-              voices and is configured nowhere, because there is nothing to
-              configure. Only a voice note that has to be **sent** needs an
-              endpoint, because it has to be bytes. */}
-          <p className="wa-sect">{t('Sending voice notes')}</p>
-          <p className="wa-why">{t('Made by whichever provider you have added that can. Reading a message out loud uses your own machine and needs nothing here.')}</p>
-          <label>{t('Speech model')}
-            <input dir="ltr" value={speech.model} spellCheck={false}
-                   onChange={(e) => setSpeech({ ...speech, model: e.target.value })}
-                   placeholder={BLANK_SPEECH.model} /></label>
-          <label>{t('Speaking voice')}
-            <input dir="ltr" value={speech.voice} spellCheck={false}
-                   onChange={(e) => setSpeech({ ...speech, voice: e.target.value })}
-                   placeholder={BLANK_SPEECH.voice} /></label>
-          {/* Typed rather than a slider: the useful values are a handful of
-              steps and a slider in a 248px column cannot hit them. */}
-          <label>{t('Speed')}
-            <select value={String(speech.speed)}
-                    onChange={(e) => setSpeech({ ...speech, speed: Number(e.target.value) || 1 })}>
-              {['0.75', '1', '1.25', '1.5'].map((v) => (
-                <option key={v} value={v}>{v === '1' ? t('Normal') : `${v}×`}</option>
-              ))}
-            </select>
-          </label>
-
-          <p className="wa-sect">{t('Reading voice notes')}</p>
-          <label>{t('Voice service')}
-            <input dir="ltr" value={vc.baseUrl} spellCheck={false}
-                   onChange={(e) => setVc({ ...vc, baseUrl: e.target.value.replace(/\/+$/, '') })}
-                   placeholder={BLANK_VOICE.baseUrl} /></label>
-          <label>{t('Voice key')}
-            <input value={vc.key} type="password" spellCheck={false}
-                   onChange={(e) => setVc({ ...vc, key: e.target.value })}
-                   placeholder="vsk_…" /></label>
-          {/* A detector guesses well on a clear minute and badly on eight
-              seconds from a phone in a noisy room, which is what a voice note
-              is. Naming the language turns the guess into a given. */}
-          <label>{t('Voice notes are in')}
-            <select value={vc.lang} onChange={(e) => setVc({ ...vc, lang: langOf(e.target.value) })}>
-              {VOICE_LANGS.map((code) => (
-                <option key={code} value={code}>
-                  {code === 'auto' ? t('Whichever language they are in')
-                    : code === 'kmr' ? t('Kurdish — Badini')
-                      : code === 'ckb' ? t('Kurdish — Sorani')
-                        : code === 'ar' ? t('Arabic')
-                          : t('English')}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>{t('Translate into')}
-            <select value={vc.translate}
-                    onChange={(e) => setVc({ ...vc, translate: targetOf(e.target.value) })}>
-              <option value="">{t('Do not translate')}</option>
-              {TARGETS.map((code) => (
-                <option key={code} value={code}>
-                  {code === 'en' ? t('English')
-                    : code === 'ar' ? t('Arabic')
-                      : code === 'ckb' ? t('Kurdish — Sorani')
-                        : t('Kurdish — Badini')}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>{t('Effort')}
-            <select value={vc.mode} onChange={(e) => setVc({ ...vc, mode: modeOf(e.target.value) })}>
-              <option value="fast">{t('Fast — one pass')}</option>
-              <option value="accurate">{t('Accurate — several engines, best for Kurdish')}</option>
-            </select>
-          </label>
-          {/* Said here rather than in a manual: the key can send messages as
-              that number, so where it goes is worth one sentence. */}
-          <p className="wa-note">
-            <Icon name="bolt" size={12} />
-            {t('The key is kept on this machine and sent only to the server above.')}
-          </p>
+          <section className="wa-card">
+            <h4 className="wa-sect"><Icon name="sparkle" size={12} />{t('Reading voice notes')}</h4>
+            <label>{t('Voice service')}
+              <input dir="ltr" value={vc.baseUrl} spellCheck={false}
+                     onChange={(e) => setVc({ ...vc, baseUrl: e.target.value.replace(/\/+$/, '') })}
+                     placeholder={BLANK_VOICE.baseUrl} /></label>
+            <label>{t('Voice key')}
+              <input value={vc.key} type="password" spellCheck={false}
+                     onChange={(e) => setVc({ ...vc, key: e.target.value })}
+                     placeholder="vsk_…" /></label>
+            {/* A detector guesses well on a clear minute and badly on eight
+                seconds from a phone in a noisy room, which is what a voice note
+                is. Naming the language turns the guess into a given. */}
+            <label>{t('Voice notes are in')}
+              <select value={vc.lang} onChange={(e) => setVc({ ...vc, lang: langOf(e.target.value) })}>
+                {VOICE_LANGS.map((code) => (
+                  <option key={code} value={code}>
+                    {code === 'auto' ? t('Whichever language they are in')
+                      : code === 'kmr' ? t('Kurdish — Badini')
+                        : code === 'ckb' ? t('Kurdish — Sorani')
+                          : code === 'ar' ? t('Arabic')
+                            : t('English')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Translate into')}
+              <select value={vc.translate}
+                      onChange={(e) => setVc({ ...vc, translate: targetOf(e.target.value) })}>
+                <option value="">{t('Do not translate')}</option>
+                {TARGETS.map((code) => (
+                  <option key={code} value={code}>
+                    {code === 'en' ? t('English')
+                      : code === 'ar' ? t('Arabic')
+                        : code === 'ckb' ? t('Kurdish — Sorani')
+                          : t('Kurdish — Badini')}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>{t('Effort')}
+              <select value={vc.mode} onChange={(e) => setVc({ ...vc, mode: modeOf(e.target.value) })}>
+                <option value="fast">{t('Fast — one pass')}</option>
+                <option value="accurate">{t('Accurate — several engines, best for Kurdish')}</option>
+              </select>
+            </label>
+          </section>
         </div>
       </div>
     );
@@ -1620,29 +1722,40 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
      only reason it earns its place: 248px can hold the list or a
      conversation, and a window holds both, the way every desktop chat
      client people already use does. */
+  /** Back to the form, for the account shown: the gear on the list, and the error state's second action. */
+  const editConnection = () => { setState('setup'); setRemoving(false); setForm(current ?? blankAccount(accounts)); };
+
   const listView = () => (
-      <div className="wa">
-        <div className="sb-head-bar">
-          <span className="sb-sub">{t('Chats')}</span>
+      <div className="wa wa-view">
+        {/* The list's own bar: what this is, then the actions on the trailing
+            edge. Broadcast is drawn in the accent — it is the one door into
+            sending to many people, and a fourth grey glyph in a row of them
+            was a door nobody would find. In a window, where there is room, it
+            also says its name. */}
+        <div className="wa-top">
+          <h3 className="wa-top-title">{t('Chats')}</h3>
           {reloadButton()}
           {/* The one door into bulk messaging: everything else lives behind it. */}
-          <button className="sb-act" onClick={() => setBulk(true)}
+          <button className="sb-act wa-cast" onClick={() => setBulk(true)}
                   title={t('Broadcast')} aria-label={t('Broadcast')}>
-            <Icon name="send" size={13} />
+            <Icon name="send" size={13} className="ic-dir" />
+            <span className="wa-cast-label">{t('Broadcast')}</span>
           </button>
           <button className="sb-act" onClick={() => setFull((v) => !v)}
                   title={full ? t('Leave full screen') : t('Full screen')}
                   aria-label={full ? t('Leave full screen') : t('Full screen')}>
             <Icon name={full ? 'restore' : 'maximise'} size={13} />
           </button>
-          <button className="sb-act" onClick={() => { setState('setup'); setRemoving(false); setForm(current ?? blankAccount(accounts)); }}
+          <button className="sb-act" onClick={editConnection}
                   title={t('Change the connection')} aria-label={t('Change the connection')}>
             <Icon name="settings" size={13} />
           </button>
         </div>
         <AccountBar t={t} accounts={accounts} shown={acctId} onPick={switchTo} onAdd={addAccount} />
 
-        {why && <p className="wa-why">{why}</p>}
+        {/* With nothing to show, the reason is the whole of the panel (the
+            error state below); with chats, it is a line above them. */}
+        {why && chats.length > 0 && <Why text={why} />}
 
         {chats.length > 0 && (
           /* One box for two jobs: conversations by name and messages by what
@@ -1664,18 +1777,46 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
           </div>
         )}
 
+        {/* The list, the hint and Load more scroll together, under a bar and a
+            search box that stay put: a list that scrolls its own search box
+            away is one that has to be scrolled back up to be searched. */}
+        <div className="wa-scroll">
         {chats.length === 0 ? (
-          <p className="ft-empty">{t('Nothing has arrived yet. Messages appear here as they come in.')}</p>
+          /* The first answer not back yet; refused; or back, and empty. Three
+             different things, and the old single sentence said the third for
+             all of them — for a second on every open, and for ever on a
+             server that was refusing the key. */
+          !pulledAt && !why ? <Skeleton t={t} />
+          : why ? (
+            <State icon="warning" text={why} bad>
+              <button className="ghost bordered" onClick={() => void reloadNow()} disabled={pulling}>
+                <Icon name="refresh" size={12} />{t('Try again')}
+              </button>
+              <button className="ghost" onClick={editConnection}>{t('Change the connection')}</button>
+            </State>
+          ) : (
+            <State icon="chat" text={t('Nothing has arrived yet. Messages appear here as they come in.')}>
+              <button className="ghost bordered" onClick={() => void reloadNow()} disabled={pulling}>
+                <Icon name="refresh" size={12} />{t('Reload')}
+              </button>
+            </State>
+          )
         ) : searching && found.length === 0 && hits.total === 0 ? (
-          <p className="ft-empty">{fill(t('Nothing matches “{q}”.'), { q: find.trim() })}</p>
+          <State icon="search" text={fill(t('Nothing matches “{q}”.'), { q: find.trim() })}>
+            <button className="ghost bordered" onClick={() => setFind('')}>{t('Clear the search')}</button>
+          </State>
         ) : (
           <ul className="wa-list">
             {searching && found.length > 0 && <li className="wa-sep">{t('Conversations')}</li>}
             {found.map((c: Chat) => (
               <li key={c.jid}>
-                <button className="wa-row" onClick={() => show(c.jid)}>
+                {/* `on` is the conversation open beside the list in a window,
+                    so the list says which one the pane is showing. */}
+                <button className={`wa-row${c.jid === open ? ' on' : ''}${c.unread > 0 ? ' is-unread' : ''}`}
+                        aria-current={c.jid === open ? 'true' : undefined}
+                        onClick={() => show(c.jid)}>
                   <span className={`wa-mark ${tintOf(c.jid)} ${c.group ? 'group' : ''}`}>
-                    {c.group ? <Icon name="memory" size={13} /> : initialsOf(c.name)}
+                    {c.group ? <Icon name="people" size={15} /> : initialsOf(c.name)}
                   </span>
                   <span className="wa-what">
                     <span className="wa-line">
@@ -1687,7 +1828,12 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
                     <span className="wa-line">
                       <span className="wa-last" dir="auto">
                         {c.lastFromMe && <em>{t('You:')}</em>}
-                        {c.last ? <Mark text={c.last} q={find} /> : kindLabel(c.lastKind, t)}
+                        {c.last ? <Mark text={c.last} q={find} /> : (
+                          <>
+                            <Icon name={kindIcon(c.lastKind)} size={11} />
+                            {kindLabel(c.lastKind, t)}
+                          </>
+                        )}
                       </span>
                       {c.unread > 0 && <i className="wa-dot">{c.unread}</i>}
                     </span>
@@ -1709,7 +1855,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
                     said in it, and it holds a page. */}
                 <button className="wa-row wa-hit" onClick={() => show(h.msg.jid)}>
                   <span className={`wa-mark ${tintOf(h.msg.jid)} ${isGroup(h.msg.jid) ? 'group' : ''}`}>
-                    {isGroup(h.msg.jid) ? <Icon name="memory" size={13} /> : initialsOf(h.name)}
+                    {isGroup(h.msg.jid) ? <Icon name="people" size={15} /> : initialsOf(h.name)}
                   </span>
                   <span className="wa-what">
                     <span className="wa-line">
@@ -1743,6 +1889,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
             {more ? t('Loading…') : fill(t('Load more chats — {n} older messages'), { n: Math.min(PAGE, total - msgs.length) })}
           </button>
         )}
+        </div>
       </div>
   );
 
@@ -1752,7 +1899,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
   const sub = group ? t('Group chat') : phoneOf(open) ? `+${phoneOf(open)}` : '';
 
   const convoView = () => (
-    <div className="wa">
+    <div className="wa wa-view">
       {/* Who you are talking to, not the word "Conversation". The header is the
           one place the panel can answer "am I about to write to the right
           person", and it has to answer it without being asked. */}
@@ -1791,7 +1938,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
             </button>
           )}
           <span className={`wa-mark ${tintOf(open)} ${group ? 'group' : ''}`}>
-            {group ? <Icon name="memory" size={13} /> : initialsOf(name)}
+            {group ? <Icon name="people" size={15} /> : initialsOf(name)}
           </span>
           {/* A second line only when there is a second line to write.
               `+` in front of whatever digits were in the address had been
@@ -1826,11 +1973,11 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
         </div>
       )}
 
-      {why && <p className="wa-why">{why}</p>}
+      {why && <Why text={why} />}
 
       <div className={`wa-thread${picking ? ' picking' : ''}`}>
         {rows.length === 0 && (
-          <p className="ft-empty">{t('No messages here yet. Anything that arrives shows up below.')}</p>
+          <State icon="chat" text={t('No messages here yet. Anything that arrives shows up below.')} />
         )}
         {rows.map((r: Row, i) => (r.kind === 'day' ? (
           <div key={`d${r.key}`} className="wa-day"><span>{dayLabel(r.at)}</span></div>
@@ -1846,6 +1993,9 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
                  r.head ? 'head' : '',
                  r.tail ? 'tail' : '',
                  picked.has(r.msg.id) ? 'on' : '',
+                 // A sticker is a picture with no bubble round it, as it is
+                 // on the phone it was sent from.
+                 r.msg.kind === 'sticker' ? 'is-sticker' : '',
                ].filter(Boolean).join(' ')}
                /* The whole bubble is the target while picking, and nothing at
                   all otherwise: a message is not a button in the resting
@@ -1971,7 +2121,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
             ))}
           </ul>
         )}
-        {failed && <p className="wa-why">{failed}</p>}
+        {failed && <Why text={failed} />}
         <div className="wa-box">
           <button className="wa-clip" onClick={() => void attach()} disabled={sending}
                   title={t('Attach a file')} aria-label={t('Attach a file')}>
@@ -2065,7 +2215,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
       <aside className="wa-full-side">{listView()}</aside>
       <section className="wa-full-main">
         {open ? convoView() : (
-          <p className="ft-empty">{t('Pick a conversation on the left.')}</p>
+          <State icon="chat" text={t('Pick a conversation on the left.')} />
         )}
       </section>
       {shot}
