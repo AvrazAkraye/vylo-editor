@@ -492,3 +492,18 @@ every `{placeholder}` exactly as it is (a test checks).
 | Take off the list | لە لیستەکە لابە | ژ لیستێ لابە |
 | Take {phone} off the list | {phone} لە لیستەکە لابە | {phone} ژ لیستێ لابە |
 | This broadcast belongs to another WhatsApp account. Switch to that account first. | ئەم ناردنە گشتییە هی هەژمارێکی تری واتسئاپە. سەرەتا بڕۆ بۆ ئەو هەژمارە. | ئەڤ ناردنا گشتی یا هەژمارەکا دی یا واتسئاپێ یە. پێشی بچە بۆ وێ هەژمارێ. |
+
+## review-engine
+
+Two phrases of the Broadcast paragraph in `SAFETY.ckb.md` and `SAFETY.kmr.md` were rewritten by the engine review so
+that they say what the code does (stop replies are read while the WhatsApp panel is open; "no campaign messages anyone
+twice", not "nobody is messaged twice"). The Arabic was rewritten the same way.
+
+| English | Sorani (ckb) | Badini (kmr) |
+|---|---|---|
+| saves its state before each message so that no campaign messages anyone twice | دۆخی خۆی پێش هەر نامەیەک دەپارێزێت تاکو هیچ هەڵمەتێک دووجار نامە بۆ کەسێک نەنێرێت | دۆخێ خۆ بەری هەر نامەیەکێ دپارێزیت دا چ هەڵمەت دوو جاران نامەیێ بۆ کەسەکی نەشینیت |
+| ★ a reply that is a stop word, from someone on a campaign's list and read while the WhatsApp panel is open (`addStopReplies`), adds that person to the do-not-contact list, and every campaign skips them from its next message on | وەڵامێک کە وشەی وەستان بێت، لە کەسێکی ناو لیستی هەڵمەتێکەوە و کاتێک پانێلی واتسئاپ کراوەیە دەخوێنرێتەوە (`addStopReplies`)، خاوەنەکەی دەخاتە لیستی «پەیوەندیم پێوە مەکە»، و هەموو هەڵمەتێک لە نامەی داهاتوویەوە بەجێی دەهێڵێت | و وەڵامەکا کو پەیڤا ڕاوەستانێ بیت، ژ کەسەکێ د لیستا هەڵمەتەکێ دا و دەمێ پانێلا واتسئاپێ ڤەکری بیت دهێتە خواندن (`addStopReplies`)، خودانێ وێ دکەتە د لیستا «پەیوەندیێ ب من نەکە» دا، و هەمی هەڵمەت ژ نامەیا خۆ یا دی ڤە ژێ دبورن |
+
+Stop words added to `isOptOut` (`app/src/whatsappcampaign.ts`), Kurdish in Latin letters, for a native reader: Kurmanji
+(Badini) `raweste` (stop), `rawestîne` (stop it), `nexwazim` / `naxwazim` (I do not want); Sorani `westan` (stopping).
+Arabic: `لا ترسل`, `لا ترسلوا`, `لا ترسل لي`, `لا ترسلوا لي`, `لا تراسلني`, `لا أريد رسائل`, `توقفوا`, `أوقفوا`, `كفى`, `كفاية`.

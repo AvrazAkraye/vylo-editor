@@ -33,6 +33,7 @@ import { dateText, timeText } from './fmt';
 import type { Target } from './generate';
 import type { EffortBook } from './effort';
 import { WhatsAppBroadcast } from './WhatsAppBroadcast';
+import { addStopReplies } from './whatsappbulkstore';
 
 /**
  * WhatsApp, in the sidebar.
@@ -781,6 +782,11 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
     const timer = setInterval(pull, EVERY_MS);
     return () => { live = false; clearInterval(timer); };
   }, [state, conn, call, sayWhy, count]);
+
+  // A reply that is a stop word puts its sender on the do-not-contact list (docs/WA.md, the third non-negotiable):
+  // each time the messages refresh, whether or not Broadcast is open, and a running broadcast reads the list again
+  // before every message. Only people a kept campaign is for; nothing is read from storage unless a stop reply is new.
+  useEffect(() => { if (msgs.length) void addStopReplies(msgs).catch(() => undefined); }, [msgs]);
 
   /**
    * Fetch now, rather than at the next tick: the newest messages, and with

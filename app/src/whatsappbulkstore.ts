@@ -1,10 +1,10 @@
-import { dayOf } from './whatsapp';
+import { dayOf, phoneOf, type Msg } from './whatsapp';
 import {
   LIMITS, MESSAGE_LANGS,
   type Attachment, type AttachmentKind, type Audience, type Campaign, type CampaignState, type ContactCard, type Draft,
   type Lang, type Outcome, type Recipient, type SourceFormat, type Standing,
 } from './whatsappbulktypes';
-import { clampPace, plainValue, wirePhone } from './whatsappcampaign';
+import { clampPace, isOptOut, optOutPhones, plainValue, wirePhone } from './whatsappcampaign';
 
 /**
  * What the broadcast feature keeps between sessions: audiences, campaigns, the do-not-contact list, and how many
@@ -62,6 +62,11 @@ let suppressedNow: Set<string> | null = null;
 const suppressedHere = new Set<string>();
 /** Messages counted this session, by `account|day`, so a refused counter write still counts while the app is open. */
 const countedNow = new Map<string, number>();
+/** Everyone the kept campaigns are for, once read; null until then, and again whenever a campaign's people change. */
+let peopleNow: Set<string> | null = null;
+/** Bumped with every such change, so a read that started before one is not kept as if it came after. */
+let peopleGen = 0;
+const peopleChanged = () => { peopleNow = null; peopleGen++; };
 
 let opening: Promise<IDBDatabase | null> | null = null;
 
@@ -69,6 +74,7 @@ function forget() {
   opening = null;
   written.clear();
   suppressedNow = null;
+  peopleChanged();
 }
 
 /** The database, opened once and kept; a refusal is not kept, so the next call tries again. */
@@ -372,7 +378,10 @@ export async function saveCampaign(c: Campaign): Promise<boolean> {
       written.delete(c.id);
       return false;
     }
-    if (fresh) written.set(c.id, { recipients: c.recipients, data });
+    if (fresh) {
+      written.set(c.id, { recipients: c.recipients, data });
+      peopleChanged();
+    }
     return true;
   } catch {
     written.delete(c.id);
@@ -382,6 +391,7 @@ export async function saveCampaign(c: Campaign): Promise<boolean> {
 
 export async function deleteCampaign(id: string): Promise<void> {
   written.delete(id);
+  peopleChanged();
   const d = await db();
   if (!d) return;
   try {
@@ -503,6 +513,46 @@ export async function addSuppressed(phones: readonly string[]): Promise<boolean>
   } catch {
     return false;
   }
+}
+
+/** Everyone any kept campaign is for — what a stop reply is checked against — or null when storage cannot say. */
+async function campaignPeople(): Promise<Set<string> | null> {
+  if (peopleNow) return peopleNow;
+  const gen = peopleGen;
+  const d = await db();
+  if (!d) return null;
+  try {
+    const tx = d.transaction(['campaigns', 'payloads'], 'readonly');
+    const [rows, pays] = await Promise.all([done(tx.objectStore('campaigns').getAll()), done(tx.objectStore('payloads').getAll())]);
+    if (!Array.isArray(rows) || !Array.isArray(pays)) return null;
+    const s = new Set<string>();
+    // The people live in `payloads`; a hand-made or older record may carry its own.
+    for (const x of [...rows, ...pays]) for (const r of list(obj(x)?.recipients)) { const p = wirePhone(obj(r)?.phone); if (p) s.add(p); }
+    if (gen === peopleGen) peopleNow = s;
+    return s;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A reply that is a stop word puts its sender on the do-not-contact list (docs/WA.md, the third non-negotiable): the
+ * WhatsApp panel calls this each time its messages refresh, and a running campaign reads the list again before every
+ * send. Only people a kept campaign is for (`optOutPhones`: not strangers, groups or ourselves). Cheap when there is
+ * nothing to do — a poll every few seconds reads storage only for a stop reply from someone not on the list yet, and
+ * then the campaigns' people once, until a campaign's people change. Returns the phones it added.
+ */
+export async function addStopReplies(msgs: readonly Msg[]): Promise<string[]> {
+  const asked = (Array.isArray(msgs) ? msgs : []).filter((m) => m && !m.fromMe && phoneOf(m.jid) && isOptOut(m.text));
+  if (!asked.length) return [];
+  const have = await loadSuppressed();
+  const fresh = asked.filter((m) => !have.has(phoneOf(m.jid)));
+  if (!fresh.length) return [];
+  const people = await campaignPeople();
+  if (!people) return [];
+  const add = optOutPhones(fresh, people);
+  if (add.length) await addSuppressed(add);
+  return add;
 }
 
 /** Take someone off the do-not-contact list (the person's own decision, from the screen that lists it). */
