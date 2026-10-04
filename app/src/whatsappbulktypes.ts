@@ -294,3 +294,21 @@ export interface Hint {
 }
 
 // wa:audience, wa:engine, wa:templates, wa:writer, wa:ui, wa:design — append below, under your own comment.
+
+// wa:engine
+/*
+ * Two optional fields on a campaign and the words a runner halts with. Declared again rather than edited above:
+ * TypeScript merges a second `interface Campaign` in the same module into the first, so nothing already written changes.
+ */
+export interface Campaign {
+  /**
+   * Picks each person's `[[a|b]]` wording (whatsappcampaign.ts `renderMessage`). Absent is 0, which is also
+   * `renderMessage`'s default, so a preview drawn without it is exactly what the runner sends.
+   */
+  seed?: number;
+  /** Machine words about a run the interface may mention: `number-check-unavailable`, `interrupted`, `rate-limited`. */
+  notes?: string[];
+}
+
+/** Why a runner stopped by itself (`Campaign.halted`). The interface turns each into a sentence. */
+export type HaltWhy = 'not-connected' | 'auth' | 'instance' | 'rate-limited' | 'repeated-failures' | 'account' | 'storage';
