@@ -342,10 +342,17 @@ export function sceneTime(frame: number, fps: number, doc: Pick<Motion, 'seconds
  * `null` when it is not on: before `at`, and once it has played — it plays
  * once. Not held at its last frame after it: a graphic with a solid ground
  * would otherwise cover the rest of the scene.
+ *
+ * With the scene's length, the start is the one the film's reader keeps
+ * (`overAt`): a scene made shorter than its graphic's start — the seconds
+ * field, the timeline, the chat change only `seconds` — shows the graphic from
+ * the latest moment the scene allows, as the same film will once it is read
+ * again at the next start, rather than not at all until then.
  */
-export function overTime(frame: number, fps: number, at: number | undefined, doc: Pick<Motion, 'seconds'>): number | null {
+export function overTime(frame: number, fps: number, at: number | undefined, doc: Pick<Motion, 'seconds'>, sceneSeconds?: number): number | null {
   const rate = finite(fps, 30) > 0 ? finite(fps, 30) : 30;
-  const t = Math.max(0, finite(frame, 0)) / rate - Math.max(0, finite(at, 0));
+  const from = sceneSeconds === undefined ? Math.max(0, finite(at, 0)) : overAt(at, sceneSeconds);
+  const t = Math.max(0, finite(frame, 0)) / rate - from;
   const len = finite(doc.seconds, 0);
   return t >= 0 && t < len ? t : null;
 }

@@ -251,7 +251,7 @@ export function OverRow({ t, video, scene, onChange, onVideo, disabled }: {
       {over && (
         <label className="vid-f vm-over-at">
           <span>{t('Starts at (seconds into the scene)')}</span>
-          <input type="number" min={0} max={Math.max(0, scene.seconds - 0.5)} step={0.5} value={over.at ?? 0} disabled={disabled}
+          <input type="number" min={0} max={Math.max(0, scene.seconds - 0.5)} step={0.5} value={overAt(over.at, scene.seconds)} disabled={disabled}
                  onChange={(e) => {
                    const n = Number(e.target.value);
                    if (Number.isFinite(n)) onChange({ over: { motion: over.motion, at: overAt(n, scene.seconds) } } as Partial<Scene>);

@@ -91,6 +91,35 @@ console.log('The model: the facts rule');
   ok('…and of the second the clip starts from', skipped(cs(17), 'unsourced'), cs(17).changes);
 }
 
+// ── 3. time ───────────────────────────────────────────────────────────────
+
+console.log('Time: a graphic on top in a scene made shorter');
+{
+  // Starts 3.5 s into a 4 s scene; then the scene is made 2 s long — the storyboard's seconds field, the timeline's
+  // Shift+arrow and the chat's set_seconds change only `seconds`.
+  let v = film();
+  v = { ...v, ...setOver(v, 's2', LOWER, 3.5, ids('aa11')).patch };
+  ok('(the graphic on top starts at 3.5 s of the 4 s scene)', v.scenes[1].over.at === 3.5);
+  const shorter = { ...v, scenes: v.scenes.map((s) => (s.id === 's2' ? { ...s, seconds: 2 } : s)) };
+  const read = readVideoMotions(JSON.parse(JSON.stringify(shorter)));
+  const doc = heldDoc(heldIn(shorter, 'aa11'));
+  const s2 = shorter.scenes[1];
+  const r2 = read.scenes[1];
+  ok('the film\'s reader keeps the start inside the shorter scene (1.5 s)', r2.over?.at === 1.5, r2.over);
+  // What the view draws (VideoMotionView.tsx MotionOverlay): overTime with the scene's own length.
+  const shown = (s) => Array.from({ length: sceneFrames(s) }, (_, f) => overTime(f, 30, s.over.at, doc, s.seconds) !== null);
+  const now = shown(s2);
+  const later = shown(r2);
+  ok('…and the film shows the graphic in the same frames now as after it is read again (next start of the app)',
+    same(now, later), { now: now.indexOf(true), later: later.indexOf(true) });
+  ok('…from 1.5 s, to the end of the scene', later.indexOf(true) === 45 && later.slice(45).every(Boolean));
+  ok('overTime without a scene length is as it was (a start is a start)', overTime(45, 30, 3.5, doc) === null && overTime(105, 30, 3.5, doc) === 0);
+  const view = readFileSync('src/VideoMotionView.tsx', 'utf8');
+  ok('the overlay view hands overTime its scene\'s length', /overTime\(frame, fps, over\.at, doc, scene\.seconds\)/.test(view));
+  const row = readFileSync('src/VideoMotionPicker.tsx', 'utf8');
+  ok('…and the Starts at field shows the start the film plays, not one past the scene\'s end', /value=\{overAt\(over\.at, scene\.seconds\)\}/.test(row));
+}
+
 // The tail of the file is added below, section by section.
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
