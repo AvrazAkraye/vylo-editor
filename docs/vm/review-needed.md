@@ -64,3 +64,13 @@ Source: `app/src/i18n.ts`, the entries under `// vm video` in each dictionary.
 | It plays once, from that second, over the scene. | یەک جار پیشان دەدرێت، لەو چرکەیەوە، لەسەر دیمەنەکە. | ئێک جار دهێتە نیشاندان، ژ وێ چرکێ، ل سەر دیمەنی. |
 | Choose the graphic on top of this scene | ئەو گرافیکە هەڵبژێرە کە لەسەر ئەم دیمەنەیە | وی گرافیکی هەلبژێرە یێ ل سەر ڤی دیمەنی |
 | Choose a graphic to put on top of this scene | گرافیکێک هەڵبژێرە بۆ دانانی لەسەر ئەم دیمەنە | گرافیکەکێ هەلبژێرە بۆ دانانێ ل سەر ڤی دیمەنی |
+
+## Review of package `video` (vm-r-video)
+
+### SAFETY, "Motion graphics are not one of them either" — one sentence added after "Deleting one in the panel deletes it there."
+
+English: *A graphic you put in a video is copied into that video, any picture in it included, and kept with it in `vylo-video`: deleting the graphic here does not delete that copy; deleting the video does, and so does taking the graphic out of every scene of the video, the next time the app starts.*
+
+| Sorani (ckb) | Badini (kmr) |
+|---|---|
+| گرافیکێک کە دەیخەیتە ناو ڤیدیۆیەکەوە کۆپی دەکرێتە ناو ئەو ڤیدیۆیە، هەر وێنەیەکی ناویشی لەگەڵدا، و لەگەڵیدا لە `vylo-video` دا هەڵدەگیرێت: سڕینەوەی گرافیکەکە لێرە ئەو کۆپییە ناسڕێتەوە؛ سڕینەوەی ڤیدیۆکە دەیسڕێتەوە، هەروەها لابردنی گرافیکەکە لە هەموو دیمەنەکانی ڤیدیۆکە، لە دەستپێکردنی داهاتووی ئەپەکەدا. | گرافیکەکا تو دکەیە د ناڤ ڤیدیۆیەکێ دا دهێتە کۆپیکرن بۆ وێ ڤیدیۆیێ، دگەل هەر وێنەیەکێ تێدا، و دگەل وێ د `vylo-video` دا دهێتە پاراستن: ژێبرنا گرافیکێ ل ڤێرێ وێ کۆپیێ ژێنابەت؛ ژێبرنا ڤیدیۆیێ وێ ژێدبەت، و هەروەسا لابرنا گرافیکێ ژ هەمی دیمەنێت ڤیدیۆیێ، د دەستپێکرنا بهێت یا ئەپی دا. |
