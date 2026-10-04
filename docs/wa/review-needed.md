@@ -540,3 +540,14 @@ twice", not "nobody is messaged twice"). The Arabic was rewritten the same way.
 Stop words added to `isOptOut` (`app/src/whatsappcampaign.ts`), Kurdish in Latin letters, for a native reader: Kurmanji
 (Badini) `raweste` (stop), `rawestîne` (stop it), `nexwazim` / `naxwazim` (I do not want); Sorani `westan` (stopping).
 Arabic: `لا ترسل`, `لا ترسلوا`, `لا ترسل لي`, `لا ترسلوا لي`, `لا تراسلني`, `لا أريد رسائل`, `توقفوا`, `أوقفوا`, `كفى`, `كفاية`.
+## review-parse — what the People step says about a file it could not read (`WhatsAppPeople.tsx`)
+
+Best effort; please check. The Arabic writes إكسل, XLS and XLSX (the catalogue test keeps Latin words out of Arabic).
+
+| English | Sorani (ckb) | Badini (kmr) |
+|---|---|---|
+| That file is locked with a password, or is an old .xls. Open it in Excel and save it again as a plain .xlsx. | ئەم فایلە بە وشەی تێپەڕ داخراوە، یان فایلێکی کۆنی .xls ە. لە Excel بیکەرەوە و دووبارە وەک .xlsx ی ئاسایی پاشەکەوتی بکە. | ئەڤ فایلە ب پەیڤا بۆرینێ هاتییە گرتن، یان فایلەکێ .xls یێ کەڤنە. ل Excel ڤەکە و جارەکا دی وەک .xlsx یا ئاسایی پاشەکەفت بکە. |
+| That file is too big for a list: 10 MB at most. | ئەم فایلە بۆ لیست زۆر گەورەیە: زۆرترین 10 مێگابایتە. | ئەڤ فایلە بۆ لیستێ زۆر مەزنە: پتر نە ژ 10 مێگابایتان. |
+| That file is not an Excel workbook that can be read here. Save it as .xlsx or .csv. | ئەم فایلە پەڕاوێکی Excel نییە کە لێرە بخوێندرێتەوە. وەک .xlsx یان .csv پاشەکەوتی بکە. | ئەڤ فایلە نە پەرتووکا Excel ە کو ل ڤێرە بهێتە خواندن. وەک .xlsx یان .csv پاشەکەفت بکە. |
+| Only the first part of that file was read: it is longer than a list can be. | تەنها بەشی یەکەمی ئەم فایلە خوێندرایەوە: لەوە درێژترە کە لیستێک هەڵیبگرێت. | تنێ پشکا ئێکێ یا ڤی فایلی هاتە خواندن: ژ وێ درێژترە کو لیستەک هەلبگریت. |
+| Excel shortened this number. Format the column as Text and save the file again. | Excel ئەم ژمارەیەی کورت کردەوە. شێوازی ستوونەکە بکە بە «دەق» و دووبارە فایلەکە پاشەکەوت بکە. | Excel ئەڤ ژمارە کورت کر. شێوازێ ستوینێ بکە «دەق» و جارەکا دی فایلی پاشەکەفت بکە. |

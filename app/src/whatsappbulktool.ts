@@ -39,7 +39,7 @@
 
 import { parseAudience, makeAudience, maskPhone, excludeSuppressed, type ParseOptions } from './whatsappaudience';
 import { estimateSeconds, newCampaign } from './whatsappcampaign';
-import { LIMITS, type Attachment, type AttachmentKind, type Audience, type Campaign, type Draft, type Lang, type Recipient, MESSAGE_LANGS } from './whatsappbulktypes';
+import { LIMITS, type Attachment, type AttachmentKind, type Audience, type Campaign, type Draft, type FileProblem, type Lang, type Recipient, MESSAGE_LANGS } from './whatsappbulktypes';
 import { fillTemplate, placeholdersIn, searchTemplates, templateById } from './whatsapptemplates';
 import { loadAudiences, loadCampaigns, loadSuppressed, saveAudience, saveCampaign } from './whatsappbulkstore';
 
@@ -140,6 +140,14 @@ const NAMES: ReadonlySet<string> = new Set<string>(BULK_TOOLS.map((t) => t.name)
 
 export const isBulkTool = (name: string): boolean => NAMES.has(name);
 
+const ONE_TIME_CODE = 'A one-time code must be different for every person and come from that person\'s own row in the file, '
+  + 'so it cannot be written into one broadcast. Leave {code} for the Broadcast screen to fill from a `code` column, or send the code to one person.';
+
+/** A message that carries one literal verification code ("your code is 483920"), whatever the language. */
+export function looksLikeOneCode(text: string): boolean {
+  return /(?:code|otp|pin|password|رمز|كود|کۆد|کود|پین|پاسۆرد|ڕێمز)[^\d{]{0,24}[\d٠-٩۰-۹]{4,8}(?![\d٠-٩۰-۹])/iu.test(text);
+}
+
 export interface BulkOut { content: string; isError: boolean }
 
 const fail = (content: string): BulkOut => ({ content, isError: true });
@@ -151,6 +159,18 @@ const LIST_FILE = /\.(txt|csv|tsv|vcf|xlsx)$/i;
 const LIST_BYTES = 10 * 1024 * 1024;
 
 const str = (x: unknown, max: number): string => (typeof x === 'string' ? x.trim().slice(0, max) : '');
+
+/** Why a whole file could not be read, in a sentence the model can pass on (the reader's `problem` is a word). */
+function problemNote(p: FileProblem): string {
+  switch (p) {
+    case 'locked': return 'The file is password-protected, or is an old .xls. Ask the user to open it in Excel and save it again as a plain .xlsx with no password.';
+    case 'too-big': return 'The file is too big for a list (over 10 MB).';
+    case 'binary': return 'That file is not a list: it looks like a picture, a PDF or another kind of file.';
+    case 'not-a-sheet': return 'That file is not an Excel workbook this can read (a renamed file, or an .ods). Ask the user to save it as .xlsx or .csv.';
+    case 'empty': return 'The file is empty.';
+    default: return 'The file is damaged or cut short. Ask the user to save it again and try once more.';
+  }
+}
 const langOf = (x: unknown, fallback: Lang): Lang => (MESSAGE_LANGS as readonly unknown[]).includes(x) ? (x as Lang) : fallback;
 
 /**
@@ -256,11 +276,14 @@ export async function runBulkTool(name: string, input: Record<string, unknown>, 
       }
       if (text === null || text === '') return fail('Give a file path or a few numbers.');
       const parsed = await parseAudience(text, opts);
+      if (parsed.problem) return ok({ audience: null, people: 0, problem: parsed.problem, note: `${problemNote(parsed.problem)} Nothing was saved.` });
+      // Every line that could not be read, not only the thousand the reader lists one by one.
+      const notRead = parsed.rejected.length + (parsed.rejectedMore ?? 0);
       const suppressed = await deps.loadSuppressed();
       const { kept, removed } = excludeSuppressed(parsed.recipients, suppressed);
       if (!kept.length) {
         return ok({
-          audience: null, people: 0, notRead: parsed.rejected.length, askedNotToBeMessaged: removed,
+          audience: null, people: 0, notRead, askedNotToBeMessaged: removed,
           note: 'No usable number was found. Nothing was saved.',
         });
       }
@@ -270,10 +293,13 @@ export async function runBulkTool(name: string, input: Record<string, unknown>, 
       // 256 of them, and an instruction is as easy to write there as anywhere), and a file with no header has its
       // first person read as one — "Ahmed Ali, owes 500000 dinar" would otherwise reach the model as two "columns".
       return ok({
-        audience: a.id, name: a.name, people: kept.length, notRead: parsed.rejected.length, repeated: parsed.duplicates,
+        audience: a.id, name: a.name, people: kept.length, notRead, repeated: parsed.duplicates,
         askedNotToBeMessaged: removed, columns: columnsOf(kept).size,
+        ...(parsed.truncated ? { truncated: true } : {}),
         examples: kept.slice(0, 3).map((r) => maskPhone(r.phone)),
-        note: 'The list stays on this machine; you never see it, nor the names of its columns. Use this audience id with '
+        note: (parsed.truncated
+          ? `Only part of the file was read: at most ${LIMITS.recipients.toLocaleString('en-US')} people fit in one list, and a very long file is cut. Tell the user. `
+          : '') + 'The list stays on this machine; you never see it, nor the names of its columns. Use this audience id with '
           + 'whatsapp_campaign; the user can put a column into the message on the Broadcast screen.',
       });
     }
@@ -311,8 +337,11 @@ export async function runBulkTool(name: string, input: Record<string, unknown>, 
           if (/^[a-z_]{1,24}$/.test(k) && typeof v === 'string') values[k] = valueText(v).slice(0, 200);
         }
       }
+      // A one-time code is each person's own: the same code sent to a whole list is the shape of a scam, not of a login.
+      if (t.category === 'verify' && values.code) return fail(ONE_TIME_CODE);
       text = fillTemplate(t, l, values);
     }
+    if (looksLikeOneCode(text)) return fail(ONE_TIME_CODE);
     if (!text) return fail('The message is empty. Give `text`, or a ready message with `template`.');
     if (text.length > LIMITS.messageChars) return fail(`The message is too long: at most ${LIMITS.messageChars} characters.`);
     // A blank nobody filled is refused here, as step 2 of the screen refuses it. A staged draft opens on Review, where

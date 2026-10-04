@@ -194,6 +194,9 @@ replaced). Measured here: 5,000 lines of text ~11 ms, 5,000 CSV rows ~9 ms, 5,00
 
 ## Numbering plans: where I am sure and where I am not
 
+(Superseded in part by `docs/wa/review-parse.md`: written-in zeros are no longer accepted from a CSV, +7 and Lebanon
+have mobile prefixes, North America and +7 have a shape check, and the foreign rule refuses a home typo.)
+
 Written from my knowledge of the ITU-T E.164 national plans; no source was consulted (no network). Lengths are of the
 national significant number.
 

@@ -663,7 +663,8 @@ export function ReportView({ t, lang, campaign, msgs, onAddSuppressed, onDuplica
       });
       // Cancelling the save panel is an answer, not a failure.
       if (!path) return;
-      await invoke('export_write', { path, text: reportCsv(campaign) });
+      // A byte-order mark first: without it Excel reads a UTF-8 file as Windows-1252 and every Arabic or Kurdish name is garbled.
+      await invoke('export_write', { path, text: `\uFEFF${reportCsv(campaign)}` });
       setSaid(t('The report was saved.'));
     } catch (e) {
       setSaid(fill(t('The report could not be saved: {why}'), { why: detailOf(e) }));

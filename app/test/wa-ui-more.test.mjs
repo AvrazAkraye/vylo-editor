@@ -213,6 +213,12 @@ console.log('The run');
   ok('finished: the report and a new broadcast, no Continue', done.includes('See the report') && done.includes('New broadcast') && !done.includes('Continue with'));
 }
 
+console.log('The report file');
+{
+  const src = readFileSync(new URL('../src/WhatsAppRun.tsx', import.meta.url), 'utf8');
+  ok('the report CSV is saved with a byte-order mark so Excel shows Arabic and Kurdish names', /text: `\\uFEFF\$\{reportCsv\(campaign\)\}`/.test(src));
+}
+
 console.log('The report, history and the do-not-contact list');
 {
   const rec = list(6);

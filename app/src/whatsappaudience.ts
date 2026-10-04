@@ -89,6 +89,11 @@ interface Plan {
   trunk: string[];
   /** How a mobile number starts, where that is known well enough to warn about a number that is not one. */
   mobile: string[];
+  /**
+   * A shape every national number has, beyond its length, where the plan has one: North America's area code and
+   * exchange never start with 0 or 1, and no +7 number starts with 0, 1, 2 or 5. A number that fails it is nobody's.
+   */
+  shape?: RegExp;
 }
 
 /**
@@ -96,14 +101,14 @@ interface Plan {
  * for every other number (`'7:10 1:8 8-9'`: Iraqi numbers starting with 7 have ten digits, with 1 eight, the rest eight
  * or nine). `trunk` and `mobile` are comma-separated.
  */
-function plan(code: string, lens: string, trunk = '0', mobile = ''): Plan {
+function plan(code: string, lens: string, trunk = '0', mobile = '', shape?: RegExp): Plan {
   const rules = lens.split(' ').map((spec): Rule => {
     const colon = spec.indexOf(':');
     const [min, max = min] = spec.slice(colon + 1).split('-').map(Number);
     return { prefix: colon < 0 ? '' : spec.slice(0, colon), min, max };
   });
   if (rules[rules.length - 1].prefix !== '') rules.push({ prefix: '', min: 4, max: 15 - code.length });
-  return { code, rules, trunk: trunk ? trunk.split(',') : [], mobile: mobile ? mobile.split(',') : [] };
+  return { code, rules, trunk: trunk ? trunk.split(',') : [], mobile: mobile ? mobile.split(',') : [], shape };
 }
 
 /**
@@ -113,10 +118,13 @@ function plan(code: string, lens: string, trunk = '0', mobile = ''): Plan {
  * freephone 800) are left out on purpose: nobody's customer is on WhatsApp through Inmarsat.
  */
 const PLAN_LIST: Plan[] = [
-  // Zone 1: the North American plan (US, Canada, much of the Caribbean): ten digits; "1" is dialled before them at home.
-  plan('1', '10', '1'),
+  // Zone 1: the North American plan (US, Canada, much of the Caribbean): ten digits, NXX NXX XXXX — an area code and an
+  // exchange never start with 0 or 1 — and "1" is dialled before them at home.
+  plan('1', '10', '1', '', /^[2-9][0-9]{2}[2-9]/),
   // Zone 2: Africa.
-  plan('20', '1:10 8-9', '0', '10,11,12,15'),
+  // Egypt: mobiles 10, 11, 12, 15 and eight digits; landlines an area code and seven (Cairo 2, Alexandria 3, Banha
+  // 13 — a landline that starts with 1 too, so the mobile prefixes are named one by one).
+  plan('20', '10:10 11:10 12:10 15:10 8-9', '0', '10,11,12,15'),
   plan('211', '9'), plan('212', '9', '0', '6,7'), plan('213', '8-9', '0', '5,6,7'), plan('216', '8', '', '2,4,5,9'),
   plan('218', '8-9', '0', '9'), plan('220', '7', ''), plan('221', '9', ''), plan('222', '8', ''), plan('223', '8', ''),
   plan('224', '8-9', ''), plan('225', '8-10', ''), plan('226', '8', ''), plan('227', '8', ''), plan('228', '8', ''),
@@ -154,8 +162,9 @@ const PLAN_LIST: Plan[] = [
   plan('677', '5-7', ''), plan('678', '5-7', ''), plan('679', '7', ''), plan('680', '7', ''), plan('681', '6', ''),
   plan('682', '5', ''), plan('683', '4', ''), plan('685', '5-7', ''), plan('686', '5-8', ''), plan('687', '6', ''),
   plan('688', '5-6', ''), plan('689', '6-8', ''), plan('690', '4-5', ''), plan('691', '7', ''), plan('692', '7', ''),
-  // Zone 7: Russia and Kazakhstan share it; "8" is dialled before a national number.
-  plan('7', '10', '8'),
+  // Zone 7: Russia and Kazakhstan share it; "8" is dialled before a national number. Russia's numbers start 3, 4, 8
+  // (landlines) or 9 (mobiles); Kazakhstan's 7 (landlines 71x/72x, mobiles 70x, 747, 75x, 76x, 77x) and 6 (reserved).
+  plan('7', '10', '8', '9,70,74,75,76,77', /^[346789]/),
   // Zone 8: East Asia.
   plan('81', '9-10', '0', '70,80,90'), plan('82', '8-10', '0', '10'), plan('84', '9-10'), plan('850', '8-10', ''),
   plan('852', '8', ''), plan('853', '8', ''), plan('855', '8-9'), plan('856', '8-10'), plan('86', '1:10-11 9-11', '0', '13,14,15,16,17,18,19'),
@@ -163,7 +172,10 @@ const PLAN_LIST: Plan[] = [
   // Zone 9: Turkey, South Asia, the Middle East — this app's people, so the most exact. Iraqi mobiles are 7 and nine
   // more digits; a Baghdad landline is 1 and seven; other governorates two-digit area codes and six or seven.
   plan('90', '10', '0', '5'), plan('91', '10', '0', '6,7,8,9'), plan('92', '3:10 9-10', '0', '3'), plan('93', '9', '0', '7'),
-  plan('94', '9', '0', '7'), plan('95', '7-10', '0', '9'), plan('960', '7', ''), plan('961', '7-8'),
+  plan('94', '9', '0', '7'), plan('95', '7-10', '0', '9'), plan('960', '7', ''),
+  // Lebanon: mobiles are 3 and six digits (written 03) or 70, 71, 76, 78, 79, 81 and six (written without the 0);
+  // landlines a one-digit area code and six (Beirut 01).
+  plan('961', '7-8', '0', '3,70,71,76,78,79,81'),
   plan('962', '7:9 8', '0', '7'), plan('963', '9:9 8-9', '0', '9'), plan('964', '7:10 1:8 8-9', '0', '74,75,76,77,78,79'),
   plan('965', '8', '', '4,5,6,9'), plan('966', '5:9 8-10', '0', '5'), plan('967', '7:9 7-8', '0', '7'),
   plan('968', '8', '', '7,9'), plan('970', '5:9 8-9', '0', '5'), plan('971', '5:9 8-9', '0', '5'), plan('972', '5:9 8-9', '0', '5'),
@@ -193,7 +205,23 @@ export function countryOf(phone: string): string {
 
 function lengthWhy(p: Plan, nsn: string): InvalidWhy | null {
   const r = p.rules.find((x) => nsn.startsWith(x.prefix)) ?? p.rules[p.rules.length - 1];
-  return nsn.length < r.min ? 'too-short' : nsn.length > r.max ? 'too-long' : null;
+  if (nsn.length < r.min) return 'too-short';
+  if (nsn.length > r.max) return 'too-long';
+  return p.shape && !p.shape.test(nsn) ? 'not-a-number' : null;
+}
+
+/**
+ * Whether bare digits are more likely the home country's own number with one digit too many than another country's
+ * number written without its `+`: they start the way a home number of a known shape starts (a mobile prefix, or a
+ * prefix with a length of its own) and are at most one digit longer than that number can be. `75012345678` in an
+ * Iraqi list is an Iraqi mobile with its zero gone and a slip of the finger; read as +7 501… it would message a
+ * stranger in another country. Refused as too long, the person sees the line and fixes it.
+ */
+function homeTypo(home: Plan, digits: string): boolean {
+  const known = home.rules.some((x) => x.prefix !== '' && digits.startsWith(x.prefix)) || home.mobile.some((m) => digits.startsWith(m));
+  if (!known) return false;
+  const r = home.rules.find((x) => digits.startsWith(x.prefix)) ?? home.rules[home.rules.length - 1];
+  return digits.length <= r.max + 1;
 }
 
 /** Whether a number is shaped like a mobile in its country: `null` where this does not know the country's mobiles. */
@@ -264,7 +292,7 @@ function clean(raw: unknown, cap: number): string {
     const c = ch.codePointAt(0) ?? 0;
     if (isSpace(c)) { space = n > 0; continue; }
     if (c < 32 || (c >= 0x7f && c <= 0x9f) || (isInvisible(c) && c !== 0x200c && c !== 0x200d) || (c >= 0xd800 && c <= 0xdfff)
-      || (c >= 0xfff9 && c <= 0xfffb) || c === 0xfffe || c === 0xffff) continue;
+      || (c >= 0xfff9 && c <= 0xfffd) || c === 0xfffe || c === 0xffff) continue;
     if (n >= cap || (space && n + 1 >= cap)) break;
     if (space) { out += ' '; n++; space = false; }
     out += ch;
@@ -303,11 +331,14 @@ type Norm = { phone: string; via: Via } | Why;
 const SCIENTIFIC = /^[0-9]{1,20}(?:\.[0-9]{1,20})?[eE]\+?[0-9]{1,2}$/;
 const DOT_ZERO = /^[0-9]{6,20}\.0{1,6}$/;
 /**
- * Zeros a scientific number may need beyond the digits it shows. `9.6475012345E+11` (one) is a number Excel wrote with
- * every digit it had; `9.64751E+11` (six) is one Excel rounded for display, whose last digits are gone for good — and
- * rebuilding it would message whoever owns `964751000000`.
+ * Zeros a scientific number in text may need beyond the digits it shows: none. Excel writes a CSV as it displays the
+ * cells, and its General format shows a whole number of up to eleven digits in full, so a phone number in scientific
+ * form is one Excel *rounded* for display: `9.6475012346E+12` was 9647501234567, and its last two digits are gone.
+ * Rebuilding it with zeros would message whoever owns `9647501234600` (a written-in zero is the right digit one time
+ * in ten). Only a number written with every digit it has (`7.501234567E+09`) is read; the rest get the Excel hint.
+ * A workbook is different: its XML holds the whole stored double (`whatsappsheet.ts`), so it never comes here.
  */
-const MAX_PADDED = 2;
+const MAX_PADDED = 0;
 
 /** A number's digits and whether it was written international (`+`), or why it is not a number at all. */
 function phoneText(raw: string): { digits: string; plus: boolean } | Why {
@@ -372,6 +403,7 @@ const FOREIGN_MIN = 11;
  *   4. A national number without its trunk (`750 123 4567`: what Excel leaves when it drops the zero) gets the country.
  *   5. Bare digits too long to be national here but a valid number of another country with its code in front
  *      (`447911123456` in an Iraqi list) are that number: lists exported from WhatsApp tools are written exactly so.
+ *      Not when they look like a home number with one digit too many (`homeTypo`): that is a typo, not a foreigner.
  *   6. Otherwise the most telling reason: the trunk reading's, else the country-code reading's, else the national one's.
  */
 function normalise(raw: string, country: string): Norm {
@@ -405,7 +437,7 @@ function normalise(raw: string, country: string): Norm {
     const why = lengthWhy(home, digits);
     if (!why) return { phone: home.code + digits, via: 'bare' };
     first ??= why;
-    if (digits.length >= FOREIGN_MIN) {
+    if (digits.length >= FOREIGN_MIN && !homeTypo(home, digits)) {
       const f = international(digits, 'foreign');
       if ('phone' in f) return f;
     }
@@ -583,10 +615,32 @@ function decodeBytes(b: Uint8Array, country: string): string | null {
   } else {
     try { text = new TextDecoder('utf-8', { fatal: true }).decode(body); } catch { /* not UTF-8: a legacy code page */ }
     if (text === null) {
-      try { text = new TextDecoder(legacyCodePage(body, country)).decode(body); } catch { text = new TextDecoder().decode(body); }
+      // UTF-8 with a stray byte or two (two files joined, a byte cut at an edit) is still UTF-8. Read as a legacy code
+      // page instead, every Arabic name and header in it came out as mojibake, and the messages would greet people so.
+      const loose = new TextDecoder('utf-8').decode(body);
+      if (mostlyUtf8(loose)) text = loose;
+      else {
+        try { text = new TextDecoder(legacyCodePage(body, country)).decode(body); } catch { text = loose; }
+      }
     }
   }
   return looksBinary(text) ? null : text;
+}
+
+/**
+ * Whether bytes that are not strictly UTF-8 are UTF-8 all the same: a loose decode where at least 95 in 100 of the
+ * characters past ASCII came out as characters, not replacement marks. Arabic or Turkish in a legacy code page
+ * decodes to almost nothing but replacement marks.
+ */
+function mostlyUtf8(loose: string): boolean {
+  let good = 0;
+  let bad = 0;
+  for (let i = 0; i < loose.length; i++) {
+    const c = loose.charCodeAt(i);
+    if (c < 0x80) continue;
+    if (c === 0xfffd) bad++; else good++;
+  }
+  return good > 0 && bad * 20 <= good;
 }
 
 /** Text with more than a sliver of control characters or replacement marks in its first 64 KB is not text. */
@@ -734,7 +788,32 @@ const FIRST_ONLY = wordSet('firstname givenname forename vorname förnamn préno
 const LAST_ONLY = wordSet('surname lastname familyname nachname efternamn soyad soyadı soyisim پاشناو پاشناڤ paşnav کنیه الكنية اللقب خانوادگی');
 /** Words that say "first" or "last" when a name word stands beside them (`First name`, `اسم العائلة`, `ناوی یەکەم`). */
 const FIRST_WITH = wordSet('first given الأول اول یەکەم');
+/**
+ * Words that make a name column not the person's name: Outlook's "Middle Name", Google's "Additional Name", a CRM's
+ * "Company Name" beside its "Contact Name". (A file whose only words are a company's still has them read as names by
+ * the column-of-words rule below.)
+ */
+const NOT_PERSON_WITH = wordSet('middle additional company business organisation organization org firm shop store الأوسط شركة الشركة ناوەڕاست کۆمپانیا şirket firma');
 const LAST_WITH = wordSet('last family العائلة عائلة خێزان');
+
+/**
+ * Labels that say the number beside them is something else — an order, an invoice, an account, a price, a code — in
+ * the same languages as the header words. In running text a number right after one of these is not a phone number,
+ * however much it looks like one (`Order 7501234567`, `رقم الطلب 07501234567`).
+ */
+const FIELD_WORDS = wordSet(
+  'order orders invoice inv receipt ref reference account acct iban swift serial sn id ids tracking awb shipment parcel',
+  'total subtotal amount price cost qty quantity sum balance fee tax vat code pin otp barcode sku ean upc isbn imei model version ip date year postcode zip passport',
+  'طلب فاتورة حساب مبلغ سعر مجموع رمز كود باركود تاريخ هوية وصل ايصال',
+  'داواکاری پسوولە حیساب بڕ نرخ کۆی کۆد بەروار ناسنامە',
+  'sipariş siparis fatura hesap tutar fiyat toplam kod tarih',
+  'سفارش فاکتور قیمت جمع کد تاریخ',
+);
+/** Currencies written after an amount: `12 500 000 IQD`, `25.000.000 دينار`. */
+const CURRENCY_WORDS = wordSet('iqd usd eur try irr sar aed kwd jod lbp egp sek gbp tl dollar dollars dinar dinars euro euros lira riyal dirham toman rial',
+  'دينار دولار ريال درهم ليرة تومان دینار دۆلار');
+/** "Number" itself, in every language: a phone word only when nothing more specific stands beside it. */
+const NUMBER_WORDS = wordSet('number numbers رقم ارقام ژمارە ژمارا hejmar hejmara jimar jimare jimara numara numarası شماره nummer numéro');
 
 type Kind = 'phone' | 'name' | 'first' | 'last';
 
@@ -746,6 +825,7 @@ function kindOf(header: string): Kind | null {
   const has = (set: Set<string>): boolean => words.some((w) => variants(w).some((v) => set.has(v)));
   if (has(PHONE_WORDS)) return 'phone';
   const name = has(NAME_WORDS);
+  if (name && has(NOT_PERSON_WITH)) return null;
   if (has(LAST_ONLY) || (name && has(LAST_WITH))) return 'last';
   if (has(FIRST_ONLY) || (name && has(FIRST_WITH))) return 'first';
   return name ? 'name' : null;
@@ -845,11 +925,28 @@ function delimiterOf(text: string, strict: boolean): string | null {
     if (width < 2 || share < (strict ? 0.8 : 0.6)) continue;
     if (!best || share > best.share || (share === best.share && width > best.width)) best = { d, share, width };
   }
-  return best ? best.d : null;
+  if (best) return best.d;
+  // A file that says it is a CSV and whose rows are ragged (a notes column filled on some rows, a trailing comma
+  // dropped on others) is still a table: its header row's delimiter, when it has one. Without this it was read as
+  // free text and lost its header, its names and its columns.
+  if (strict) return null;
+  const head = sample.split(/\r?\n/, 50).find((l) => l.trim()) ?? '';
+  let most = 0;
+  let pick: string | null = null;
+  for (const d of [',', ';', '\t', '|']) {
+    const k = head.split(d).length - 1;
+    if (k > most) { most = k; pick = d; }
+  }
+  return pick;
 }
 
 /** Whether a cell holds a number this reads, for guessing columns. */
 const validIn = (cell: string, country: string): boolean => !!cell && 'phone' in normalise(cell, country);
+/** …and a mobile one, for choosing between a phone and a mobile column. */
+function mobileIn(cell: string, country: string): boolean {
+  const n = cell ? normalise(cell, country) : null;
+  return !!n && 'phone' in n && mobileShape(n.phone) === true;
+}
 
 /** The first valid number written anywhere in a cell (`Tel: 0750 123 4567`, `0750… / 0770…`). */
 function firstIn(cell: string, country: string): Norm | null {
@@ -898,9 +995,10 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
   }
   const kinds = columns.map((_, i) => (headerAt >= 0 ? kindOf((header[i] ?? '').trim()) : null));
 
-  // How many of the first rows hold a valid number, column by column.
+  // How many of the first rows hold a valid number, and a mobile, column by column.
   const sample = body.slice(0, 300);
   const valid = columns.map((_, i) => sample.reduce((s, r) => s + (validIn(r.cells[i] ?? '', country) ? 1 : 0), 0));
+  const mobiles = columns.map((_, i) => sample.reduce((s, r) => s + (mobileIn(r.cells[i] ?? '', country) ? 1 : 0), 0));
   const findColumn = (want: string | undefined): number => {
     if (typeof want !== 'string') return -2;
     const w = want.trim().toLowerCase();
@@ -909,14 +1007,25 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
 
   if (headerAt < 0 && sample.length && valid.filter((v) => v * 2 >= sample.length).length > 1) return null;
 
-  let phoneAt = findColumn(o.phoneColumn);
+  const chosen = findColumn(o.phoneColumn);
+  let phoneAt = chosen;
   if (phoneAt < 0) {
     phoneAt = -1;
+    // A column whose header says phone wins when it holds any number at all — of several (`Phone`, `Mobile`), the one
+    // with the most mobiles, then the most numbers: WhatsApp is on the mobile. Otherwise the column with the most
+    // numbers. And when nothing in the first rows reads at all, still the column whose header says phone: its rows are
+    // reported one by one and the rest of the file is read, where another column would turn everyone away.
+    let best = [0, 0];
+    kinds.forEach((k, i) => {
+      if (k === 'phone' && valid[i] > 0 && (mobiles[i] > best[0] || (mobiles[i] === best[0] && valid[i] > best[1]))) { best = [mobiles[i], valid[i]]; phoneAt = i; }
+    });
     let most = 0;
-    // A column whose header says phone wins when it holds any number at all; otherwise the column with the most.
-    kinds.forEach((k, i) => { if (k === 'phone' && valid[i] > most) { most = valid[i]; phoneAt = i; } });
     if (phoneAt < 0) valid.forEach((v, i) => { if (v > most) { most = v; phoneAt = i; } });
+    if (phoneAt < 0) phoneAt = kinds.indexOf('phone');
   }
+  // The row's other phone columns, read when the chosen one is empty or wrong, or holds a landline beside a mobile.
+  // Not when the person chose the column: then it is that column.
+  const others = chosen >= 0 ? [] : kinds.flatMap((k, i) => (k === 'phone' && i !== phoneAt ? [i] : []));
   if (phoneAt < 0) {
     // Nothing reads as a number. In free text that means "not a table"; in a CSV, the rows are reported against the
     // column that looks most like numbers, so the person sees what was wrong with them.
@@ -933,7 +1042,14 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
   let nameAt = findColumn(o.nameColumn);
   let lastAt = -1;
   if (nameAt === -2) {
-    nameAt = kinds.findIndex((k, i) => k === 'name' && i !== phoneAt);
+    // Of the columns that say name, the one with something in it: an empty "Display Name" is no name column.
+    nameAt = -1;
+    let filled = 0;
+    kinds.forEach((k, i) => {
+      if (k !== 'name' || i === phoneAt) return;
+      const f = sample.reduce((n, r) => n + ((r.cells[i] ?? '').trim() ? 1 : 0), 0);
+      if (f > filled) { filled = f; nameAt = i; }
+    });
     if (nameAt < 0) {
       nameAt = kinds.findIndex((k, i) => k === 'first' && i !== phoneAt);
       lastAt = kinds.findIndex((k, i) => k === 'last' && i !== phoneAt);
@@ -968,11 +1084,20 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
     return /^(name|first_name|phone)$/i.test(k) ? `${k} 2` : k;
   });
 
+  const readCell = (raw: string): Norm => {
+    const c = raw.trim();
+    const n = normalise(c, country);
+    return 'phone' in n || !c ? n : firstIn(c, country) ?? n;
+  };
   for (const r of body) {
     if (col.truncated) break;
     const cell = (r.cells[phoneAt] ?? '').trim();
-    let n: Norm = normalise(cell, country);
-    if (!('phone' in n) && cell) n = firstIn(cell, country) ?? n;
+    let n: Norm = readCell(cell);
+    for (const i of others) {
+      if ('phone' in n && mobileShape(n.phone) !== false) break;
+      const m = readCell(r.cells[i] ?? '');
+      if ('phone' in m && (!('phone' in n) || mobileShape(m.phone) !== false)) n = m;
+    }
     if (!('phone' in n)) {
       col.reject(r.line, cell || r.cells.map((c) => c.trim()).filter(Boolean).join(', '), n.why, n.hint);
       continue;
@@ -1047,6 +1172,78 @@ function isDate(text: string): boolean {
   return (a === 4 && b <= 2 && c <= 2) || (a <= 2 && b <= 2 && (c === 4 || c === 2));
 }
 
+/** A date at the head of a run (`04.10.2026 10` is a date and the hour after it): a four-digit year, then nothing. */
+const DATE_HEAD = /^([0-9]{1,4})([-.])([0-9]{1,2})\2([0-9]{2,4})(?![0-9])/;
+
+/**
+ * A run with the date it starts with taken off: what a chat export writes before every message (`04.10.2026 10:19`)
+ * ran on into the hour and read as a number with a trunk zero. `null` when nothing is left.
+ */
+function afterDate(line: string, s: Span): Span | null {
+  const m = DATE_HEAD.exec(line.slice(s.start, Math.min(s.end, s.start + 12)));
+  if (!m) return s;
+  const a = Number(m[1]);
+  const b = Number(m[3]);
+  const c = Number(m[4]);
+  const ymd = m[1].length === 4 && b >= 1 && b <= 12 && m[4].length <= 2 && c >= 1 && c <= 31;
+  const dmy = m[4].length === 4 && m[1].length <= 2 && a >= 1 && a <= 31 && b >= 1 && b <= 31 && (a <= 12 || b <= 12);
+  if (!ymd && !dmy) return s;
+  let i = s.start + m[0].length;
+  while (i < s.end && digitOf(line.charCodeAt(i)) < 0) i++;
+  let digits = 0;
+  for (let k = i; k < s.end; k++) if (digitOf(line.charCodeAt(k)) >= 0) digits++;
+  return digits ? { start: i, end: s.end, digits } : null;
+}
+
+/** Runs that are numbers of another kind: an IPv4 address, a decimal (`36.191113`, a coordinate), a span of years. */
+const IPV4 = /^[0-9]{1,3}(?:\.[0-9]{1,3}){3}$/;
+const DECIMAL = /^[1-9][0-9]{0,2}\.[0-9]{4,}$/;
+const YEARS = /^(?:19|20)[0-9]{2} ?[-\u{2013}] ?(?:19|20)[0-9]{2}$/u;
+const otherNumber = (text: string): boolean => IPV4.test(text) || DECIMAL.test(text) || YEARS.test(text);
+
+/** Signs that the number after them is money or a reference: `$`, `€`, `£`, `₺`, `﷼`, `#`, `№`. */
+const MONEY_MARKS = new Set([0x24, 0x20ac, 0xa3, 0x20ba, 0xfdfc, 0x23, 0x2116]);
+const isWordChar = (c: number): boolean => isLetter(c) || (c >= 0x300 && c <= 0x36f) || (c >= 0x64b && c <= 0x65f) || c === 0x200c;
+const isGap = (c: number): boolean => isSpace(c) || isInvisible(c) || c === 58 || c === 45 || c === 46 || c === 0x2013 || c === 0x2014;
+const hasWord = (words: string[], set: Set<string>): boolean => words.some((w) => variants(w).some((v) => set.has(v)));
+
+/**
+ * Whether the words beside a run say it is not a phone number. `field`: a field label before it (`Order`,
+ * `Invoice No:`, `Account:`, `رقم الطلب`) with no phone word beside it (`Phone No`, `WhatsApp account` are phones), or
+ * a `$` or `#` right before it — only a number written with `+` survives that. `money`: a currency right after it
+ * (`12 500 000 IQD`) — only a number that says it is a phone survives, because Dinar and Lira are also people's names
+ * (`0750 123 4567 Dinar`). A bounded scan of a few words either side.
+ */
+function labelledOther(line: string, s: Span): 'field' | 'money' | null {
+  const stop = Math.max(0, s.start - 48);
+  let i = s.start - 1;
+  while (i >= stop && isGap(line.charCodeAt(i))) i--;
+  if (i >= stop && MONEY_MARKS.has(line.charCodeAt(i))) return 'field';
+  const before: string[] = [];
+  while (i >= stop && before.length < 3) {
+    const e = i + 1;
+    while (i >= stop && isWordChar(line.charCodeAt(i))) i--;
+    if (i + 1 === e) break;
+    before.push(line.slice(i + 1, e));
+    while (i >= stop && isGap(line.charCodeAt(i))) i--;
+  }
+  if (before.length) {
+    const words = before.flatMap(foldWords);
+    const phone = words.some((w) => variants(w).some((v) => PHONE_WORDS.has(v) && !NUMBER_WORDS.has(v)));
+    if (!phone && hasWord(words, FIELD_WORDS)) return 'field';
+  }
+  let j = s.end;
+  const end = Math.min(line.length, s.end + 24);
+  while (j < end && isSpace(line.charCodeAt(j))) j++;
+  const from = j;
+  while (j < end && isWordChar(line.charCodeAt(j))) j++;
+  return j > from && hasWord(foldWords(line.slice(from, j)), CURRENCY_WORDS) ? 'money' : null;
+}
+
+/** How a number was found that the free-text reader trusts in a sentence: it says it is a phone number. */
+const sure = (f: { phone: string; via: Via }): boolean =>
+  f.via === 'plus' || f.via === 'trunk' || f.via === 'code' || (f.via === 'bare' && mobileShape(f.phone) === true);
+
 /** Punctuation and space that may stand at the ends of a label: `Rebaz: `, ` - Rebaz`, `(Rebaz)`. */
 const EDGE_CHARS = new Set(',;:|-–—•·*#"\'()[]<>/\\=.'.split('').map((c) => c.charCodeAt(0)));
 const isEdge = (c: number): boolean => isSpace(c) || isInvisible(c) || EDGE_CHARS.has(c);
@@ -1119,7 +1316,17 @@ function readFree(text: string, country: string, col: Collector): boolean {
     if (lines[li].length > MAX_LINE) cut = true;
     const line = lines[li].length > MAX_LINE ? lines[li].slice(0, MAX_LINE) : lines[li];
     const all = spansIn(line);
-    const spans = all.filter((s) => s.digits >= 7 && !isDate(line.slice(s.start, s.end)));
+    const spans: Span[] = [];
+    const labelled = new Map<Span, 'field' | 'money'>();
+    for (const s0 of all) {
+      const s = s0.digits >= 7 ? afterDate(line, s0) : null;
+      if (!s || s.digits < 7) continue;
+      const text = line.slice(s.start, s.end);
+      if (isDate(text) || otherNumber(text)) continue;
+      const other = labelledOther(line, s);
+      if (other) labelled.set(s, other);
+      spans.push(s);
+    }
     if (!spans.length) {
       // A line that is nothing but five or six digits was meant as a number, and is reported as too short.
       const only = all.length === 1 ? all[0] : null;
@@ -1145,16 +1352,25 @@ function readFree(text: string, country: string, col: Collector): boolean {
       const n = s.digits > 20 ? ({ why: 'too-long' } as Why) : normalise(raw, country);
       const found: { phone: string; via: Via }[] = [];
       const bad: { text: string; why: InvalidWhy; hint?: 'excel-rounded' }[] = [];
-      // Too long with spaces in it may be several numbers in a row; anything else wrong with it is reported whole.
+      // Too long with spaces in it may be several numbers in a row (`07501234567 07701234567`); anything else wrong
+      // with it is reported whole. A piece is taken only when it says it is a phone number by itself: eight digits
+      // from the middle of an account or card number (`0123 4567 8901 2345`) are valid somewhere and nobody's phone.
       const split = !('phone' in n) && n.why === 'too-long' && /\s/.test(raw) ? splitRun(raw, country) : null;
       if ('phone' in n) found.push(n);
-      else if (split && split.found.length) {
-        found.push(...split.found);
+      else if (split && split.found.some(sure)) {
+        for (const f of split.found) if (sure(f)) found.push(f); else bad.push({ text: f.text, why: 'too-long' });
         bad.push(...split.failed);
       } else bad.push({ text: raw, why: n.why, hint: n.hint });
+      // A number its label says is something else (an order, a price) is not taken; on a list line it is reported,
+      // so a real number behind an unlucky word is seen rather than silently lost.
+      const other = labelled.get(s);
+      if (other) {
+        const keep = found.filter((f) => (other === 'field' ? f.via === 'plus' : sure(f)));
+        if (keep.length < found.length) bad.push({ text: raw, why: 'not-a-number' });
+        found.splice(0, found.length, ...keep);
+      }
       for (const f of found) {
-        const strong = f.via === 'plus' || f.via === 'trunk' || f.via === 'code' || (f.via === 'bare' && mobileShape(f.phone) === true);
-        if (!list && !strong) continue;
+        if (!list && !sure(f)) continue;
         const person: Recipient = { phone: f.phone, vars: {} };
         if (name) person.name = name;
         col.add(person, li + 1);
@@ -1301,6 +1517,8 @@ function readVcf(text: string, country: string, col: Collector): boolean {
   const cut = lines.length > MAX_LINES * 4;
   let card: Card | null = null;
   let depth = 0;
+  /** The card's last property was a 2.1 `AGENT:` with its value to follow: the next BEGIN is that card, inside. */
+  let agent = false;
   let logical = '';
   let logicalLine = 0;
 
@@ -1320,6 +1538,14 @@ function readVcf(text: string, country: string, col: Collector): boolean {
     if (dot >= 0) key = key.slice(dot + 1);
     const value = prop.slice(colon + 1);
     if (key === 'BEGIN' && /^\s*vcard\s*$/i.test(value)) {
+      // A BEGIN inside a card that is not an agent's is the next card: the one before lost its END (a cut or joined
+      // export). Without this, every card after a broken one was read as nested and passed over.
+      if (depth > 0 && !agent) {
+        if (card) finishCard(card, country, col);
+        card = null;
+        depth = 0;
+      }
+      agent = false;
       if (depth++ === 0) card = { line: at, fn: '', n: '', org: '', tels: [], labels: new Map() };
       return;
     }
@@ -1327,6 +1553,7 @@ function readVcf(text: string, country: string, col: Collector): boolean {
       if (depth > 0 && --depth === 0 && card) { finishCard(card, country, col); card = null; }
       return;
     }
+    if (depth === 1) agent = key === 'AGENT' && !value.trim();
     if (!card || depth !== 1) return;
     const types = new Set<string>();
     let encoding = '';
@@ -1539,7 +1766,9 @@ function readRecipient(x: unknown): Recipient | null {
       if (n >= LIMITS.columns) break;
       const key = clean(k.replace(/[{}|[\]]/g, ' '), MAX_KEY).trim();
       const val = clean(v, LIMITS.valueChars);
-      if (key && val && !(key in out.vars)) { out.vars[key] = val; n++; }
+      // Own keys only: `in` would find `constructor` and `toString` on every object and drop those columns, which the
+      // engine reads like any other (`{constructor}` is a column). `__proto__` cannot be a plain key at all.
+      if (key && val && key !== '__proto__' && !Object.prototype.hasOwnProperty.call(out.vars, key)) { out.vars[key] = val; n++; }
     }
   }
   return out;

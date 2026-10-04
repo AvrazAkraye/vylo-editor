@@ -1,6 +1,6 @@
 // The assistant's side of bulk WhatsApp (docs/WA.md): it reads a list here, prepares a draft, and cannot send.
 // Everything the tools need from outside is injected, so this runs with no file system, store or server.
-import { BULK_TOOLS, bulkDepsFor, isBulkTool, runBulkTool } from '../.test-build/whatsappbulktool.js';
+import { BULK_TOOLS, bulkDepsFor, isBulkTool, looksLikeOneCode, runBulkTool } from '../.test-build/whatsappbulktool.js';
 import { runWhatsAppTool, whatsAppToolsFor } from '../.test-build/whatsapptool.js';
 
 let pass = 0, fail = 0;
@@ -104,6 +104,19 @@ const json = (out) => JSON.parse(out.content);
   const lost = world(); lost.deps.saveCampaign = async () => false;
   const aud2 = json(await runBulkTool('whatsapp_audience', { path: '/home/me/contacts.csv' }, lost.deps)).audience;
   ok('a draft that could not be saved says so', (await runBulkTool('whatsapp_campaign', { audience: aud2, text: 'Hi' }, lost.deps)).isError);
+}
+
+// ── a verification code is each person's own ─────────────────────────────────
+{
+  const w = world();
+  const aud = json(await runBulkTool('whatsapp_audience', { path: '/home/me/contacts.csv' }, w.deps)).audience;
+  const before = w.saved.campaigns.length;
+  const literal = await runBulkTool('whatsapp_campaign', { audience: aud, text: 'Your verification code is 483920. Do not share it.' }, w.deps);
+  ok('one literal verification code in a broadcast is refused', literal.isError && /different for every person/.test(literal.content) && w.saved.campaigns.length === before, literal.content);
+  ok('...in Arabic, Sorani and with Arabic-Indic digits too', ['رمز التحقق الخاص بك هو ٤٨٣٩٢٠', 'کۆدی چوونەژوورەوەت 483920', 'Your OTP: 4839'].every(looksLikeOneCode));
+  const viaTemplate = await runBulkTool('whatsapp_campaign', { audience: aud, template: 'verify-1', values: { code: '123456' } }, w.deps);
+  ok('a verification template filled with a code is refused', viaTemplate.isError, viaTemplate.content);
+  ok('ordinary messages with numbers are not mistaken for it', !looksLikeOneCode('Open 9am to 5pm, call 07501234567, 20% off, order 4821') && !looksLikeOneCode('Use the code SUMMER at checkout'));
 }
 
 // ── an attachment ─────────────────────────────────────────────────────────────

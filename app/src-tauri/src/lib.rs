@@ -752,12 +752,28 @@ fn read_document(path: String) -> Result<Attachment, String> {
 /// is the same one: containment exists because the *model* picks those paths.
 /// A path the user chose in a file dialog is the user's own reach, and the
 /// dialog is the approval.
+///
+/// One exception, added with bulk messaging: the assistant's `whatsapp_audience`
+/// and `whatsapp_campaign` name a contacts file or an attachment by path and
+/// read it here. Containment to the open folder would break the point (a list
+/// on the Desktop), so the guards are elsewhere — `whatsappbulktool.ts` reads
+/// only contact-list extensions and picture, video, audio and document ones,
+/// never shows the model more than counts and masked examples, and an
+/// attachment is named on the screen where the person presses Send. What this
+/// function owes those callers is that **a path that is not an ordinary file is
+/// refused before it is read**: a symlink to `/dev/zero` reports a length of 0
+/// and would otherwise be read until memory ran out, and a named pipe would
+/// block the thread this command runs on.
 #[tauri::command]
 fn read_any_file(path: String) -> Result<Attachment, String> {
     let p = Path::new(&path);
     let md = fs::metadata(p).map_err(|e| format!("{path}: {e}"))?;
     if md.is_dir() {
         return Err(format!("{path}: is a directory"));
+    }
+    // `metadata` follows a symlink, so this sees what the path really is.
+    if !md.is_file() {
+        return Err(format!("{path}: is not an ordinary file"));
     }
     // Sixteen megabytes, which is WhatsApp's own ceiling for a photo, a video
     // or an audio note. Refusing here means refusing before the read and the
@@ -2086,6 +2102,27 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A path that is not an ordinary file is refused before it is read (docs/wa/review-parse.md): a
+    /// symlink to a device would report a length of 0 and be read until memory ran out.
+    #[cfg(unix)]
+    #[test]
+    fn read_any_file_refuses_what_is_not_an_ordinary_file() {
+        let dir = std::env::temp_dir().join(format!("vylo-raf-{}", std::process::id()));
+        let _ = fs::create_dir_all(&dir);
+        let link = dir.join("contacts.csv");
+        let _ = fs::remove_file(&link);
+        std::os::unix::fs::symlink("/dev/zero", &link).unwrap();
+        match read_any_file(link.to_string_lossy().into_owned()) {
+            Ok(_) => panic!("a symlink to /dev/zero must be refused"),
+            Err(e) => assert!(e.contains("not an ordinary file"), "{e}"),
+        }
+        let plain = dir.join("list.txt");
+        fs::write(&plain, "0750 123 4567\n").unwrap();
+        assert!(read_any_file(plain.to_string_lossy().into_owned()).is_ok());
+        assert!(read_any_file(dir.to_string_lossy().into_owned()).is_err());
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     /// The shell `run_command` uses differs by platform, so the fixtures do
     /// too. `sleep` and `awk` do not exist in cmd.exe — CI caught that the hard
