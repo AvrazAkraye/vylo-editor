@@ -9311,8 +9311,8 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-btn{
   display:inline-flex; align-items:center; justify-content:center; gap:var(--sp-2);
   padding-block:var(--sp-3); padding-inline:var(--sp-5); border:1px solid var(--rule); border-radius:var(--r-2);
-  background:var(--panel); color:var(--ink-2); font:inherit; font-size:var(--fs-4); font-weight:500;
-  white-space:nowrap; cursor:pointer; transition:border-color .15s ease, background .15s ease;
+  background:var(--panel); color:var(--ink-2); font:inherit; font-size:var(--fs-4); font-weight:500; line-height:1.25;
+  max-inline-size:100%; text-align:center; cursor:pointer; transition:border-color .15s ease, background .15s ease;
 }
 .wa-bk-btn:hover:not(:disabled){ border-color:var(--rule-2); background:var(--panel-3); color:var(--ink); }
 .wa-bk-btn:disabled{ opacity:var(--dim); cursor:default; }
@@ -9653,7 +9653,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-main > *{ inline-size:min(680px, 100%); margin-inline:auto; }
 .wa-bk.is-full .wa-bk-stepbox{ padding-block:var(--sp-10) var(--sp-9); padding-inline:var(--sp-8); }
 .wa-bk.is-full .wa-bk-banner{ margin-inline:auto; margin-block-start:var(--sp-8); inline-size:min(648px, calc(100% - 2 * var(--sp-8))); }
-.wa-bk.is-full .wa-bk-bar{ position:static; margin-block-start:auto; padding-inline:var(--sp-8); border-block-start:0; background:transparent; }
+.wa-bk.is-full .wa-bk-bar{ margin-block-start:auto; padding-inline:var(--sp-8); background:var(--bg); }
 .wa-bk.is-full .wa-bk-bar-row{ justify-content:space-between; }
 .wa-bk.is-full .wa-bk-bar-row .wa-bk-go{ flex:none; }
 .wa-bk.is-full .wa-bk-tabs{ grid-template-columns:repeat(4, minmax(0, 1fr)); }

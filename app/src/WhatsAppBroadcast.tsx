@@ -499,19 +499,23 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   let main;
   if (view === 'history') {
     main = (
-      <HistoryView t={t} lang={lang} campaigns={campaigns}
+      <div className="wa-bk-stepbox"><HistoryView t={t} lang={lang} campaigns={campaigns}
                    onOpen={(c) => (c.staged || c.state === 'draft' ? openOnReview(c) : openReport(c))}
                    onDuplicate={reuse}
                    onDelete={(c) => { void deleteCampaign(c.id).then(() => loadCampaigns()).then(setCampaigns).catch(() => undefined); }}
-                   onDoNotContact={() => void openDnc()} />
+                   onDoNotContact={() => void openDnc()} /></div>
     );
   } else if (view === 'report' && reportOf) {
     main = (
-      <ReportView t={t} lang={lang} campaign={run && run.campaign.id === reportOf.id ? run.campaign : reportOf} msgs={msgs}
-                  onAddSuppressed={addDnc} onDuplicate={() => reuse(reportOf)} onDoNotContact={() => void openDnc()} />
+      <div className="wa-bk-stepbox"><ReportView t={t} lang={lang} campaign={run && run.campaign.id === reportOf.id ? run.campaign : reportOf} msgs={msgs}
+                  onAddSuppressed={addDnc} onDuplicate={() => reuse(reportOf)} onDoNotContact={() => void openDnc()} /></div>
     );
   } else if (view === 'dnc') {
-    main = <DoNotContactView t={t} list={dnc} country={work.country} onAdd={(p) => addDnc([p])} onRemove={removeDnc} />;
+    main = (
+      <div className="wa-bk-stepbox">
+        <DoNotContactView t={t} list={dnc} country={work.country} onAdd={(p) => addDnc([p])} onRemove={removeDnc} />
+      </div>
+    );
   } else if (runShown) {
     const shownCampaign = run ? run.campaign : (held as { c: Campaign }).c;
     main = (
