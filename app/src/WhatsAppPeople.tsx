@@ -10,7 +10,7 @@ import {
 } from './whatsappaudience';
 import { deleteAudience, loadAudiences, saveAudience } from './whatsappbulkstore';
 import {
-  LIMITS, type Audience, type InvalidWhy, type Parsed, type Recipient, type Rejected, type SourceFormat,
+  LIMITS, type Audience, type FileProblem, type InvalidWhy, type Parsed, type Recipient, type Rejected, type SourceFormat,
 } from './whatsappbulktypes';
 
 /**
@@ -99,6 +99,10 @@ export interface People {
   source: SourceFormat;
   file?: string;
   rejected: Rejected[];
+  /** Lines that could not be read beyond the thousand `rejected` lists (the reader counts the rest). */
+  rejectedMore?: number;
+  /** The read stopped early: 5,000 people, or a file longer than the reader reads. */
+  truncated?: boolean;
   duplicates: number;
   /** On the do-not-contact list and left out. */
   removed: number;
@@ -148,11 +152,17 @@ export function columnsOf(recipients: readonly Recipient[]): string[] {
 /** A read, as the people the campaign can use: the do-not-contact list applied. */
 export function peopleFrom(p: Parsed, suppressed: ReadonlySet<string>, file?: string): People {
   const { kept, removed } = excludeSuppressed(p.recipients, suppressed);
-  return {
+  const out: People = {
     recipients: kept, source: p.format, file, rejected: p.rejected, duplicates: p.duplicates, removed,
     columns: p.columns.length ? p.columns : columnsOf(kept), phoneColumn: p.phoneColumn, nameColumn: p.nameColumn,
   };
+  if (p.rejectedMore) out.rejectedMore = p.rejectedMore;
+  if (p.truncated) out.truncated = true;
+  return out;
 }
+
+/** How many lines could not be read: every one, not only the thousand the reader lists. */
+export const notReadCount = (p: People): number => p.rejected.length + (p.rejectedMore ?? 0);
 
 /** A kept list, as people. What was rejected when it was first read is no longer known, and is not claimed. */
 export function peopleFromAudience(a: Audience, suppressed: ReadonlySet<string>): People {
@@ -173,12 +183,26 @@ export const atCeiling = (p: People): boolean => p.recipients.length + p.removed
  * Explicit calls with the sentence at the call, not a table: the catalogue
  * test reads literals out of `t(…)`, and a table would ship these in English.
  */
-export function whyText(why: InvalidWhy, t: (s: string) => string): string {
+export function whyText(why: InvalidWhy, t: (s: string) => string, hint?: 'excel-rounded'): string {
+  if (hint === 'excel-rounded') return t('Excel shortened this number. Format the column as Text and save the file again.');
   if (why === 'empty') return t('Nothing on this line');
   if (why === 'too-short') return t('Too short to be a phone number');
   if (why === 'too-long') return t('Too long to be a phone number');
   if (why === 'country-unknown') return t('No country uses that code');
   return t('Not a phone number');
+}
+
+/**
+ * Why a whole file could not be read, as a sentence. The reader reports it as a word and one stand-in rejected line
+ * (the file's name); shown as that line it read "Line 1 · contacts.xlsx · Not a phone number", which tells a person
+ * with a password-protected workbook nothing about what to do.
+ */
+export function problemText(problem: FileProblem, t: (s: string) => string): string {
+  if (problem === 'locked') return t('That file is locked with a password, or is an old .xls. Open it in Excel and save it again as a plain .xlsx.');
+  if (problem === 'too-big') return t('That file is too big for a list: 10 MB at most.');
+  if (problem === 'not-a-sheet') return t('That file is not an Excel workbook that can be read here. Save it as .xlsx or .csv.');
+  if (problem === 'empty') return t('No phone numbers were found in that.');
+  return t('That could not be read as a list of numbers.');
 }
 
 /** "Iraq +964", with the flag, in the interface's language. */
@@ -270,7 +294,10 @@ export function AudienceStep({ t, lang, people, onPeople, country, onCountry, ch
     try {
       const p = await parseAudience(input, { ...opts, defaultCountry: country });
       lastRead = { input, opts };
-      if (p.recipients.length === 0 && p.rejected.length === 0) {
+      if (p.problem) {
+        setWhy(problemText(p.problem, t));
+        onPeople(null);
+      } else if (p.recipients.length === 0 && p.rejected.length === 0) {
         setWhy(t('No phone numbers were found in that.'));
         onPeople(null);
       } else {
@@ -333,7 +360,10 @@ export function AudienceStep({ t, lang, people, onPeople, country, onCountry, ch
       const again = lastRead;
       setBusy(true);
       void parseAudience(again.input, { ...again.opts, defaultCountry: code })
-        .then((p) => onPeople({ ...peopleFrom(p, suppressed, again.opts.filename), audienceId: people?.audienceId, audienceName: people?.audienceName }))
+        .then((p) => {
+          if (p.problem) { setWhy(problemText(p.problem, t)); onPeople(null); return; }
+          onPeople({ ...peopleFrom(p, suppressed, again.opts.filename), audienceId: people?.audienceId, audienceName: people?.audienceName });
+        })
         .catch(() => setWhy(t('That could not be read as a list of numbers.')))
         .finally(() => setBusy(false));
     }
@@ -385,6 +415,7 @@ export function AudienceStep({ t, lang, people, onPeople, country, onCountry, ch
   const wayIcon = (w: Way): string => (w === 'paste' ? 'clipboard' : w === 'file' ? 'file' : w === 'chats' ? 'chat' : 'list');
 
   const fromMyChats = chats && chats.length ? fromChats(chats) : null;
+  const notRead = people ? notReadCount(people) : 0;
   const sample = people ? people.recipients.slice(0, 5) : [];
   const shownCols = people ? people.columns.filter((c) => c !== people.phoneColumn && c !== people.nameColumn).slice(0, 2) : [];
 
@@ -502,15 +533,17 @@ export function AudienceStep({ t, lang, people, onPeople, country, onCountry, ch
                   parts={{ n: <b>{num(people.recipients.length)}</b> }} />
             {people.audienceName && <span className="wa-bk-tag" dir="auto">{people.audienceName}</span>}
           </p>
-          {(people.rejected.length > 0 || people.duplicates > 0 || people.removed > 0) && (
+          {(notRead > 0 || people.duplicates > 0 || people.removed > 0) && (
             <p className="wa-bk-sum-more">
-              {people.rejected.length > 0 && <span>{fill(t('{n} couldn’t be read'), { n: num(people.rejected.length) })}</span>}
+              {notRead > 0 && <span>{fill(t('{n} couldn’t be read'), { n: num(notRead) })}</span>}
               {people.duplicates > 0 && <span>{fill(t('{n} repeated'), { n: num(people.duplicates) })}</span>}
               {people.removed > 0 && <span>{fill(t('{n} asked not to be messaged'), { n: num(people.removed) })}</span>}
             </p>
           )}
-          {atCeiling(people) && (
+          {atCeiling(people) ? (
             <p className="wa-bk-warn">{fill(t('Only the first {n} were taken: that is the most one broadcast can hold.'), { n: num(LIMITS.recipients) })}</p>
+          ) : people.truncated && (
+            <p className="wa-bk-warn">{t('Only the first part of that file was read: it is longer than a list can be.')}</p>
           )}
 
           {people.rejected.length > 0 && (
@@ -521,11 +554,11 @@ export function AudienceStep({ t, lang, people, onPeople, country, onCountry, ch
                   <li key={`${r.line}-${r.raw}`}>
                     <span className="wa-bk-mono">{fill(t('Line {n}'), { n: r.line })}</span>
                     <bdi className="wa-bk-raw">{r.raw || '—'}</bdi>
-                    <span className="wa-bk-quiet">{whyText(r.why, t)}</span>
+                    <span className="wa-bk-quiet">{whyText(r.why, t, r.hint)}</span>
                   </li>
                 ))}
-                {people.rejected.length > 50 && (
-                  <li className="wa-bk-quiet">{fill(t('And {n} more.'), { n: num(people.rejected.length - 50) })}</li>
+                {notRead > 50 && (
+                  <li className="wa-bk-quiet">{fill(t('And {n} more.'), { n: num(notRead - 50) })}</li>
                 )}
               </ul>
             </details>

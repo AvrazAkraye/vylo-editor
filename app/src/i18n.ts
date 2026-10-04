@@ -3643,6 +3643,17 @@ const ar: Dict = {
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'هذه الرسالة الجماعية تخص حساب واتساب آخر. انتقل إلى ذلك الحساب أولاً.',
   // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
   'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'لم يكن فحص الأرقام الموجودة على واتساب متاحاً، لذا قد تفشل الرسالة إلى من ليس عليه.',
+  // wa review-parse: what the People step says about a file it could not read (WhatsAppPeople.tsx).
+  'That file is locked with a password, or is an old .xls. Open it in Excel and save it again as a plain .xlsx.':
+    'هذا الملف محمي بكلمة مرور، أو هو بصيغة XLS القديمة. افتحه في إكسل واحفظه من جديد بصيغة XLSX عادية.',
+  'That file is too big for a list: 10 MB at most.':
+    'هذا الملف أكبر من أن يكون قائمة: الحد الأقصى 10 ميغابايت.',
+  'That file is not an Excel workbook that can be read here. Save it as .xlsx or .csv.':
+    'هذا الملف ليس مصنّف إكسل يمكن قراءته هنا. احفظه بصيغة XLSX أو CSV.',
+  'Only the first part of that file was read: it is longer than a list can be.':
+    'قُرئ الجزء الأول فقط من هذا الملف: إنه أطول مما تتسع له القائمة.',
+  'Excel shortened this number. Format the column as Text and save the file again.':
+    'اختصر إكسل هذا الرقم. اجعل تنسيق العمود «نص» ثم احفظ الملف من جديد.',
 };
 
 const ckb: Dict = {
@@ -7265,6 +7276,17 @@ const ckb: Dict = {
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'ئەم ناردنە گشتییە هی هەژمارێکی تری واتسئاپە. سەرەتا بڕۆ بۆ ئەو هەژمارە.',
   // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
   'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'پشکنینی ئەوەی کام ژمارەکان لە واتسئاپن بەردەست نەبوو، بۆیە ڕەنگە نامە بۆ کەسێک بنێردرێت کە لەسەری نییە شکست بهێنێت.',
+  // wa review-parse: what the People step says about a file it could not read (WhatsAppPeople.tsx).
+  'That file is locked with a password, or is an old .xls. Open it in Excel and save it again as a plain .xlsx.':
+    'ئەم فایلە بە وشەی تێپەڕ داخراوە، یان فایلێکی کۆنی .xls ە. لە Excel بیکەرەوە و دووبارە وەک .xlsx ی ئاسایی پاشەکەوتی بکە.',
+  'That file is too big for a list: 10 MB at most.':
+    'ئەم فایلە بۆ لیست زۆر گەورەیە: زۆرترین 10 مێگابایتە.',
+  'That file is not an Excel workbook that can be read here. Save it as .xlsx or .csv.':
+    'ئەم فایلە پەڕاوێکی Excel نییە کە لێرە بخوێندرێتەوە. وەک .xlsx یان .csv پاشەکەوتی بکە.',
+  'Only the first part of that file was read: it is longer than a list can be.':
+    'تەنها بەشی یەکەمی ئەم فایلە خوێندرایەوە: لەوە درێژترە کە لیستێک هەڵیبگرێت.',
+  'Excel shortened this number. Format the column as Text and save the file again.':
+    'Excel ئەم ژمارەیەی کورت کردەوە. شێوازی ستوونەکە بکە بە «دەق» و دووبارە فایلەکە پاشەکەوت بکە.',
 };
 
 const kmr: Dict = {
@@ -10885,6 +10907,17 @@ const kmr: Dict = {
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'ئەڤ ناردنا گشتی یا هەژمارەکا دی یا واتسئاپێ یە. پێشی بچە بۆ وێ هەژمارێ.',
   // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
   'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'پشکنینا کیژ ژمارە ل واتسئاپێ نە نەبوو د دەستێ دا، لەوما دبیت نامە بۆ وی کەسی یێ ل سەر نینە سەرنەکەڤیت.',
+  // wa review-parse: what the People step says about a file it could not read (WhatsAppPeople.tsx).
+  'That file is locked with a password, or is an old .xls. Open it in Excel and save it again as a plain .xlsx.':
+    'ئەڤ فایلە ب پەیڤا بۆرینێ هاتییە گرتن، یان فایلەکێ .xls یێ کەڤنە. ل Excel ڤەکە و جارەکا دی وەک .xlsx یا ئاسایی پاشەکەفت بکە.',
+  'That file is too big for a list: 10 MB at most.':
+    'ئەڤ فایلە بۆ لیستێ زۆر مەزنە: پتر نە ژ 10 مێگابایتان.',
+  'That file is not an Excel workbook that can be read here. Save it as .xlsx or .csv.':
+    'ئەڤ فایلە نە پەرتووکا Excel ە کو ل ڤێرە بهێتە خواندن. وەک .xlsx یان .csv پاشەکەفت بکە.',
+  'Only the first part of that file was read: it is longer than a list can be.':
+    'تنێ پشکا ئێکێ یا ڤی فایلی هاتە خواندن: ژ وێ درێژترە کو لیستەک هەلبگریت.',
+  'Excel shortened this number. Format the column as Text and save the file again.':
+    'Excel ئەڤ ژمارە کورت کر. شێوازێ ستوینێ بکە «دەق» و جارەکا دی فایلی پاشەکەفت بکە.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
