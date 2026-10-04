@@ -10,7 +10,8 @@
  * `whatsapp_audience` reads a contacts file *here* (through an injected `readFile`, the app's
  * own `read_any_file`), parses it with `whatsappaudience.ts`, keeps it on this machine, and
  * hands the model counts and three masked examples (`+964 750 *** 4567`) — never the numbers,
- * never the names. A model asked to "send this to everyone in the file" therefore works with an
+ * never the names, never the titles of the file's columns (a header row is the file's own
+ * words). A model asked to "send this to everyone in the file" therefore works with an
  * audience *id*, which is also why a list of five thousand does not cost five thousand numbers
  * of context. (A file the person attached to the chat as text has already gone to the model by
  * the attaching; that is the composer's disclosure to make, not something a tool can undo.)
@@ -22,8 +23,9 @@
  * opens WhatsApp → Broadcast, sees the exact message, the number of people, the pace and the
  * time, ticks that everyone agreed to hear from them, and presses Send. `whatsapp_send` (one
  * message) always asks (`whatsapptool.ts` says why); a thousand messages do not ask less, they
- * ask more, on a screen built for it. An unattended routine can prepare a draft and nothing
- * else.
+ * ask more, on a screen built for it. An unattended routine runs in Ask mode (agents.ts
+ * `modeFor`), which is offered no WhatsApp tool at all (agent.ts `toolsFor`): it cannot even
+ * prepare one. At most `STAGED_MAX` drafts wait for the person at a time.
  *
  * ## The words are the person's
  *
@@ -37,9 +39,9 @@
 
 import { parseAudience, makeAudience, maskPhone, excludeSuppressed, type ParseOptions } from './whatsappaudience';
 import { estimateSeconds, newCampaign } from './whatsappcampaign';
-import { LIMITS, type Attachment, type AttachmentKind, type Audience, type Campaign, type Draft, type Lang, MESSAGE_LANGS } from './whatsappbulktypes';
-import { fillTemplate, searchTemplates, templateById } from './whatsapptemplates';
-import { loadAudiences, loadSuppressed, saveAudience, saveCampaign } from './whatsappbulkstore';
+import { LIMITS, type Attachment, type AttachmentKind, type Audience, type Campaign, type Draft, type Lang, type Recipient, MESSAGE_LANGS } from './whatsappbulktypes';
+import { fillTemplate, placeholdersIn, searchTemplates, templateById } from './whatsapptemplates';
+import { loadAudiences, loadCampaigns, loadSuppressed, saveAudience, saveCampaign } from './whatsappbulkstore';
 
 /** What a file read hands back: the app's `read_any_file`. */
 export interface FileRead {
@@ -56,6 +58,8 @@ export interface BulkDeps {
   loadAudiences: () => Promise<Audience[]>;
   saveAudience: (a: Audience) => Promise<boolean>;
   saveCampaign: (c: Campaign) => Promise<boolean>;
+  /** The campaigns already kept, to count the drafts still waiting for the person (`STAGED_MAX`). Absent: not counted. */
+  loadCampaigns?: () => Promise<Campaign[]>;
   loadSuppressed: () => Promise<ReadonlySet<string>>;
   /** The WhatsApp account the tool call is for (`whatsapp.ts` `Account.id`). */
   accountId: string;
@@ -68,7 +72,7 @@ export interface BulkDeps {
 
 /** The real dependencies for one account: the store, the app's file reader, the interface's language. */
 export function bulkDepsFor(accountId: string, lang: Lang, readFile?: BulkDeps['readFile']): BulkDeps {
-  return { readFile, loadAudiences, saveAudience, saveCampaign, loadSuppressed, accountId, lang };
+  return { readFile, loadAudiences, saveAudience, saveCampaign, loadCampaigns, loadSuppressed, accountId, lang };
 }
 
 export const BULK_TOOLS = [
@@ -100,7 +104,7 @@ export const BULK_TOOLS = [
       + 'people\'s language, short and warm, with one clear call to action. Use {name} where each person\'s name goes. '
       + 'NEVER invent a price, discount, date, time, address, link, phone number or claim the user did not give: leave '
       + 'it out or use only what they said. Or pick a ready message with `template` (see whatsapp_templates) and fill '
-      + 'its blanks with `values`.',
+      + 'every one of its blanks with `values`; a blank left empty is refused, so ask the user for what is missing.',
     input_schema: {
       type: 'object',
       properties: {
@@ -149,6 +153,41 @@ const LIST_BYTES = 10 * 1024 * 1024;
 const str = (x: unknown, max: number): string => (typeof x === 'string' ? x.trim().slice(0, max) : '');
 const langOf = (x: unknown, fallback: Lang): Lang => (MESSAGE_LANGS as readonly unknown[]).includes(x) ? (x as Lang) : fallback;
 
+/**
+ * Letters nobody sees: every format character but the two joiners Sorani and emoji need (direction overrides and
+ * isolates, zero-width spaces, the soft hyphen), the whole Unicode tag block, and the control characters but the tab
+ * and the line break. The engine keeps a person's own bidi marks in a message they typed (whatsappcampaign.ts); a
+ * message the model wrote has no author to keep them for, and an override in it shows the person one text at Review
+ * and every phone another, while tag letters carry words to whatever reads the message next. The writer's reader
+ * takes out the same (whatsappwrite.ts `HIDDEN`).
+ */
+const INVISIBLE = /(?![‌‍])\p{Cf}|[\u{E0000}-\u{E0FFF}]|[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/gu;
+const plainOf = (s: string): string => s.replace(INVISIBLE, '');
+
+/**
+ * A value the model gave for a blank, as words only: a brace or a `[[` in it would turn into a blank or a choice
+ * the engine reads per person (`{code}` as a hole, `[[a|b]]` as a coin toss), which is not what "fill the blank
+ * with this" means.
+ */
+const valueText = (s: string): string => plainOf(s).replace(/\[\[|\]\]|[{}]/g, '').trim();
+
+/** The columns a list's people carry, as `WhatsAppPeople.tsx` `columnsOf` reads them: the blanks a message may leave to the list. */
+function columnsOf(recipients: readonly Recipient[]): Set<string> {
+  const out = new Set<string>();
+  for (const r of recipients.slice(0, 300)) for (const k of Object.keys(r.vars ?? {})) out.add(k);
+  return out;
+}
+
+/** Filled per person by the engine, never a blank for the sender (`WhatsAppReady.tsx` `PER_PERSON`). */
+const PER_PERSON: readonly string[] = ['name', 'first_name'];
+
+/**
+ * Drafts the assistant may leave waiting for one account. Each is a banner on the Broadcast screen, and the store
+ * keeps sixty campaigns, pushing the oldest out to make room — a model in a loop could otherwise bury the person's
+ * screen and push out a paused broadcast whose record is what stops a number being messaged twice.
+ */
+const STAGED_MAX = 5;
+
 /** Base64 to bytes, without trusting its length. */
 function bytesOf(base64: string): Uint8Array {
   const bin = atob(base64.replace(/\s+/g, ''));
@@ -193,7 +232,8 @@ export async function runBulkTool(name: string, input: Record<string, unknown>, 
       if (!found.length) return ok({ templates: [], note: 'No ready message matches. Write the message yourself.' });
       return ok({
         templates: found.map((t) => ({ id: t.id, category: t.category, kind: t.kind, title: t.title[l], text: t.text[l], blanks: t.vars.filter((v) => v !== 'name') })),
-        note: '{name} is filled for each person. The other blanks are for `values` in whatsapp_campaign; leave one out if the user has not given it.',
+        note: '{name} is filled for each person. Every other blank must be filled through `values` in whatsapp_campaign: '
+          + 'ask the user for any they have not given — a draft with an empty blank is refused.',
       });
     }
 
@@ -224,17 +264,29 @@ export async function runBulkTool(name: string, input: Record<string, unknown>, 
           note: 'No usable number was found. Nothing was saved.',
         });
       }
-      const a = makeAudience({ ...parsed, recipients: kept }, str(input.name, 60) || fileName || 'List', now());
+      const a = makeAudience({ ...parsed, recipients: kept }, plainOf(str(input.name, 60)) || fileName || 'List', now());
       if (!(await deps.saveAudience(a))) return fail('The list could not be saved on this machine.');
+      // How many other columns the people carry, never their titles: a header row is the file's own words (up to
+      // 256 of them, and an instruction is as easy to write there as anywhere), and a file with no header has its
+      // first person read as one — "Ahmed Ali, owes 500000 dinar" would otherwise reach the model as two "columns".
       return ok({
         audience: a.id, name: a.name, people: kept.length, notRead: parsed.rejected.length, repeated: parsed.duplicates,
-        askedNotToBeMessaged: removed, columns: parsed.columns,
+        askedNotToBeMessaged: removed, columns: columnsOf(kept).size,
         examples: kept.slice(0, 3).map((r) => maskPhone(r.phone)),
-        note: 'The list stays on this machine; you never see it. Use this audience id with whatsapp_campaign.',
+        note: 'The list stays on this machine; you never see it, nor the names of its columns. Use this audience id with '
+          + 'whatsapp_campaign; the user can put a column into the message on the Broadcast screen.',
       });
     }
 
     // whatsapp_campaign
+    if (deps.loadCampaigns) {
+      const waiting = (await deps.loadCampaigns())
+        .filter((c) => c && c.staged === true && c.state === 'draft' && c.accountId === deps.accountId).length;
+      if (waiting >= STAGED_MAX) {
+        return fail(`${waiting} prepared broadcasts are already waiting for the user under WhatsApp → Broadcast. `
+          + 'Ask them to send or delete those (Broadcast → History) before preparing another.');
+      }
+    }
     const audiences = await deps.loadAudiences();
     const id = str(input.audience, 80);
     const audience = audiences.find((a) => a.id === id);
@@ -244,22 +296,34 @@ export async function runBulkTool(name: string, input: Record<string, unknown>, 
         : 'There is no saved audience yet. Call whatsapp_audience first.');
     }
     const l = langOf(input.language, lang);
-    let text = str(input.text, LIMITS.messageChars + 1);
+    let text = str(typeof input.text === 'string' ? plainOf(input.text) : '', LIMITS.messageChars + 1);
     const templateId = str(input.template, 60);
+    // A promotion from the library always carries the opt-out line, as it does when the person picks it on the
+    // screen (WhatsAppCompose.tsx); only a message the model wrote itself, or a service one, may go without.
+    let promo = false;
     if (!text && templateId) {
       const t = templateById(templateId);
       if (!t) return fail('No such ready message. Search with whatsapp_templates.');
+      promo = t.kind === 'promo';
       const values: Record<string, string> = {};
       if (input.values && typeof input.values === 'object') {
         for (const [k, v] of Object.entries(input.values as Record<string, unknown>).slice(0, 20)) {
-          if (/^[a-z_]{1,24}$/.test(k) && typeof v === 'string') values[k] = v.trim().slice(0, 200);
+          if (/^[a-z_]{1,24}$/.test(k) && typeof v === 'string') values[k] = valueText(v).slice(0, 200);
         }
       }
       text = fillTemplate(t, l, values);
     }
     if (!text) return fail('The message is empty. Give `text`, or a ready message with `template`.');
     if (text.length > LIMITS.messageChars) return fail(`The message is too long: at most ${LIMITS.messageChars} characters.`);
-    const message: Draft = { text, lang: l, optOut: input.opt_out !== false };
+    // A blank nobody filled is refused here, as step 2 of the screen refuses it. A staged draft opens on Review, where
+    // only the engine's checks run, and the engine sends an empty blank as nothing: "Use the code ** at Shop for off".
+    const columns = columnsOf(audience.recipients);
+    const blanks = placeholdersIn(text).filter((v) => !PER_PERSON.includes(v) && !columns.has(v));
+    if (blanks.length) {
+      return fail(`Nothing was prepared: the message still has blanks nobody filled — ${blanks.map((b) => `{${b}}`).join(', ')}. `
+        + 'Ask the user for them (for a ready message, pass them in `values`), or write the message without them.');
+    }
+    const message: Draft = { text, lang: l, optOut: promo || input.opt_out !== false };
     const path = str(input.attachment_path, 1000);
     if (path) {
       if (!deps.readFile) return fail('Attaching a file is not available here. The user can attach it in WhatsApp → Broadcast.');
@@ -268,7 +332,7 @@ export async function runBulkTool(name: string, input: Record<string, unknown>, 
       message.attachment = att;
     }
     const campaign = newCampaign({
-      name: str(input.name, 60) || audience.name, accountId: deps.accountId, recipients: audience.recipients,
+      name: plainOf(str(input.name, 60)) || audience.name, accountId: deps.accountId, recipients: audience.recipients,
       message, audienceId: audience.id, now: now(), staged: true,
     });
     if (!(await deps.saveCampaign(campaign))) return fail('The draft could not be saved on this machine.');
