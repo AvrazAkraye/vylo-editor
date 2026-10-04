@@ -766,6 +766,25 @@ const LAST_ONLY = wordSet('surname lastname familyname nachname efternamn soyad 
 const FIRST_WITH = wordSet('first given الأول اول یەکەم');
 const LAST_WITH = wordSet('last family العائلة عائلة خێزان');
 
+/**
+ * Labels that say the number beside them is something else — an order, an invoice, an account, a price, a code — in
+ * the same languages as the header words. In running text a number right after one of these is not a phone number,
+ * however much it looks like one (`Order 7501234567`, `رقم الطلب 07501234567`).
+ */
+const FIELD_WORDS = wordSet(
+  'order orders invoice inv bill receipt ref reference account acct iban swift serial sn id ids tracking awb shipment parcel',
+  'total subtotal amount price cost qty quantity sum balance fee tax vat code pin otp barcode sku ean upc isbn imei model version ip date year postcode zip passport',
+  'طلب فاتورة حساب مبلغ سعر مجموع رمز كود باركود تاريخ هوية وصل ايصال',
+  'داواکاری پسوولە حیساب بڕ نرخ کۆی کۆد بەروار ناسنامە',
+  'sipariş siparis fatura hesap tutar fiyat toplam kod tarih',
+  'سفارش فاکتور قیمت جمع کد تاریخ',
+);
+/** Currencies written after an amount: `12 500 000 IQD`, `25.000.000 دينار`. */
+const CURRENCY_WORDS = wordSet('iqd usd eur try irr sar aed kwd jod lbp egp sek gbp tl dollar dollars dinar dinars euro euros lira riyal dirham toman rial',
+  'دينار دولار ريال درهم ليرة تومان دینار دۆلار');
+/** "Number" itself, in every language: a phone word only when nothing more specific stands beside it. */
+const NUMBER_WORDS = wordSet('number numbers رقم ارقام ژمارە ژمارا hejmar hejmara jimar jimare jimara numara numarası شماره nummer numéro');
+
 type Kind = 'phone' | 'name' | 'first' | 'last';
 
 /** What a header says its column holds, in English, Arabic, Sorani, Badini (both scripts), Turkish, Persian and a few European languages. */
@@ -1077,6 +1096,76 @@ function isDate(text: string): boolean {
   return (a === 4 && b <= 2 && c <= 2) || (a <= 2 && b <= 2 && (c === 4 || c === 2));
 }
 
+/** A date at the head of a run (`04.10.2026 10` is a date and the hour after it): a four-digit year, then nothing. */
+const DATE_HEAD = /^([0-9]{1,4})([-.])([0-9]{1,2})\2([0-9]{2,4})(?![0-9])/;
+
+/**
+ * A run with the date it starts with taken off: what a chat export writes before every message (`04.10.2026 10:19`)
+ * ran on into the hour and read as a number with a trunk zero. `null` when nothing is left.
+ */
+function afterDate(line: string, s: Span): Span | null {
+  const m = DATE_HEAD.exec(line.slice(s.start, Math.min(s.end, s.start + 12)));
+  if (!m) return s;
+  const a = Number(m[1]);
+  const b = Number(m[3]);
+  const c = Number(m[4]);
+  const ymd = m[1].length === 4 && b >= 1 && b <= 12 && m[4].length <= 2 && c >= 1 && c <= 31;
+  const dmy = m[4].length === 4 && m[1].length <= 2 && a >= 1 && a <= 31 && b >= 1 && b <= 31 && (a <= 12 || b <= 12);
+  if (!ymd && !dmy) return s;
+  let i = s.start + m[0].length;
+  while (i < s.end && digitOf(line.charCodeAt(i)) < 0) i++;
+  let digits = 0;
+  for (let k = i; k < s.end; k++) if (digitOf(line.charCodeAt(k)) >= 0) digits++;
+  return digits ? { start: i, end: s.end, digits } : null;
+}
+
+/** Runs that are numbers of another kind: an IPv4 address, a decimal (`36.191113`, a coordinate), a span of years. */
+const IPV4 = /^[0-9]{1,3}(?:\.[0-9]{1,3}){3}$/;
+const DECIMAL = /^[1-9][0-9]{0,2}\.[0-9]{4,}$/;
+const YEARS = /^(?:19|20)[0-9]{2} ?[-\u{2013}] ?(?:19|20)[0-9]{2}$/u;
+const otherNumber = (text: string): boolean => IPV4.test(text) || DECIMAL.test(text) || YEARS.test(text);
+
+/** Signs that the number after them is money or a reference: `$`, `€`, `£`, `₺`, `﷼`, `#`, `№`. */
+const MONEY_MARKS = new Set([0x24, 0x20ac, 0xa3, 0x20ba, 0xfdfc, 0x23, 0x2116]);
+const isWordChar = (c: number): boolean => isLetter(c) || (c >= 0x300 && c <= 0x36f) || (c >= 0x64b && c <= 0x65f) || c === 0x200c;
+const isGap = (c: number): boolean => isSpace(c) || isInvisible(c) || c === 58 || c === 45 || c === 46 || c === 0x2013 || c === 0x2014;
+const hasWord = (words: string[], set: Set<string>): boolean => words.some((w) => variants(w).some((v) => set.has(v)));
+
+/**
+ * Whether the words beside a run say it is not a phone number: a field label before it (`Order`, `Invoice No:`,
+ * `Account:`, `رقم الطلب`) unless a phone word stands with it (`Phone No`, `WhatsApp account`), a `$` or `#` right
+ * before it, or a currency right after it (`12 500 000 IQD`). A bounded scan of a few words either side.
+ */
+function labelledOther(line: string, s: Span): boolean {
+  const stop = Math.max(0, s.start - 48);
+  let i = s.start - 1;
+  while (i >= stop && isGap(line.charCodeAt(i))) i--;
+  if (i >= stop && MONEY_MARKS.has(line.charCodeAt(i))) return true;
+  const before: string[] = [];
+  while (i >= stop && before.length < 3) {
+    const e = i + 1;
+    while (i >= stop && isWordChar(line.charCodeAt(i))) i--;
+    if (i + 1 === e) break;
+    before.push(line.slice(i + 1, e));
+    while (i >= stop && isGap(line.charCodeAt(i))) i--;
+  }
+  if (before.length) {
+    const words = before.flatMap(foldWords);
+    const phone = words.some((w) => variants(w).some((v) => PHONE_WORDS.has(v) && !NUMBER_WORDS.has(v)));
+    if (!phone && hasWord(words, FIELD_WORDS)) return true;
+  }
+  let j = s.end;
+  const end = Math.min(line.length, s.end + 24);
+  while (j < end && isSpace(line.charCodeAt(j))) j++;
+  const from = j;
+  while (j < end && isWordChar(line.charCodeAt(j))) j++;
+  return j > from && hasWord(foldWords(line.slice(from, j)), CURRENCY_WORDS);
+}
+
+/** How a number was found that the free-text reader trusts in a sentence: it says it is a phone number. */
+const sure = (f: { phone: string; via: Via }): boolean =>
+  f.via === 'plus' || f.via === 'trunk' || f.via === 'code' || (f.via === 'bare' && mobileShape(f.phone) === true);
+
 /** Punctuation and space that may stand at the ends of a label: `Rebaz: `, ` - Rebaz`, `(Rebaz)`. */
 const EDGE_CHARS = new Set(',;:|-–—•·*#"\'()[]<>/\\=.'.split('').map((c) => c.charCodeAt(0)));
 const isEdge = (c: number): boolean => isSpace(c) || isInvisible(c) || EDGE_CHARS.has(c);
@@ -1149,7 +1238,14 @@ function readFree(text: string, country: string, col: Collector): boolean {
     if (lines[li].length > MAX_LINE) cut = true;
     const line = lines[li].length > MAX_LINE ? lines[li].slice(0, MAX_LINE) : lines[li];
     const all = spansIn(line);
-    const spans = all.filter((s) => s.digits >= 7 && !isDate(line.slice(s.start, s.end)));
+    const spans: Span[] = [];
+    for (const s0 of all) {
+      const s = s0.digits >= 7 ? afterDate(line, s0) : null;
+      if (!s || s.digits < 7) continue;
+      const text = line.slice(s.start, s.end);
+      if (isDate(text) || otherNumber(text) || labelledOther(line, s)) continue;
+      spans.push(s);
+    }
     if (!spans.length) {
       // A line that is nothing but five or six digits was meant as a number, and is reported as too short.
       const only = all.length === 1 ? all[0] : null;
@@ -1175,16 +1271,17 @@ function readFree(text: string, country: string, col: Collector): boolean {
       const n = s.digits > 20 ? ({ why: 'too-long' } as Why) : normalise(raw, country);
       const found: { phone: string; via: Via }[] = [];
       const bad: { text: string; why: InvalidWhy; hint?: 'excel-rounded' }[] = [];
-      // Too long with spaces in it may be several numbers in a row; anything else wrong with it is reported whole.
+      // Too long with spaces in it may be several numbers in a row (`07501234567 07701234567`); anything else wrong
+      // with it is reported whole. A piece is taken only when it says it is a phone number by itself: eight digits
+      // from the middle of an account or card number (`0123 4567 8901 2345`) are valid somewhere and nobody's phone.
       const split = !('phone' in n) && n.why === 'too-long' && /\s/.test(raw) ? splitRun(raw, country) : null;
       if ('phone' in n) found.push(n);
-      else if (split && split.found.length) {
-        found.push(...split.found);
+      else if (split && split.found.some(sure)) {
+        for (const f of split.found) if (sure(f)) found.push(f); else bad.push({ text: f.text, why: 'too-long' });
         bad.push(...split.failed);
       } else bad.push({ text: raw, why: n.why, hint: n.hint });
       for (const f of found) {
-        const strong = f.via === 'plus' || f.via === 'trunk' || f.via === 'code' || (f.via === 'bare' && mobileShape(f.phone) === true);
-        if (!list && !strong) continue;
+        if (!list && !sure(f)) continue;
         const person: Recipient = { phone: f.phone, vars: {} };
         if (name) person.name = name;
         col.add(person, li + 1);
