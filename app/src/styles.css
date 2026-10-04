@@ -9231,7 +9231,7 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
      the tint, so it is quiet *on* the tint — `--mute` alone measures 4.2:1
      there and this measures over 6. */
   --wa-mine-meta:color-mix(in srgb, var(--brand) 35%, var(--ink-2));
-  --wa-sel:color-mix(in srgb, var(--brand) 10%, var(--panel-2));
+  --wa-sel:color-mix(in srgb, var(--brand) 8%, var(--panel));
   /* Set up, connected: the status green the app already has, not a seventh
      green of WhatsApp's that is never adjusted for the dark theme. */
   --wa-live:var(--ok);
@@ -9277,6 +9277,11 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-scroll{ flex:1; min-block-size:0; overflow-y:auto; display:flex; flex-direction:column; }
 .wa-scroll > *{ flex-shrink:0; }
 .wa-scroll > .wa-list{ overflow:visible; }
+
+/* The form scrolls with the sidebar, as it always did; its own spacing is
+   the cards' rather than the column's gap. */
+.wa-setup{ gap:0; }
+.wa-setup > .wa-accts{ padding-block-start:var(--sp-4); }
 
 /* ── the bar over the list ── */
 .wa-top{
