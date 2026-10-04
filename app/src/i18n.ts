@@ -3383,6 +3383,9 @@ const ar: Dict = {
   'Choose a graphic to put on top of this scene': 'اختر تصميماً متحركاً لتضعه فوق هذا المشهد',
   // wa phase0: the door into Broadcast (WhatsAppPanel.tsx).
   'Broadcast': 'رسالة جماعية',
+  // wa design: the WhatsApp panel's first-run card (WhatsAppPanel.tsx).
+  'Link a number through your Evolution API server: its address, the instance name and the API key.':
+    'اربط رقماً عبر خادم Evolution API الخاص بك: عنوانه، واسم النسخة، ومفتاح API.',
 };
 
 const ckb: Dict = {
@@ -6745,6 +6748,9 @@ const ckb: Dict = {
   'Choose a graphic to put on top of this scene': 'گرافیکێک هەڵبژێرە بۆ دانانی لەسەر ئەم دیمەنە',
   // wa phase0: the door into Broadcast (WhatsAppPanel.tsx).
   'Broadcast': 'ناردنی گشتی',
+  // wa design: the WhatsApp panel's first-run card (WhatsAppPanel.tsx).
+  'Link a number through your Evolution API server: its address, the instance name and the API key.':
+    'ژمارەیەک لە ڕێگەی ڕاژەکاری Evolution API ـەکەتەوە ببەستەوە: ناونیشانەکەی، ناوی نموونەکە و کلیلی API.',
 };
 
 const kmr: Dict = {
@@ -10105,6 +10111,9 @@ const kmr: Dict = {
   'Choose a graphic to put on top of this scene': 'گرافیکەکێ هەلبژێرە بۆ دانانێ ل سەر ڤی دیمەنی',
   // wa phase0: the door into Broadcast (WhatsAppPanel.tsx).
   'Broadcast': 'ناردنا گشتی',
+  // wa design: the WhatsApp panel's first-run card (WhatsAppPanel.tsx).
+  'Link a number through your Evolution API server: its address, the instance name and the API key.':
+    'ژمارەکێ ب رێکا راژەکارێ تە یێ Evolution API گرێبدە: ناڤونیشانێ وی، ناڤێ نموونەیێ و کلیلا API.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };
