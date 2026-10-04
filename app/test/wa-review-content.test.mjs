@@ -543,6 +543,9 @@ console.log('the documents');
   ok('the four SAFETY files still name the same identifiers', ['SAFETY.ar.md', 'SAFETY.ckb.md', 'SAFETY.kmr.md'].every((f) => ids(f) === ids('SAFETY.md')));
   const stopLine = { 'SAFETY.ar.md': 'تضيف ضغطة واحدة', 'SAFETY.ckb.md': 'بە یەک داگرتن', 'SAFETY.kmr.md': 'ب ئێک گڤاشتنێ' };
   ok('and all four say the stop-word replies are added by a press', Object.entries(stopLine).every(([f, w]) => read(f).includes(w)));
+  const kmr = read('SAFETY.kmr.md');
+  const kmrPara = kmr.slice(kmr.indexOf('**شاندنا بۆ گەلەک کەسان'), kmr.indexOf('**دەنگەک دشێت'));
+  ok('the Badini broadcast paragraph is written without the Sorani letter ڵ (هەلمەت، بەلگەنامە)', kmrPara.length > 1000 && !kmrPara.includes('\u06B5'), (kmrPara.match(/\S*\u06B5\S*/g) || []).join(' '));
   const tool = read('app/src/whatsappbulktool.ts') + read('app/src/whatsapptool.ts');
   ok('no comment still says an unattended routine can read WhatsApp or prepare a draft', !/unattended routine can prepare/.test(tool) && !/It can read, and it can draft/.test(tool));
 }
