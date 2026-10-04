@@ -330,4 +330,17 @@ mod tests {
         assert!(open_local_now("https://example.com", "chrome").is_err());
         assert!(open_local_now("http://localhost.evil.dev/", "default").is_err());
     }
+
+    /// Needs a real login shell, so it is opt-in: `cargo test --lib devenv -- --ignored --nocapture`.
+    #[cfg(unix)]
+    #[test]
+    #[ignore]
+    fn the_real_login_shell_gives_a_path_with_the_system_directories() {
+        let path = command_path();
+        println!("{path}");
+        assert!(path.split(':').any(|d| d == "/usr/bin"), "no /usr/bin in {path}");
+        assert!(path.split(':').any(|d| d == "/bin"), "no /bin in {path}");
+        let mut seen = std::collections::HashSet::new();
+        assert!(path.split(':').all(|d| seen.insert(d)), "a directory twice in {path}");
+    }
 }
