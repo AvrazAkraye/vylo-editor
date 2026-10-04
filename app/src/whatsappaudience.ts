@@ -869,7 +869,8 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
 
   // The header: the first of the first ten rows that names a column we know (rows above it are a title); else a
   // first row with no number in it when the rows under it have numbers.
-  let headerAt = rows.slice(0, 10).findIndex((r) => r.cells.some((c) => kindOf(c.trim()) !== null));
+  // A row holding a number is data, whatever words are beside it ("Name 1, 0750…").
+  let headerAt = rows.slice(0, 10).findIndex((r) => r.cells.some((c) => kindOf(c.trim()) !== null) && !r.cells.some((c) => validIn(c, country)));
   if (headerAt < 0) {
     const first = rows[0].cells;
     const below = rows.slice(1, 6);
@@ -953,7 +954,7 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
   const varAt: number[] = [];
   for (let i = 0; i < width && varAt.length < LIMITS.columns; i++) {
     if (i === phoneAt || i === nameAt || i === lastAt) continue;
-    if (sample.some((r) => (r.cells[i] ?? '').trim()) || body.some((r) => (r.cells[i] ?? '').trim())) varAt.push(i);
+    if (body.slice(0, 2000).some((r) => (r.cells[i] ?? '').trim())) varAt.push(i);
   }
   const varKey = varAt.map((i) => {
     const k = columns[i];
@@ -1040,12 +1041,28 @@ function isDate(text: string): boolean {
   return (a === 4 && b <= 2 && c <= 2) || (a <= 2 && b <= 2 && (c === 4 || c === 2));
 }
 
-/** Punctuation and space at the ends of a label: `Rebaz: `, ` - Rebaz`, `(Rebaz)`. */
-const EDGE = /^[\s,;:|\-–—•·*#"'()[\]<>/\\=.]+|[\s,;:|\-–—•·*#"'()[\]<>/\\=.]+$/g;
+/** Punctuation and space that may stand at the ends of a label: `Rebaz: `, ` - Rebaz`, `(Rebaz)`. */
+const EDGE_CHARS = new Set(',;:|-–—•·*#"\'()[]<>/\\=.'.split('').map((c) => c.charCodeAt(0)));
+const isEdge = (c: number): boolean => isSpace(c) || isInvisible(c) || EDGE_CHARS.has(c);
+
+/**
+ * `s` without punctuation and space at either end. A hand scan from both ends, not a `/[…]+$/` pattern: that one
+ * retries from every position of a long run of dashes and goes quadratic on a hostile line.
+ */
+function trimEdge(s: string): string {
+  let a = 0;
+  let b = s.length;
+  while (a < b && isEdge(s.charCodeAt(a))) a++;
+  while (b > a && isEdge(s.charCodeAt(b - 1))) b--;
+  return a === 0 && b === s.length ? s : s.slice(a, b);
+}
 /** A run of words: letters, combining marks, the joiners, apostrophes, dots and hyphens — nothing else. */
 const WORDS = /^[\p{L}\p{M}][\p{L}\p{M}'’.\- \u{200c}\u{200d}]*$/u;
 
 const isLabel = (s: string): boolean => s.length <= 60 && WORDS.test(s) && s.split(' ').length <= 5;
+
+/** Pieces of one run looked at; a run of more is a wall of digits, not a list (each piece costs a few readings). */
+const MAX_PARTS = 4 * LIMITS.recipients;
 
 /**
  * A run with spaces that is too long for one number (`07501234567 07701234567`) split into the numbers in it: from
@@ -1053,7 +1070,7 @@ const isLabel = (s: string): boolean => s.length <= 60 && WORDS.test(s) && s.spl
  * so a line of ten thousand numbers is read in one pass.
  */
 function splitRun(text: string, country: string): { found: { phone: string; via: Via; text: string }[]; failed: { text: string; why: InvalidWhy }[] } {
-  const parts = text.split(/\s+/).filter(Boolean);
+  const parts = text.split(/\s+/, MAX_PARTS).filter(Boolean);
   const found: { phone: string; via: Via; text: string }[] = [];
   const failed: { text: string; why: InvalidWhy }[] = [];
   let i = 0;
@@ -1090,18 +1107,28 @@ function splitRun(text: string, country: string): { found: { phone: string; via:
  */
 function readFree(text: string, country: string, col: Collector): boolean {
   const lines = text.split(/\r\n|\r|\n/);
-  const cut = lines.length > MAX_LINES;
+  let cut = lines.length > MAX_LINES;
   for (let li = 0; li < lines.length && li < MAX_LINES; li++) {
     if (col.truncated) break;
+    if (lines[li].length > MAX_LINE) cut = true;
     const line = lines[li].length > MAX_LINE ? lines[li].slice(0, MAX_LINE) : lines[li];
-    const spans = spansIn(line).filter((s) => s.digits >= 7 && !isDate(line.slice(s.start, s.end)));
-    if (!spans.length) continue;
+    const all = spansIn(line);
+    const spans = all.filter((s) => s.digits >= 7 && !isDate(line.slice(s.start, s.end)));
+    if (!spans.length) {
+      // A line that is nothing but five or six digits was meant as a number, and is reported as too short.
+      const only = all.length === 1 ? all[0] : null;
+      if (only && only.digits >= 5 && !trimEdge(line.slice(0, only.start)) && !trimEdge(line.slice(only.end))) {
+        const n = normalise(line.slice(only.start, only.end), country);
+        if (!('phone' in n)) col.reject(li + 1, line.slice(only.start, only.end), n.why, n.hint);
+      }
+      continue;
+    }
 
     // What is left of the line once its numbers are taken out decides what kind of line it is.
-    const before = line.slice(0, spans[0].start).replace(EDGE, '');
-    const after = line.slice(spans[spans.length - 1].end).replace(EDGE, '');
+    const before = trimEdge(line.slice(0, spans[0].start));
+    const after = trimEdge(line.slice(spans[spans.length - 1].end));
     let between = true;
-    for (let k = 1; k < spans.length && between; k++) between = !line.slice(spans[k - 1].end, spans[k].start).replace(EDGE, '');
+    for (let k = 1; k < spans.length && between; k++) between = !trimEdge(line.slice(spans[k - 1].end, spans[k].start));
     const label = before && after ? '' : before || after;
     const list = between && (!before || !after) && (!label || isLabel(label));
     const name = list && label && kindOf(label) === null ? nameFrom(label) : undefined;
