@@ -3229,7 +3229,9 @@ export function App() {
     const url = result.url;
     // Remembered either way: the in-app browser's list of recent addresses is useful even when nothing was opened.
     setBrowser((b) => ({ url, recent: recentUrl(b.recent, url) }));
-    const shown = devShowRef.current;
+    // Not in the Terminal space: there the terminal is the window and both sidebars are put away on purpose
+    // (`goTo`), so opening one would undo the space. The address is stored, and the pane has it when they leave.
+    const shown = devShowRef.current && spaceRef.current !== 'terminal';
     if (shown) showInEditor();
     const choice = devOpenRef.current;
     let opened: 'chrome' | 'default' | undefined;

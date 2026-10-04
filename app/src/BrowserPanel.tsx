@@ -244,15 +244,17 @@ export function BrowserPanel({ t, url, recent, onUrl, onError, openIn }: Props) 
         </button>
       </form>
 
-      <div className="br-sizes">
-        <div className="seg" role="group" aria-label={t('Size of the page')}>
-          {VIEWPORTS.map((v) => (
-            <button key={v} type="button" className={view === v ? 'on' : ''} aria-pressed={view === v}
-                    onClick={() => pickView(v)}>{sizeLabel(t, v)}</button>
-          ))}
+      {url && (
+        <div className="br-sizes">
+          <div className="seg" role="group" aria-label={t('Size of the page')}>
+            {VIEWPORTS.map((v) => (
+              <button key={v} type="button" className={view === v ? 'on' : ''} aria-pressed={view === v}
+                      onClick={() => pickView(v)}>{sizeLabel(t, v)}</button>
+            ))}
+          </div>
+          {size && <span className="br-dims"><bdi>{size.w} × {size.h}{scale < 1 ? ` · ${Math.round(scale * 100)}%` : ''}</bdi></span>}
         </div>
-        {size && <span className="br-dims"><bdi>{size.w} × {size.h}{scale < 1 ? ` · ${Math.round(scale * 100)}%` : ''}</bdi></span>}
-      </div>
+      )}
 
       {url ? (
         <div className={`br-stage ${size ? 'device' : ''}`} ref={stage}>

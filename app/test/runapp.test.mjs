@@ -180,6 +180,8 @@ console.log('the pieces are wired');
   const code = panel.replace(/\/\*[\s\S]*?\*\//g, '');
   ok('the pane\'s button opens through open_local, so it works for http', /invoke\('open_local'/.test(code) && !/open_url|isOpenable/.test(code) && /disabled=\{!url\}/.test(code));
   ok('the pane is shown by the same address it stores, through one function', /function showInEditor/.test(app) && /revealModule\(modulesRef\.current, 'browser'\)/.test(app) && /if \(shown\) showInEditor\(\)/.test(app) && /openIn=\{devOpen\}/.test(app));
+  ok('in the Terminal space nothing opens a sidebar, because that space put them away on purpose', /devShowRef\.current && spaceRef\.current !== 'terminal'/.test(app));
+  ok('the size switch is only there when there is a page to size', /\{url && \(\s*<div className="br-sizes">/.test(panel));
   ok('showing is a setting with a control', /case 'devShow'/.test(sp) && /onDevShow/.test(app));
   const frameSrc = cfg.app.security.csp.split(';').map((x) => x.trim()).find((x) => x.startsWith('frame-src')).split(/\s+/).slice(1);
   ok('the frame still allows this machine and nothing else', frameSrc.length > 0 && frameSrc.every((h) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|\*\.localhost):\*$/.test(h)), frameSrc);
