@@ -331,6 +331,8 @@ export interface CommandResult {
   url?: string;
   /** Which browser the app opened that address in, when it did. */
   opened?: 'chrome' | 'default';
+  /** The app also showed it in the editor's own Dev server pane. */
+  shown?: boolean;
 }
 
 /**
@@ -390,7 +392,11 @@ async function runTool(
         }
         const t = await runInTerminal(command);
         if (t.running) {
-          const where = t.opened === 'chrome' ? " and the app opened it in the user's Chrome" : t.opened ? " and the app opened it in the user's browser" : '';
+          const places = [
+            t.opened === 'chrome' ? "in the user's Chrome" : t.opened ? "in the user's browser" : '',
+            t.shown ? "in the editor's own Dev server pane" : '',
+          ].filter(Boolean).join(' and ');
+          const where = places ? ` and the app opened it ${places}` : '';
           const parts = [
             `still running — it is a server, and it keeps going in the user's terminal${t.url ? `, serving at ${t.url}${where}` : ''}.`,
             'Do not start it again and do not try to open a browser yourself.',

@@ -46,6 +46,7 @@ const find = (groups, id) => ids(groups).includes(id);
     language: 'appearance',
     inlineCompletion: 'editor',
     devOpen: 'editor',             // where an app the agent starts opens (Chrome by default)
+    devShow: 'editor',             // and whether it is also shown inside the editor
     notifyWhen: 'notifications',   // when the agent needs me / for everything
     notifySound: 'notifications',
     globalShortcut: 'shortcuts',   // with its "press a combination" capture

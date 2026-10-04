@@ -10185,4 +10185,12 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .ed-binary span{ font-size:var(--fs-4); }
 .ed-binary p{ margin:4px 0 10px; font-size:var(--fs-4); max-inline-size:360px; }
 .ed-binary-acts{ display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+/* the Dev server pane: the size of the page (BrowserPanel.tsx, browser.ts) */
+.br-sizes{ flex:none; display:flex; align-items:center; gap:var(--sp-3); padding-block:var(--sp-2); padding-inline:var(--sp-3); border-block-end:1px solid var(--rule); }
+.br-sizes .seg button{ padding:var(--sp-1) var(--sp-4); font-size:var(--fs-2); }
+.br-dims{ font-family:var(--mono); font-size:var(--fs-1); color:var(--mute); font-variant-numeric:tabular-nums; }
+.br-stage{ flex:1; min-block-size:0; display:flex; }
+.br-stage.device{ overflow:auto; justify-content:center; align-items:center; padding:var(--sp-3); background:var(--panel-2); }
+.br-device{ position:relative; flex:none; overflow:hidden; box-sizing:content-box; border:1px solid var(--rule); border-radius:var(--r-3); box-shadow:var(--shadow); background:#FFFFFF; }
+.br-device .br-frame{ display:block; flex:none; }
 /* wa:run end */

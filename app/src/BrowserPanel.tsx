@@ -1,9 +1,9 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Icon } from './Icon';
 import { explain } from './errors';
-import { isOpenable } from './github';
-import { label, normalise, refuse, type Refusal } from './browser';
+import { VIEWPORT_KEY, VIEWPORTS, fitScale, label, normalise, readViewport, refuse, sizeOf, type Refusal, type Viewport } from './browser';
+import type { OpenIn } from './devserver';
 
 /**
  * What the dev server is serving, beside the code.
@@ -81,10 +81,16 @@ import { label, normalise, refuse, type Refusal } from './browser';
  *
  * ## Opening outside
  *
- * The button hands the address to the same `open_url` command every link in
- * the app uses, which accepts https only — so it is greyed for a plain-http
- * dev server, with the reason in its tooltip, rather than offered and then
- * refused. `isOpenable` is the same check `App.tsx` makes before a link.
+ * The button hands the address to `open_local`, the command that opens a started app for you: it accepts
+ * an address on this machine and nothing else (`devenv.rs`), and opens it in Chrome or in the default browser
+ * as Settings → Editor says. It used to be the `open_url` every link uses, which accepts https only, so for a dev
+ * server — always plain http — the button was greyed in every case it existed for.
+ *
+ * ## The size of the page
+ *
+ * `Fit` fills the pane. `Phone` and `Tablet` draw the page at those sizes, centred on the pane's own background,
+ * because what is being built is mostly an app and an app is looked at on a phone. It only changes the frame's
+ * box, so it cannot show anything the address did not already. The choice is kept under its own key.
  */
 
 interface Props {
@@ -96,6 +102,8 @@ interface Props {
   /** A new address to show — normalised — or null to clear the pane. */
   onUrl: (url: string | null) => void;
   onError: (message: string) => void;
+  /** Which browser the button opens the address in (Settings → Editor); `off` opens in Chrome or the default. */
+  openIn: OpenIn;
 }
 
 /**
@@ -128,7 +136,33 @@ interface Stack {
   at: number;
 }
 
-export function BrowserPanel({ t, url, recent, onUrl, onError }: Props) {
+/** The words on the size switch. A function, for the reason `sentence` is one. */
+function sizeLabel(t: (s: string) => string, v: Viewport): string {
+  return v === 'phone' ? t('Phone') : v === 'tablet' ? t('Tablet') : t('Fit');
+}
+
+export function BrowserPanel({ t, url, recent, onUrl, onError, openIn }: Props) {
+  const [view, setView] = useState<Viewport>(() => {
+    try { return readViewport(localStorage.getItem(VIEWPORT_KEY)); } catch { return 'fit'; }
+  });
+  function pickView(v: Viewport) {
+    setView(v);
+    try { localStorage.setItem(VIEWPORT_KEY, v); } catch { /* private mode */ }
+  }
+  const size = sizeOf(view);
+  // How much room the stage has, so a page drawn at a device's size can be scaled down to show whole.
+  const stage = useRef<HTMLDivElement>(null);
+  const [room, setRoom] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = stage.current;
+    if (!el || !size || typeof ResizeObserver === 'undefined') return;
+    const watch = new ResizeObserver(([e]) => {
+      if (e) setRoom({ w: e.contentRect.width, h: e.contentRect.height });
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, [!!url, !!size]);
+  const scale = size ? fitScale(size, room) : 1;
   const [draft, setDraft] = useState(url ?? '');
   const [stack, setStack] = useState<Stack>({ list: [], at: -1 });
   // Bumped to reload: a new key is a new element, and a new element loads.
@@ -176,12 +210,10 @@ export function BrowserPanel({ t, url, recent, onUrl, onError }: Props) {
 
   function outside() {
     if (!url) return;
-    // The same two steps as a link in the app: the check, then the command.
-    if (!isOpenable(url)) { onError(t('That link cannot be opened.')); return; }
-    void invoke('open_url', { url }).catch((e) => onError(explain(e, t('open that link'))));
+    // `off` is about opening by itself; a press is a request, so it opens in Chrome like the default.
+    void invoke('open_local', { url, browser: openIn === 'default' ? 'default' : 'chrome' })
+      .catch((e) => onError(explain(e, t('open that link'))));
   }
-
-  const openable = !!url && isOpenable(url);
 
   return (
     <div className="br">
@@ -206,18 +238,41 @@ export function BrowserPanel({ t, url, recent, onUrl, onError }: Props) {
         <datalist id={listId}>
           {recent.map((u) => <option key={u} value={u} />)}
         </datalist>
-        <button type="button" className="sb-act" onClick={outside} disabled={!openable}
-                title={openable || !url ? t('Open in your browser') : t('Only an https address can be opened outside.')}
-                aria-label={t('Open in your browser')}>
+        <button type="button" className="sb-act" onClick={outside} disabled={!url}
+                title={t('Open in your browser')} aria-label={t('Open in your browser')}>
           <Icon name="link" size={13} />
         </button>
       </form>
 
+      <div className="br-sizes">
+        <div className="seg" role="group" aria-label={t('Size of the page')}>
+          {VIEWPORTS.map((v) => (
+            <button key={v} type="button" className={view === v ? 'on' : ''} aria-pressed={view === v}
+                    onClick={() => pickView(v)}>{sizeLabel(t, v)}</button>
+          ))}
+        </div>
+        {size && <span className="br-dims"><bdi>{size.w} × {size.h}{scale < 1 ? ` · ${Math.round(scale * 100)}%` : ''}</bdi></span>}
+      </div>
+
       {url ? (
-        <iframe key={nonce} className="br-frame" src={url}
-                sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
-                referrerPolicy="no-referrer"
-                title={t('What the dev server is serving')} />
+        <div className={`br-stage ${size ? 'device' : ''}`} ref={stage}>
+          {size ? (
+            // `dir="ltr"` so the scaled page anchors at the same corner in either reading direction; the page
+            // inside is its own document and keeps its own direction.
+            <div className="br-device" dir="ltr" style={{ inlineSize: size.w * scale, blockSize: size.h * scale }}>
+              <iframe key={nonce} className="br-frame" src={url}
+                      style={{ inlineSize: size.w, blockSize: size.h, transform: `scale(${scale})`, transformOrigin: '0 0' }}
+                      sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+                      referrerPolicy="no-referrer"
+                      title={t('What the dev server is serving')} />
+            </div>
+          ) : (
+            <iframe key={nonce} className="br-frame" src={url}
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-modals"
+                    referrerPolicy="no-referrer"
+                    title={t('What the dev server is serving')} />
+          )}
+        </div>
       ) : (
         <div className="br-empty">
           <p className="ft-empty">{t('Type the address of your dev server, or run it in the terminal and pick it from what it prints.')}</p>

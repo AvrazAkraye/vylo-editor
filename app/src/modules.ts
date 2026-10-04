@@ -309,6 +309,20 @@ export function toggle(layout: Layout, id: ModuleId): Layout {
   return { ...layout, off: layout.off.filter((x) => x !== id) };
 }
 
+/**
+ * The layout that has a module on the screen: on, and — when it was off — on the second sidebar.
+ *
+ * For a module something else asks to see (the Dev server pane, when the agent starts the app). A module the
+ * person already switched on keeps its place and its dock, since where it sits was their choice; one that is off
+ * has no place yet, and the second sidebar is the one with room for a page: it opens beside the work and widens
+ * to 560, where the rail's sidebar is 180 to 560 and starts narrower. The invariant of `read` holds because
+ * turning one on can only add.
+ */
+export function reveal(layout: Layout, id: ModuleId): Layout {
+  if (!IDS.includes(id) || isOn(layout, id)) return layout;
+  return dock(toggle(layout, id), id, 'other');
+}
+
 /** True when turning this one off would leave the rail empty. */
 export function isLast(layout: Layout, id: ModuleId): boolean {
   return isOn(layout, id) && enabled(layout).length <= 1;

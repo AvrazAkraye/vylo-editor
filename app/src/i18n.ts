@@ -1691,7 +1691,6 @@ const ar: Dict = {
   'Only an address on this machine can be shown here: localhost, 127.0.0.1 or a .localhost name, with any port.': 'لا يمكن عرض سوى عنوان على هذا الجهاز هنا: localhost أو 127.0.0.1 أو اسم ‎.localhost، بأي منفذ.',
   'Address of the dev server': 'عنوان خادم التطوير',
   'Open in your browser': 'افتح في متصفحك',
-  'Only an https address can be opened outside.': 'لا يمكن فتح سوى عنوان https في الخارج.',
   'What the dev server is serving': 'ما يقدّمه خادم التطوير',
   'Type the address of your dev server, or run it in the terminal and pick it from what it prints.': 'اكتب عنوان خادم التطوير، أو شغّله في الطرفية واختره مما يطبعه.',
   'Dev server': 'خادم التطوير',
@@ -3684,6 +3683,13 @@ const ar: Dict = {
   'Opened in Chrome:': 'فُتح في Chrome:',
   'Opened in your browser:': 'فُتح في متصفحك:',
   'open the app in a browser': 'فتح التطبيق في متصفح',
+  'Show a started app inside the editor': 'عرض التطبيق الذي بدأ داخل المحرر',
+  'The Dev server pane opens beside your work with the app in it, at the size of a phone if you like. Chrome above is separate: you can have either, both or neither.': 'تُفتح لوحة خادم التطوير بجانب عملك وفيها التطبيق، بحجم هاتف إن شئت. خيار Chrome أعلاه منفصل: يمكنك اختيار أحدهما أو كليهما أو لا شيء.',
+  'Show it in the Dev server pane': 'اعرضه في لوحة خادم التطوير',
+  'Do not show it in the editor': 'لا تعرضه في المحرر',
+  'Tablet': 'جهاز لوحي',
+  'Fit': 'ملاءمة',
+  'Size of the page': 'حجم الصفحة',
 };
 
 const ckb: Dict = {
@@ -5349,7 +5355,6 @@ const ckb: Dict = {
   'Only an address on this machine can be shown here: localhost, 127.0.0.1 or a .localhost name, with any port.': 'تەنها ناونیشانێکی سەر ئەم ئامێرە لێرە پیشان دەدرێت: localhost یان 127.0.0.1 یان ناوێکی ‎.localhost، بە هەر پۆرتێک.',
   'Address of the dev server': 'ناونیشانی سێرڤەری گەشەپێدان',
   'Open in your browser': 'لە وێبگەڕەکەتدا بیکەرەوە',
-  'Only an https address can be opened outside.': 'تەنها ناونیشانی https دەکرێت لە دەرەوە بکرێتەوە.',
   'What the dev server is serving': 'ئەوەی سێرڤەری گەشەپێدان پێشکەشی دەکات',
   'Type the address of your dev server, or run it in the terminal and pick it from what it prints.': 'ناونیشانی سێرڤەری گەشەپێدانەکەت بنووسە، یان لە تێرمیناڵدا کارپێی بکە و لەوەی چاپی دەکات هەڵیبژێرە.',
   'Dev server': 'سێرڤەری گەشەپێدان',
@@ -7347,6 +7352,13 @@ const ckb: Dict = {
   'Opened in Chrome:': 'لە Chrome کرایەوە:',
   'Opened in your browser:': 'لە وێبگەڕەکەت کرایەوە:',
   'open the app in a browser': 'کردنەوەی بەرنامەکە لە وێبگەڕێک',
+  'Show a started app inside the editor': 'پیشاندانی ئەو بەرنامەیەی دەستی پێکرد لە ناو دەستکاریکەر',
+  'The Dev server pane opens beside your work with the app in it, at the size of a phone if you like. Chrome above is separate: you can have either, both or neither.': 'پانێڵی سێرڤەری گەشەپێدان لە تەنیشت کارەکەتەوە دەکرێتەوە و بەرنامەکەی تێدایە، بە قەبارەی مۆبایل ئەگەر بتەوێت. هەڵبژاردنی Chrome لە سەرەوە جیاوازە: دەتوانیت یەکێکیان، هەردووکیان یان هیچیان هەڵبژێریت.',
+  'Show it in the Dev server pane': 'لە پانێڵی سێرڤەری گەشەپێدان پیشانی بدە',
+  'Do not show it in the editor': 'لە دەستکاریکەر پیشانی مەدە',
+  'Tablet': 'تابلێت',
+  'Fit': 'گونجاو',
+  'Size of the page': 'قەبارەی پەڕە',
 };
 
 const kmr: Dict = {
@@ -9012,7 +9024,6 @@ const kmr: Dict = {
   'Only an address on this machine can be shown here: localhost, 127.0.0.1 or a .localhost name, with any port.': 'ل ڤێرێ تنێ ناڤونیشانەکا ل سەر ڤێ ئامێرێ دهێتە نیشاندان: localhost، 127.0.0.1 یان ناڤەکێ .localhost، ب هەر پۆرتەکێ.',
   'Address of the dev server': 'ناڤونیشانا سێرڤەرا پێشڤەبرنێ',
   'Open in your browser': 'د گەڕۆکا خۆ دا ڤەکە',
-  'Only an https address can be opened outside.': 'تنێ ناڤونیشانەکا https دشێت ل دەرڤە بێتە ڤەکرن.',
   'What the dev server is serving': 'ئەوا سێرڤەرا پێشڤەبرنێ پێشکێش دکەت',
   'Type the address of your dev server, or run it in the terminal and pick it from what it prints.': 'ناڤونیشانا سێرڤەرا خۆ یا پێشڤەبرنێ بنڤیسە، یان وێ د تێرمینالێ دا بمەشینە و ژ وێ یا چاپ دکەت هەلبژێرە.',
   'Dev server': 'سێرڤەرا پێشڤەبرنێ',
@@ -11008,6 +11019,13 @@ const kmr: Dict = {
   'Opened in Chrome:': 'ل Chrome هاتە ڤەکرن:',
   'Opened in your browser:': 'ل وێبگەڕا تە هاتە ڤەکرن:',
   'open the app in a browser': 'ڤەکرنا ئەپی د وێبگەڕەکێ دا',
+  'Show a started app inside the editor': 'ئەپێ دەستپێکری د ناڤ دەستکاریکەری دا بیشاندە',
+  'The Dev server pane opens beside your work with the app in it, at the size of a phone if you like. Chrome above is separate: you can have either, both or neither.': 'پانێلا سێرڤەرێ پەرەپێدانێ ل تەنشت کارێ تە دهێتە ڤەکرن و ئەپ تێدایە، ب قەبارەیێ مۆبایلێ ئەگەر تە بڤێت. هەلبژارتنا Chrome ل سەرێ ژێکجودایە: تو دشێی یەکێ، هەردووان یان چ نەهەلبژێری.',
+  'Show it in the Dev server pane': 'د پانێلا سێرڤەرێ پەرەپێدانێ دا بیشاندە',
+  'Do not show it in the editor': 'د دەستکاریکەری دا نەشاندە',
+  'Tablet': 'تابلێت',
+  'Fit': 'گونجایی',
+  'Size of the page': 'قەبارەیێ پەرەیێ',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

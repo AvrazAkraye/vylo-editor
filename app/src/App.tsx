@@ -63,7 +63,7 @@ import { Rail } from './Rail';
 import {
   KEY as MODULES_KEY, OLD_KEY as OLD_MODULES_KEY, dock as dockModule, dockOf, docked,
   enabled as enabledModules, edgeOf, labelOf, migrate as migrateModules, railFirst,
-  toggle as toggleModule, write as writeModules,
+  reveal as revealModule, toggle as toggleModule, write as writeModules,
   type Layout as ModuleLayout, type ModuleId,
 } from './modules';
 import { SettingsPanel } from './SettingsPanel';
@@ -127,6 +127,8 @@ const WHEEL_RUNG = 40;
  */
 const SIDEBAR_W = 248;
 const RIGHT_W = 300;
+/** The second sidebar's width when a started app is shown in it: a page needs room, and a phone is 390 wide. */
+const BROWSER_W = 440;
 
 /** How far an arrow key moves a divider. A visible step, not a nudge. */
 const DIVIDER_STEP = 16;
@@ -182,7 +184,7 @@ import { accountFor as waAccountFor, isWhatsAppTool as isWaTool, runWhatsAppTool
 import { bulkDepsFor, type FileRead } from './whatsappbulktool';
 import { claimBroadcastDrop } from './WhatsAppPeople';
 import { choicesFor } from './modelchoice';
-import { OPEN_KEY, readOpenIn, type OpenIn } from './devserver';
+import { OPEN_KEY, SHOW_KEY, readOpenIn, readShow, type OpenIn } from './devserver';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
 import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
@@ -691,6 +693,9 @@ export function App() {
    * of a second sidebar is a panel on each side of the work, and the two must
    * not close each other.
    */
+  // For `showInEditor`, which an agent turn calls long after the render that made it: the layout as it is now.
+  const modulesRef = useRef(modules);
+  modulesRef.current = modules;
   const [rightRail, setRightRail] = useState<ModuleId | null>(() => (localStorage.getItem('vylo.rrail') as ModuleId) || null);
   const [rightOpen, setRightOpen] = useState(() => localStorage.getItem('vylo.rropen') !== '0');
   const [rightW, setRightW] = useState(() => Number(localStorage.getItem('vylo.rrw')) || RIGHT_W);
@@ -825,6 +830,10 @@ export function App() {
   // Read by `runPane`, which an agent turn holds for minutes: the choice as it is when the server prints its address.
   const devOpenRef = useRef(devOpen);
   devOpenRef.current = devOpen;
+  const [devShow, setDevShow] = useState(() => readShow(localStorage.getItem(SHOW_KEY)));
+  useEffect(() => { try { localStorage.setItem(SHOW_KEY, devShow ? '1' : '0'); } catch { /* private mode */ } }, [devShow]);
+  const devShowRef = useRef(devShow);
+  devShowRef.current = devShow;
   const [acStatus, setAcStatus] = useState<CompleteStatus>('idle');
   // The mention being typed. Derived from the caret, never stored alongside the
   // text -- see mentions.ts for why.
@@ -3220,15 +3229,38 @@ export function App() {
     const url = result.url;
     // Remembered either way: the in-app browser's list of recent addresses is useful even when nothing was opened.
     setBrowser((b) => ({ url, recent: recentUrl(b.recent, url) }));
+    const shown = devShowRef.current;
+    if (shown) showInEditor();
     const choice = devOpenRef.current;
-    if (choice === 'off') return result;
-    try {
-      const opened = await invoke<'chrome' | 'default'>('open_local', { url, browser: choice });
-      push({ kind: 'result', text: `${opened === 'chrome' ? t('Opened in Chrome:') : t('Opened in your browser:')} ${url}` });
-      return { ...result, opened };
-    } catch (e) {
-      push({ kind: 'error', text: explain(e, t('open the app in a browser')) });
-      return result;
+    let opened: 'chrome' | 'default' | undefined;
+    if (choice !== 'off') {
+      try {
+        opened = await invoke<'chrome' | 'default'>('open_local', { url, browser: choice });
+        push({ kind: 'result', text: `${opened === 'chrome' ? t('Opened in Chrome:') : t('Opened in your browser:')} ${url}` });
+      } catch (e) {
+        push({ kind: 'error', text: explain(e, t('open the app in a browser')) });
+      }
+    }
+    return { ...result, ...(opened ? { opened } : {}), ...(shown ? { shown } : {}) };
+  }
+
+  /**
+   * Put the Dev server pane on the screen: switched on if it was off, on the second sidebar where there is room for
+   * a page, opened and wide enough. A pane the person already placed keeps its place (`reveal`, modules.ts); it is
+   * only brought forward. What it loads is the address `setBrowser` just stored, and `browser.ts` has already
+   * refused anything that is not on this machine.
+   */
+  function showInEditor() {
+    const layout = revealModule(modulesRef.current, 'browser');
+    modulesRef.current = layout;
+    setModules(layout);
+    if (dockOf(layout, 'browser') === 'other') {
+      setRightRail('browser');
+      setRightOpen(true);
+      setRightW((w) => Math.min(SIDE_MAX, Math.max(w, BROWSER_W)));
+    } else {
+      setRail('browser');
+      setRailOpen(true);
     }
   }
 
@@ -4587,6 +4619,7 @@ export function App() {
                       browserSeeded.current = true;
                       setBrowser((b) => ({ url: u, recent: u ? recentUrl(b.recent, u) : b.recent }));
                     }}
+                    openIn={devOpen}
                     onError={(m) => push({ kind: 'error', text: m })} />
             )}
 
@@ -5136,6 +5169,8 @@ export function App() {
           onAutocomplete={setAutocomplete}
           devOpen={devOpen}
           onDevOpen={setDevOpen}
+          devShow={devShow}
+          onDevShow={setDevShow}
           notify={notifyPrefs}
           onNotify={setNotifyTo}
           summon={summon}

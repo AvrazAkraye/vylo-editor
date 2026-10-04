@@ -11,7 +11,11 @@
  * `isServerCommand` is deliberately a list of the common starters and not a guess: a false positive only moves
  * a command to the terminal and answers early with what it printed, and a miss leaves things as they were.
  *
- * Where it opens is the person's choice (Settings → Editor): Chrome, the default browser, or nowhere. Chrome is
+ * It is also shown inside the editor, in the Dev server pane (`BrowserPanel.tsx`), which `showInEditor` in App.tsx brings
+ * onto the screen — switched on, on the second sidebar — because that pane is off in a new window and nobody had seen it.
+ * That is its own setting (`SHOW_KEY`), independent of the browser below.
+ *
+ * Where it opens outside is the person's choice (Settings → Editor): Chrome, the default browser, or nowhere. Chrome is
  * the default because that is what was asked for; a machine without Chrome falls back to the default browser
  * (`open_local` in devenv.rs), and only addresses on this machine are ever opened (the same rule browser.ts
  * applies to the dev-server pane).
@@ -24,6 +28,14 @@ export const OPEN_CHOICES: readonly OpenIn[] = ['chrome', 'default', 'off'];
 /** A stored choice read back: anything unrecognised is the default, Chrome. */
 export function readOpenIn(raw: unknown): OpenIn {
   return typeof raw === 'string' && (OPEN_CHOICES as readonly string[]).includes(raw) ? (raw as OpenIn) : 'chrome';
+}
+
+/** Whether a started app is also shown inside the editor, in the Dev server pane. */
+export const SHOW_KEY = 'vylo.devshow.v1';
+
+/** The stored choice read back: on unless it says `0`, since showing it is what was asked for. */
+export function readShow(raw: unknown): boolean {
+  return raw !== '0';
 }
 
 /** How long a server command may run before the agent is told it is still going (ms). */

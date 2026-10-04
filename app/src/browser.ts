@@ -579,3 +579,47 @@ export function read(raw: string | null): Stored {
 export function write(s: Stored): string {
   return JSON.stringify({ url: s.url, recent: s.recent });
 }
+
+/**
+ * How big the page is drawn in the frame.
+ *
+ * What a dev server serves is looked at at the size of the thing it will run on, and for an app that is
+ * a phone: `fit` fills the pane, `phone` and `tablet` draw a page of that size (CSS pixels), centred, the way
+ * a browser's device mode does. It only changes the frame's box; the address and what loads are the same, so
+ * nothing here widens what the pane may show. Kept by the panel under its own key, a convenience and nothing
+ * more: junk reads as `fit`.
+ */
+export type Viewport = 'fit' | 'phone' | 'tablet';
+
+export const VIEWPORTS: readonly Viewport[] = ['fit', 'phone', 'tablet'];
+
+export const VIEWPORT_KEY = 'vylo.browser.size.v1';
+
+const SIZES: Readonly<Record<Exclude<Viewport, 'fit'>, { w: number; h: number }>> = {
+  phone: { w: 390, h: 844 },
+  tablet: { w: 820, h: 1180 },
+};
+
+/** A stored choice read back; anything unrecognised is `fit`. */
+export function readViewport(raw: unknown): Viewport {
+  return typeof raw === 'string' && (VIEWPORTS as readonly string[]).includes(raw) ? (raw as Viewport) : 'fit';
+}
+
+/** The page's size in CSS pixels, or null for `fit`. */
+export function sizeOf(v: Viewport): { w: number; h: number } | null {
+  return v === 'phone' || v === 'tablet' ? SIZES[v] : null;
+}
+
+/**
+ * The scale at which a page of that size shows whole in the room the pane has.
+ *
+ * The page is laid out at its real size, so its media queries and `vh` units are the device's, and then drawn
+ * smaller to fit: a 820-wide tablet in a 440-wide sidebar is a quarter-size picture of the right page, not a
+ * narrow page pretending. Never above 1 (no enlarging), never below a quarter (past that it cannot be read), and
+ * 1 when the room is not known yet or is nonsense.
+ */
+export function fitScale(size: { w: number; h: number }, room: { w: number; h: number } | null, margin = 16): number {
+  if (!room || !(room.w > 0) || !(room.h > 0) || !(size.w > 0) || !(size.h > 0)) return 1;
+  const s = Math.min(1, (room.w - 2 * margin) / size.w, (room.h - 2 * margin) / size.h);
+  return Number.isFinite(s) ? Math.max(0.25, s) : 1;
+}

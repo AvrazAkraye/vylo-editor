@@ -94,6 +94,8 @@ interface Props {
   onAutocomplete: (v: boolean) => void;
   /** Where the address of an app the agent started opens (devserver.ts). */
   devOpen: OpenIn;
+  devShow: boolean;
+  onDevShow: (on: boolean) => void;
   onDevOpen: (v: OpenIn) => void;
   /** Push-to-talk: the switch, the key, and the codes seen going down this session. */
   ptt: PttSetting;
@@ -494,6 +496,17 @@ function Control({ row, ...p }: ControlProps) {
             <option value="chrome">{t('Open it in Chrome')}</option>
             <option value="default">{t('Open it in my default browser')}</option>
             <option value="off">{t('Do not open it')}</option>
+          </select>
+        </Row>
+      );
+
+    case 'devShow':
+      return (
+        <Row label={label} hint={hint}>
+          <select className="set-sel" value={p.devShow ? 'on' : 'off'} aria-label={label}
+                  onChange={(e) => p.onDevShow(e.target.value === 'on')}>
+            <option value="on">{t('Show it in the Dev server pane')}</option>
+            <option value="off">{t('Do not show it in the editor')}</option>
           </select>
         </Row>
       );

@@ -619,6 +619,11 @@ read back from storage, and which the policy's `frame-src` repeats. The framed
 page is another origin: it cannot read the app's storage, where your key lives,
 and it has no Tauri command bridge. Nothing in the frame reaches the model.
 
+When an app the agent started prints its address, the pane can show it by itself (Settings → Editor, on by default).
+That address goes through the same `app/src/browser.ts` check before anything loads, so everything above holds
+unchanged, and the Phone and Tablet sizes only change the size of the frame's box. The pane's *Open in your browser*
+button uses `open_local`, which opens only an address on this machine, and no longer `open_url`.
+
 ## What can write to your disk
 
 **One function does all of the model's writing.** Every byte of content the

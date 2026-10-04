@@ -3,10 +3,11 @@
 // opened for the person. Pure parts are called; the rest (Editor, App, TerminalPanel, the Rust command) is held by
 // reading the source, since the repo has no DOM runner, and the Rust half by `cargo test` (devenv.rs).
 import { readFileSync } from 'fs';
-import { isServerCommand, isUp, readOpenIn, OPEN_CHOICES, OPEN_KEY, SERVER_QUIET_MS, SERVER_SETTLE_MS } from '../.test-build/devserver.js';
+import { isServerCommand, isUp, readOpenIn, readShow, SHOW_KEY, OPEN_CHOICES, OPEN_KEY, SERVER_QUIET_MS, SERVER_SETTLE_MS } from '../.test-build/devserver.js';
 import { binaryKind, KIND_LABEL, fullPath } from '../.test-build/filekind.js';
 import { runAgent } from '../.test-build/agent.js';
-import { detect } from '../.test-build/browser.js';
+import { detect, fitScale, normalise, readViewport, sizeOf, VIEWPORTS, VIEWPORT_KEY } from '../.test-build/browser.js';
+import { DEFAULT, INITIAL_ON, dockOf, enabled, isOn, read as readLayout, reveal, toggle, write as writeLayout } from '../.test-build/modules.js';
 
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
@@ -61,6 +62,30 @@ console.log('where it opens');
   ok('junk reads as the default', [7, {}, [], '__proto__', 'Chrome', 'firefox', 'off '].every((x) => readOpenIn(x) === 'chrome'));
   ok('stored under its own key', OPEN_KEY === 'vylo.devopen.v1');
   ok('the waits are sane', SERVER_SETTLE_MS < SERVER_QUIET_MS && SERVER_SETTLE_MS >= 500 && SERVER_QUIET_MS <= 120_000);
+}
+
+console.log('showing it inside the editor');
+{
+  ok('showing is on unless it was turned off', readShow(null) === true && readShow('1') === true && readShow('junk') === true && readShow('0') === false && SHOW_KEY === 'vylo.devshow.v1');
+  ok('the Dev server pane is off in a new window, which is why nobody had seen it', !isOn(DEFAULT, 'browser') && !INITIAL_ON.includes('browser'));
+  const shown = reveal(DEFAULT, 'browser');
+  ok('revealing turns it on and docks it on the second sidebar, where a page has room', isOn(shown, 'browser') && dockOf(shown, 'browser') === 'other' && enabled(shown).length === enabled(DEFAULT).length + 1);
+  ok('and touches nothing else', JSON.stringify({ ...shown, off: [], right: [] }) === JSON.stringify({ ...DEFAULT, off: [], right: [] }) && shown.off.length === DEFAULT.off.length - 1 && shown.right.join() === 'browser');
+  const placed = { ...toggle(DEFAULT, 'browser'), right: [] };
+  ok('a pane the person already switched on keeps the place they gave it', reveal(placed, 'browser') === placed && dockOf(reveal(placed, 'browser'), 'browser') === 'rail');
+  ok('revealing twice is revealing once', JSON.stringify(reveal(shown, 'browser')) === JSON.stringify(shown));
+  ok('junk is no module', reveal(DEFAULT, 'nope') === DEFAULT && reveal(DEFAULT, undefined) === DEFAULT);
+  ok('the layout still survives a save and a read', JSON.stringify(readLayout(writeLayout(shown))) === JSON.stringify(shown));
+
+  ok('the page sizes are fit, phone and tablet, and only the last two have a size', VIEWPORTS.join() === 'fit,phone,tablet' && sizeOf('fit') === null && sizeOf('phone').w === 390 && sizeOf('tablet').w === 820);
+  ok('junk reads as fit', [null, undefined, 7, {}, 'watch', '__proto__', 'Phone'].every((x) => readViewport(x) === 'fit') && readViewport('phone') === 'phone' && VIEWPORT_KEY === 'vylo.browser.size.v1');
+  const tab = sizeOf('tablet'), ph = sizeOf('phone');
+  ok('a page is shown whole: scaled to the room, never enlarged, never below a quarter', fitScale(tab, { w: 440, h: 600 }) < 0.6 && fitScale(ph, { w: 2000, h: 2000 }) === 1 && fitScale(tab, { w: 10, h: 10 }) === 0.25);
+  ok('an unknown or nonsense room is no scaling', [null, undefined, { w: 0, h: 5 }, { w: NaN, h: NaN }, { w: -1, h: -1 }, { w: Infinity, h: 4 }].every((r) => { const s = fitScale(ph, r); return s === 1 || (s >= 0.25 && s <= 1); }) && fitScale(ph, null) === 1);
+  let always = true;
+  for (let i = 0; i < 2000; i++) { const s = fitScale(i % 2 ? tab : ph, { w: Math.random() * 3000 - 100, h: Math.random() * 3000 - 100 }, Math.random() * 100); if (!(s >= 0.25 && s <= 1)) always = false; }
+  ok('whatever the room, the scale stays between a quarter and 1', always);
+  ok('a size changes the box and never what may load', normalise('https://example.com') === null && normalise('http://localhost:8081') === 'http://localhost:8081/');
 }
 
 console.log('which files the editor does not read');
@@ -122,6 +147,11 @@ console.log('the agent and a server');
   const d = await drive('npm run dev', 'pipe', { ...up, opened: undefined });
   ok('when nothing was opened the model is not told it was', /serving at/.test(d.text) && !/opened it/.test(d.text), d.text);
 
+  const h = await drive('npm start', 'pipe', { ...up, opened: 'chrome', shown: true });
+  ok('the model is told when the editor showed it too', /Chrome and in the editor's own Dev server pane/.test(h.text), h.text);
+  const i = await drive('npm start', 'pipe', { ...up, opened: undefined, shown: true });
+  ok('shown only in the editor reads as such, and not as a browser', /opened it in the editor's own Dev server pane/.test(i.text) && !/Chrome|user's browser/.test(i.text), i.text);
+
   const g = await drive('npm start', 'pipe', { code: null, output: 'Metro waiting on exp://192.168.1.5:8081', truncated: false, running: true });
   ok('a server with no address on this machine gets the web-target hint, and no second server', /expo start --web/.test(g.text) && /second server/.test(g.text) && /nothing was opened/.test(g.text), g.text);
 
@@ -146,10 +176,18 @@ console.log('the pieces are wired');
   const pane = app.slice(app.indexOf('async function runPane'), app.indexOf('async function runStep'));
   ok('a chat that never opened the terminal gets it mounted, shown and waited for, not an error', /setTermMounted\(true\)/.test(pane) && /setShowTerm\(true\)/.test(pane) && /for \(let i = 0; i < 100 && !termRun\.current; i\+\+\)/.test(pane) && pane.indexOf('setTermMounted(true)') < pane.indexOf("throw new Error(t('Open the terminal first.'))"));
   ok('nobody checks for the pane before runPane does', !/if \(!termRun\.current\) return t\('Open the terminal first\.'\)/.test(app) && !/if \(!termRun\.current\) \{ setShowTerm/.test(app));
+  const panel = src('BrowserPanel.tsx'), cfg = JSON.parse(readFileSync(new URL('../src-tauri/tauri.conf.json', import.meta.url), 'utf8'));
+  const code = panel.replace(/\/\*[\s\S]*?\*\//g, '');
+  ok('the pane\'s button opens through open_local, so it works for http', /invoke\('open_local'/.test(code) && !/open_url|isOpenable/.test(code) && /disabled=\{!url\}/.test(code));
+  ok('the pane is shown by the same address it stores, through one function', /function showInEditor/.test(app) && /revealModule\(modulesRef\.current, 'browser'\)/.test(app) && /if \(shown\) showInEditor\(\)/.test(app) && /openIn=\{devOpen\}/.test(app));
+  ok('showing is a setting with a control', /case 'devShow'/.test(sp) && /onDevShow/.test(app));
+  const frameSrc = cfg.app.security.csp.split(';').map((x) => x.trim()).find((x) => x.startsWith('frame-src')).split(/\s+/).slice(1);
+  ok('the frame still allows this machine and nothing else', frameSrc.length > 0 && frameSrc.every((h) => /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\]|\*\.localhost):\*$/.test(h)), frameSrc);
+  ok('and the frame is still sandboxed without top navigation, popups or downloads', /sandbox="allow-scripts allow-same-origin allow-forms allow-modals"/.test(panel) && !/allow-top-navigation|allow-popups|allow-downloads/.test(code));
   ok('open_local runs off the main thread', /async fn open_local/.test(env) && /spawn_blocking/.test(env));
   ok('the lookup of the login PATH starts in the background at launch', /fn warm/.test(env) && /thread::spawn/.test(env));
   ok('only a server with an address is opened, and only through open_local', /if \(!result\.running \|\| !result\.url\) return result/.test(app) && /invoke<'chrome' \| 'default'>\('open_local'/.test(app));
-  ok('"Do not open it" opens nothing, and the choice is read when the address appears', /choice === 'off'/.test(app) && /devOpenRef\.current/.test(app));
+  ok('"Do not open it" opens nothing, and the choice is read when the address appears', /choice !== 'off'/.test(app) && /devOpenRef\.current/.test(app));
   ok('the setting is a control in Settings', /case 'devOpen'/.test(sp) && /OPEN_CHOICES|<option value="chrome">/.test(sp));
   ok('the command is registered', /devenv::open_local/.test(lib) && /generate_handler!/.test(lib) && /devenv::warm\(\)/.test(lib));
   ok('commands the agent runs see the login shell\'s PATH', /\.env\("PATH", devenv::command_path\(\)\)/.test(lib));

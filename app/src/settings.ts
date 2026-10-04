@@ -125,7 +125,7 @@ export const CATEGORIES: readonly Category[] = [
 export type SettingId =
   | 'gateway' | 'apiKey' | 'signedIn' | 'signOut' | 'plan' | 'providers'
   | 'theme' | 'language'
-  | 'inlineCompletion' | 'devOpen'
+  | 'inlineCompletion' | 'devOpen' | 'devShow'
   | 'notifyWhen' | 'notifySound'
   | 'globalShortcut' | 'pushToTalk' | 'keyMap'
   | 'autoApprove'
@@ -215,6 +215,11 @@ export const SETTINGS: readonly Setting[] = [
     id: 'devOpen', category: 'editor', label: 'When the agent starts the app',
     hint: 'A server the agent starts runs in the terminal, and its address opens in a browser for you. Only addresses on this machine are ever opened.',
     keywords: ['browser', 'chrome', 'open', 'localhost', 'dev server', 'run the app', 'preview', 'link', 'safari', 'npm start', 'automatically'],
+  },
+  {
+    id: 'devShow', category: 'editor', label: 'Show a started app inside the editor',
+    hint: 'The Dev server pane opens beside your work with the app in it, at the size of a phone if you like. Chrome above is separate: you can have either, both or neither.',
+    keywords: ['browser', 'preview', 'dev server', 'embedded', 'integrated', 'inside', 'pane', 'phone', 'localhost', 'run the app', 'automatically'],
   },
 
   // ── Notifications ──
