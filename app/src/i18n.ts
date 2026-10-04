@@ -3637,6 +3637,7 @@ const ar: Dict = {
   'Nobody is on the list.': 'لا أحد في القائمة.',
   'Take off the list': 'أزل من القائمة',
   'Take {phone} off the list': 'أزل {phone} من القائمة',
+  'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'هذه الرسالة الجماعية تخص حساب واتساب آخر. انتقل إلى ذلك الحساب أولاً.',
 };
 
 const ckb: Dict = {
@@ -7253,6 +7254,7 @@ const ckb: Dict = {
   'Nobody is on the list.': 'کەس لە لیستەکەدا نییە.',
   'Take off the list': 'لە لیستەکە لابە',
   'Take {phone} off the list': '{phone} لە لیستەکە لابە',
+  'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'ئەم ناردنە گشتییە هی هەژمارێکی تری واتسئاپە. سەرەتا بڕۆ بۆ ئەو هەژمارە.',
 };
 
 const kmr: Dict = {
@@ -10867,6 +10869,7 @@ const kmr: Dict = {
   'Nobody is on the list.': 'کەس ل سەر لیستێ نینە.',
   'Take off the list': 'ژ لیستێ لابە',
   'Take {phone} off the list': '{phone} ژ لیستێ لابە',
+  'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'ئەڤ ناردنا گشتی یا هەژمارەکا دی یا واتسئاپێ یە. پێشی بچە بۆ وێ هەژمارێ.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

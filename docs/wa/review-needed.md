@@ -2,7 +2,7 @@
 
 ## ui — the Broadcast screens (`WhatsAppBroadcast.tsx`, `WhatsAppPeople.tsx`, `WhatsAppCompose.tsx`, `WhatsAppReady.tsx`, `WhatsAppRun.tsx`)
 
-253 sentences, under `// wa ui` at the end of each dictionary in `app/src/i18n.ts`. The Arabic was written with care
+254 sentences, under `// wa ui` at the end of each dictionary in `app/src/i18n.ts`. The Arabic was written with care
 (Modern Standard, friendly; counts written as "الأشخاص: {n}" so the noun never has to agree with a number). Sorani and
 Badini are best effort, in the vocabulary the app already uses (Sorani نامە / ناردن, Badini پەیام / هنارتن, ڕێکخستن for
 Settings). **★ marks the ones I am least sure of** — mostly terms with no settled Kurdish form in software
@@ -264,3 +264,4 @@ every `{placeholder}` exactly as it is (a test checks).
 | Nobody is on the list. | کەس لە لیستەکەدا نییە. | کەس ل سەر لیستێ نینە. |
 | Take off the list | لە لیستەکە لابە | ژ لیستێ لابە |
 | Take {phone} off the list | {phone} لە لیستەکە لابە | {phone} ژ لیستێ لابە |
+| This broadcast belongs to another WhatsApp account. Switch to that account first. | ئەم ناردنە گشتییە هی هەژمارێکی تری واتسئاپە. سەرەتا بڕۆ بۆ ئەو هەژمارە. | ئەڤ ناردنا گشتی یا هەژمارەکا دی یا واتسئاپێ یە. پێشی بچە بۆ وێ هەژمارێ. |

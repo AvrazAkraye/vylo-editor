@@ -508,7 +508,7 @@ async function main() {
     ok('the daily cap says it continues tomorrow', Run.waitText({ why: 'daily-cap', until: Date.now() + 3_600_000 }, Date.now(), t).includes('continues tomorrow'));
     eq('every state is named', new Set(['draft', 'ready', 'running', 'paused', 'done', 'stopped', 'halted'].map((s) => Run.stateText(s, t))).size, 7);
     eq('every standing is named', new Set(['queued', 'sending', 'sent', 'failed', 'unknown', 'skipped-not-on-whatsapp', 'skipped-opted-out', 'skipped-invalid', 'skipped-duplicate'].map((s) => Run.standingText(s, t))).size, 9);
-    eq('every refusal is a sentence', new Set(['busy', 'no-consent', 'problems', 'storage', 'no-account'].map((r) => Run.refusalText(r, t))).size, 5);
+    eq('every refusal is a sentence', new Set(['busy', 'no-consent', 'problems', 'storage', 'no-account', 'other-account'].map((r) => Run.refusalText(r, t))).size, 6);
     eq('the test number is remembered only when it is one', [Run.readMe('9647501234567'), Run.readMe('+964 750'), Run.readMe(null), Run.readMe('<script>')], ['9647501234567', '', '', '']);
   }
 
@@ -524,7 +524,7 @@ async function main() {
     const before = runs();
     eq('no account: refused', await Run.launch(base, null, 0), 'no-account');
     eq('an account that is not set up: refused', await Run.launch(base, { ...acct, key: '' }, 0), 'no-account');
-    eq('another account than the campaign\'s: refused', await Run.launch(base, { ...acct, id: 'other' }, 0), 'no-account');
+    eq('another account than the campaign\'s: refused, as such', await Run.launch(base, { ...acct, id: 'other' }, 0), 'other-account');
     eq('no consent: refused', await Run.launch({ ...base, consent: false }, acct, 0), 'no-consent');
     eq('consent that is not exactly true: refused', await Run.launch({ ...base, consent: 'yes' }, acct, 0), 'no-consent');
     eq('a problem the engine finds: refused', await Run.launch({ ...base, recipients: [] }, acct, 0), 'problems');

@@ -14,10 +14,10 @@ itself, and the only call to `runCampaign` on any screen is `launch` (below). Ga
 | `app/src/WhatsAppReady.tsx` | The ready-message picker (`TemplatesDrawer`: categories, search, cards, fill form with empty blanks marked) and the shared `Drawer` (labelled dialog, focus in, Escape out, focus returned). |
 | `app/src/WhatsAppRun.tsx` | Step 3 (`ReviewStep`), the live run (`RunView`), `ReportView`, `HistoryView`, `DoNotContactView`; the module-level run holder (`launch`, `liveRun`, `watchLive`, `useLive`, `dismissRun`). |
 | `app/src/styles.css` | `/* wa:bulk start */ … /* wa:bulk end */` (classes `wa-bk-*`), placed just before `/* vm:ask start */` — see Deviations. |
-| `app/src/i18n.ts` | 253 sentences under `// wa ui` at the end of `ar`, `ckb`, `kmr`. |
+| `app/src/i18n.ts` | 254 sentences under `// wa ui` at the end of `ar`, `ckb`, `kmr`. |
 | `app/test/wa-ui.test.mjs` | 151 checks: pure helpers, the draft reader (hostile input), `launch` against a fake runner. Exports `buildUi`, which bundles the five screens with React external and the engine modules swapped for fakes. |
-| `app/test/wa-ui-more.test.mjs` | 137 checks: every screen rendered (react-dom/server) in the column and a window, English and Arabic; source rules (Send is the only way to `runCampaign`, consent never stored, no key/address drawn, masking); the CSS block (logical, every class defined and used, 44 px, both dark blocks); the catalogue. |
-| `docs/wa/review-needed.md` | The 253 Sorani/Badini strings for a native reader, least-sure starred. |
+| `app/test/wa-ui-more.test.mjs` | 140 checks: every screen rendered (react-dom/server) in the column and a window, English and Arabic; source rules (Send is the only way to `runCampaign`, consent never stored, no key/address drawn, masking); the CSS block (logical, every class defined and used, 44 px, both dark blocks); the catalogue. |
+| `docs/wa/review-needed.md` | The 254 Sorani/Badini strings for a native reader, least-sure starred. |
 | `docs/wa/requests/ui.md` | Changes outside this package for the integrator. |
 
 Pictures: `/Volumes/ExtremeSSD/apps/vylo-wa-samples/ui/` — `sheet-column-*.png` (248 px) and `sheet-window-*.png`
@@ -82,7 +82,7 @@ Review & send — `newCampaign` (built every render with the draft's stable `id`
 - `over-daily-cap` is treated as blocking (the engine brief: `sentToday ≥ dailyCap` blocks starting now).
 
 Run — `runCampaign(c, realDeps(account))` **only in `launch`**, which refuses while another run is live, without a ready
-account that is the campaign's own, unless `c.consent === true`, when `validateCampaign` finds anything, and when
+account, when the campaign belongs to another account ("Switch to that account first"), unless `c.consent === true`, when `validateCampaign` finds anything, and when
 `saveCampaign` returns false (persistence before any send). `launch` is called from Send and from Continue (a campaign
 the person started with Send that halted, or that the app's quit interrupted). The runner is held at module level, so
 closing the panel does not stop it; reopening shows the run (finished-but-not-dismissed runs too, so a halt reason is
@@ -125,7 +125,8 @@ normalised), `removeSuppressed`.
 2. **CSS position**: the `wa:bulk` block is before `/* vm:ask start */`, not at the end, because `vm-ask.test.mjs`
    allows only `vm:*` blocks after its own (request 1 in `docs/wa/requests/ui.md`).
 3. Review & send lives in `WhatsAppRun.tsx` with the run, report, history and the do-not-contact list.
-4. Continue (after a halt or an interruption) is the second caller of `launch` — same gate as Send.
+4. Continue (after a halt or an interruption) is the second caller of `launch` — same gate as Send, and it hands `launch`
+   the stored campaign untouched: no screen ever writes `consent: true`; consent reaches a campaign only from the tick.
 5. The do-not-contact manager also lets a number be added by hand (someone may ask by phone).
 
 ## Open problems

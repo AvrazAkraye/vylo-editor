@@ -95,7 +95,7 @@ export function applyEvent(l: Live, e: RunEvent): Live {
 }
 
 /** Why `launch` refused, as a word the review turns into a sentence. */
-export type LaunchRefusal = 'busy' | 'no-consent' | 'problems' | 'storage' | 'no-account';
+export type LaunchRefusal = 'busy' | 'no-consent' | 'problems' | 'storage' | 'no-account' | 'other-account';
 
 /**
  * Start (or continue) a campaign: the only call to `runCampaign` on any screen.
@@ -106,7 +106,9 @@ export type LaunchRefusal = 'busy' | 'no-consent' | 'problems' | 'storage' | 'no
  */
 export async function launch(c: Campaign, account: Account | null, sentToday: number): Promise<LaunchRefusal | null> {
   if (live && !live.over) return 'busy';
-  if (!account || !connReady(account) || account.id !== c.accountId) return 'no-account';
+  if (!account || !connReady(account)) return 'no-account';
+  // A staged draft or an interrupted run of another number is never sent from the one on screen.
+  if (account.id !== c.accountId) return 'other-account';
   if (c.consent !== true) return 'no-consent';
   if (validateCampaign(c, { sentToday }).length) return 'problems';
   const now = Date.now();
@@ -288,6 +290,7 @@ export function refusalText(r: LaunchRefusal, t: (s: string) => string): string 
   if (r === 'busy') return t('Another broadcast is sending now. Wait for it to finish.');
   if (r === 'no-consent') return t('Tick the box to confirm everyone agreed to hear from you.');
   if (r === 'no-account') return t('Connect a WhatsApp account first.');
+  if (r === 'other-account') return t('This broadcast belongs to another WhatsApp account. Switch to that account first.');
   if (r === 'storage') return t('The broadcast could not be saved on this computer, so nothing was sent.');
   return t('Something on this card needs fixing first.');
 }

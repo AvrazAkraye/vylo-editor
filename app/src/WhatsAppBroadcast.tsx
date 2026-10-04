@@ -8,7 +8,7 @@ import { countryForLang } from './whatsappaudience';
 import { clampPace, newCampaign } from './whatsappcampaign';
 import { recover } from './whatsappsend';
 import {
-  addSuppressed, deleteCampaign, loadAudiences, loadCampaigns, loadSuppressed, removeSuppressed, saveAudience, saveCampaign, sentToday,
+  addSuppressed, deleteAudience, deleteCampaign, loadAudiences, loadCampaigns, loadSuppressed, removeSuppressed, saveAudience, saveCampaign, sentToday,
 } from './whatsappbulkstore';
 import {
   DEFAULT_PACE, LIMITS, MESSAGE_LANGS, PACE_BOUNDS, type Attachment, type Campaign, type Pace,
@@ -226,7 +226,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
       setSuppressed(sup);
       const lists = await loadAudiences().catch(() => []);
       const work0 = lists.find((a) => a.id === WORK_AUDIENCE_ID);
-      if (live && work0) setPeopleState((p) => p ?? peopleFromAudience(work0, sup));
+      if (live && work0 && work0.recipients.length > 0) setPeopleState((p) => p ?? peopleFromAudience(work0, sup));
       const all = await loadCampaigns().catch(() => [] as Campaign[]);
       if (!live) return;
       setCampaigns(all);
@@ -257,10 +257,12 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
   useEffect(() => {
     if (!peopleDirty.current) return;
     const id = setTimeout(() => {
+      // No people (Start over, a list cleared): the working list goes, rather than coming back as "0 people".
+      if (!people || people.recipients.length === 0) { void deleteAudience(WORK_AUDIENCE_ID).catch(() => undefined); return; }
       const now = Date.now();
       void saveAudience({
-        id: WORK_AUDIENCE_ID, name: WORK_AUDIENCE_ID, recipients: people?.recipients.slice(0, LIMITS.recipients) ?? [],
-        source: people?.source ?? 'text', file: people?.file, created: now, updated: now,
+        id: WORK_AUDIENCE_ID, name: WORK_AUDIENCE_ID, recipients: people.recipients.slice(0, LIMITS.recipients),
+        source: people.source, file: people.file, created: now, updated: now,
       }).catch(() => false);
     }, 400);
     return () => clearTimeout(id);
@@ -334,7 +336,8 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
 
   async function cont(c: Campaign) {
     setRunWhy('');
-    const why = await launch({ ...c, consent: true }, account, today);
+    // The campaign as stored: it was started with Send, so its consent is the person's own tick, never set here.
+    const why = await launch(c, account, today);
     if (why) { setRunWhy(refusalText(why, t)); return; }
     setHeld(null);
   }

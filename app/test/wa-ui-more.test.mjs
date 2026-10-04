@@ -245,7 +245,10 @@ console.log('Nothing sends without Send');
   ok('nowhere else', FILES.filter((f) => f !== 'WhatsAppBroadcast').every((f) => count(SRC[f], /(?<!function )\blaunch\(/g) === 0));
   ok('Send on the card is the one that calls onSend', /onClick=\{\(\) => void send\(\)\}/.test(SRC.WhatsAppRun) && /const why = await onSend\(\);/.test(SRC.WhatsAppRun));
   ok('sendTest is the only other wire, to the person\'s own number', count(ALL, /\bsendTest\(/g) === 1);
-  ok('Continue re-asserts the consent the campaign was started with, through the same gate', /launch\(\{ \.\.\.c, consent: true \}, account, today\)/.test(SRC.WhatsAppBroadcast));
+  ok('Continue hands launch the stored campaign, its consent untouched', /const why = await launch\(c, account, today\);/.test(SRC.WhatsAppBroadcast));
+  eq('no screen ever writes consent: true', count(ALL, /consent:\s*true/g), 0);
+  ok('consent reaches the campaign only from the tick', /\}\),\n\s*consent,\n\s*\}\), \[work, people, account, consent, t\]\);/.test(SRC.WhatsAppBroadcast) && /onConsent=\{setConsent\}/.test(SRC.WhatsAppBroadcast));
+  ok('Start over does not leave an empty working list to come back as "0 people"', /if \(!people \|\| people\.recipients\.length === 0\) \{ void deleteAudience\(WORK_AUDIENCE_ID\)/.test(SRC.WhatsAppBroadcast) && /work0 && work0\.recipients\.length > 0/.test(SRC.WhatsAppBroadcast));
 }
 
 console.log('What is kept, what is drawn');
