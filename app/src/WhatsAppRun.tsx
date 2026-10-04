@@ -526,12 +526,14 @@ export interface RunProps {
   run: Live | null;
   /** The app quit or crashed while this was sending. */
   interrupted: boolean;
+  /** It sends from another of the person's accounts than the one Broadcast is showing (the header names that one). */
+  elsewhere?: boolean;
   onContinue: () => void;
   onReport: () => void;
   onDone: () => void;
 }
 
-export function RunView({ t, campaign, run, interrupted, onContinue, onReport, onDone }: RunProps) {
+export function RunView({ t, campaign, run, interrupted, elsewhere, onContinue, onReport, onDone }: RunProps) {
   const [now, setNow] = useState(() => Date.now());
   const [stopping, setStopping] = useState(false);
   const c = run ? run.campaign : campaign;
@@ -583,6 +585,7 @@ export function RunView({ t, campaign, run, interrupted, onContinue, onReport, o
       {c.notes?.includes('number-check-unavailable') && (
         <p className="wa-bk-warn">{t('WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.')}</p>
       )}
+      {elsewhere && <p className="wa-bk-warn">{t('This broadcast sends from another of your WhatsApp accounts, not the one named above.')}</p>}
       {!going && c.state === 'halted' && <p className="wa-why" role="alert">{haltText(c.halted ?? '', t)}</p>}
       {run?.crash && <p className="wa-why" role="alert">{fill(t('Sending stopped because of an error: {why}'), { why: run.crash })}</p>}
       {counts.unknown > 0 && (
@@ -607,8 +610,10 @@ export function RunView({ t, campaign, run, interrupted, onContinue, onReport, o
             <Icon name="stop" size={13} />{stopping ? t('Press again to stop for good') : t('Stop')}
           </button>
         )}
+        {/* A halt's reason says to fix something first ("do not continue until it is linked again"); a blue Continue
+            under it said the opposite. After a quit nothing is wrong, and Continue is the thing to do. */}
         {!going && !ended && left > 0 && (
-          <button type="button" className="sb-cta-go wa-bk-go" onClick={onContinue}>
+          <button type="button" className={c.state === 'halted' ? 'wa-bk-btn' : 'sb-cta-go wa-bk-go'} onClick={onContinue}>
             <Icon name="play" size={13} />{fill(t('Continue with the {n} left'), { n: num(left) })}
           </button>
         )}
@@ -743,7 +748,7 @@ export function ReportView({ t, lang, campaign, msgs, onAddSuppressed, onDuplica
             <div className="wa-bk-tr" role="row" key={r.phone}>
               {/* The report is the person's own record of who got what: numbers whole, here only. */}
               <span role="cell"><bdi dir="ltr" className="wa-bk-phone">+{r.phone}</bdi></span>
-              <span role="cell" dir="auto">{r.name || '—'}</span>
+              <span role="cell" className="wa-bk-cellname"><bdi dir="auto">{r.name || '—'}</bdi></span>
               <span role="cell" className={standingClass(o?.standing ?? 'queued')} title={o?.why ?? ''}>
                 {standingText(o?.standing ?? 'queued', t)}
               </span>
@@ -817,6 +822,25 @@ export function HistoryView({ t, lang, campaigns, onOpen, onDuplicate, onDelete,
 
 // ── the do-not-contact list ──────────────────────────────────────────────
 
+/** How many numbers of the do-not-contact list are drawn at once; the rest are found by searching. */
+export const DNC_SHOWN = 500;
+
+/**
+ * The numbers on the do-not-contact list that match what was typed, however it was typed: `0750 123 4567`, `+964 750…`,
+ * Arabic or Persian digits, or the last few digits. The list holds numbers with their country code and no leading
+ * zero, so a whole typed number loses its leading zeros. Nothing typed is everyone; letters alone match nobody.
+ */
+export function dncMatches(list: readonly string[], typed: string): string[] {
+  if (!typed.trim()) return [...list];
+  const digits = typed.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x660))
+    .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x6f0))
+    .replace(/\D/g, '');
+  if (!digits) return [];
+  // A whole number written the local way (0750…, 00964…) loses its leading zeros; a few last digits keep theirs.
+  const want = digits.length >= 7 ? digits.replace(/^0+/, '') : digits;
+  return list.filter((p) => p.includes(want));
+}
+
 export interface DoNotContactProps {
   t: (s: string) => string;
   list: readonly string[] | null;
@@ -828,7 +852,10 @@ export interface DoNotContactProps {
 export function DoNotContactView({ t, list, country, onAdd, onRemove }: DoNotContactProps) {
   const [typed, setTyped] = useState('');
   const [bad, setBad] = useState('');
+  const [find, setFind] = useState('');
   const ids = useId();
+  // Twenty thousand numbers are allowed; five hundred are drawn. The rest are a search away, and the screen says so.
+  const shown = useMemo(() => (list ? dncMatches(list, find) : null), [list, find]);
   async function add() {
     const n = normalisePhone(typed, country);
     if (!('phone' in n)) { setBad(t('That phone number could not be read.')); return; }
@@ -848,12 +875,15 @@ export function DoNotContactView({ t, list, country, onAdd, onRemove }: DoNotCon
         </button>
       </div>
       {bad && <p className="wa-why" role="alert">{bad}</p>}
-      {list === null ? <p className="wa-bk-empty">{t('Loading…')}</p>
+      {list === null || shown === null ? <p className="wa-bk-empty">{t('Loading…')}</p>
         : list.length === 0 ? <p className="wa-bk-empty">{t('Nobody is on the list.')}</p> : (
           <>
             <p className="wa-bk-line">{fill(list.length === 1 ? t('{n} person') : t('{n} people'), { n: num(list.length) })}</p>
+            <input className="wa-bk-input" type="search" dir="ltr" inputMode="tel" value={find} placeholder={t('Find a number')} aria-label={t('Find a number')}
+                   onChange={(e) => setFind(e.target.value)} />
+            {shown.length === 0 && <p className="wa-bk-empty">{t('Nobody here.')}</p>}
             <ul className="wa-bk-rows">
-              {list.slice(0, 500).map((p) => (
+              {shown.slice(0, DNC_SHOWN).map((p) => (
                 <li key={p} className="wa-bk-rowline">
                   <Masked phone={p} />
                   <button type="button" className="wa-bk-icon" onClick={() => void onRemove(p)}
@@ -863,6 +893,9 @@ export function DoNotContactView({ t, list, country, onAdd, onRemove }: DoNotCon
                 </li>
               ))}
             </ul>
+            {shown.length > DNC_SHOWN && (
+              <p className="wa-bk-quiet">{fill(t('The first {n} are shown. Search to find a number.'), { n: num(DNC_SHOWN) })}</p>
+            )}
           </>
         )}
     </section>

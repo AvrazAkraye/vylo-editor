@@ -3643,6 +3643,10 @@ const ar: Dict = {
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'هذه الرسالة الجماعية تخص حساب واتساب آخر. انتقل إلى ذلك الحساب أولاً.',
   // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
   'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'لم يكن فحص الأرقام الموجودة على واتساب متاحاً، لذا قد تفشل الرسالة إلى من ليس عليه.',
+  // wa review-ui: what the interface review added or reworded (docs/wa/review-ui.md).
+  'This broadcast sends from another of your WhatsApp accounts, not the one named above.': 'هذه الرسالة الجماعية تُرسل من حساب واتساب آخر من حساباتك، لا من الحساب المذكور في الأعلى.',
+  'Find a number': 'ابحث عن رقم',
+  'The first {n} are shown. Search to find a number.': 'يظهر أول {n} فقط. ابحث لتجد رقماً بعينه.',
 };
 
 const ckb: Dict = {
@@ -7265,6 +7269,10 @@ const ckb: Dict = {
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'ئەم ناردنە گشتییە هی هەژمارێکی تری واتسئاپە. سەرەتا بڕۆ بۆ ئەو هەژمارە.',
   // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
   'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'پشکنینی ئەوەی کام ژمارەکان لە واتسئاپن بەردەست نەبوو، بۆیە ڕەنگە نامە بۆ کەسێک بنێردرێت کە لەسەری نییە شکست بهێنێت.',
+  // wa review-ui: what the interface review added or reworded (docs/wa/review-ui.md).
+  'This broadcast sends from another of your WhatsApp accounts, not the one named above.': 'ئەم ناردنە گشتییە لە هەژمارێکی تری واتسئاپی تۆوە دەنێردرێت، نەک ئەو هەژمارەی لە سەرەوە ناوی هاتووە.',
+  'Find a number': 'ژمارەیەک بدۆزەرەوە',
+  'The first {n} are shown. Search to find a number.': 'تەنها یەکەم {n} پیشان دەدرێن. بگەڕێ بۆ ئەوەی ژمارەیەک بدۆزیتەوە.',
 };
 
 const kmr: Dict = {
@@ -10885,6 +10893,10 @@ const kmr: Dict = {
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'ئەڤ ناردنا گشتی یا هەژمارەکا دی یا واتسئاپێ یە. پێشی بچە بۆ وێ هەژمارێ.',
   // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
   'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'پشکنینا کیژ ژمارە ل واتسئاپێ نە نەبوو د دەستێ دا، لەوما دبیت نامە بۆ وی کەسی یێ ل سەر نینە سەرنەکەڤیت.',
+  // wa review-ui: what the interface review added or reworded (docs/wa/review-ui.md).
+  'This broadcast sends from another of your WhatsApp accounts, not the one named above.': 'ئەڤ ناردنا گشتی ژ هەژمارەکا دی یا واتسئاپا تە دهێتە هنارتن، نە ژ وێ هەژمارا ل سەری ناڤێ وێ هاتی.',
+  'Find a number': 'ل ژمارەکێ بگەڕە',
+  'The first {n} are shown. Search to find a number.': 'بتنێ {n} یێن ئێکێ دهێنە نیشاندان. بگەڕە دا ژمارەکێ ببینی.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

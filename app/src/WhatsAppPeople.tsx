@@ -541,7 +541,7 @@ export function AudienceStep({ t, lang, people, onPeople, country, onCountry, ch
               {sample.map((r) => (
                 <div className="wa-bk-tr" role="row" key={r.phone}>
                   <span role="cell"><Masked phone={r.phone} /></span>
-                  <span role="cell" dir="auto">{r.name || '—'}</span>
+                  <span role="cell" className="wa-bk-cellname"><bdi dir="auto">{r.name || '—'}</bdi></span>
                   {shownCols.map((c) => <span role="cell" key={c} dir="auto">{r.vars[c] || '—'}</span>)}
                 </div>
               ))}

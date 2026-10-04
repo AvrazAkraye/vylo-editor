@@ -9850,6 +9850,10 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 }
 .wa-bk-tr:first-child{ border-block-start:0; }
 .wa-bk-tr > span{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+/* A name keeps its own direction but not its own edge: the box shrinks to the name and sits at the cell's start, so a
+   list of Latin and Arabic-script names lines up on the panel's edge, and a long name ends in an ellipsis on its side. */
+.wa-bk-tr > .wa-bk-cellname{ display:flex; }
+.wa-bk-cellname bdi{ min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .wa-bk-th{ background:var(--panel-2); color:var(--mute); font-size:var(--fs-1); font-weight:600; letter-spacing:.05em; text-transform:uppercase; }
 .wa-bk-table > .wa-bk-quiet{ padding:var(--sp-3) var(--sp-4); border-block-start:1px solid var(--rule); }
 .wa-bk-save{ display:flex; flex-wrap:wrap; gap:var(--sp-3); }

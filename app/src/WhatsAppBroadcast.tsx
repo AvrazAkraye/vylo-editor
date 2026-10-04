@@ -576,6 +576,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
     main = (
       <>
         <RunView t={t} campaign={shownCampaign} run={run} interrupted={!run && !!held?.interrupted}
+                 elsewhere={!!account && shownCampaign.accountId !== account.id}
                  onContinue={() => void cont(shownCampaign)} onReport={() => openReport(shownCampaign)}
                  onDone={() => { dismissRun(); setHeld(null); startOver(); }} />
         {runWhy && <p className="wa-why" role="alert">{runWhy}</p>}

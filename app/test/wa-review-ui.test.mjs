@@ -48,6 +48,14 @@ const review = (c, extra = {}) => draw(h(Run.ReviewStep, {
 }));
 const sendDisabled = (html) => /<button type="button" class="sb-cta-go wa-bk-go wa-bk-send" disabled=""/.test(html);
 const broadcast = src('WhatsAppBroadcast.tsx');
+const css = readFileSync(join(APP, 'src/styles.css'), 'utf8').replace(/\r\n/g, '\n');
+const bulk = css.slice(css.indexOf('/* wa:bulk start */'), css.indexOf('/* wa:bulk end */')).replace(/\/\*[\s\S]*?\*\//g, '');
+/** The body of the rule whose selector list is exactly `sel`, in the bulk block. */
+const ruleOf = (sel) => {
+  for (const m of bulk.matchAll(/([^{}]+)\{([^{}]*)\}/g)) if (m[1].trim() === sel) return m[2];
+  return null;
+};
+const propOf = (body, prop) => (new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*([^;}]+)`).exec(body ?? '') ?? [])[1]?.trim() ?? null;
 const runSrc = src('WhatsAppRun.tsx');
 
 // ── 1. A tick and a typed count are for one list ────────────────────────────
@@ -149,15 +157,66 @@ console.log('The chips and the blanks come from what each person carries');
   ok('a column people carry is not', !notes.block.some((s) => s.includes('{city}')));
 }
 
+// Found with 20,000 numbers in WebKit: the do-not-contact list drew the first 500 (in 331 ms) under "20,001 people",
+// with no way to find the rest — a number someone asked to have taken off could not be found, and nothing said so.
+console.log('The do-not-contact list at 20,000');
+{
+  const big = Array.from({ length: 20000 }, (_, i) => `9647${String(500000000 + i * 37).padStart(9, '0')}`).sort();
+  const draw20 = (extra = {}) => draw(h(Run.DoNotContactView, { t: en, list: big, country: '964', onAdd: async () => {}, onRemove: async () => {}, ...extra }));
+  const html = draw20();
+  ok('it can be searched', /<input[^>]*type="search"[^>]*aria-label="Find a number"/.test(html), html.slice(0, 600));
+  ok('it says that only some are shown, and how to find the rest', html.includes('The first 500 are shown. Search to find a number.'));
+  ok('and draws no more than that', (html.match(/class="wa-bk-rowline"/g) ?? []).length === 500);
+  eq('a search finds a number however it is typed: with a 0, spaces, Arabic digits', [
+    Run.dncMatches(big, '0750 000 0037').length, Run.dncMatches(big, '+964 750000037').length, Run.dncMatches(big, '٠٧٥٠٠٠٠٠٠٣٧').length,
+  ], [1, 1, 1]);
+  ok('the last four digits find the people they end with', Run.dncMatches(big, '0037').every((p) => p.includes('0037')) && Run.dncMatches(big, '0037').length >= 1);
+  eq('nothing typed is everyone', Run.dncMatches(big, '').length, 20000);
+  eq('letters alone find nobody rather than everyone', Run.dncMatches(big, 'abc').length, 0);
+  const small = draw(h(Run.DoNotContactView, { t: en, list: big.slice(0, 3), country: '964', onAdd: async () => {}, onRemove: async () => {} }));
+  ok('a short list does not say "the first 500"', !small.includes('The first 500'));
+}
+
+// Found: a run that stopped itself because WhatsApp blocked or logged out the number said "Do not continue until it
+// is linked again" — with Continue drawn as the one blue button under it. The same for a refused key, a lost link and
+// "wait an hour". A halt's Continue is an ordinary button; after a quit (nothing wrong) it stays the primary.
+console.log('A halt does not invite Continue');
+{
+  const left = campaign({ state: 'halted', halted: 'account', consent: true });
+  const html = draw(h(Run.RunView, { t: en, campaign: left, run: null, interrupted: false, onContinue() {}, onReport() {}, onDone() {} }));
+  ok('the reason is said', html.includes('Do not continue until it is linked again'));
+  ok('and Continue is there, but not as the primary button', /<button type="button" class="wa-bk-btn"><svg[^]*?Continue with the 10 left/.test(html) && !/sb-cta-go[^>]*><svg[^]*?Continue with/.test(html), html.slice(html.indexOf('wa-bk-runacts'), html.indexOf('wa-bk-runacts') + 400));
+  const quit = draw(h(Run.RunView, { t: en, campaign: { ...left, state: 'paused', halted: undefined }, run: null, interrupted: true, onContinue() {}, onReport() {}, onDone() {} }));
+  ok('after the app was closed mid-run, Continue is the primary', /sb-cta-go wa-bk-go"><svg[^]*?Continue with the 10 left/.test(quit));
+}
+
+// Found by reasoning, then shown in WebKit: close Broadcast mid-run, pick another account in the panel, open Broadcast
+// again — the run is shown under the new account's name in the header, with nothing saying it sends from the first.
+console.log('A run from another account says so');
+{
+  const c = campaign({ state: 'running', consent: true, accountId: 'shop-a' });
+  const html = draw(h(Run.RunView, { t: en, campaign: c, run: null, interrupted: false, elsewhere: true, onContinue() {}, onReport() {}, onDone() {} }));
+  ok('the run says it is from another account', html.includes('This broadcast sends from another of your WhatsApp accounts, not the one named above.'));
+  const same = draw(h(Run.RunView, { t: en, campaign: c, run: null, interrupted: false, onContinue() {}, onReport() {}, onDone() {} }));
+  ok('and says nothing when it is the one shown', !same.includes('another of your WhatsApp accounts'));
+  ok('the shell tells it which', /elsewhere=\{!!account && shownCampaign\.accountId !== account\.id\}/.test(broadcast));
+}
+
+// Found in Arabic and Sorani: a name cell with dir="auto" took its own direction for its alignment too, so in a list
+// of Latin and Arabic-script names (which is every list here) half the names hugged one edge and half the other.
+console.log('Names in the tables line up on the panel\'s edge');
+{
+  const rpt = draw(h(Run.ReportView, { t: en, lang: 'en', campaign: campaign({ recipients: [R('9647501234567', 'هێمن عومەر'), R('9647501234568', 'Rebaz')], state: 'done' }),
+    onAddSuppressed: async () => {}, onDuplicate() {}, onDoNotContact() {} }));
+  ok('the report: each name is isolated in a box that shrinks to it', (rpt.match(/<span role="cell" class="wa-bk-cellname"><bdi dir="auto">/g) ?? []).length === 2, rpt.slice(rpt.indexOf('role="row"'), rpt.indexOf('role="row"') + 500));
+  const ppl = { recipients: [R('9647501234567', 'هێمن عومەر'), R('9647501234568', 'Rebaz')], source: 'text', rejected: [], duplicates: 0, removed: 0, columns: [], phoneColumn: null, nameColumn: null };
+  const step = draw(h(P.AudienceStep, { t: en, lang: 'en', people: ppl, onPeople() {}, country: '964', onCountry() {}, suppressed: new Set() }));
+  ok('the first people: the same', (step.match(/<span role="cell" class="wa-bk-cellname"><bdi dir="auto">/g) ?? []).length === 2);
+  ok('the box sits at the cell\'s start and the name ends in an ellipsis on its own side',
+    /display\s*:\s*flex/.test(ruleOf('.wa-bk-tr > .wa-bk-cellname')) && /text-overflow\s*:\s*ellipsis/.test(ruleOf('.wa-bk-cellname bdi')));
+}
+
 // ── 4. The stylesheet, as WebKit drew it ───────────────────────────────────
-const css = readFileSync(join(APP, 'src/styles.css'), 'utf8').replace(/\r\n/g, '\n');
-const bulk = css.slice(css.indexOf('/* wa:bulk start */'), css.indexOf('/* wa:bulk end */')).replace(/\/\*[\s\S]*?\*\//g, '');
-/** The body of the rule whose selector list is exactly `sel`, in the bulk block. */
-const ruleOf = (sel) => {
-  for (const m of bulk.matchAll(/([^{}]+)\{([^{}]*)\}/g)) if (m[1].trim() === sel) return m[2];
-  return null;
-};
-const propOf = (body, prop) => (new RegExp(`(?:^|[;\\s])${prop}\\s*:\\s*([^;}]+)`).exec(body ?? '') ?? [])[1]?.trim() ?? null;
 console.log('The stylesheet, as WebKit drew it');
 {
   // Found at 248 x 760: on a short step (People, empty) the Back/Next bar sat under the last field, half way up the
