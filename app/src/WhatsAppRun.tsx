@@ -559,6 +559,9 @@ export function RunView({ t, campaign, run, interrupted, onContinue, onReport, o
       {interrupted && !going && (
         <p className="wa-bk-warn">{t('Paused: the app closed while it was sending. Nothing is sent twice when you continue.')}</p>
       )}
+      {c.notes?.includes('number-check-unavailable') && (
+        <p className="wa-bk-warn">{t('WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.')}</p>
+      )}
       {!going && c.state === 'halted' && <p className="wa-why" role="alert">{haltText(c.halted ?? '', t)}</p>}
       {run?.crash && <p className="wa-why" role="alert">{fill(t('Sending stopped because of an error: {why}'), { why: run.crash })}</p>}
       {counts.unknown > 0 && (

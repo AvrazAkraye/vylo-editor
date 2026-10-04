@@ -3641,6 +3641,8 @@ const ar: Dict = {
   'Take off the list': 'أزل من القائمة',
   'Take {phone} off the list': 'أزل {phone} من القائمة',
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'هذه الرسالة الجماعية تخص حساب واتساب آخر. انتقل إلى ذلك الحساب أولاً.',
+  // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
+  'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'لم يكن فحص الأرقام الموجودة على واتساب متاحاً، لذا قد تفشل الرسالة إلى من ليس عليه.',
 };
 
 const ckb: Dict = {
@@ -7261,6 +7263,8 @@ const ckb: Dict = {
   'Take off the list': 'لە لیستەکە لابە',
   'Take {phone} off the list': '{phone} لە لیستەکە لابە',
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'ئەم ناردنە گشتییە هی هەژمارێکی تری واتسئاپە. سەرەتا بڕۆ بۆ ئەو هەژمارە.',
+  // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
+  'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'پشکنینی ئەوەی کام ژمارەکان لە واتسئاپن بەردەست نەبوو، بۆیە ڕەنگە نامە بۆ کەسێک بنێردرێت کە لەسەری نییە شکست بهێنێت.',
 };
 
 const kmr: Dict = {
@@ -10879,6 +10883,8 @@ const kmr: Dict = {
   'Take off the list': 'ژ لیستێ لابە',
   'Take {phone} off the list': '{phone} ژ لیستێ لابە',
   'This broadcast belongs to another WhatsApp account. Switch to that account first.': 'ئەڤ ناردنا گشتی یا هەژمارەکا دی یا واتسئاپێ یە. پێشی بچە بۆ وێ هەژمارێ.',
+  // wa integrator: the Run view's note when the number check was unavailable (WhatsAppRun.tsx).
+  'WhatsApp’s check of which numbers are on WhatsApp was not available, so a message to someone who is not on it may fail.': 'پشکنینا کیژ ژمارە ل واتسئاپێ نە نەبوو د دەستێ دا، لەوما دبیت نامە بۆ وی کەسی یێ ل سەر نینە سەرنەکەڤیت.',
 };
 
 const TABLES: Record<Lang, Dict> = { en: {}, ar, ckb, kmr };

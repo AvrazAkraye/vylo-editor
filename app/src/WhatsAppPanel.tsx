@@ -2199,7 +2199,7 @@ export function WhatsAppPanel({ t, lang, onSendToChat, onProviders, gw, efforts 
     return (
       <div className={full ? 'wa-full' : undefined}>
         <WhatsAppBroadcast t={t} lang={lang ?? 'en'} account={current} full={full} gw={gw} efforts={efforts}
-                           onProviders={onProviders} onClose={() => setBulk(false)} />
+                           chats={chats} msgs={msgs} onProviders={onProviders} onClose={() => setBulk(false)} />
       </div>
     );
   }

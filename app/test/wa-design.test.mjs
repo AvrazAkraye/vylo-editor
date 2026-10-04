@@ -263,7 +263,7 @@ console.log('Behaviour');
       name: 'tauri-stub',
       setup(b) {
         b.onResolve({ filter: /^@tauri-apps\// }, (a) => ({ path: a.path, namespace: 'stub' }));
-        b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: 'export const open = async () => null; export const invoke = async () => null;', loader: 'js' }));
+        b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: 'export const open = async () => null; export const save = async () => null; export const invoke = async () => null;', loader: 'js' }));
       },
     }],
   });

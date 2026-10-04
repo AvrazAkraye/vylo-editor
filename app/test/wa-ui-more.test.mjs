@@ -207,6 +207,8 @@ console.log('The run');
   ok('and offers to continue with those left', halted.includes('Continue with the 13 left') && halted.includes('See the report'));
   const stuck = draw(h(Run.RunView, { t: en, campaign: { ...c, state: 'paused' }, run: null, interrupted: true, onContinue() {}, onReport() {}, onDone() {} }));
   ok('interrupted: paused, nothing sent twice, Continue', stuck.includes('Paused: the app closed while it was sending.') && stuck.includes('Continue with the'));
+  const unchecked = draw(h(Run.RunView, { t: en, campaign: { ...c, notes: ['number-check-unavailable'] }, run: null, interrupted: false, onContinue() {}, onReport() {}, onDone() {} }));
+  ok('a campaign sent without the number check says so', unchecked.includes('check of which numbers are on WhatsApp was not available') && !html.includes('check of which numbers are on WhatsApp was not available'));
   const done = draw(h(Run.RunView, { t: en, campaign: { ...c, state: 'done' }, run: { ...live, over: true, wait: null, campaign: { ...c, state: 'done' } }, interrupted: false, onContinue() {}, onReport() {}, onDone() {} }));
   ok('finished: the report and a new broadcast, no Continue', done.includes('See the report') && done.includes('New broadcast') && !done.includes('Continue with'));
 }

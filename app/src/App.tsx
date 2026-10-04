@@ -180,6 +180,7 @@ import { ACCOUNTS_KEY as WA_ACCOUNTS_KEY, KEY as WA_KEY, readAccounts as readWaA
 import { callerFor } from './whatsappwire';
 import { accountFor as waAccountFor, isWhatsAppTool as isWaTool, runWhatsAppTool, whatsAppToolsFor } from './whatsapptool';
 import { bulkDepsFor, type FileRead } from './whatsappbulktool';
+import { claimBroadcastDrop } from './WhatsAppPeople';
 import { parse as parseSkills, textFor as skillsTextFor, type Skill } from './skills';
 import { BrowserPanel } from './BrowserPanel';
 import { KEY as BROWSER_KEY, detect as detectUrls, read as readBrowser, recent as recentUrl, write as writeBrowser } from './browser';
@@ -2260,7 +2261,8 @@ export function App() {
         if (!on) termDrop.current?.({ x: -1, y: -1 }, null);
         setDragging(on && !(at && termDrop.current?.(at, null)));
       },
-      claim: (at, paths) => !!termDrop.current?.(at, paths),
+      // A contacts file dropped on the open Broadcast zone is read there, not attached to the chat.
+      claim: (at, paths) => claimBroadcastDrop(at, paths) || !!termDrop.current?.(at, paths),
       onError: (m) => push({ kind: 'error', text: m }),
     }).then((un) => { stop = un; });
     return () => stop?.();
