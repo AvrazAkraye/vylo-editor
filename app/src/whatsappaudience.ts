@@ -372,7 +372,7 @@ const FOREIGN_MIN = 11;
  *   4. A national number without its trunk (`750 123 4567`: what Excel leaves when it drops the zero) gets the country.
  *   5. Bare digits too long to be national here but a valid number of another country with its code in front
  *      (`447911123456` in an Iraqi list) are that number: lists exported from WhatsApp tools are written exactly so.
- *   6. Otherwise the most telling reason: the trunk reading's, else the national reading's.
+ *   6. Otherwise the most telling reason: the trunk reading's, else the country-code reading's, else the national one's.
  */
 function normalise(raw: string, country: string): Norm {
   const t = phoneText(raw);
@@ -391,13 +391,16 @@ function normalise(raw: string, country: string): Norm {
     if (!why) return { phone: home.code + nsn, via: 'trunk' };
     first ??= why;
   }
+  let coded: InvalidWhy | null = null;
   if (digits.startsWith(home.code) && digits.length > home.code.length + 3) {
     let nsn = digits.slice(home.code.length);
     if (nsn.length > 1 && nsn[0] === '0' && home.trunk.includes('0')) nsn = nsn.slice(1);
-    if (!lengthWhy(home, nsn)) return { phone: home.code + nsn, via: 'code' };
+    coded = lengthWhy(home, nsn);
+    if (!coded) return { phone: home.code + nsn, via: 'code' };
   }
   // Where the trunk is 0, no national number starts with 0: a zero-led number that failed above is not a bare one.
   const zeroLed = digits[0] === '0' && home.trunk.includes('0');
+  first ??= coded;
   if (!zeroLed) {
     const why = lengthWhy(home, digits);
     if (!why) return { phone: home.code + digits, via: 'bare' };
@@ -867,10 +870,13 @@ function readTable(all: Row[], o: { phoneColumn?: string; nameColumn?: string },
   const rows = all.filter((r) => !blankRow(r));
   if (!rows.length) return null;
 
-  // The header: the first of the first ten rows that names a column we know (rows above it are a title); else a
-  // first row with no number in it when the rows under it have numbers.
-  // A row holding a number is data, whatever words are beside it ("Name 1, 0750…").
-  let headerAt = rows.slice(0, 10).findIndex((r) => r.cells.some((c) => kindOf(c.trim()) !== null) && !r.cells.some((c) => validIn(c, country)));
+  // The header: the first of the first ten rows that names a phone column (rows above it are a title, and a title
+  // such as "Customer list" may hold a header word of its own); else the first that names any column we know; else a
+  // first row with no number in it when the rows under it have numbers. A row holding a number is data, whatever words
+  // are beside it ("Name 1, 0750…").
+  const top = rows.slice(0, 10).map((r) => (r.cells.some((c) => validIn(c, country)) ? [] : r.cells.map((c) => kindOf(c.trim()))));
+  let headerAt = top.findIndex((k) => k.includes('phone'));
+  if (headerAt < 0) headerAt = top.findIndex((k) => k.some((x) => x !== null));
   if (headerAt < 0) {
     const first = rows[0].cells;
     const below = rows.slice(1, 6);
@@ -1139,9 +1145,10 @@ function readFree(text: string, country: string, col: Collector): boolean {
       const n = s.digits > 20 ? ({ why: 'too-long' } as Why) : normalise(raw, country);
       const found: { phone: string; via: Via }[] = [];
       const bad: { text: string; why: InvalidWhy; hint?: 'excel-rounded' }[] = [];
+      // Too long with spaces in it may be several numbers in a row; anything else wrong with it is reported whole.
+      const split = !('phone' in n) && n.why === 'too-long' && /\s/.test(raw) ? splitRun(raw, country) : null;
       if ('phone' in n) found.push(n);
-      else if (/\s/.test(raw) && s.digits > 7) {
-        const split = splitRun(raw, country);
+      else if (split && split.found.length) {
         found.push(...split.found);
         bad.push(...split.failed);
       } else bad.push({ text: raw, why: n.why, hint: n.hint });
