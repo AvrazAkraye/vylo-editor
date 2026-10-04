@@ -216,6 +216,16 @@ export function showTop(
   }
 }
 
+/**
+ * The way back to a broadcast from History or the do-not-contact list, in a window: what is there. It said "Sending"
+ * for a broadcast that had stopped by itself and sent nothing.
+ */
+export function runLabel(going: boolean, held: { c: Campaign } | null, t: (s: string) => string): string {
+  if (going) return t('Sending');
+  if (held) return held.c.state === 'halted' ? t('Stopped by itself') : t('Paused');
+  return t('Broadcast');
+}
+
 /** The attachment, held for the life of the window (see the header). */
 let heldAttachment: Attachment | undefined;
 
@@ -607,7 +617,7 @@ export function WhatsAppBroadcast({ t, lang, account, full, gw, efforts, onProvi
         <nav className="wa-bk-nav" aria-label={t('Steps')}>
           {inSteps ? stepper : (
             <button type="button" className="wa-bk-btn is-quiet" onClick={() => setView(going || held ? 'run' : 'steps')}>
-              <Icon name="chevron" size={12} turn={180} className="ic-dir" />{going || held ? t('Sending') : t('Broadcast')}
+              <Icon name="chevron" size={12} turn={180} className="ic-dir" />{runLabel(going, held, t)}
             </button>
           )}
         </nav>

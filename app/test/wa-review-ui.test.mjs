@@ -216,6 +216,17 @@ console.log('Names in the tables line up on the panel\'s edge');
     /display\s*:\s*flex/.test(ruleOf('.wa-bk-tr > .wa-bk-cellname')) && /text-overflow\s*:\s*ellipsis/.test(ruleOf('.wa-bk-cellname bdi')));
 }
 
+// Found in the window's history and do-not-contact views: the way back to a broadcast that had *stopped by itself*
+// read "Sending" — nothing was sending.
+console.log('The way back names what is there');
+{
+  eq('a run going is Sending', B.runLabel(true, null, en), 'Sending');
+  eq('a run that stopped itself says so', B.runLabel(false, { c: campaign({ state: 'halted' }), interrupted: false }, en), 'Stopped by itself');
+  eq('a paused one, paused', B.runLabel(false, { c: campaign({ state: 'paused' }), interrupted: true }, en), 'Paused');
+  eq('nothing held: back to Broadcast', B.runLabel(false, null, en), 'Broadcast');
+  ok('the window\'s way back uses it', /\{runLabel\(going, held, t\)\}/.test(broadcast));
+}
+
 // ── Words ───────────────────────────────────────────────────────────────────
 console.log('Words a shopkeeper reads');
 {
