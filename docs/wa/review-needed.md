@@ -492,3 +492,37 @@ every `{placeholder}` exactly as it is (a test checks).
 | Take off the list | لە لیستەکە لابە | ژ لیستێ لابە |
 | Take {phone} off the list | {phone} لە لیستەکە لابە | {phone} ژ لیستێ لابە |
 | This broadcast belongs to another WhatsApp account. Switch to that account first. | ئەم ناردنە گشتییە هی هەژمارێکی تری واتسئاپە. سەرەتا بڕۆ بۆ ئەو هەژمارە. | ئەڤ ناردنا گشتی یا هەژمارەکا دی یا واتسئاپێ یە. پێشی بچە بۆ وێ هەژمارێ. |
+
+## review-content — what the adversarial review changed, and the inconsistencies it left for you
+
+The review (`docs/wa/review-content.md`) fixed only what it was sure of. **Please confirm these edits first**, then
+decide the inconsistencies below — each one is the same word spelled two ways in one library, so one of the two
+is wrong wherever it appears. Keep every `{placeholder}` as it is and run `npm test` after a change.
+
+### Changed by the review
+
+| Where | Was | Now | Why |
+|---|---|---|---|
+| `payment-3` kmr | …گوه نەدە ڤێ نامێ و زۆر سوپاس. | …گوه نەدە ڤێ نامێ و گەلەک سوپاس. | زۆر is Sorani "very"; Badini says گەلەک |
+| `sale-1` kmr | …زوی وەرە… | …زوو وەرە… | "early, soon" is زوو everywhere else in the library (ب زوویی) |
+| `SAFETY.kmr.md`, the broadcast paragraph | هەڵمەت، بەڵگەنامە | هەلمەت، بەلگەنامە | ڵ is a Sorani letter; the app's Badini writes بەلگەنامە |
+| `SAFETY.ckb.md`, stop-word sentence | وەڵامێک کە وشەی وەستان بێت خاوەنەکەی دەخاتە لیستی «پەیوەندیم پێوە مەکە»… | لە ڕاپۆرتی هەر هەڵمەتێکدا، بە یەک داگرتن هەموو ئەوانەی بە وشەی وەستان وەڵامیان داوەتەوە دەخرێنە لیستی «پەیوەندیم پێوە مەکە»… | the old sentence said it happens by itself; it happens when the report's button is pressed |
+| `SAFETY.kmr.md`, stop-word sentence | و وەڵامەکا کو پەیڤا ڕاوەستانێ بیت خودانێ وێ دکەتە د لیستا «پەیوەندیێ ب من نەکە» دا… | و د ڕاپۆرتا هەر هەڵمەتەکێ دا، ب ئێک گڤاشتنێ هەمی ئەوێن ب پەیڤا ڕاوەستانێ بەرسڤ دای دچنە د لیستا «پەیوەندیێ ب من نەکە» دا… | the same truth fix; ب ئێک گڤاشتنێ ("with one press") is least sure |
+
+### Spelled two ways in the library (`app/src/whatsapptemplates-a.ts` vs `-b.ts`, Badini)
+
+| Word | One way (where) | The other way (where) |
+|---|---|---|
+| code — and its gender | کۆدا *{code}* (feminine: `code-1`, `code-2`, `code-3`) | کۆدێ تە / ڤی کۆدی (masculine: every `verify`, `cart-3`, `welcome-4`, `referral-2`) |
+| confirm | پشتڕاست (`appointment-2`, with ڕ) | پشتراست (seven times in `-b`, with ر) |
+| buy / customer | کڕین، کڕیار، بکڕە (`sale-1`, `code-2`, `followup-1`, `welcome-1`) | کریار (`loyalty-2` and the `loyalty` category title) |
+| invitation | ڤەخوەندن (the `event` category, `event-1/2`) | ڤەخواندن (`property-2` title) |
+| please | هیڤیە (`appointment-1`, `appointment-2`) | هیڤییە (eight times in `-b`) |
+| message | پەیام (`code-3`, `loyalty-2`, the interface) | نامە (`order-3`, `delivery-*`, `payment-*`, `course-*` …: ڤێ نامێ) |
+| "you are with us" | دگەل مەیی (`welcome-1/2/3`, `referral-1`) | دگەل مە یی (`loyalty-2`) |
+
+### The Badini broadcast paragraph of `SAFETY.kmr.md` reads Sorani in places
+
+وەستانەکا هەڕەمەکی (a random pause), سەرەتا (first), دەقێ نامەیێ, لکاندی (pasted), وەڵام elsewhere in the file — a Badini
+reader would likely write ڕاوەستانەکا ب ڕێکەوت, پێشی, نڤیسینا نامەیێ, پێڤەکری/لکاندی. Outside this part, `SAFETY.kmr.md`
+also has ڵ in پاڵاڤتن (line 110), باڵانسێ (194), پاڵاڤ (906) and پاڵ (987, 1023).
