@@ -9838,6 +9838,8 @@ input[type="password"], input[type="email"], input[type="url"], input.mono, .set
 .wa-bk-sum-more span{ padding-block:1px; padding-inline:var(--sp-3); border-radius:99px; background:var(--panel-3); }
 .wa-bk-tag{ padding-block:1px; padding-inline:var(--sp-3); border-radius:99px; background:var(--brand-wash); color:var(--brand); font-size:var(--fs-2); font-weight:600; }
 .wa-bk-details summary{ font-size:var(--fs-3); color:var(--brand); cursor:pointer; }
+/* 44 px in the column like every other target (it measured 24 in WebKit); padding, not flex, so the marker stays. */
+.wa-bk:not(.is-full) .wa-bk-details summary{ padding-block:calc((44px - 1.5em) / 2); line-height:1.5; }
 .wa-bk-rejects{ list-style:none; margin:0; margin-block-start:var(--sp-3); padding:0; display:flex; flex-direction:column; gap:var(--sp-2); }
 .wa-bk-rejects li{ display:grid; grid-template-columns:auto minmax(0, 1fr); gap:0 var(--sp-3); font-size:var(--fs-2); }
 .wa-bk-rejects li > :last-child{ grid-column:2; }

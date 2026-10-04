@@ -263,6 +263,8 @@ console.log('The stylesheet, as WebKit drew it');
   // icon sits over the label, and a word is broken only if it cannot fit a line at all.
   ok('in the column a way-in tab is a tile, icon over label', /flex-direction\s*:\s*column/.test(ruleOf('.wa-bk:not(.is-full) .wa-bk-tab') ?? ''));
   ok('and its label breaks between words, not inside one', /overflow-wrap\s*:\s*break-word/.test(ruleOf('.wa-bk-tab span') ?? ''));
+  // Found by measuring every button and summary in the column in WebKit: all 44 px but "Lines that couldn't be read" (24).
+  ok('the rejected lines\' summary is a 44 px target in the column', /padding-block\s*:\s*calc\(\(44px - 1\.5em\) \/ 2\)/.test(ruleOf('.wa-bk:not(.is-full) .wa-bk-details summary') ?? '') && /line-height\s*:\s*1\.5/.test(ruleOf('.wa-bk:not(.is-full) .wa-bk-details summary') ?? ''));
   // Found: the header of a broadcast with no account cut its sentence mid-word ("No WhatsApp account is co").
   ok('the no-account line wraps instead of being cut', /white-space\s*:\s*normal/.test(ruleOf('.wa-bk-title small.is-none') ?? ''));
   const head = draw(h(B.WhatsAppBroadcast, { t: en, lang: 'en', account: null, full: false, onProviders() {}, onClose() {} }));
