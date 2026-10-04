@@ -16,7 +16,7 @@ const ok = (name, cond, detail = '') => {
 };
 const src = (f) => readFileSync(new URL(`../src/${f}`, import.meta.url), 'utf8');
 const rs = (f) => readFileSync(new URL(`../src-tauri/src/${f}`, import.meta.url), 'utf8');
-const SLOW = Number(process.env.SLOW ?? 1) || 1;
+const SLOW = process.env.CI ? 4 : 1; // a shared runner is several times slower than the machine that releases; budgets stay strict here
 
 console.log('which commands are servers');
 {
